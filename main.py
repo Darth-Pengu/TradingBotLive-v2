@@ -584,12 +584,16 @@ async def pumpportal_newtoken_feed(callback):
             await asyncio.sleep(wait_time)
 
 async def bitquery_streaming_feed(callback):
-    """Bitquery REST API polling for trending tokens - WebSocket requires paid plan"""
+    """Bitquery REST API polling for trending tokens"""
     if not BITQUERY_API_KEY or BITQUERY_API_KEY == "disabled":
-        logger.warning("Bitquery feed disabled")
+        logger.warning("Bitquery feed disabled - set BITQUERY_API_KEY='disabled' to silence this")
         return
     
-    # Bitquery WebSocket requires enterprise plan, use REST polling instead
+    # Check if user wants to disable Bitquery
+    if BITQUERY_API_KEY.lower() in ["disabled", "none", "false", ""]:
+        logger.info("Bitquery feed intentionally disabled")
+        return
+    
     url = "https://graphql.bitquery.io/"
     
     query = """
@@ -606,7 +610,6 @@ async def bitquery_streaming_feed(callback):
                         }
                         PriceInUSD: {gt: 0.00001}
                     }
-                    Dex: {ProtocolName: {is: "pump"}}
                 }
                 Transaction: {Result: {Success: true}}
             }
@@ -623,18 +626,16 @@ async def bitquery_streaming_feed(callback):
               PriceInUSD
               Amount
             }
-            Dex {
-              ProtocolName
-            }
           }
         }
       }
     }
     """
     
+    # Bitquery requires Bearer token format
     headers = {
         "Content-Type": "application/json",
-        "X-API-KEY": BITQUERY_API_KEY
+        "Authorization": f"Bearer {BITQUERY_API_KEY}"  # Changed from X-API-KEY
     }
     
     seen_tokens = set()
@@ -645,20 +646,26 @@ async def bitquery_streaming_feed(callback):
                 async with get_session() as session:
                     async def _fetch():
                         async with session.post(url, json={"query": query}, headers=headers) as resp:
+                            if resp.status == 401:
+                                logger.error("Bitquery authentication failed. Please check your API key or set BITQUERY_API_KEY='disabled' to skip")
+                                # Disable Bitquery after auth failure
+                                trip_circuit_breaker("bitquery")
+                                return
+                            
                             if resp.status != 200:
                                 text = await resp.text()
                                 raise Exception(f"HTTP {resp.status}: {text}")
                             
                             data = await resp.json()
                             
-                            # Check for API errors
                             if "errors" in data:
-                                raise Exception(f"GraphQL errors: {data['errors']}")
+                                logger.error(f"Bitquery GraphQL errors: {data['errors']}")
+                                return
                             
                             trades = data.get("data", {}).get("Solana", {}).get("DEXTrades", [])
                             
                             if not trades:
-                                logger.warning("Bitquery: No trades returned")
+                                logger.debug("Bitquery: No new trades")
                                 return
                             
                             new_tokens = 0
@@ -668,6 +675,10 @@ async def bitquery_streaming_feed(callback):
                                     seen_tokens.add(mint)
                                     new_tokens += 1
                                     await callback(mint, "bitquery")
+                                    
+                                    # Limit memory usage
+                                    if len(seen_tokens) > 1000:
+                                        seen_tokens.clear()
                             
                             if new_tokens > 0:
                                 logger.info(f"Bitquery: Found {new_tokens} new trending tokens")
