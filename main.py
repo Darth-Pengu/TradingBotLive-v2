@@ -20,8 +20,16 @@ from functools import lru_cache
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 
-# === PARAMETERS TO EDIT ===
-# Speed Demon (Ultra-Early) - Updated per documentation
+# === CONFIGURATION CONSTANTS ===
+MAX_CONCURRENT_REQUESTS = 10
+CIRCUIT_BREAKER_THRESHOLD = 5
+CIRCUIT_BREAKER_TIMEOUT = 300  # 5 minutes
+API_RETRY_COUNT = 3
+API_RETRY_DELAY = 1
+CACHE_TTL = 30  # 30 seconds
+
+# === TRADING PARAMETERS ===
+# Speed Demon (Ultra-Early)
 ULTRA_MIN_LIQ = 5  # Reduced from 8
 ULTRA_BUY_AMOUNT = 0.05  # Reduced from 0.07
 ULTRA_TP_X = 3.0  # Increased from 2.0
@@ -30,7 +38,7 @@ ULTRA_MIN_RISES = 2
 ULTRA_AGE_MAX_S = 300  # Increased from 120 to 5 minutes
 ULTRA_MIN_ML_SCORE = 65  # New parameter
 
-# Analyst (Scalper) - Updated per documentation
+# Analyst (Scalper)
 SCALPER_BUY_AMOUNT = 0.05  # Reduced from 0.10
 SCALPER_MIN_LIQ = 10  # Increased from 8
 SCALPER_TP_LEVELS = [1.5, 2.5, 5.0]  # Multiple TP levels
@@ -39,7 +47,7 @@ SCALPER_TRAIL = 0.15  # Tighter from 0.2
 SCALPER_MAX_POOLAGE = 30 * 60  # 30 minutes
 SCALPER_MIN_ML_SCORE = 70
 
-# Whale Tracker (Community) - Updated per documentation
+# Whale Tracker (Community)
 COMMUNITY_BUY_AMOUNT = 0.05  # Increased from 0.04
 COMM_HOLDER_THRESHOLD = 100  # Reduced from 250
 COMM_MAX_CONC = 0.15  # From 0.10
@@ -49,7 +57,7 @@ COMM_TRAIL = 0.25  # From 0.4
 COMM_HOLD_SECONDS = 3600  # 1 hour minimum
 COMM_MIN_SIGNALS = 2
 
-# Risk Management - Critical for live trading
+# Risk Management
 MAX_WALLET_EXPOSURE = 0.5  # 50% max exposure
 DAILY_LOSS_LIMIT_PERCENT = 0.5  # 50% daily loss limit
 ANTI_SNIPE_DELAY = 2
@@ -59,37 +67,52 @@ ML_MIN_SCORE = 60  # Will be overridden by bot-specific scores
 TOXIBOT_COMMAND_DELAY = 2  # Delay between commands
 
 # Performance settings
-CACHE_TTL = 5  # seconds
-MAX_CONCURRENT_REQUESTS = 10
-API_RETRY_COUNT = 3
-API_RETRY_DELAY = 1
-CIRCUIT_BREAKER_THRESHOLD = 5
-CIRCUIT_BREAKER_TIMEOUT = 60
+ULTRA_MAX_DAILY_TRADES = 20
+SCALPER_MAX_POSITIONS = 20
+COMMUNITY_MAX_DAILY = 10
 
-# === ENV VARS ===
-TELEGRAM_API_ID = int(os.environ["TELEGRAM_API_ID"])
-TELEGRAM_API_HASH = os.environ["TELEGRAM_API_HASH"]
-TELEGRAM_STRING_SESSION = os.environ["TELEGRAM_STRING_SESSION"]
+# === WHALE WALLETS TO MONITOR ===
+# Add your own whale wallets here or use these known addresses
+WHALE_WALLETS = [
+    # Known profitable Solana traders (examples - replace with your research)
+    "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1",  # Example whale 1
+    "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",  # Example whale 2
+    "GUfCR9mK6azb9vcpsxgXyj7XRPAKJd4KMHTTVvtncGgp",  # Example whale 3
+    # Add more whale wallets here based on your research
+]
+
+# You can also load from environment variable
+ADDITIONAL_WHALES = os.environ.get("WHALE_WALLETS", "").split(",")
+if ADDITIONAL_WHALES and ADDITIONAL_WHALES[0]:
+    WHALE_WALLETS.extend(ADDITIONAL_WHALES)
+
+# === ENVIRONMENT VARIABLES ===
+TELEGRAM_API_ID = int(os.environ.get("TELEGRAM_API_ID", "0"))
+TELEGRAM_API_HASH = os.environ.get("TELEGRAM_API_HASH", "")
+TELEGRAM_STRING_SESSION = os.environ.get("TELEGRAM_STRING_SESSION", "")
 TOXIBOT_USERNAME = os.environ.get("TOXIBOT_USERNAME", "@toxi_solana_bot")
 HELIUS_API_KEY = os.environ.get("HELIUS_API_KEY", "")
-HELIUS_RPC_URL = os.environ.get("HELIUS_RPC_URL", "https://mainnet.helius-rpc.com/?api-key=0f2e5160-d95a-46d7-a0c4-9a71484ab3d8")
-HELIUS_WS_URL = os.environ.get("HELIUS_WS_URL", "wss://mainnet.helius-rpc.com/?api-key=0f2e5160-d95a-46d7-a0c4-9a71484ab3d8")
+HELIUS_RPC_URL = os.environ.get("HELIUS_RPC_URL", f"https://mainnet.helius-rpc.com/?api-key={HELIUS_API_KEY}")
+HELIUS_WS_URL = os.environ.get("HELIUS_WS_URL", f"wss://mainnet.helius-rpc.com/?api-key={HELIUS_API_KEY}")
 WALLET_ADDRESS = os.environ.get("WALLET_ADDRESS", "")
 BITQUERY_API_KEY = os.environ.get("BITQUERY_API_KEY", "")
 PORT = int(os.environ.get("PORT", "8080"))
 
-# Configure logging
+# Configure stdout/stderr for Railway
 sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
 
 # Database configuration - use volume for Railway
 if os.environ.get('RAILWAY_ENVIRONMENT'):
-    DB_PATH = '/data/toxibot.db'
-    LOG_PATH = '/data/toxibot.log'
+    data_dir = '/data'
+    os.makedirs(data_dir, exist_ok=True)
+    DB_PATH = os.path.join(data_dir, 'toxibot.db')
+    LOG_PATH = os.path.join(data_dir, 'toxibot.log')
 else:
     DB_PATH = 'toxibot.db'
     LOG_PATH = 'toxibot.log'
 
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
@@ -100,9 +123,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("toxibot")
 
-# ---------------------
-# GLOBAL STATE & STATS
-# ---------------------
+# === GLOBAL STATE ===
 blacklisted_tokens: Set[str] = set()
 blacklisted_devs: Set[str] = set()
 positions: Dict[str, Dict[str, Any]] = {}
@@ -136,92 +157,137 @@ daily_loss = 0.0
 exposure = 0.0
 
 # Risk management globals
-trading_enabled = True
+trading_enabled = True  # This controls buying only
+selling_enabled = True  # Always true - we can always sell
 daily_starting_balance = 0.0
 daily_trades_count = 0
 consecutive_profitable_trades = 0
 
-# Dynamic trade limits
-ULTRA_MAX_DAILY_TRADES = 20
-SCALPER_MAX_POSITIONS = 20
-COMMUNITY_MAX_DAILY = 10
+# Whale tracking
+whale_performance = collections.defaultdict(lambda: {"trades": 0, "success": 0, "total_pl": 0.0})
+whale_recent_tokens = collections.defaultdict(list)  # whale -> list of recent tokens
 
 # =====================================
 # Database Functions
 # =====================================
 def init_database():
     """Initialize SQLite database for position persistence"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
-    # Positions table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS positions (
-            token TEXT PRIMARY KEY,
-            data JSON,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
-    # Trades history table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS trades (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            token TEXT,
-            action TEXT,
-            size REAL,
-            price REAL,
-            pl REAL,
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
-    # Blacklist table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS blacklist (
-            address TEXT PRIMARY KEY,
-            type TEXT,
-            reason TEXT,
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
-    conn.commit()
-    conn.close()
+    try:
+        # Create directory if it doesn't exist
+        db_dir = os.path.dirname(DB_PATH)
+        if db_dir:
+            os.makedirs(db_dir, exist_ok=True)
+            
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        # Positions table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS positions (
+                token TEXT PRIMARY KEY,
+                data JSON,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        # Trades history table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                token TEXT,
+                action TEXT,
+                size REAL,
+                price REAL,
+                pl REAL,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        # Blacklist table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS blacklist (
+                address TEXT PRIMARY KEY,
+                type TEXT,
+                reason TEXT,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        # Whale tracking table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS whale_trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                whale_address TEXT,
+                token TEXT,
+                action TEXT,
+                amount REAL,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        conn.commit()
+        conn.close()
+        logger.info(f"Database initialized at {DB_PATH}")
+    except Exception as e:
+        logger.error(f"Failed to initialize database: {e}")
+        raise
 
 def save_position(token: str, data: Dict[str, Any]):
     """Save position to database"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT OR REPLACE INTO positions (token, data, updated_at)
-        VALUES (?, ?, CURRENT_TIMESTAMP)
-    ''', (token, json.dumps(data)))
-    conn.commit()
-    conn.close()
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT OR REPLACE INTO positions (token, data, updated_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+        ''', (token, json.dumps(data)))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"Failed to save position: {e}")
 
 def load_positions():
     """Load all positions from database"""
     global positions
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute('SELECT token, data FROM positions')
-    for row in cursor.fetchall():
-        positions[row[0]] = json.loads(row[1])
-    conn.close()
-    logger.info(f"Loaded {len(positions)} positions from database")
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('SELECT token, data FROM positions')
+        for row in cursor.fetchall():
+            positions[row[0]] = json.loads(row[1])
+        conn.close()
+        logger.info(f"Loaded {len(positions)} positions from database")
+    except Exception as e:
+        logger.error(f"Failed to load positions: {e}")
 
 def record_trade(token: str, action: str, size: float, price: float, pl: float = 0.0):
     """Record trade in history"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO trades (token, action, size, price, pl)
-        VALUES (?, ?, ?, ?, ?)
-    ''', (token, action, size, price, pl))
-    conn.commit()
-    conn.close()
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO trades (token, action, size, price, pl)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (token, action, size, price, pl))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"Failed to record trade: {e}")
+
+def record_whale_trade(whale: str, token: str, action: str, amount: float):
+    """Record whale trading activity"""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO whale_trades (whale_address, token, action, amount)
+            VALUES (?, ?, ?, ?)
+        ''', (whale, token, action, amount))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"Failed to record whale trade: {e}")
 
 # =====================================
 # HTTP Session Management
@@ -239,6 +305,13 @@ async def get_session():
     except Exception as e:
         logger.error(f"Session error: {e}")
         raise
+
+async def cleanup_session():
+    """Cleanup global session"""
+    global session_pool
+    if session_pool and not session_pool.closed:
+        await session_pool.close()
+        session_pool = None
 
 # =====================================
 # Circuit Breaker Pattern
@@ -291,7 +364,7 @@ def cache_price(token: str, price: float):
     price_cache[token] = (price, time.time())
 
 # =====================================
-# Helius RPC Functions (Using your paid API)
+# Helius RPC Functions
 # =====================================
 async def fetch_wallet_balance() -> Optional[float]:
     """Fetch SOL balance using Helius RPC"""
@@ -324,7 +397,10 @@ async def fetch_wallet_balance() -> Optional[float]:
 async def monitor_wallet_with_helius():
     """Use Helius to monitor actual on-chain trades"""
     if not HELIUS_API_KEY or not WALLET_ADDRESS:
+        logger.error("Missing HELIUS_API_KEY or WALLET_ADDRESS")
         return
+    
+    logger.info("Starting wallet monitoring with Helius...")
     
     while True:
         try:
@@ -361,7 +437,81 @@ async def monitor_wallet_with_helius():
         await asyncio.sleep(60)  # Check every minute
 
 # =====================================
-# DexScreener API Functions (Primary price source)
+# Whale Monitoring with Helius
+# =====================================
+async def monitor_whale_wallets():
+    """Monitor whale wallet transactions using Helius"""
+    if not HELIUS_API_KEY or not WHALE_WALLETS:
+        logger.warning("Whale monitoring disabled - no API key or wallets")
+        return
+    
+    logger.info(f"Monitoring {len(WHALE_WALLETS)} whale wallets...")
+    
+    while True:
+        try:
+            for whale in WHALE_WALLETS:
+                if is_circuit_broken("helius_whale"):
+                    await asyncio.sleep(60)
+                    continue
+                
+                async with get_session() as session:
+                    # Enhanced Transactions API for whale activity
+                    url = f"https://api.helius.xyz/v0/addresses/{whale}/transactions"
+                    params = {
+                        "api-key": HELIUS_API_KEY,
+                        "limit": 10,
+                        "type": "SWAP"
+                    }
+                    
+                    async with session.get(url, params=params) as resp:
+                        if resp.status == 200:
+                            txs = await resp.json()
+                            
+                            for tx in txs:
+                                # Parse swap details
+                                if tx.get("type") == "SWAP":
+                                    timestamp = tx.get("timestamp", time.time())
+                                    
+                                    # Skip old transactions
+                                    if time.time() - timestamp > 300:  # 5 minutes
+                                        continue
+                                    
+                                    # Extract token being bought
+                                    for token_transfer in tx.get("tokenTransfers", []):
+                                        if token_transfer.get("toUserAccount") == whale:
+                                            token = token_transfer.get("mint")
+                                            amount = token_transfer.get("tokenAmount", 0)
+                                            
+                                            if token and token != "So11111111111111111111111111111111111111112":  # Not SOL
+                                                logger.info(f"🐋 Whale {whale[:8]}... bought {token[:8]}...")
+                                                activity_log.append(
+                                                    f"[{datetime.now().strftime('%H:%M:%S')}] "
+                                                    f"🐋 Whale bought {token[:8]}..."
+                                                )
+                                                
+                                                # Track whale trade
+                                                record_whale_trade(whale, token, "BUY", amount)
+                                                whale_recent_tokens[whale].append(token)
+                                                
+                                                # Send to community voting
+                                                await community_candidate_callback(token, f"whale_{whale[:8]}")
+                        
+                        elif resp.status == 429:
+                            logger.warning("Helius rate limit for whale monitoring")
+                            trip_circuit_breaker("helius_whale")
+                            
+                # Small delay between whale checks
+                await asyncio.sleep(2)
+                
+        except Exception as e:
+            logger.error(f"Whale monitoring error: {e}")
+            await asyncio.sleep(30)
+        
+        # Wait before next round
+        await asyncio.sleep(30)  # Check all whales every 30 seconds
+
+# =====================================
+# DexScreener API Functions
 # =====================================
 async def fetch_token_price(token: str) -> Optional[float]:
     """Fetch token price from DexScreener (primary) with Jupiter v6 fallback"""
@@ -390,7 +540,7 @@ async def fetch_token_price(token: str) -> Optional[float]:
             logger.error(f"DexScreener price error for {token}: {e}")
             trip_circuit_breaker("dexscreener")
     
-    # Fallback to Jupiter v6 (FIXED FROM v3!)
+    # Fallback to Jupiter v6
     if not is_circuit_broken("jupiter"):
         try:
             async with get_session() as session:
@@ -527,7 +677,7 @@ def estimate_short_vs_long_volume(vol_1h: float, vol_6h: float) -> bool:
     return vol_1h > hourly_avg * 1.2  # 20% above average
 
 # =====================================
-# Data Feeds - ENHANCED with PumpPortal
+# Data Feeds
 # =====================================
 async def pumpportal_newtoken_feed(callback):
     """WebSocket feed for new Pump.fun tokens via PumpPortal - FASTEST detection"""
@@ -552,6 +702,7 @@ async def pumpportal_newtoken_feed(callback):
                 
                 retry_count = 0
                 logger.info("Connected to PumpPortal WebSocket")
+                activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ PumpPortal connected")
                 
                 while True:
                     try:
@@ -561,6 +712,8 @@ async def pumpportal_newtoken_feed(callback):
                         # New token event
                         if "mint" in data.get("params", {}):
                             token = data["params"]["mint"]
+                            logger.info(f"🚀 PumpPortal: New token {token}")
+                            activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🚀 New Pump.fun token: {token[:8]}...")
                             await callback(token, "pumpportal")
                             
                         # Trade event for monitoring
@@ -581,186 +734,213 @@ async def pumpportal_newtoken_feed(callback):
             retry_count += 1
             wait_time = min(60, 2 ** retry_count)
             logger.error(f"PumpPortal WS error (retry {retry_count}/{max_retries}): {e}")
+            activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ PumpPortal disconnected: {str(e)[:50]}")
             await asyncio.sleep(wait_time)
 
-async def bitquery_polling_feed(callback):
-    """Bitquery V2 REST API polling for trending tokens (free tier compatible)"""
+async def bitquery_streaming_feed(callback):
+    """BitQuery V2 WebSocket streaming for Solana tokens"""
     if not BITQUERY_API_KEY or BITQUERY_API_KEY == "disabled":
-        logger.warning("Bitquery feed disabled - set BITQUERY_API_KEY='disabled' to silence this")
+        logger.warning("BitQuery feed disabled")
         return
-
-    # Use the standard V2 endpoint (not streaming/EAP)
-    url = "https://graphql.bitquery.io/ide"  # Standard GraphQL endpoint for free tier
     
-    # Free tier compatible query - no Solana EAP access
-    # Using Ethereum DEX trades as an example (adjust based on your needs)
-    query = """
-    query {
-        ethereum(network: ethereum) {
-            dexTrades(
-                options: {limit: 20, desc: "block.timestamp.time"}
-                smartContractAddress: {is: "0x7a250d5630b4cf539739df2c5dacb4c659f2488d"}
-            ) {
-                transaction {
-                    hash
-                }
-                block {
-                    timestamp {
-                        time(format: "%Y-%m-%d %H:%M:%S")
+    # Correct WebSocket URL for streaming
+    ws_url = f"wss://streaming.bitquery.io/eap?token={BITQUERY_API_KEY}"
+    
+    retry_count = 0
+    max_retries = 10
+    
+    while retry_count < max_retries:
+        try:
+            async with websockets.connect(ws_url, subprotocols=["graphql-ws"]) as ws:
+                # Initialize connection
+                await ws.send(json.dumps({"type": "connection_init"}))
+                
+                # Wait for connection_ack
+                ack = await ws.recv()
+                ack_data = json.loads(ack)
+                
+                if ack_data.get("type") == "connection_ack":
+                    logger.info("✅ BitQuery WebSocket connected!")
+                    activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ BitQuery streaming connected")
+                    
+                    # Subscribe to Solana DEX trades
+                    subscription = {
+                        "id": "1",
+                        "type": "start",
+                        "payload": {
+                            "query": """
+                            subscription {
+                                Solana {
+                                    DEXTradeByTokens(
+                                        where: {
+                                            Trade: {
+                                                Currency: {
+                                                    MintAddress: {not: "So11111111111111111111111111111111111111112"}
+                                                }
+                                                Dex: {
+                                                    ProgramAddress: {in: [
+                                                        "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",
+                                                        "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
+                                                        "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"
+                                                    ]}
+                                                }
+                                                AmountInUSD: {gt: "100"}
+                                            }
+                                            Transaction: {Result: {Success: true}}
+                                        }
+                                    ) {
+                                        Block {
+                                            Time
+                                        }
+                                        Trade {
+                                            Currency {
+                                                MintAddress
+                                                Symbol
+                                                Name
+                                            }
+                                            Price
+                                            PriceInUSD
+                                            Amount
+                                            AmountInUSD
+                                            Dex {
+                                                ProtocolName
+                                                ProgramAddress
+                                            }
+                                        }
+                                        Transaction {
+                                            Signature
+                                        }
+                                    }
+                                }
+                            }
+                            """
+                        }
                     }
-                }
-                buyAmount
-                buyAmountInUsd: buyAmount(in: USD)
-                buyCurrency {
-                    address
-                    symbol
-                    name
-                }
-                sellAmount
-                sellAmountInUsd: sellAmount(in: USD)
-                sellCurrency {
-                    address
-                    symbol
-                    name
-                }
-            }
-        }
-    }
-    """
+                    
+                    await ws.send(json.dumps(subscription))
+                    logger.info("📡 BitQuery subscription sent for Solana DEX trades")
+                    
+                    # Track seen tokens to avoid duplicates
+                    seen_tokens = set()
+                    recent_tokens = collections.deque(maxlen=1000)
+                    
+                    retry_count = 0  # Reset on successful connection
+                    
+                    # Listen for data
+                    while True:
+                        try:
+                            msg = await asyncio.wait_for(ws.recv(), timeout=30)
+                            data = json.loads(msg)
+                            
+                            if data.get("type") == "data":
+                                trades = data.get("payload", {}).get("data", {}).get("Solana", {}).get("DEXTradeByTokens", [])
+                                
+                                for trade in trades:
+                                    token_info = trade.get("Trade", {}).get("Currency", {})
+                                    mint = token_info.get("MintAddress")
+                                    
+                                    if mint and mint not in recent_tokens:
+                                        recent_tokens.append(mint)
+                                        
+                                        # Log discovery
+                                        symbol = token_info.get("Symbol", "Unknown")
+                                        price = trade.get("Trade", {}).get("PriceInUSD", 0)
+                                        dex = trade.get("Trade", {}).get("Dex", {}).get("ProtocolName", "Unknown")
+                                        
+                                        logger.info(f"🔍 BitQuery: {symbol} ({mint[:8]}...) ${price:.6f} on {dex}")
+                                        activity_log.append(
+                                            f"[{datetime.now().strftime('%H:%M:%S')}] "
+                                            f"🔍 BitQuery: {symbol} ${price:.6f} ({dex})"
+                                        )
+                                        
+                                        # Only process truly new tokens
+                                        if mint not in seen_tokens:
+                                            seen_tokens.add(mint)
+                                            
+                                            # Check if it's from Pump.fun
+                                            if trade.get("Trade", {}).get("Dex", {}).get("ProgramAddress") == "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P":
+                                                # Send to ultra-early handler
+                                                await callback(mint, "pumpfun")
+                                            else:
+                                                # Send to scalper for trending tokens
+                                                await callback(mint, "bitquery", {
+                                                    "symbol": symbol,
+                                                    "price": price,
+                                                    "dex": dex,
+                                                    "source": "streaming"
+                                                })
+                            
+                            elif data.get("type") == "complete":
+                                logger.warning("BitQuery subscription completed")
+                                break
+                                
+                            elif data.get("type") == "error":
+                                logger.error(f"BitQuery error: {data}")
+                                break
+                                
+                        except asyncio.TimeoutError:
+                            # Send ping to keep connection alive
+                            await ws.ping()
+                            
+                except websockets.exceptions.ConnectionClosed:
+                    logger.warning("BitQuery WebSocket closed")
+                    break
+                    
+        except Exception as e:
+            retry_count += 1
+            wait_time = min(60, 2 ** retry_count)
+            logger.error(f"BitQuery WebSocket error (retry {retry_count}): {e}")
+            activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ BitQuery error: {str(e)[:50]}")
+            await asyncio.sleep(wait_time)
     
-    headers = {
-        "Content-Type": "application/json",
-        "X-API-KEY": BITQUERY_API_KEY  # Note: Free tier uses X-API-KEY header
-    }
-    
+    logger.error("BitQuery streaming feed stopped after max retries")
+
+async def dexscreener_new_pairs_monitor():
+    """Poll DexScreener for new Solana pairs as backup"""
+    url = "https://api.dexscreener.com/latest/dex/pairs/new"
     seen_tokens = set()
+    
+    logger.info("Starting DexScreener new pairs monitor...")
     
     while True:
         try:
-            async with get_session() as session:
-                async def _fetch():
-                    async with session.post(url, json={"query": query}, headers=headers) as resp:
-                        if resp.status == 401:
-                            logger.error("Bitquery authentication failed. Check your API key")
-                            trip_circuit_breaker("bitquery")
-                            return
-                        
-                        if resp.status == 429:
-                            logger.warning("Bitquery rate limit reached")
-                            await asyncio.sleep(60)  # Wait a minute
-                            return
+            if not is_circuit_broken("dexscreener"):
+                async with get_session() as session:
+                    async with session.get(url) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            pairs = data.get("pairs", [])
                             
-                        if resp.status != 200:
-                            text = await resp.text()
-                            logger.error(f"Bitquery HTTP {resp.status}: {text}")
-                            return
-                        
-                        data = await resp.json()
-                        
-                        if "errors" in data:
-                            logger.error(f"Bitquery GraphQL errors: {data['errors']}")
-                            # Check if it's a Solana access error
-                            error_msg = str(data['errors'])
-                            if "Solana" in error_msg or "EAP" in error_msg:
-                                logger.error("Solana access not available on free tier. Disabling Bitquery.")
-                                trip_circuit_breaker("bitquery")
-                                return
-                            await asyncio.sleep(60)
-                            return
-                        
-                        # Process Ethereum DEX trades (since Solana isn't available on free tier)
-                        trades = data.get("data", {}).get("ethereum", {}).get("dexTrades", [])
-                        
-                        if trades:
-                            logger.info(f"Bitquery: Found {len(trades)} Ethereum DEX trades")
+                            solana_pairs = [p for p in pairs if p.get("chainId") == "solana"]
                             
-                            # Note: This won't work for Solana tokens on free tier
-                            # You'll need to either:
-                            # 1. Upgrade to paid tier for Solana access
-                            # 2. Disable Bitquery for your Solana bot
-                            # 3. Use alternative data sources
-                            
-                            for trade in trades:
-                                buy_currency = trade.get("buyCurrency", {})
-                                token_address = buy_currency.get("address")
-                                
-                                if token_address and token_address not in seen_tokens:
-                                    seen_tokens.add(token_address)
-                                    # This would only work for Ethereum tokens
-                                    logger.warning("Bitquery free tier doesn't support Solana - skipping token callback")
-                
-                await retry_with_backoff(_fetch)
-                
+                            for pair in solana_pairs[:10]:  # Check top 10 newest
+                                token = pair.get("baseToken", {}).get("address")
+                                if token and token not in seen_tokens:
+                                    seen_tokens.add(token)
+                                    
+                                    symbol = pair.get("baseToken", {}).get("symbol", "Unknown")
+                                    liquidity = float(pair.get("liquidity", {}).get("usd", 0))
+                                    created_at = pair.get("pairCreatedAt", 0) / 1000
+                                    age = int(time.time() - created_at) if created_at else 999999
+                                    
+                                    logger.info(f"🔍 DexScreener: New {symbol} ({token[:8]}...) Liq: ${liquidity:.0f} Age: {age}s")
+                                    activity_log.append(
+                                        f"[{datetime.now().strftime('%H:%M:%S')}] "
+                                        f"🔍 DexScreener: {symbol} ${liquidity:.0f}"
+                                    )
+                                    
+                                    # Route based on age and liquidity
+                                    if age < 300 and liquidity < 50000:  # Very new, low liq
+                                        await process_token(token, "pumpfun")
+                                    else:  # More established
+                                        await process_token(token, "dexscreener")
+                        
         except Exception as e:
-            logger.error(f"Bitquery API error: {e}")
-            trip_circuit_breaker("bitquery")
+            logger.error(f"DexScreener monitor error: {e}")
+            if "429" in str(e):
+                trip_circuit_breaker("dexscreener")
         
-        # Poll every 60 seconds for free tier (be respectful)
-        await asyncio.sleep(60)
-
-# Alternative: Test Bitquery access level
-async def test_bitquery_solana_access():
-    """Test if your Bitquery account has Solana access"""
-    
-    if not BITQUERY_API_KEY or BITQUERY_API_KEY == "disabled":
-        return False
-    
-    url = "https://graphql.bitquery.io/ide"
-    
-    # Try a simple Solana query
-    query = """
-    query {
-        solana {
-            blocks(limit: 1) {
-                height
-                timestamp {
-                    time
-                }
-            }
-        }
-    }
-    """
-    
-    headers = {
-        "Content-Type": "application/json",
-        "X-API-KEY": BITQUERY_API_KEY
-    }
-    
-    try:
-        async with get_session() as session:
-            async with session.post(url, json={"query": query}, headers=headers) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    
-                    if "errors" in data:
-                        error_msg = str(data['errors'])
-                        if "subscription" in error_msg.lower() or "upgrade" in error_msg.lower():
-                            logger.error("❌ Solana access requires paid subscription")
-                            return False
-                        else:
-                            logger.error(f"❌ Solana query error: {error_msg}")
-                            return False
-                    
-                    if "data" in data and "solana" in data["data"]:
-                        logger.info("✅ You have Solana access on Bitquery!")
-                        return True
-                else:
-                    logger.error(f"❌ HTTP {resp.status} - No Solana access")
-                    return False
-                    
-    except Exception as e:
-        logger.error(f"❌ Error testing Solana access: {e}")
-        return False
-
-# Recommended: Disable Bitquery for Solana bot
-async def bitquery_polling_feed_disabled(callback):
-    """Disabled Bitquery feed for free tier users"""
-    logger.info("Bitquery feed disabled - free tier doesn't support Solana")
-    logger.info("Consider using PumpPortal WebSocket or DexScreener REST API instead")
-    
-    # Don't run the polling loop
-    while False:
-        await asyncio.sleep(3600)
+        await asyncio.sleep(30)  # Poll every 30 seconds
 
 # =====================================
 # Community Vote Aggregator
@@ -781,7 +961,7 @@ async def community_candidate_callback(token, src, info=None):
             await community_token_queue.put(token)
 
 # =====================================
-# ToxiBot Client - ENHANCED with monitoring
+# ToxiBot Client
 # =====================================
 class ToxiBotClient:
     def __init__(self, api_id, api_hash, session_id, username):
@@ -794,7 +974,7 @@ class ToxiBotClient:
         logger.info("Connected to ToxiBot (Telegram).")
     
     async def send_buy(self, mint: str, amount: float):
-        """Send buy command to ToxiBot - NO price limits as they're not documented"""
+        """Send buy command to ToxiBot"""
         async with self.send_lock:
             # Format amount with 4 decimals max
             amount_str = f"{amount:.4f}"
@@ -833,7 +1013,7 @@ class ToxiBotClient:
                 await asyncio.sleep(TOXIBOT_COMMAND_DELAY)
     
     async def send_sell(self, mint: str, perc: int = 100):
-        """Send sell command - may need portfolio access per docs"""
+        """Send sell command"""
         async with self.send_lock:
             cmd = f"/sell {mint} {perc}%"
             logger.info(f"Sending to ToxiBot: {cmd}")
@@ -918,13 +1098,13 @@ def is_blacklisted(token: str, dev: str = "") -> bool:
     return token in blacklisted_tokens or (dev and dev in blacklisted_devs)
 
 # =====================================
-# ML Scoring - REAL implementation for ToxiBot
+# ML Scoring
 # =====================================
 async def ml_score_token(meta: Dict[str, Any]) -> float:
     """ML scoring adjusted for ToxiBot execution realities"""
     score = 50.0  # Base score
     
-    # Liquidity scoring (0-25 points) - MORE IMPORTANT for ToxiBot
+    # Liquidity scoring (0-25 points)
     liq = meta.get("liq", 0)
     if liq > 100:  # Very liquid
         score += 25
@@ -985,15 +1165,15 @@ async def ml_score_token(meta: Dict[str, Any]) -> float:
     return min(95, max(5, score))
 
 # =====================================
-# Risk Management - CRITICAL for live trading
+# Risk Management - UPDATED
 # =====================================
 async def calculate_position_size(bot_type: str, ml_score: float) -> float:
     """Calculate position size with hard exposure limits"""
     global current_wallet_balance, exposure, trading_enabled, daily_trades_count
     
-    # Check if trading is enabled
+    # Check if BUYING is enabled (selling always allowed)
     if not trading_enabled:
-        logger.error("Trading is disabled due to risk limits!")
+        logger.error("Trading is disabled due to risk limits! Only selling allowed.")
         return 0
     
     # Check current exposure
@@ -1037,8 +1217,8 @@ async def calculate_position_size(bot_type: str, ml_score: float) -> float:
     return position_size
 
 async def risk_management_monitor():
-    """Monitor risk limits and kill switch"""
-    global trading_enabled, daily_starting_balance, current_wallet_balance
+    """Monitor risk limits - UPDATED to only disable buying"""
+    global trading_enabled, selling_enabled, daily_starting_balance, current_wallet_balance
     
     while True:
         try:
@@ -1057,17 +1237,21 @@ async def risk_management_monitor():
                 daily_loss_percent = daily_loss / daily_starting_balance if daily_starting_balance > 0 else 0
                 
                 if daily_loss_percent >= DAILY_LOSS_LIMIT_PERCENT:
-                    trading_enabled = False
-                    logger.critical(f"TRADING HALTED: Daily loss limit reached! Lost {daily_loss:.2f} SOL ({daily_loss_percent:.1%})")
-                    
-                    # Close all positions
-                    for token in list(positions.keys()):
-                        if positions[token].get('size', 0) > 0:
-                            await toxibot.send_sell(token, 100)
-                            logger.warning(f"Emergency sold {token}")
-                    
-                    # Send alert
-                    activity_log.append(f"[EMERGENCY] Trading halted - 50% daily loss reached")
+                    if trading_enabled:  # Only log once
+                        trading_enabled = False  # Disable buying only
+                        logger.critical(f"BUYING DISABLED: Daily loss limit reached! Lost {daily_loss:.2f} SOL ({daily_loss_percent:.1%})")
+                        logger.critical("SELLING STILL ENABLED - Positions will be managed normally")
+                        
+                        activity_log.append(f"[RISK] Buying disabled - {daily_loss_percent:.1%} daily loss. Selling still active.")
+                        
+                        # Send alert but don't emergency sell
+                        # Let positions play out according to their strategies
+                else:
+                    # Re-enable trading if we recover
+                    if not trading_enabled and daily_loss_percent < DAILY_LOSS_LIMIT_PERCENT * 0.8:  # 80% of limit
+                        trading_enabled = True
+                        logger.info("Trading re-enabled - recovered from loss limit")
+                        activity_log.append("[RISK] Trading re-enabled - losses recovered")
                 
                 # Log current risk metrics
                 logger.info(f"Risk Monitor - Balance: {current_balance:.3f}, Daily P/L: {-daily_loss:.3f} ({-daily_loss_percent:.1%}), Exposure: {exposure:.3f}/{current_balance * MAX_WALLET_EXPOSURE:.3f}")
@@ -1084,6 +1268,7 @@ async def update_trading_parameters():
     
     while True:
         try:
+            # Skip if buying is disabled
             if not trading_enabled:
                 await asyncio.sleep(300)  # Check every 5 minutes if disabled
                 continue
@@ -1124,13 +1309,14 @@ async def update_trading_parameters():
             await asyncio.sleep(60)
 
 # =====================================
-# Trading Strategies - ENHANCED
+# Trading Strategies
 # =====================================
 async def ultra_early_handler(token, toxibot):
     """Ultra-early discovery strategy for new tokens"""
     global ultra_total, trading_enabled, daily_trades_count, exposure
     
     if not trading_enabled:
+        logger.info(f"[{token[:8]}...] Ultra-early: Buying disabled due to loss limit")
         return
         
     if ultra_total >= ULTRA_MAX_DAILY_TRADES:
@@ -1140,13 +1326,16 @@ async def ultra_early_handler(token, toxibot):
     if is_blacklisted(token):
         return
     
+    logger.info(f"🔍 Processing ultra-early candidate: {token[:8]}...")
+    activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🔍 Checking {token[:8]}... (Ultra-early)")
+    
     rug = await rugcheck(token)
     if rug_gate(rug):
-        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] {token} UltraEarly: Rug gated.")
+        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ {token[:8]}... Ultra-early: Rug gated")
         return
     
     if token in positions:
-        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] {token} UltraEarly: Already traded, skipping.")
+        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ {token[:8]}... Ultra-early: Already traded")
         return
     
     # Monitor liquidity rises
@@ -1159,13 +1348,13 @@ async def ultra_early_handler(token, toxibot):
         await asyncio.sleep(2)
     
     if rises < ULTRA_MIN_RISES:
-        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] {token} UltraEarly: Liquidity not rapidly rising, skipping.")
+        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ {token[:8]}... Ultra-early: Liquidity not rising (rises: {rises})")
         return
     
     # Get pool age
     pool_age = await fetch_pool_age(token) or 9999
     if pool_age > ULTRA_AGE_MAX_S:
-        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] {token} UltraEarly: Too old ({pool_age}s), skipping.")
+        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ {token[:8]}... Ultra-early: Too old ({pool_age}s)")
         return
     
     # ML scoring
@@ -1180,7 +1369,7 @@ async def ultra_early_handler(token, toxibot):
     ml_score = await ml_score_token(token_data)
     
     if ml_score < ULTRA_MIN_ML_SCORE:
-        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] {token} UltraEarly: ML score too low ({ml_score:.1f})")
+        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ {token[:8]}... Ultra-early: ML score too low ({ml_score:.1f})")
         return
     
     # Calculate position size
@@ -1219,18 +1408,21 @@ async def ultra_early_handler(token, toxibot):
             
             save_position(token, positions[token])
             record_trade(token, "BUY", position_size, entry_price)
-            activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] {token} UltraEarly: BUY {position_size:.3f} @ {entry_price:.5f} (ML: {ml_score:.0f})")
+            activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ {token[:8]}... Ultra-early: BUY {position_size:.3f} @ ${entry_price:.5f} (ML: {ml_score:.0f})")
         else:
             logger.error(f"ToxiBot buy failed for {token}")
+            activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ {token[:8]}... Ultra-early: ToxiBot execution failed")
             
     except Exception as e:
-        logger.error(f"Failed to execute UltraEarly buy: {e}")
+        logger.error(f"Failed to execute Ultra-early buy: {e}")
+        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ {token[:8]}... Ultra-early: Exception {str(e)[:50]}")
 
 async def scalper_handler(token, src, toxibot):
     """Scalper strategy for trending tokens"""
     global scalper_total, trading_enabled, daily_trades_count, exposure
     
     if not trading_enabled:
+        logger.info(f"[{token[:8]}...] Scalper: Buying disabled due to loss limit")
         return
         
     active_scalper_positions = sum(1 for p in positions.values() if p.get("src") in ("bitquery",))
@@ -1242,8 +1434,11 @@ async def scalper_handler(token, src, toxibot):
         return
     
     if token in positions:
-        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] {token} [Scalper] Already traded. Skipping.")
+        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ {token[:8]}... [Scalper] Already traded")
         return
+    
+    logger.info(f"🔍 Processing scalper candidate: {token[:8]}...")
+    activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🔍 Checking {token[:8]}... (Scalper)")
     
     pool_stats = await fetch_volumes(token)
     pool_age = await fetch_pool_age(token) or 9999
@@ -1253,12 +1448,12 @@ async def scalper_handler(token, src, toxibot):
     age_ok = 0 <= pool_age < SCALPER_MAX_POOLAGE
     
     if not (liq_ok and age_ok and vol_ok):
-        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] {token} [Scalper] Entry FAIL: Liq:{liq_ok}, Age:{age_ok}, Vol:{vol_ok}")
+        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ {token[:8]}... [Scalper] Entry FAIL: Liq:{liq_ok}, Age:{age_ok}, Vol:{vol_ok}")
         return
     
     rug = await rugcheck(token)
     if rug_gate(rug):
-        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] {token} [Scalper] Rug gated.")
+        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ {token[:8]}... [Scalper] Rug gated")
         return
     
     # ML scoring
@@ -1273,7 +1468,7 @@ async def scalper_handler(token, src, toxibot):
     ml_score = await ml_score_token(token_data)
     
     if ml_score < SCALPER_MIN_ML_SCORE:
-        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] {token} [Scalper] ML score too low ({ml_score:.1f})")
+        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ {token[:8]}... [Scalper] ML score too low ({ml_score:.1f})")
         return
     
     # Calculate position size
@@ -1309,12 +1504,14 @@ async def scalper_handler(token, src, toxibot):
             
             save_position(token, positions[token])
             record_trade(token, "BUY", position_size, entry_price)
-            activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] {token} Scalper: BUY {position_size:.3f} @ {entry_price:.5f} (ML: {ml_score:.0f})")
+            activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ {token[:8]}... Scalper: BUY {position_size:.3f} @ ${entry_price:.5f} (ML: {ml_score:.0f})")
         else:
             logger.error(f"ToxiBot buy failed for {token}")
+            activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ {token[:8]}... Scalper: ToxiBot execution failed")
             
     except Exception as e:
         logger.error(f"Failed to execute Scalper buy: {e}")
+        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ {token[:8]}... Scalper: Exception {str(e)[:50]}")
 
 async def community_trade_manager(toxibot):
     """Community consensus trading strategy"""
@@ -1322,8 +1519,12 @@ async def community_trade_manager(toxibot):
     
     while True:
         try:
+            # Skip buying if disabled, but continue running to clear queue
             if not trading_enabled:
                 await asyncio.sleep(60)
+                # Clear queue to prevent buildup
+                while not community_token_queue.empty():
+                    await community_token_queue.get()
                 continue
                 
             if community_total >= COMMUNITY_MAX_DAILY:
@@ -1335,20 +1536,23 @@ async def community_trade_manager(toxibot):
             if is_blacklisted(token):
                 continue
             
+            logger.info(f"🔍 Processing community candidate: {token[:8]}...")
+            activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🔍 Checking {token[:8]}... (Community)")
+            
             rug = await rugcheck(token)
             dev = rug.get("authority")
             
             if rug_gate(rug) or (dev and dev in recent_rugdevs):
-                activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] {token} [Community] rejected: Ruggate or rugdev.")
+                activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ {token[:8]}... [Community] rejected: Ruggate or rugdev")
                 continue
             
             holders_data = await fetch_holders_and_conc(token)
             if holders_data["holders"] < COMM_HOLDER_THRESHOLD or holders_data["max_holder_pct"] > COMM_MAX_CONC * 100:
-                activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] {token} [Community] fails holder/distribution screen.")
+                activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ {token[:8]}... [Community] fails holder/distribution screen")
                 continue
             
             if token in positions:
-                activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] {token} [Community] position open. No averaging down.")
+                activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ {token[:8]}... [Community] position already open")
                 continue
             
             # Get liquidity
@@ -1369,6 +1573,7 @@ async def community_trade_manager(toxibot):
             ml_score = await ml_score_token(token_data)
             
             if ml_score < 70:  # Higher threshold for community
+                activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ {token[:8]}... [Community] ML score too low ({ml_score:.1f})")
                 continue
             
             # Calculate position size
@@ -1408,10 +1613,11 @@ async def community_trade_manager(toxibot):
                     
                     save_position(token, positions[token])
                     record_trade(token, "BUY", position_size, entry_price)
-                    activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] {token} [Community] BUY {position_size:.3f} @ {entry_price:.6f} (ML: {ml_score:.0f})")
+                    activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ {token[:8]}... [Community] BUY {position_size:.3f} @ ${entry_price:.6f} (ML: {ml_score:.0f})")
                     
             except Exception as e:
                 logger.error(f"Failed to execute Community buy: {e}")
+                activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ {token[:8]}... [Community] Exception {str(e)[:50]}")
                 
         except Exception as e:
             logger.error(f"Community trade manager error: {e}")
@@ -1422,21 +1628,27 @@ async def community_trade_manager(toxibot):
 # =====================================
 async def process_token(token, src):
     """Route token to appropriate strategy"""
+    logger.info(f"🔍 DISCOVERED: {token} from {src}")
+    activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🔍 Discovered {token[:8]}... from {src}")
+    
     if src in ("pumpfun", "pumpportal"):
         await ultra_early_handler(token, toxibot)
-    elif src in ("bitquery",):
+    elif src in ("bitquery", "dexscreener"):
         await scalper_handler(token, src, toxibot)
 
 # =====================================
-# Position Management - ENHANCED with ToxiBot awareness
+# Position Management - PRICES ARE CONSTANTLY MONITORED HERE
 # =====================================
 async def update_position_prices_and_wallet():
-    """Update position prices and handle exits"""
+    """Update position prices and handle exits - RUNS EVERY 15 SECONDS"""
     global positions, current_wallet_balance, daily_loss, exposure
     
     while True:
         try:
             active_tokens = [token for token, pos in positions.items() if pos.get('size', 0) > 0]
+            
+            if active_tokens:
+                logger.info(f"📊 Updating prices for {len(active_tokens)} positions...")
             
             # Update prices in batches
             price_tasks = [fetch_token_price(token) for token in active_tokens]
@@ -1449,10 +1661,16 @@ async def update_position_prices_and_wallet():
                 
                 if price and token in positions:
                     pos = positions[token]
+                    old_price = pos.get('last_price', pos['entry_price'])
                     pos['last_price'] = price
                     pos['local_high'] = max(pos.get("local_high", price), price)
                     pl = (price - pos['entry_price']) * pos['size']
                     pos['pl'] = pl
+                    
+                    # Log significant price movements
+                    price_change = (price - old_price) / old_price if old_price else 0
+                    if abs(price_change) > 0.05:  # 5% move
+                        logger.info(f"💹 {token[:8]}... moved {price_change:.1%} to ${price:.6f}")
                     
                     # Handle position exit
                     await handle_position_exit(token, pos, price, toxibot)
@@ -1471,14 +1689,19 @@ async def update_position_prices_and_wallet():
             # Calculate exposure
             exposure = sum(pos.get('size', 0) * pos.get('last_price', 0) for pos in positions.values())
             
-            await asyncio.sleep(15)
+            await asyncio.sleep(15)  # CHECK PRICES EVERY 15 SECONDS
         except Exception as e:
             logger.error(f"Position update error: {e}")
             await asyncio.sleep(30)
 
 async def handle_position_exit(token: str, pos: Dict[str, Any], last_price: float, toxibot):
-    """ToxiBot-aware exit handler with multi-level TP"""
-    global exposure, consecutive_profitable_trades
+    """ToxiBot-aware exit handler with multi-level TP - SELLING ALWAYS ENABLED"""
+    global exposure, consecutive_profitable_trades, selling_enabled
+    
+    # SELLING IS ALWAYS ENABLED - even during loss limits
+    if not selling_enabled:
+        logger.error("CRITICAL ERROR: Selling should never be disabled!")
+        selling_enabled = True
     
     try:
         buy_time = pos.get("buy_time", time.time())
@@ -1510,41 +1733,41 @@ async def handle_position_exit(token: str, pos: Dict[str, Any], last_price: floa
             if pl_ratio >= ULTRA_TP_X:  # 3x
                 should_sell = True
                 sell_percent = 100  # Take it all at 3x
-                reason = "3x target hit!"
+                reason = "3x target hit! 🚀"
             elif pl_ratio <= ULTRA_SL_X:  # 0.5x
                 should_sell = True
                 sell_percent = 100
-                reason = "Stop loss"
+                reason = "Stop loss 📉"
             elif age > ULTRA_AGE_MAX_S:
                 should_sell = True
                 sell_percent = 100
-                reason = "Age limit"
+                reason = "Age limit ⏰"
                 
-        elif src in ("bitquery",):  # Analyst
+        elif src in ("bitquery", "dexscreener"):  # Analyst
             # Multiple TP levels
             if pl_ratio >= SCALPER_TP_LEVELS[2]:  # 5x
                 should_sell = True
                 sell_percent = remaining_percent
-                reason = "5x mega target!"
+                reason = "5x mega target! 🌙"
             elif pl_ratio >= SCALPER_TP_LEVELS[1] and pos["total_sold_percent"] < 60:  # 2.5x
                 should_sell = True
                 sell_percent = 60 - pos["total_sold_percent"]
-                reason = "2.5x target"
+                reason = "2.5x target 📈"
             elif pl_ratio >= SCALPER_TP_LEVELS[0] and pos["total_sold_percent"] < 30:  # 1.5x
                 should_sell = True
                 sell_percent = 30 - pos["total_sold_percent"]
-                reason = "1.5x target"
+                reason = "1.5x target 💰"
             elif pl_ratio <= SCALPER_SL_X:  # 0.7x
                 should_sell = True
                 sell_percent = remaining_percent
-                reason = "Stop loss"
+                reason = "Stop loss 📉"
             # Trailing stop
             elif pos["local_high"] > entry_price * 1.5:
                 trail_stop = pos["local_high"] * (1 - SCALPER_TRAIL)
                 if last_price <= trail_stop:
                     should_sell = True
                     sell_percent = remaining_percent
-                    reason = "Trailing stop"
+                    reason = "Trailing stop 🛡️"
                 
         elif src == "community":  # Whale Tracker
             # Time-based hold + targets
@@ -1554,25 +1777,25 @@ async def handle_position_exit(token: str, pos: Dict[str, Any], last_price: floa
             if pl_ratio >= COMM_TP_LEVELS[2]:  # 10x
                 should_sell = True
                 sell_percent = remaining_percent
-                reason = "10x moon shot!"
+                reason = "10x moon shot! 🌕"
             elif pl_ratio >= COMM_TP_LEVELS[1] and pos["total_sold_percent"] < 70:  # 5x
                 should_sell = True
                 sell_percent = 70 - pos["total_sold_percent"]
-                reason = "5x whale target"
+                reason = "5x whale target 🐋"
             elif pl_ratio >= COMM_TP_LEVELS[0] and pos["total_sold_percent"] < 30:  # 2x
                 should_sell = True
                 sell_percent = 30 - pos["total_sold_percent"]
-                reason = "2x target"
+                reason = "2x target 💎"
             elif pl_ratio <= COMM_SL_PCT:  # 0.6x
                 should_sell = True
                 sell_percent = remaining_percent
-                reason = "Stop loss"
+                reason = "Stop loss 📉"
         
         # Execute sell through ToxiBot
         if should_sell and sell_percent > 0:
             actual_sell_percent = min(sell_percent, remaining_percent)
             
-            logger.info(f"Attempting to sell {actual_sell_percent}% of {token} ({reason})")
+            logger.info(f"💰 Attempting to sell {actual_sell_percent}% of {token[:8]}... ({reason})")
             
             # Send sell command to ToxiBot
             success = await toxibot.send_sell(token, int(actual_sell_percent))
@@ -1597,9 +1820,10 @@ async def handle_position_exit(token: str, pos: Dict[str, Any], last_price: floa
                     consecutive_profitable_trades = 0
                 
                 # Log the trade
+                emoji = "💚" if pl > 0 else "💔"
                 activity_log.append(
-                    f"[{datetime.now().strftime('%H:%M:%S')}] {token} "
-                    f"Sold {actual_sell_percent}% @ {last_price:.6f} ({reason}), "
+                    f"[{datetime.now().strftime('%H:%M:%S')}] {emoji} {token[:8]}... "
+                    f"Sold {actual_sell_percent}% @ ${last_price:.6f} ({reason}), "
                     f"P/L: {pl:+.3f} SOL ({pl_ratio:.1f}x)"
                 )
                 
@@ -1609,7 +1833,7 @@ async def handle_position_exit(token: str, pos: Dict[str, Any], last_price: floa
                     if pl > 0:
                         ultra_wins += 1
                     ultra_pl += pl
-                elif src in ("bitquery",):
+                elif src in ("bitquery", "dexscreener"):
                     global scalper_wins, scalper_pl
                     if pl > 0:
                         scalper_wins += 1
@@ -1630,12 +1854,13 @@ async def handle_position_exit(token: str, pos: Dict[str, Any], last_price: floa
                 
             else:
                 logger.error(f"ToxiBot sell command failed for {token}")
+                activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ {token[:8]}... Sell failed!")
                 
     except Exception as e:
         logger.error(f"Position exit handler error for {token}: {e}")
 
 # =====================================
-# Dashboard HTML/JS (unchanged)
+# Dashboard HTML/JS
 # =====================================
 DASHBOARD_HTML = """
 <!DOCTYPE html>
@@ -1754,6 +1979,13 @@ DASHBOARD_HTML = """
             text-shadow: 0 0 10px #ff0066; 
         }
         
+        .status-indicator.limited {
+            border-color: #ffaa00;
+            background: rgba(255, 170, 0, 0.1);
+            color: #ffaa00;
+            text-shadow: 0 0 10px #ffaa00;
+        }
+        
         .status-indicator::before { 
             content: ""; 
             position: absolute; 
@@ -1819,6 +2051,7 @@ DASHBOARD_HTML = """
         
         .metric-value.positive { color: #00ff00; }
         .metric-value.negative { color: #ff0066; }
+        .metric-value.warning { color: #ffaa00; }
         
         .bots-section {
             display: grid;
@@ -2044,6 +2277,11 @@ DASHBOARD_HTML = """
             color: #ffaa00;
         }
         
+        .log-entry.info {
+            border-left-color: #00ffff;
+            color: #00ffff;
+        }
+        
         ::-webkit-scrollbar {
             width: 12px;
         }
@@ -2107,7 +2345,7 @@ DASHBOARD_HTML = """
         
         <div class="bots-section">
             <div class="bot-card">
-                <div class="bot-name">Ultra-Early Discovery</div>
+                <div class="bot-name">⚡ Speed Demon</div>
                 <div class="bot-stats">
                     <div class="stat-row">
                         <span>Trades</span>
@@ -2125,7 +2363,7 @@ DASHBOARD_HTML = """
             </div>
             
             <div class="bot-card">
-                <div class="bot-name">2-Minute Scalper</div>
+                <div class="bot-name">🔍 Analyst</div>
                 <div class="bot-stats">
                     <div class="stat-row">
                         <span>Trades</span>
@@ -2143,7 +2381,7 @@ DASHBOARD_HTML = """
             </div>
             
             <div class="bot-card">
-                <div class="bot-name">Community/Whale</div>
+                <div class="bot-name">🐋 Whale Tracker</div>
                 <div class="bot-stats">
                     <div class="stat-row">
                         <span>Trades</span>
@@ -2188,7 +2426,7 @@ DASHBOARD_HTML = """
                 <button onclick="filterLog('buys')">Buys</button>
                 <button onclick="filterLog('sells')">Sells</button>
                 <button onclick="filterLog('errors')">Errors</button>
-                <button onclick="filterLog('skipped')">Skipped</button>
+                <button onclick="filterLog('discovered')">Discovered</button>
             </div>
             <div class="log-container" id="log-container"></div>
         </div>
@@ -2255,17 +2493,18 @@ DASHBOARD_HTML = """
                 filtered = allLogs.filter(entry => {
                     if (currentFilter === 'buys') return entry.includes('BUY');
                     if (currentFilter === 'sells') return entry.includes('Sold');
-                    if (currentFilter === 'errors') return entry.includes('SL') || entry.includes('blacklist') || entry.includes('rejected');
-                    if (currentFilter === 'skipped') return entry.includes('skipping') || entry.includes('FAIL');
+                    if (currentFilter === 'errors') return entry.includes('❌') || entry.includes('FAIL');
+                    if (currentFilter === 'discovered') return entry.includes('Discovered') || entry.includes('New');
                     return true;
                 });
             }
             
             logContainer.innerHTML = filtered.map(entry => {
                 let className = 'log-entry';
-                if (entry.includes('BUY') || entry.includes('Sold')) className += ' success';
-                else if (entry.includes('SL') || entry.includes('blacklist')) className += ' error';
-                else if (entry.includes('skipping') || entry.includes('FAIL')) className += ' warning';
+                if (entry.includes('✅') || entry.includes('💚')) className += ' success';
+                else if (entry.includes('❌') || entry.includes('💔')) className += ' error';
+                else if (entry.includes('⚠️')) className += ' warning';
+                else if (entry.includes('🔍') || entry.includes('🚀')) className += ' info';
                 return `<div class="${className}">${entry}</div>`;
             }).join('');
             logContainer.scrollTop = logContainer.scrollHeight;
@@ -2290,9 +2529,16 @@ DASHBOARD_HTML = """
             
             // Update status
             const statusEl = document.getElementById('status');
-            const isActive = data.status && data.status.toLowerCase().includes('active');
-            statusEl.className = `status-indicator ${isActive ? 'active' : 'inactive'}`;
-            statusEl.textContent = isActive ? 'SYSTEM ACTIVE' : 'SYSTEM OFFLINE';
+            if (!data.trading_enabled) {
+                statusEl.className = 'status-indicator limited';
+                statusEl.textContent = 'SELLING ONLY - LOSS LIMIT';
+            } else if (data.status && data.status.toLowerCase().includes('active')) {
+                statusEl.className = 'status-indicator active';
+                statusEl.textContent = 'SYSTEM ACTIVE';
+            } else {
+                statusEl.className = 'status-indicator inactive';
+                statusEl.textContent = 'SYSTEM OFFLINE';
+            }
             
             // Update metrics
             document.getElementById('wallet').textContent = `${formatNumber(data.wallet_balance, 2)} SOL`;
@@ -2302,6 +2548,7 @@ DASHBOARD_HTML = """
             document.getElementById('positions-count').textContent = Object.keys(data.positions || {}).length;
             document.getElementById('exposure').textContent = `${formatNumber(data.exposure)} SOL`;
             document.getElementById('daily-loss').textContent = `${formatNumber(data.daily_loss)} SOL`;
+            document.getElementById('daily-loss').className = `metric-value ${data.daily_loss > 0.3 ? 'negative' : data.daily_loss > 0.1 ? 'warning' : 'negative'}`;
             
             // Update bot stats
             document.getElementById('ultra-trades').textContent = `${data.ultra_wins}/${data.ultra_total}`;
@@ -2419,7 +2666,7 @@ async def ws_handler(request):
                 "positions": positions,
                 "exposure": exposure,
                 "daily_loss": daily_loss,
-                "log": list(activity_log)[-40:],
+                "log": list(activity_log)[-100:],  # Send last 100 entries
                 "ultra_wins": ultra_wins,
                 "ultra_total": ultra_total,
                 "ultra_pl": ultra_pl,
@@ -2429,6 +2676,7 @@ async def ws_handler(request):
                 "community_wins": community_wins,
                 "community_total": community_total,
                 "community_pl": community_pl,
+                "trading_enabled": trading_enabled,  # Send trading status
             }
             
             await ws.send_str(json.dumps(data))
@@ -2447,7 +2695,9 @@ async def health_handler(request):
         "active_positions": len(positions),
         "total_pl": get_total_pl(),
         "wallet_balance": current_wallet_balance,
-        "circuit_breakers": list(api_circuit_breakers.keys())
+        "circuit_breakers": list(api_circuit_breakers.keys()),
+        "trading_enabled": trading_enabled,
+        "selling_enabled": selling_enabled,
     }
     return web.json_response(health_data)
 
@@ -2467,21 +2717,35 @@ async def run_dashboard_server():
         await asyncio.sleep(3600)  # Keep running
 
 # =====================================
-# Main Bot Event Loop - FIXED
+# Test Functions
+# =====================================
+async def test_token_processing():
+    """Test the bot with a known token"""
+    test_token = "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN"  # Jupiter token
+    logger.info("🧪 Running test token through system...")
+    
+    # Simulate token discovery
+    activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🧪 TEST: Processing {test_token}")
+    
+    # Test each handler
+    await process_token(test_token, "pumpfun")
+    
+    logger.info("🧪 Test complete - check activity log")
+
+# =====================================
+# Main Bot Event Loop
 # =====================================
 async def bot_main():
     global toxibot
     
+    # Validate environment variables
+    if not all([TELEGRAM_API_ID, TELEGRAM_API_HASH, TELEGRAM_STRING_SESSION]):
+        logger.error("Missing Telegram credentials! Set TELEGRAM_API_ID, TELEGRAM_API_HASH, and TELEGRAM_STRING_SESSION")
+        return
+    
     # Initialize database
     init_database()
     load_positions()
-    
-    # Test Bitquery access
-    if BITQUERY_API_KEY and BITQUERY_API_KEY != "disabled":
-        has_solana = await test_bitquery_solana_access()
-        if not has_solana:
-            logger.warning("Disabling Bitquery - no Solana access on free tier")
-            # Don't start Bitquery feed
     
     # Connect to ToxiBot
     toxibot = ToxiBotClient(
@@ -2492,12 +2756,13 @@ async def bot_main():
     )
     await toxibot.connect()
     
-    # Start feeds
+    # Start monitoring tasks
     feeds = [
-        update_position_prices_and_wallet(),
+        update_position_prices_and_wallet(),  # CONSTANTLY MONITORS PRICES
         risk_management_monitor(),
         update_trading_parameters(),
         monitor_wallet_with_helius(),
+        monitor_whale_wallets(),  # Monitor whale wallets
         community_trade_manager(toxibot),
     ]
     
@@ -2506,14 +2771,18 @@ async def bot_main():
         lambda token, src: asyncio.create_task(process_token(token, src))
     ))
     
-    # Only start Bitquery if we have Solana access
+    # Start BitQuery streaming if available
     if BITQUERY_API_KEY and BITQUERY_API_KEY != "disabled":
-        # This will likely fail on free tier
-        asyncio.create_task(bitquery_polling_feed(
+        asyncio.create_task(bitquery_streaming_feed(
             lambda token, src, info=None: asyncio.create_task(process_token(token, src))
         ))
-    else:
-        logger.info("Bitquery disabled - using PumpPortal and DexScreener only")
+        logger.info("✅ BitQuery Solana streaming enabled")
+    
+    # Start DexScreener backup monitor
+    asyncio.create_task(dexscreener_new_pairs_monitor())
+    
+    # Optional: Run test
+    # await test_token_processing()
     
     await asyncio.gather(*feeds)
 
@@ -2522,13 +2791,10 @@ async def bot_main():
 # =====================================
 async def cleanup():
     """Clean up resources on exit"""
-    global session_pool
-    
     logger.info("Shutting down...")
     
     # Close HTTP session
-    if session_pool and not session_pool.closed:
-        await session_pool.close()
+    await cleanup_session()
     
     # Save final positions
     for token, pos in positions.items():
