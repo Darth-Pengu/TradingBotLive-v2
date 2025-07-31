@@ -882,7 +882,7 @@ async def bitquery_streaming_feed(callback):
                             # Send ping to keep connection alive
                             await ws.ping()
                             
-                    except websockets.exceptions.ConnectionClosed:
+        except websockets.exceptions.ConnectionClosed:
                     logger.warning("BitQuery WebSocket closed")
                     break
                     
