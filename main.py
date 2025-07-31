@@ -584,90 +584,183 @@ async def pumpportal_newtoken_feed(callback):
             await asyncio.sleep(wait_time)
 
 async def bitquery_polling_feed(callback):
-    """Bitquery V2 REST API polling for trending tokens (free plan, correct endpoint)"""
+    """Bitquery V2 REST API polling for trending tokens (free tier compatible)"""
     if not BITQUERY_API_KEY or BITQUERY_API_KEY == "disabled":
         logger.warning("Bitquery feed disabled - set BITQUERY_API_KEY='disabled' to silence this")
         return
 
-    url = "https://streaming.bitquery.io/graphql"  # Correct V2 REST endpoint
-    # V2 query: capitalize Solana, DEXTrades, Block, Trade, etc.
+    # Use the standard V2 endpoint (not streaming/EAP)
+    url = "https://graphql.bitquery.io/ide"  # Standard GraphQL endpoint for free tier
+    
+    # Free tier compatible query - no Solana EAP access
+    # Using Ethereum DEX trades as an example (adjust based on your needs)
     query = """
     query {
-        Solana {
-            DEXTrades(
-                limit: {count: 20}
-                orderBy: {descending: Block_Time}
-                where: {
-                    Trade: {
-                        Buy: {
-                            Currency: {MintAddress: {notIn: ["So11111111111111111111111111111111111111112"]}}
-                            PriceInUSD: {gt: 0.00001}
-                        }
-                    }
-                    Transaction: {Result: {Success: true}}
-                }
+        ethereum(network: ethereum) {
+            dexTrades(
+                options: {limit: 20, desc: "block.timestamp.time"}
+                smartContractAddress: {is: "0x7a250d5630b4cf539739df2c5dacb4c659f2488d"}
             ) {
-                Block { Time }
-                Trade {
-                    Buy {
-                        Currency { MintAddress Symbol Name }
-                        PriceInUSD Amount
-                    }
-                    Dex { ProtocolName }
+                transaction {
+                    hash
                 }
-                Transaction { Signature }
+                block {
+                    timestamp {
+                        time(format: "%Y-%m-%d %H:%M:%S")
+                    }
+                }
+                buyAmount
+                buyAmountInUsd: buyAmount(in: USD)
+                buyCurrency {
+                    address
+                    symbol
+                    name
+                }
+                sellAmount
+                sellAmountInUsd: sellAmount(in: USD)
+                sellCurrency {
+                    address
+                    symbol
+                    name
+                }
             }
         }
     }
     """
+    
     headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {BITQUERY_API_KEY}"
+        "X-API-KEY": BITQUERY_API_KEY  # Note: Free tier uses X-API-KEY header
     }
+    
     seen_tokens = set()
+    
     while True:
         try:
             async with get_session() as session:
                 async def _fetch():
                     async with session.post(url, json={"query": query}, headers=headers) as resp:
                         if resp.status == 401:
-                            logger.error("Bitquery authentication failed. Check your API key or set BITQUERY_API_KEY='disabled'")
+                            logger.error("Bitquery authentication failed. Check your API key")
                             trip_circuit_breaker("bitquery")
                             return
+                        
+                        if resp.status == 429:
+                            logger.warning("Bitquery rate limit reached")
+                            await asyncio.sleep(60)  # Wait a minute
+                            return
+                            
                         if resp.status != 200:
                             text = await resp.text()
-                            raise Exception(f"HTTP {resp.status}: {text}")
+                            logger.error(f"Bitquery HTTP {resp.status}: {text}")
+                            return
+                        
                         data = await resp.json()
+                        
                         if "errors" in data:
                             logger.error(f"Bitquery GraphQL errors: {data['errors']}")
+                            # Check if it's a Solana access error
+                            error_msg = str(data['errors'])
+                            if "Solana" in error_msg or "EAP" in error_msg:
+                                logger.error("Solana access not available on free tier. Disabling Bitquery.")
+                                trip_circuit_breaker("bitquery")
+                                return
+                            await asyncio.sleep(60)
                             return
-                        trades = data.get("data", {}).get("Solana", {}).get("DEXTrades", [])
-                        new_tokens = 0
-                        for trade in trades:
-                            buy = trade.get("Trade", {}).get("Buy", {})
-                            currency = buy.get("Currency", {})
-                            mint = currency.get("MintAddress")
-                            if mint and mint not in seen_tokens:
-                                seen_tokens.add(mint)
-                                new_tokens += 1
-                                token_info = {
-                                    "mint": mint,
-                                    "symbol": currency.get("Symbol"),
-                                    "name": currency.get("Name"),
-                                    "price": buy.get("PriceInUSD"),
-                                    "amount": buy.get("Amount"),
-                                    "time": trade.get("Block", {}).get("Time"),
-                                    "dex": trade.get("Trade", {}).get("Dex", {}).get("ProtocolName"),
-                                    "tx": trade.get("Transaction", {}).get("Signature"),
-                                }
-                                await callback(mint, "bitquery", token_info)
-                        if new_tokens:
-                            logger.info(f"Bitquery: Found {new_tokens} new trending tokens")
+                        
+                        # Process Ethereum DEX trades (since Solana isn't available on free tier)
+                        trades = data.get("data", {}).get("ethereum", {}).get("dexTrades", [])
+                        
+                        if trades:
+                            logger.info(f"Bitquery: Found {len(trades)} Ethereum DEX trades")
+                            
+                            # Note: This won't work for Solana tokens on free tier
+                            # You'll need to either:
+                            # 1. Upgrade to paid tier for Solana access
+                            # 2. Disable Bitquery for your Solana bot
+                            # 3. Use alternative data sources
+                            
+                            for trade in trades:
+                                buy_currency = trade.get("buyCurrency", {})
+                                token_address = buy_currency.get("address")
+                                
+                                if token_address and token_address not in seen_tokens:
+                                    seen_tokens.add(token_address)
+                                    # This would only work for Ethereum tokens
+                                    logger.warning("Bitquery free tier doesn't support Solana - skipping token callback")
+                
                 await retry_with_backoff(_fetch)
+                
         except Exception as e:
             logger.error(f"Bitquery API error: {e}")
             trip_circuit_breaker("bitquery")
-        await asyncio.sleep(10)  # Poll every 10 seconds
+        
+        # Poll every 60 seconds for free tier (be respectful)
+        await asyncio.sleep(60)
+
+# Alternative: Test Bitquery access level
+async def test_bitquery_solana_access():
+    """Test if your Bitquery account has Solana access"""
+    
+    if not BITQUERY_API_KEY or BITQUERY_API_KEY == "disabled":
+        return False
+    
+    url = "https://graphql.bitquery.io/ide"
+    
+    # Try a simple Solana query
+    query = """
+    query {
+        solana {
+            blocks(limit: 1) {
+                height
+                timestamp {
+                    time
+                }
+            }
+        }
+    }
+    """
+    
+    headers = {
+        "Content-Type": "application/json",
+        "X-API-KEY": BITQUERY_API_KEY
+    }
+    
+    try:
+        async with get_session() as session:
+            async with session.post(url, json={"query": query}, headers=headers) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    
+                    if "errors" in data:
+                        error_msg = str(data['errors'])
+                        if "subscription" in error_msg.lower() or "upgrade" in error_msg.lower():
+                            logger.error("❌ Solana access requires paid subscription")
+                            return False
+                        else:
+                            logger.error(f"❌ Solana query error: {error_msg}")
+                            return False
+                    
+                    if "data" in data and "solana" in data["data"]:
+                        logger.info("✅ You have Solana access on Bitquery!")
+                        return True
+                else:
+                    logger.error(f"❌ HTTP {resp.status} - No Solana access")
+                    return False
+                    
+    except Exception as e:
+        logger.error(f"❌ Error testing Solana access: {e}")
+        return False
+
+# Recommended: Disable Bitquery for Solana bot
+async def bitquery_polling_feed_disabled(callback):
+    """Disabled Bitquery feed for free tier users"""
+    logger.info("Bitquery feed disabled - free tier doesn't support Solana")
+    logger.info("Consider using PumpPortal WebSocket or DexScreener REST API instead")
+    
+    # Don't run the polling loop
+    while False:
+        await asyncio.sleep(3600)
 
 # =====================================
 # Community Vote Aggregator
