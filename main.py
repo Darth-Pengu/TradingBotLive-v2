@@ -1,1319 +1,4 @@
-        
-        body { 
-            background: #000; 
-            color: #00ffff; 
-            font-family: 'Orbitron', monospace; 
-            overflow-x: hidden; 
-            position: relative; 
-        }
-        
-        body::before { 
-            content: ""; 
-            position: fixed; 
-            top: 0; 
-            left: 0; 
-            width: 100%; 
-            height: 100%;
-            background-image: 
-                linear-gradient(rgba(0, 255, 255, 0.1) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(0, 255, 255, 0.1) 1px, transparent 1px);
-            background-size: 50px 50px; 
-            z-index: -2; 
-        }
-        
-        body::after { 
-            content: ""; 
-            position: fixed; 
-            top: 0; 
-            left: 0; 
-            width: 100%; 
-            height: 100%;
-            background: repeating-linear-gradient(
-                0deg, transparent, transparent 2px, rgba(0, 255, 255, 0.03) 2px, rgba(0, 255, 255, 0.03) 4px
-            ); 
-            pointer-events: none; 
-            z-index: 1; 
-        }
-        
-        .container { 
-            max-width: 1400px; 
-            margin: 0 auto; 
-            padding: 20px; 
-            position: relative; 
-            z-index: 2; 
-        }
-        
-        .header { 
-            text-align: center; 
-            margin-bottom: 30px; 
-            position: relative; 
-            padding: 30px 0; 
-        }
-        
-        .header::before { 
-            content: ""; 
-            position: absolute; 
-            top: 0; 
-            left: -50%; 
-            right: -50%; 
-            height: 1px;
-            background: linear-gradient(90deg, transparent, #00ffff, transparent); 
-            animation: scan 3s linear infinite; 
-        }
-        
-        @keyframes scan { 
-            0% { transform: translateX(-100%); } 
-            100% { transform: translateX(100%); } 
-        }
-        
-        h1 { 
-            font-size: 4em; 
-            font-weight: 900; 
-            text-transform: uppercase; 
-            letter-spacing: 0.1em;
-            text-shadow: 0 0 10px #00ffff, 0 0 20px #00ffff, 0 0 30px #00ffff, 0 0 40px #0088ff;
-            animation: pulse-glow 2s ease-in-out infinite; 
-        }
-        
-        @keyframes pulse-glow { 
-            0%, 100% { opacity: 1; } 
-            50% { opacity: 0.8; } 
-        }
-        
-        .status-indicator { 
-            display: inline-block; 
-            padding: 10px 30px; 
-            margin-top: 20px; 
-            border: 2px solid #00ff00;
-            background: rgba(0, 255, 0, 0.1); 
-            font-weight: 700; 
-            text-transform: uppercase; 
-            position: relative; 
-            overflow: hidden; 
-        }
-        
-        .status-indicator.active { 
-            color: #00ff00; 
-            text-shadow: 0 0 10px #00ff00; 
-        }
-        
-        .status-indicator.inactive { 
-            border-color: #ff0066; 
-            background: rgba(255, 0, 102, 0.1);
-            color: #ff0066; 
-            text-shadow: 0 0 10px #ff0066; 
-        }
-        
-        .status-indicator::before { 
-            content: ""; 
-            position: absolute; 
-            top: 0; 
-            left: -100%; 
-            width: 100%; 
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent); 
-            animation: sweep 3s linear infinite; 
-        }
-        
-        @keyframes sweep { 
-            0% { left: -100%; } 
-            100% { left: 100%; } 
-        }
-        
-        /* Glassmorphism cards */
-        .glass-card {
-            background: linear-gradient(135deg, var(--glass-bg), rgba(255,255,255,0.02));
-            backdrop-filter: blur(15px);
-            border: 1px solid var(--glass-border);
-            border-radius: 12px;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.1);
-            padding: 20px;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-        
-        .glass-card:hover {
-            transform: translateY(-4px);
-            box-shadow: 0 12px 40px rgba(0,212,255,0.3);
-            border-color: var(--tron-cyan);
-        }
-        
-        .metrics-grid { 
-            display: grid; 
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); 
-            gap: 20px; 
-            margin-bottom: 30px; 
-        }
-        
-        .metric-label { 
-            font-size: 0.9em; 
-            color: #0088ff; 
-            text-transform: uppercase; 
-            letter-spacing: 0.1em; 
-        }
-        
-        .metric-value { 
-            font-size: 1.8em; 
-            font-weight: 700; 
-            margin-top: 10px; 
-            font-family: 'Share Tech Mono', monospace; 
-        }
-        
-        .metric-value.positive { color: #00ff00; }
-        .metric-value.negative { color: #ff0066; }
-        
-        /* Neon glow effects */
-        .neon-profit { color: var(--success-glow); text-shadow: var(--neon-shadow); }
-        .neon-loss { color: var(--danger-pulse); text-shadow: var(--neon-shadow); }
-        .neon-warning { color: var(--warning-amber); text-shadow: var(--neon-shadow); }
-        
-        .pulse-glow {
-            animation: pulse-intensity 2s ease-in-out infinite;
-        }
-        
-        @keyframes pulse-intensity {
-            0%, 100% { opacity: 1; filter: brightness(1); }
-            50% { opacity: 0.8; filter: brightness(1.2); }
-        }
-        
-        /* Advanced Metrics Gauges */
-        .gauge-container {
-            position: relative;
-            width: 120px;
-            height: 120px;
-            margin: 0 auto;
-        }
-        
-        .gauge-arc {
-            width: 100%;
-            height: 100%;
-            border-radius: 50%;
-            background: conic-gradient(var(--gauge-color) var(--gauge-fill), rgba(255,255,255,0.1) 0);
-            mask: radial-gradient(circle at center, transparent 60%, black 60%);
-            -webkit-mask: radial-gradient(circle at center, transparent 60%, black 60%);
-        }
-        
-        .gauge-value {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            font-size: 1.5em;
-            font-weight: 700;
-        }
-        
-        .gauge-label {
-            position: absolute;
-            bottom: -20px;
-            left: 50%;
-            transform: translateX(-50%);
-            font-size: 0.8em;
-            color: #0088ff;
-            white-space: nowrap;
-        }
-        
-        /* Achievement System */
-        .achievements-bar {
-            display: flex;
-            gap: 15px;
-            padding: 20px;
-            margin-bottom: 30px;
-            overflow-x: auto;
-            background: rgba(0, 20, 40, 0.6);
-            border: 1px solid #0088ff;
-            border-radius: 10px;
-        }
-        
-        .achievement-badge {
-            background: var(--glass-bg);
-            border: 2px solid var(--glass-border);
-            border-radius: 10px;
-            padding: 15px;
-            text-align: center;
-            min-width: 120px;
-            transition: all 0.3s ease;
-            cursor: pointer;
-            position: relative;
-        }
-        
-        .achievement-badge.earned {
-            border-color: var(--success-glow);
-            animation: badge-glow 3s ease-in-out infinite;
-        }
-        
-        .achievement-badge.locked {
-            opacity: 0.4;
-            filter: grayscale(100%);
-        }
-        
-        .achievement-badge.progress {
-            border-color: var(--warning-amber);
-        }
-        
-        @keyframes badge-glow {
-            0%, 100% { box-shadow: 0 0 10px rgba(0,255,136,0.3); }
-            50% { box-shadow: 0 0 20px rgba(0,255,136,0.6); }
-        }
-        
-        .badge-icon {
-            font-size: 2em;
-            margin-bottom: 5px;
-        }
-        
-        .badge-name {
-            font-size: 0.9em;
-            font-weight: 700;
-            color: #00ffff;
-        }
-        
-        .progress-bar {
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            height: 3px;
-            background: rgba(255,255,255,0.1);
-            border-radius: 0 0 8px 8px;
-            overflow: hidden;
-        }
-        
-        .progress-fill {
-            height: 100%;
-            background: var(--warning-amber);
-            transition: width 0.3s ease;
-        }
-        
-        .achievement-unlock {
-            animation: unlock-celebration 1s ease-out;
-        }
-        
-        @keyframes unlock-celebration {
-            0% { transform: scale(1) rotate(0deg); }
-            50% { transform: scale(1.2) rotate(10deg); box-shadow: 0 0 30px var(--success-glow); }
-            100% { transform: scale(1) rotate(0deg); }
-        }
-        
-        /* Personality Leaderboard */
-        .leaderboard-section {
-            margin-bottom: 30px;
-        }
-        
-        .leaderboard-title {
-            font-size: 1.5em;
-            font-weight: 700;
-            color: #00ffff;
-            margin-bottom: 20px;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
-            text-align: center;
-        }
-        
-        .leaderboard-tabs {
-            display: flex;
-            justify-content: center;
-            gap: 10px;
-            margin-bottom: 20px;
-        }
-        
-        .tab {
-            padding: 8px 20px;
-            background: rgba(0, 40, 80, 0.8);
-            border: 1px solid #0088ff;
-            color: #00ffff;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            font-family: 'Orbitron', monospace;
-            font-size: 0.9em;
-            text-transform: uppercase;
-        }
-        
-        .tab:hover, .tab.active {
-            background: rgba(0, 255, 255, 0.2);
-            border-color: #00ff00;
-            transform: translateY(-2px);
-        }
-        
-        .podium-container {
-            display: flex;
-            justify-content: center;
-            align-items: end;
-            gap: 20px;
-            margin: 30px 0;
-        }
-        
-        .podium-place {
-            background: var(--glass-bg);
-            border: 2px solid var(--glass-border);
-            border-radius: 15px;
-            padding: 20px;
-            text-align: center;
-            min-width: 140px;
-            transition: all 0.3s ease;
-        }
-        
-        .podium-place.winner {
-            transform: scale(1.1);
-            border-color: var(--success-glow);
-            box-shadow: 0 0 30px rgba(0,255,136,0.3);
-        }
-        
-        .bot-avatar {
-            font-size: 2.5em;
-            margin: 10px 0;
-        }
-        
-        .bot-name {
-            font-size: 1.1em;
-            font-weight: 700;
-            color: #00ffff;
-            margin-bottom: 10px;
-        }
-        
-        .performance-score {
-            font-size: 1.4em;
-            font-weight: 700;
-            font-family: 'Share Tech Mono', monospace;
-        }
-        
-        /* Detailed Rankings */
-        .detailed-rankings {
-            margin-top: 20px;
-        }
-        
-        .ranking-metrics {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-        }
-        
-        .metric-column {
-            background: rgba(0, 20, 40, 0.6);
-            border: 1px solid #0088ff;
-            border-radius: 10px;
-            padding: 15px;
-        }
-        
-        .metric-column h4 {
-            color: #00ffff;
-            margin-bottom: 15px;
-            font-size: 1.1em;
-            text-align: center;
-        }
-        
-        .ranking-list {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-        
-        .ranking-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 8px;
-            background: rgba(0, 40, 80, 0.3);
-            border-radius: 5px;
-            font-family: 'Share Tech Mono', monospace;
-        }
-        
-        .bots-section {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
-        }
-        
-        .bot-card {
-            background: rgba(0, 40, 80, 0.6);
-            border: 2px solid #0088ff;
-            padding: 20px;
-            position: relative;
-        }
-        
-        .bot-stats {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-        
-        .stat-row {
-            display: flex;
-            justify-content: space-between;
-            font-family: 'Share Tech Mono', monospace;
-        }
-        
-        .stat-row span:first-child {
-            color: #0088ff;
-        }
-        
-        .stat-row span:last-child {
-            color: #00ffff;
-            font-weight: 700;
-        }
-        
-        /* Risk indicators */
-        .risk-warning {
-            background: rgba(255, 0, 102, 0.1);
-            border: 2px solid #ff0066;
-            padding: 15px;
-            margin: 20px 0;
-            text-align: center;
-            font-weight: 700;
-            animation: pulse 2s infinite;
-        }
-        
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.7; }
-        }
-        
-        .positions-section {
-            margin-bottom: 30px;
-        }
-        
-        .section-title {
-            font-size: 1.5em;
-            font-weight: 700;
-            color: #00ffff;
-            margin-bottom: 20px;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
-        }
-        
-        .positions-table {
-            width: 100%;
-            border-collapse: collapse;
-            background: rgba(0, 20, 40, 0.6);
-        }
-        
-        .positions-table th,
-        .positions-table td {
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid rgba(0, 255, 255, 0.2);
-        }
-        
-        .positions-table th {
-            background: rgba(0, 40, 80, 0.8);
-            color: #0088ff;
-            font-weight: 700;
-            text-transform: uppercase;
-            font-size: 0.9em;
-        }
-        
-        .positions-table td {
-            font-family: 'Share Tech Mono', monospace;
-        }
-        
-        .positions-table tr:hover {
-            background: rgba(0, 255, 255, 0.05);
-        }
-        
-        .positive { color: #00ff00; }
-        .negative { color: #ff0066; }
-        
-        /* Position alerts */
-        .alert-profit {
-            animation: blink-green 1s infinite;
-        }
-        
-        .alert-loss {
-            animation: blink-red 1s infinite;
-        }
-        
-        .alert-old {
-            animation: blink-yellow 1s infinite;
-        }
-        
-        @keyframes blink-green {
-            0%, 50% { background: rgba(0, 255, 0, 0.1); }
-            51%, 100% { background: transparent; }
-        }
-        
-        @keyframes blink-red {
-            0%, 50% { background: rgba(255, 0, 102, 0.1); }
-            51%, 100% { background: transparent; }
-        }
-        
-        @keyframes blink-yellow {
-            0%, 50% { background: rgba(255, 170, 0, 0.1); }
-            51%, 100% { background: transparent; }
-        }
-        
-        /* Quick stats bar */
-        .quick-stats {
-            display: flex;
-            justify-content: space-around;
-            padding: 15px;
-            margin-bottom: 20px;
-            background: rgba(0, 20, 40, 0.6);
-            border: 1px solid #0088ff;
-            font-family: 'Share Tech Mono', monospace;
-        }
-        
-        .quick-stats span {
-            color: #0088ff;
-        }
-        
-        .quick-stats span span {
-            color: #00ffff;
-            font-weight: 700;
-        }
-        
-        /* Connection status */
-        .connection-status {
-            position: absolute;
-            top: 10px;
-            right: 20px;
-            font-size: 0.9em;
-            font-family: 'Share Tech Mono', monospace;
-        }
-        
-        .connection-status.connected {
-            color: #00ff00;
-        }
-        
-        .connection-status.disconnected {
-            color: #ff0066;
-            animation: pulse 1s infinite;
-        }
-        
-        /* Log filters */
-        .log-filters {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 10px;
-        }
-        
-        .log-filters button {
-            padding: 8px 16px;
-            background: rgba(0, 40, 80, 0.8);
-            border: 1px solid #0088ff;
-            color: #00ffff;
-            font-family: 'Orbitron', monospace;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            text-transform: uppercase;
-            font-size: 0.8em;
-        }
-        
-        .log-filters button:hover {
-            background: rgba(0, 80, 160, 0.8);
-            border-color: #00ffff;
-            transform: translateY(-2px);
-        }
-        
-        .log-filters button.active {
-            background: rgba(0, 255, 255, 0.2);
-            border-color: #00ff00;
-        }
-        
-        .log-section {
-            margin-top: 40px;
-        }
-        
-        .log-container {
-            background: rgba(0, 10, 20, 0.9);
-            border: 1px solid #0088ff;
-            padding: 20px;
-            height: 400px;
-            overflow-y: auto;
-            font-family: 'Share Tech Mono', monospace;
-            font-size: 0.9em;
-        }
-        
-        .log-entry {
-            margin-bottom: 8px;
-            padding: 4px 8px;
-            border-left: 3px solid #0088ff;
-        }
-        
-        .log-entry.success {
-            border-left-color: #00ff00;
-            color: #00ff00;
-        }
-        
-        .log-entry.error {
-            border-left-color: #ff0066;
-            color: #ff0066;
-        }
-        
-        .log-entry.warning {
-            border-left-color: #ffaa00;
-            color: #ffaa00;
-        }
-        
-        .log-entry.achievement {
-            border-left-color: #FFD700;
-            color: #FFD700;
-            font-weight: 700;
-        }
-        
-        ::-webkit-scrollbar {
-            width: 12px;
-        }
-        
-        ::-webkit-scrollbar-track {
-            background: rgba(0, 20, 40, 0.8);
-            border: 1px solid #0088ff;
-        }
-        
-        ::-webkit-scrollbar-thumb {
-            background: #0088ff;
-            border: 1px solid #00ffff;
-        }
-        
-        ::-webkit-scrollbar-thumb:hover {
-            background: #00ffff;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>TOXIBOT v2.0</h1>
-            <div id="status" class="status-indicator active">SYSTEM ACTIVE</div>
-            <div class="connection-status connected" id="connection-status">● Connected</div>
-        </div>
-        
-        <div id="risk-warning" class="risk-warning" style="display: none;">
-            ⚠️ APPROACHING RISK LIMITS ⚠️
-        </div>
-        
-        <!-- Achievement System -->
-        <div class="achievements-bar" id="achievements-bar">
-            <!-- Populated by JS -->
-        </div>
-        
-        <div class="metrics-grid">
-            <div class="glass-card">
-                <div class="metric-label">Wallet Balance</div>
-                <div class="metric-value positive" id="wallet">0.00 SOL</div>
-            </div>
-            <div class="glass-card">
-                <div class="metric-label">Total P/L</div>
-                <div class="metric-value" id="total-pl">+0.000</div>
-            </div>
-            <div class="glass-card">
-                <div class="metric-label">Win Rate</div>
-                <div class="metric-value" id="winrate">0.0%</div>
-            </div>
-            <div class="glass-card">
-                <div class="metric-label">Sharpe Ratio</div>
-                <div id="sharpe-gauge">
-                    <div class="gauge-container">
-                        <div class="gauge-arc" style="--gauge-color: #00ff88; --gauge-fill: 0%"></div>
-                        <div class="gauge-value neon-profit">0.00</div>
-                        <div class="gauge-label">Risk-Adjusted</div>
-                    </div>
-                </div>
-            </div>
-            <div class="glass-card">
-                <div class="metric-label">Max Drawdown</div>
-                <div class="metric-value neon-loss" id="max-drawdown">0.0%</div>
-                <div style="font-size: 0.8em; color: #0088ff; margin-top: 5px;">
-                    Recovery: <span id="recovery">100%</span>
-                </div>
-            </div>
-            <div class="glass-card">
-                <div class="metric-label">Profit Factor</div>
-                <div class="metric-value" id="profit-factor">0.00</div>
-                <div style="font-size: 0.8em; color: #0088ff; margin-top: 5px;">
-                    Win/Loss Ratio
-                </div>
-            </div>
-            <div class="glass-card">
-                <div class="metric-label">Active Positions</div>
-                <div class="metric-value" id="positions-count">0</div>
-            </div>
-            <div class="glass-card">
-                <div class="metric-label">Exposure</div>
-                <div class="metric-value" id="exposure">0.000 SOL</div>
-                <div style="font-size: 0.8em; color: #0088ff; margin-top: 5px;">
-                    Limit: <span id="exposure-limit">0.000</span> SOL
-                </div>
-            </div>
-            <div class="glass-card">
-                <div class="metric-label">Daily P/L</div>
-                <div class="metric-value" id="daily-pl">0.000 SOL</div>
-                <div style="font-size: 0.8em; color: #ff0066; margin-top: 5px;">
-                    Stop Loss: <span id="daily-limit">0.000</span> SOL
-                </div>
-            </div>
-        </div>
-        
-        <div class="quick-stats">
-            <span>🔥 Best Trade: <span id="best-trade">+0.000</span></span>
-            <span>💀 Worst Trade: <span id="worst-trade">-0.000</span></span>
-            <span>📊 Today's Trades: <span id="todays-trades">0</span></span>
-            <span>⚡ Win Streak: <span id="win-streak">0</span></span>
-        </div>
-        
-        <!-- Personality Leaderboard with Tabs -->
-        <div class="leaderboard-section">
-            <h2 class="leaderboard-title">🏆 Bot Personality Rankings</h2>
-            <div class="leaderboard-tabs">
-                <button class="tab active" onclick="showLeaderboard('daily')">24H</button>
-                <button class="tab" onclick="showLeaderboard('weekly')">7D</button>
-                <button class="tab" onclick="showLeaderboard('alltime')">All Time</button>
-            </div>
-            <div class="podium-container" id="personality-podium">
-                <!-- Will be populated by JS -->
-            </div>
-            <div class="detailed-rankings" id="detailed-rankings" style="display: none;">
-                <div class="ranking-metrics">
-                    <div class="metric-column">
-                        <h4>Risk-Adjusted Returns</h4>
-                        <div class="ranking-list" id="sharpe-rankings"></div>
-                    </div>
-                    <div class="metric-column">
-                        <h4>Speed Metrics</h4>
-                        <div class="ranking-list" id="speed-rankings"></div>
-                    </div>
-                    <div class="metric-column">
-                        <h4>Accuracy Score</h4>
-                        <div class="ranking-list" id="accuracy-rankings"></div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <div class="bots-section">
-            <div class="bot-card glass-card">
-                <div class="bot-name">Speed Demon ⚡</div>
-                <div class="bot-stats">
-                    <div class="stat-row">
-                        <span>Trades</span>
-                        <span id="ultra-trades">0/0</span>
-                    </div>
-                    <div class="stat-row">
-                        <span>Win Rate</span>
-                        <span id="ultra-winrate">0%</span>
-                    </div>
-                    <div class="stat-row">
-                        <span>P/L</span>
-                        <span id="ultra-pl">+0.000</span>
-                    </div>
-                    <div class="stat-row">
-                        <span>Daily Limit</span>
-                        <span id="ultra-limit">0/20</span>
-                    </div>
-                    <div class="stat-row">
-                        <span>Avg Time</span>
-                        <span id="ultra-avg-time">0s</span>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="bot-card glass-card">
-                <div class="bot-name">Analyst 🔍</div>
-                <div class="bot-stats">
-                    <div class="stat-row">
-                        <span>Trades</span>
-                        <span id="scalper-trades">0/0</span>
-                    </div>
-                    <div class="stat-row">
-                        <span>Win Rate</span>
-                        <span id="scalper-winrate">0%</span>
-                    </div>
-                    <div class="stat-row">
-                        <span>P/L</span>
-                        <span id="scalper-pl">+0.000</span>
-                    </div>
-                    <div class="stat-row">
-                        <span>Active Positions</span>
-                        <span id="scalper-positions">0/20</span>
-                    </div>
-                    <div class="stat-row">
-                        <span>Avg Return</span>
-                        <span id="scalper-avg-return">0%</span>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="bot-card glass-card">
-                <div class="bot-name">Whale Tracker 🐋</div>
-                <div class="bot-stats">
-                    <div class="stat-row">
-                        <span>Trades</span>
-                        <span id="community-trades">0/0</span>
-                    </div>
-                    <div class="stat-row">
-                        <span>Win Rate</span>
-                        <span id="community-winrate">0%</span>
-                    </div>
-                    <div class="stat-row">
-                        <span>P/L</span>
-                        <span id="community-pl">+0.000</span>
-                    </div>
-                    <div class="stat-row">
-                        <span>Daily Limit</span>
-                        <span id="community-limit">0/10</span>
-                    </div>
-                    <div class="stat-row">
-                        <span>Follow Success</span>
-                        <span id="community-follow">0%</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <div class="positions-section">
-            <h2 class="section-title">Active Positions</h2>
-            <table class="positions-table">
-                <thead>
-                    <tr>
-                        <th>Token</th>
-                        <th>Bot</th>
-                        <th>Size</th>
-                        <th>Entry</th>
-                        <th>Current</th>
-                        <th>P/L</th>
-                        <th>P/L %</th>
-                        <th>Sold</th>
-                        <th>Age</th>
-                    </tr>
-                </thead>
-                <tbody id="positions-tbody"></tbody>
-            </table>
-        </div>
-        
-        <div class="log-section">
-            <h2 class="section-title">System Activity</h2>
-            <div class="log-filters">
-                <button class="active" onclick="filterLog('all')">All</button>
-                <button onclick="filterLog('buys')">Buys</button>
-                <button onclick="filterLog('sells')">Sells</button>
-                <button onclick="filterLog('errors')">Errors</button>
-                <button onclick="filterLog('achievements')">Achievements</button>
-            </div>
-            <div class="log-container" id="log-container"></div>
-        </div>
-    </div>
-    
-    <script>
-        // Fix WebSocket URL for Railway deployment
-        const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${wsProtocol}//${location.host}/ws`;
-        console.log('Connecting to WebSocket:', wsUrl);
-        const ws = new WebSocket(wsUrl);
-        
-        let lastUpdate = Date.now();
-        let allLogs = [];
-        let currentFilter = 'all';
-        let bestTrade = 0;
-        let worstTrade = 0;
-        let todaysTrades = 0;
-        let winStreak = 0;
-        let currentLeaderboardView = 'daily';
-        
-        ws.onopen = function() {
-            console.log('WebSocket connected!');
-            document.getElementById('connection-status').className = 'connection-status connected';
-            document.getElementById('connection-status').textContent = '● Connected';
-        };
-        
-        ws.onerror = function(error) {
-            console.error('WebSocket error:', error);
-            document.getElementById('connection-status').className = 'connection-status disconnected';
-            document.getElementById('connection-status').textContent = '● Connection Error';
-        };
-        
-        function formatNumber(num, decimals = 3) {
-            return parseFloat(num || 0).toFixed(decimals);
-        }
-        
-        function formatAge(seconds) {
-            if (!seconds) return '';
-            const d = Math.floor(seconds / 86400);
-            const h = Math.floor((seconds % 86400) / 3600);
-            const m = Math.floor((seconds % 3600) / 60);
-            const s = Math.floor(seconds % 60);
-            
-            const parts = [];
-            if (d) parts.push(`${d}d`);
-            if (h) parts.push(`${h}h`);
-            if (m) parts.push(`${m}m`);
-            if (s && !d && !h) parts.push(`${s}s`);
-            
-            return parts.join(' ') || '0s';
-        }
-        
-        function filterLog(filter) {
-            currentFilter = filter;
-            document.querySelectorAll('.log-filters button').forEach(btn => btn.classList.remove('active'));
-            event.target.classList.add('active');
-            updateLogDisplay();
-        }
-        
-        function updateLogDisplay() {
-            const logContainer = document.getElementById('log-container');
-            let filtered = allLogs;
-            
-            if (currentFilter !== 'all') {
-                filtered = allLogs.filter(entry => {
-                    if (currentFilter === 'buys') return entry.includes('BUY');
-                    if (currentFilter === 'sells') return entry.includes('Sold');
-                    if (currentFilter === 'errors') return entry.includes('SL') || entry.includes('blacklist') || entry.includes('rejected') || entry.includes('EMERGENCY');
-                    if (currentFilter === 'achievements') return entry.includes('[ACHIEVEMENT]');
-                    return true;
-                });
-            }
-            
-            logContainer.innerHTML = filtered.map(entry => {
-                let className = 'log-entry';
-                if (entry.includes('BUY') || entry.includes('Sold')) className += ' success';
-                else if (entry.includes('SL') || entry.includes('blacklist') || entry.includes('EMERGENCY')) className += ' error';
-                else if (entry.includes('skipping') || entry.includes('FAIL')) className += ' warning';
-                else if (entry.includes('[ACHIEVEMENT]')) className += ' achievement';
-                return `<div class="${className}">${entry}</div>`;
-            }).join('');
-            logContainer.scrollTop = logContainer.scrollHeight;
-        }
-        
-        function showLeaderboard(timeframe) {
-            currentLeaderboardView = timeframe;
-            document.querySelectorAll('.leaderboard-tabs .tab').forEach(btn => btn.classList.remove('active'));
-            event.target.classList.add('active');
-            
-            // Show/hide detailed rankings based on timeframe
-            const detailedRankings = document.getElementById('detailed-rankings');
-            if (timeframe === 'alltime') {
-                detailedRankings.style.display = 'block';
-            } else {
-                detailedRankings.style.display = 'none';
-            }
-        }
-        
-        function updateAchievements(achievements) {
-            const container = document.getElementById('achievements-bar');
-            const html = Object.entries(achievements).map(([key, achievement]) => {
-                const isLocked = !achievement.unlocked;
-                const hasProgress = achievement.progress > 0 && achievement.progress < 100;
-                
-                return `
-                    <div class="achievement-badge ${achievement.unlocked ? 'earned' : isLocked ? 'locked' : 'progress'}" 
-                         title="${achievement.description}">
-                        <div class="badge-icon">${achievement.icon}</div>
-                        <div class="badge-name">${achievement.name}</div>
-                        ${hasProgress ? `
-                            <div class="progress-bar">
-                                <div class="progress-fill" style="width: ${achievement.progress}%"></div>
-                            </div>
-                        ` : ''}
-                    </div>
-                `;
-            }).join('');
-            
-            container.innerHTML = html;
-            
-            // Check for newly unlocked achievements
-            Object.entries(achievements).forEach(([key, achievement]) => {
-                if (achievement.unlocked && !container.dataset[key]) {
-                    container.dataset[key] = 'true';
-                    const badge = container.querySelector(`[title="${achievement.description}"]`);
-                    if (badge) {
-                        badge.classList.add('achievement-unlock');
-                    }
-                }
-            });
-        }
-        
-        function updateSharpeGauge(value) {
-            const gauge = document.querySelector('.gauge-arc');
-            const gaugeValue = document.querySelector('.gauge-value');
-            
-            // Color based on Sharpe ratio
-            let color = '#ff0066'; // Bad
-            if (value >= 1.5) color = '#00ff88'; // Excellent
-            else if (value >= 1.0) color = '#ffaa00'; // Good
-            else if (value >= 0.5) color = '#0088ff'; // OK
-            
-            const fillPercent = Math.min(100, Math.max(0, value * 33.33)); // Scale 0-3 to 0-100%
-            
-            gauge.style.setProperty('--gauge-color', color);
-            gauge.style.setProperty('--gauge-fill', `${fillPercent}%`);
-            gaugeValue.textContent = value.toFixed(2);
-            gaugeValue.style.color = color;
-        }
-        
-        function updatePersonalityLeaderboard(data) {
-            // Calculate performance by personality
-            const personalities = [
-                {
-                    name: 'Speed Demon',
-                    avatar: '⚡',
-                    trades: data.ultra_total,
-                    wins: data.ultra_wins,
-                    pl: data.ultra_pl,
-                    winRate: data.ultra_total ? (data.ultra_wins / data.ultra_total * 100) : 0,
-                    avgTime: data.ultra_avg_time || 0,
-                    sharpe: data.ultra_sharpe || 0
-                },
-                {
-                    name: 'Analyst',
-                    avatar: '🔍',
-                    trades: data.scalper_total,
-                    wins: data.scalper_wins,
-                    pl: data.scalper_pl,
-                    winRate: data.scalper_total ? (data.scalper_wins / data.scalper_total * 100) : 0,
-                    avgReturn: data.scalper_avg_return || 0,
-                    sharpe: data.scalper_sharpe || 0
-                },
-                {
-                    name: 'Whale Tracker',
-                    avatar: '🐋',
-                    trades: data.community_total,
-                    wins: data.community_wins,
-                    pl: data.community_pl,
-                    winRate: data.community_total ? (data.community_wins / data.community_total * 100) : 0,
-                    followSuccess: data.community_follow_success || 0,
-                    sharpe: data.community_sharpe || 0
-                }
-            ];
-            
-            // Sort by P/L
-            personalities.sort((a, b) => b.pl - a.pl);
-            
-            // Create podium HTML
-            const podiumHTML = personalities.map((bot, index) => `
-                <div class="podium-place ${index === 0 ? 'winner' : ''}">
-                    <div style="font-size: 1.5em; color: ${index === 0 ? '#FFD700' : index === 1 ? '#C0C0C0' : '#CD7F32'}">
-                        ${index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉'}
-                    </div>
-                    <div class="bot-avatar">${bot.avatar}</div>
-                    <div class="bot-name">${bot.name}</div>
-                    <div class="performance-score ${bot.pl >= 0 ? 'positive' : 'negative'}">
-                        ${bot.pl >= 0 ? '+' : ''}${bot.pl.toFixed(3)} SOL
-                    </div>
-                    <div style="font-size: 0.9em; color: #0088ff">
-                        Win Rate: ${bot.winRate.toFixed(1)}%
-                    </div>
-                </div>
-            `).join('');
-            
-            document.getElementById('personality-podium').innerHTML = podiumHTML;
-            
-            // Update detailed rankings
-            if (currentLeaderboardView === 'alltime') {
-                // Sharpe rankings
-                const sharpeSorted = [...personalities].sort((a, b) => b.sharpe - a.sharpe);
-                document.getElementById('sharpe-rankings').innerHTML = sharpeSorted.map((bot, i) => `
-                    <div class="ranking-item">
-                        <span>${bot.avatar} ${bot.name}</span>
-                        <span style="color: ${bot.sharpe >= 1.5 ? '#00ff88' : bot.sharpe >= 0.5 ? '#ffaa00' : '#ff0066'}">
-                            ${bot.sharpe.toFixed(2)}
-                        </span>
-                    </div>
-                `).join('');
-                
-                // Speed rankings (for Speed Demon avg time)
-                document.getElementById('speed-rankings').innerHTML = `
-                    <div class="ranking-item">
-                        <span>⚡ Avg Entry Time</span>
-                        <span>${formatAge(data.ultra_avg_time || 0)}</span>
-                    </div>
-                    <div class="ranking-item">
-                        <span>🔍 Avg Hold Time</span>
-                        <span>${formatAge(data.scalper_avg_hold || 0)}</span>
-                    </div>
-                    <div class="ranking-item">
-                        <span>🐋 Avg Follow Delay</span>
-                        <span>${formatAge(5)}</span>
-                    </div>
-                `;
-                
-                // Accuracy rankings
-                const accuracySorted = [...personalities].sort((a, b) => b.winRate - a.winRate);
-                document.getElementById('accuracy-rankings').innerHTML = accuracySorted.map((bot, i) => `
-                    <div class="ranking-item">
-                        <span>${bot.avatar} ${bot.name}</span>
-                        <span style="color: ${bot.winRate >= 70 ? '#00ff88' : bot.winRate >= 50 ? '#ffaa00' : '#ff0066'}">
-                            ${bot.winRate.toFixed(1)}%
-                        </span>
-                    </div>
-                `).join('');
-            }
-        }
-        
-        // Connection status monitor
-        setInterval(() => {
-            const timeSinceUpdate = Date.now() - lastUpdate;
-            const indicator = document.getElementById('connection-status');
-            if (timeSinceUpdate > 5000) {
-                indicator.className = 'connection-status disconnected';
-                indicator.textContent = '● Disconnected';
-            } else {
-                indicator.className = 'connection-status connected';
-                indicator.textContent = '● Connected';
-            }
-        }, 1000);
-        
-        ws.onmessage = function(event) {
-            lastUpdate = Date.now();
-            const data = JSON.parse(event.data);
-            
-            // Update status
-            const statusEl = document.getElementById('status');
-            const isActive = data.status && data.status.toLowerCase().includes('active') && data.trading_enabled !== false;
-            statusEl.className = `status-indicator ${isActive ? 'active' : 'inactive'}`;
-            statusEl.textContent = isActive ? 'SYSTEM ACTIVE' : 'TRADING HALTED';
-            
-            // Update risk warning
-            const riskWarning = document.getElementById('risk-warning');
-            const exposurePercent = data.wallet_balance > 0 ? (data.exposure / data.wallet_balance) : 0;
-            const dailyLossPercent = data.daily_starting_balance > 0 ? 
-                ((data.daily_starting_balance - data.wallet_balance) / data.daily_starting_balance) : 0;
-            
-            if (exposurePercent > 0.4 || dailyLossPercent > 0.4) {
-                riskWarning.style.display = 'block';
-                riskWarning.textContent = exposurePercent > 0.4 ? 
-                    `⚠️ HIGH EXPOSURE: ${(exposurePercent * 100).toFixed(0)}% of wallet ⚠️` :
-                    `⚠️ APPROACHING DAILY LOSS LIMIT: ${(dailyLossPercent * 100).toFixed(0)}% ⚠️`;
-            } else {
-                riskWarning.style.display = 'none';
-            }
-            
-            // Update achievements
-            if (data.achievements) {
-                updateAchievements(data.achievements);
-            }
-            
-            // Update metrics
-            document.getElementById('wallet').textContent = `${formatNumber(data.wallet_balance, 2)} SOL`;
-            document.getElementById('total-pl').textContent = `${data.pl >= 0 ? '+' : ''}${formatNumber(data.pl)}`;
-            document.getElementById('total-pl').className = `metric-value ${data.pl >= 0 ? 'positive neon-profit pulse-glow' : 'negative neon-loss pulse-glow'}`;
-            document.getElementById('winrate').textContent = `${formatNumber(data.winrate, 1)}%`;
-            document.getElementById('positions-count').textContent = Object.keys(data.positions || {}).length;
-            document.getElementById('exposure').textContent = `${formatNumber(data.exposure)} SOL`;
-            document.getElementById('exposure-limit').textContent = formatNumber(data.wallet_balance * 0.5);
-            
-            // Update advanced metrics
-            updateSharpeGauge(data.sharpe_ratio || 0);
-            document.getElementById('max-drawdown').textContent = `${formatNumber(data.max_drawdown || 0, 1)}%`;
-            document.getElementById('recovery').textContent = `${formatNumber(data.drawdown_recovery || 100, 0)}%`;
-            document.getElementById('profit-factor').textContent = formatNumber(data.profit_factor || 0, 2);
-            
-            // Daily P/L
-            const dailyPL = data.wallet_balance - data.daily_starting_balance;
-            document.getElementById('daily-pl').textContent = `${dailyPL >= 0 ? '+' : ''}${formatNumber(dailyPL)} SOL`;
-            document.getElementById('daily-pl').className = `metric-value ${dailyPL >= 0 ? 'positive' : 'negative'}`;
-            document.getElementById('daily-limit').textContent = formatNumber(data.daily_starting_balance * 0.5);
-            
-            // Update personality leaderboard
-            updatePersonalityLeaderboard(data);
-            
-            // Update bot stats
-            document.getElementById('ultra-trades').textContent = `${data.ultra_wins}/${data.ultra_total}`;
-            document.getElementById('ultra-winrate').textContent = 
-                `${data.ultra_total ? formatNumber(100 * data.ultra_wins / data.ultra_total, 1) : 0}%`;
-            document.getElementById('ultra-pl').textContent = `${data.ultra_pl >= 0 ? '+' : ''}${formatNumber(data.ultra_pl)}`;
-            document.getElementById('ultra-pl').className = data.ultra_pl >= 0 ? 'positive' : 'negative';
-            document.getElementById('ultra-limit').textContent = `${data.ultra_total}/${data.ultra_max_daily || 20}`;
-            document.getElementById('ultra-avg-time').textContent = formatAge(data.ultra_avg_time || 0);
-            
-            document.getElementById('scalper-trades').textContent = `${data.scalper_wins}/${data.scalper_total}`;
-            document.getElementById('scalper-winrate').textContent = 
-                `${data.scalper_total ? formatNumber(100 * data.scalper_wins / data.scalper_total, 1) : 0}%`;
-            document.getElementById('scalper-pl').textContent = `${data.scalper_pl >= 0 ? '+' : ''}${formatNumber(data.scalper_pl)}`;
-            document.getElementById('scalper-pl').className = data.scalper_pl >= 0 ? 'positive' : 'negative';
-            document.getElementById('scalper-avg-return').textContent = `${formatNumber(data.scalper_avg_return || 0, 1)}%`;
-            
-            // Count active scalper positions
-            const scalperPositions = Object.values(data.positions || {}).filter(p => p.src === 'bitquery').length;
-            document.getElementById('scalper-positions').textContent = `${scalperPositions}/${data.scalper_max_positions || 20}`;
-            
-            document.getElementById('community-trades').textContent = `${data.community_wins}/${data.community_total}`;
-            document.getElementById('community-winrate').textContent = 
-                `${data.community_total ? formatNumber(100 * data.community_wins / data.community_total, 1) : 0}%`;
-            document.getElementById('community-pl').textContent = 
-                `${data.community_pl >= 0 ? '+' : ''}${formatNumber(data.community_pl)}`;
-            document.getElementById('community-pl').className = data.community_pl >= 0 ? 'positive' : 'negative';
-            document.getElementById('community-limit').textContent = `${data.community_total}/${data.community_max_daily || 10}`;
-            document.getElementById('community-follow').textContent = `${formatNumber(data.community_follow_success || 0, 0)}%`;
-            
-            // Update quick stats
-            todaysTrades = data.ultra_total + data.scalper_total + data.community_total;
-            document.getElementById('todays-trades').textContent = todaysTrades;
-            
-            // Calculate win streak
-            winStreak = data.consecutive_profitable_trades || 0;
-            document.getElementById('win-streak').textContent = winStreak;
-            
-            // Calculate best/worst trades from positions
-            Object.values(data.positions || {}).forEach(pos => {
-                const pl = pos.pl || 0;
-                if (pl > bestTrade) bestTrade = pl;
-                if (pl < worstTrade) worstTrade = pl;
-            });
-            
-            document.getElementById('best-trade').textContent = `${bestTrade >= 0 ? '+' : ''}${formatNumber(bestTrade)}`;
-            document.getElementById('best-trade').className = bestTrade >= 0 ? 'positive' : 'negative';
-            document.getElementById('worst-trade').textContent = `${worstTrade >= 0 ? '+' : ''}${formatNumber(worstTrade)}`;
-            document.getElementById('worst-trade').className = worstTrade >= 0 ? 'positive' : 'negative';
-            
-            // Update positions table with alerts
-            const tbody = document.getElementById('positions-tbody');
-            tbody.innerHTML = '';
-            const now = Date.now() / 1000;
-            
-            Object.entries(data.positions || {}).forEach(([token, pos]) => {
-                const entry = parseFloat(pos.entry_price || 0);
-                const last = parseFloat(pos.last_price || entry);
-                const size = parseFloat(pos.size || 0);
-                const pl = (last - entry) * size;
-                const plPct = entry ? 100 * (last - entry) / entry : 0;
-                const age = now - (pos.buy_time || now);
-                const soldPercent = pos.total_sold_percent || 0;
-                
-                const row = tbody.insertRow();
-                
-                // Add alert classes
-                if (plPct >= 50) row.classList.add('alert-profit');
-                else if (plPct <= -20) row.classList.add('alert-loss');
-                else if (age > 3600) row.classList.add('alert-old');
-                
-                // Bot emoji
-                const botEmoji = pos.src === 'pumpfun' || pos.src === 'pumpportal' ? '⚡' : 
-                                pos.src === 'bitquery' ? '🔍' : '🐋';
-                
-                row.innerHTML = `
-                    <td style="color: #00ffff">${token.slice(0, 6)}...${token.slice(-4)}</td>
-                    <td>${botEmoji} ${pos.src || ''}</td>
-                    <td>${formatNumber(size)}</td>
-                    <td>${formatNumber(entry, 6)}</td>
-                    <td>${formatNumber(last, 6)}</td>
-                    <td class="${pl >= 0 ? 'positive' : 'negative'}">${formatNumber(pl, 4)}</td>
-                    <td class="${plPct >= 0 ? 'positive' : 'negative'}">${formatNumber(plPct, 2)}%</td>
-                    <td>${soldPercent}%</td>
-                    <td>${formatAge(age)}</td>
-                `;
-            });
-            
-            // Update activity log
-            allLogs = data.log || [];
-            updateLogDisplay();
-        };
-        
-        ws.onclose = function() {
-            setTimeout(() => { location.reload(); }, 5000);
-        };
-        
-        // Keyboard shortcuts
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'r' && e.ctrlKey) {
-                e.preventDefault();
-                location.reload();
-            }
-            if (e.key === 'c' && e.ctrlKey) {
-                e.preventDefault();
-                allLogs = [];
-                updateLogDisplay();
-            }
-        });
-    </script>
-</body>
-</html>
-"""#!/usr/bin/env python3
+#!/usr/bin/env python3
 
 import os
 import sys
@@ -2968,8 +1653,7 @@ performance_history = {
 # =====================================
 # Dashboard HTML/JS - ENHANCED with compass features
 # =====================================
-DASHBOARD_HTML = """
-<!DOCTYPE html>
+DASHBOARD_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -3169,6 +1853,123 @@ DASHBOARD_HTML = """
             50% { opacity: 0.8; filter: brightness(1.2); }
         }
         
+        /* Advanced Metrics Gauges */
+        .gauge-container {
+            position: relative;
+            width: 120px;
+            height: 120px;
+            margin: 0 auto;
+        }
+        
+        .gauge-arc {
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            background: conic-gradient(var(--gauge-color) var(--gauge-fill), rgba(255,255,255,0.1) 0);
+            mask: radial-gradient(circle at center, transparent 60%, black 60%);
+            -webkit-mask: radial-gradient(circle at center, transparent 60%, black 60%);
+        }
+        
+        .gauge-value {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 1.5em;
+            font-weight: 700;
+        }
+        
+        .gauge-label {
+            position: absolute;
+            bottom: -20px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 0.8em;
+            color: #0088ff;
+            white-space: nowrap;
+        }
+        
+        /* Achievement System */
+        .achievements-bar {
+            display: flex;
+            gap: 15px;
+            padding: 20px;
+            margin-bottom: 30px;
+            overflow-x: auto;
+            background: rgba(0, 20, 40, 0.6);
+            border: 1px solid #0088ff;
+            border-radius: 10px;
+        }
+        
+        .achievement-badge {
+            background: var(--glass-bg);
+            border: 2px solid var(--glass-border);
+            border-radius: 10px;
+            padding: 15px;
+            text-align: center;
+            min-width: 120px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            position: relative;
+        }
+        
+        .achievement-badge.earned {
+            border-color: var(--success-glow);
+            animation: badge-glow 3s ease-in-out infinite;
+        }
+        
+        .achievement-badge.locked {
+            opacity: 0.4;
+            filter: grayscale(100%);
+        }
+        
+        .achievement-badge.progress {
+            border-color: var(--warning-amber);
+        }
+        
+        @keyframes badge-glow {
+            0%, 100% { box-shadow: 0 0 10px rgba(0,255,136,0.3); }
+            50% { box-shadow: 0 0 20px rgba(0,255,136,0.6); }
+        }
+        
+        .badge-icon {
+            font-size: 2em;
+            margin-bottom: 5px;
+        }
+        
+        .badge-name {
+            font-size: 0.9em;
+            font-weight: 700;
+            color: #00ffff;
+        }
+        
+        .progress-bar {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 0 0 8px 8px;
+            overflow: hidden;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: var(--warning-amber);
+            transition: width 0.3s ease;
+        }
+        
+        .achievement-unlock {
+            animation: unlock-celebration 1s ease-out;
+        }
+        
+        @keyframes unlock-celebration {
+            0% { transform: scale(1) rotate(0deg); }
+            50% { transform: scale(1.2) rotate(10deg); box-shadow: 0 0 30px var(--success-glow); }
+            100% { transform: scale(1) rotate(0deg); }
+        }
+        
         /* Personality Leaderboard */
         .leaderboard-section {
             margin-bottom: 30px;
@@ -3182,6 +1983,31 @@ DASHBOARD_HTML = """
             text-transform: uppercase;
             letter-spacing: 0.1em;
             text-align: center;
+        }
+        
+        .leaderboard-tabs {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .tab {
+            padding: 8px 20px;
+            background: rgba(0, 40, 80, 0.8);
+            border: 1px solid #0088ff;
+            color: #00ffff;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: 'Orbitron', monospace;
+            font-size: 0.9em;
+            text-transform: uppercase;
+        }
+        
+        .tab:hover, .tab.active {
+            background: rgba(0, 255, 255, 0.2);
+            border-color: #00ff00;
+            transform: translateY(-2px);
         }
         
         .podium-container {
@@ -3226,6 +2052,47 @@ DASHBOARD_HTML = """
             font-family: 'Share Tech Mono', monospace;
         }
         
+        /* Detailed Rankings */
+        .detailed-rankings {
+            margin-top: 20px;
+        }
+        
+        .ranking-metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+        }
+        
+        .metric-column {
+            background: rgba(0, 20, 40, 0.6);
+            border: 1px solid #0088ff;
+            border-radius: 10px;
+            padding: 15px;
+        }
+        
+        .metric-column h4 {
+            color: #00ffff;
+            margin-bottom: 15px;
+            font-size: 1.1em;
+            text-align: center;
+        }
+        
+        .ranking-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .ranking-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px;
+            background: rgba(0, 40, 80, 0.3);
+            border-radius: 5px;
+            font-family: 'Share Tech Mono', monospace;
+        }
+        
         .bots-section {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
@@ -3238,14 +2105,6 @@ DASHBOARD_HTML = """
             border: 2px solid #0088ff;
             padding: 20px;
             position: relative;
-        }
-        
-        .bot-name {
-            font-size: 1.2em;
-            font-weight: 700;
-            color: #00ffff;
-            margin-bottom: 15px;
-            text-transform: uppercase;
         }
         
         .bot-stats {
@@ -3461,6 +2320,12 @@ DASHBOARD_HTML = """
             color: #ffaa00;
         }
         
+        .log-entry.achievement {
+            border-left-color: #FFD700;
+            color: #FFD700;
+            font-weight: 700;
+        }
+        
         ::-webkit-scrollbar {
             width: 12px;
         }
@@ -3492,6 +2357,11 @@ DASHBOARD_HTML = """
             ⚠️ APPROACHING RISK LIMITS ⚠️
         </div>
         
+        <!-- Achievement System -->
+        <div class="achievements-bar" id="achievements-bar">
+            <!-- Populated by JS -->
+        </div>
+        
         <div class="metrics-grid">
             <div class="glass-card">
                 <div class="metric-label">Wallet Balance</div>
@@ -3504,6 +2374,30 @@ DASHBOARD_HTML = """
             <div class="glass-card">
                 <div class="metric-label">Win Rate</div>
                 <div class="metric-value" id="winrate">0.0%</div>
+            </div>
+            <div class="glass-card">
+                <div class="metric-label">Sharpe Ratio</div>
+                <div id="sharpe-gauge">
+                    <div class="gauge-container">
+                        <div class="gauge-arc" style="--gauge-color: #00ff88; --gauge-fill: 0%"></div>
+                        <div class="gauge-value neon-profit">0.00</div>
+                        <div class="gauge-label">Risk-Adjusted</div>
+                    </div>
+                </div>
+            </div>
+            <div class="glass-card">
+                <div class="metric-label">Max Drawdown</div>
+                <div class="metric-value neon-loss" id="max-drawdown">0.0%</div>
+                <div style="font-size: 0.8em; color: #0088ff; margin-top: 5px;">
+                    Recovery: <span id="recovery">100%</span>
+                </div>
+            </div>
+            <div class="glass-card">
+                <div class="metric-label">Profit Factor</div>
+                <div class="metric-value" id="profit-factor">0.00</div>
+                <div style="font-size: 0.8em; color: #0088ff; margin-top: 5px;">
+                    Win/Loss Ratio
+                </div>
             </div>
             <div class="glass-card">
                 <div class="metric-label">Active Positions</div>
@@ -3532,11 +2426,32 @@ DASHBOARD_HTML = """
             <span>⚡ Win Streak: <span id="win-streak">0</span></span>
         </div>
         
-        <!-- Personality Leaderboard -->
+        <!-- Personality Leaderboard with Tabs -->
         <div class="leaderboard-section">
             <h2 class="leaderboard-title">🏆 Bot Personality Rankings</h2>
+            <div class="leaderboard-tabs">
+                <button class="tab active" onclick="showLeaderboard('daily')">24H</button>
+                <button class="tab" onclick="showLeaderboard('weekly')">7D</button>
+                <button class="tab" onclick="showLeaderboard('alltime')">All Time</button>
+            </div>
             <div class="podium-container" id="personality-podium">
                 <!-- Will be populated by JS -->
+            </div>
+            <div class="detailed-rankings" id="detailed-rankings" style="display: none;">
+                <div class="ranking-metrics">
+                    <div class="metric-column">
+                        <h4>Risk-Adjusted Returns</h4>
+                        <div class="ranking-list" id="sharpe-rankings"></div>
+                    </div>
+                    <div class="metric-column">
+                        <h4>Speed Metrics</h4>
+                        <div class="ranking-list" id="speed-rankings"></div>
+                    </div>
+                    <div class="metric-column">
+                        <h4>Accuracy Score</h4>
+                        <div class="ranking-list" id="accuracy-rankings"></div>
+                    </div>
+                </div>
             </div>
         </div>
         
@@ -3560,6 +2475,10 @@ DASHBOARD_HTML = """
                         <span>Daily Limit</span>
                         <span id="ultra-limit">0/20</span>
                     </div>
+                    <div class="stat-row">
+                        <span>Avg Time</span>
+                        <span id="ultra-avg-time">0s</span>
+                    </div>
                 </div>
             </div>
             
@@ -3582,6 +2501,10 @@ DASHBOARD_HTML = """
                         <span>Active Positions</span>
                         <span id="scalper-positions">0/20</span>
                     </div>
+                    <div class="stat-row">
+                        <span>Avg Return</span>
+                        <span id="scalper-avg-return">0%</span>
+                    </div>
                 </div>
             </div>
             
@@ -3603,6 +2526,10 @@ DASHBOARD_HTML = """
                     <div class="stat-row">
                         <span>Daily Limit</span>
                         <span id="community-limit">0/10</span>
+                    </div>
+                    <div class="stat-row">
+                        <span>Follow Success</span>
+                        <span id="community-follow">0%</span>
                     </div>
                 </div>
             </div>
@@ -3635,7 +2562,7 @@ DASHBOARD_HTML = """
                 <button onclick="filterLog('buys')">Buys</button>
                 <button onclick="filterLog('sells')">Sells</button>
                 <button onclick="filterLog('errors')">Errors</button>
-                <button onclick="filterLog('skipped')">Skipped</button>
+                <button onclick="filterLog('achievements')">Achievements</button>
             </div>
             <div class="log-container" id="log-container"></div>
         </div>
@@ -3655,6 +2582,7 @@ DASHBOARD_HTML = """
         let worstTrade = 0;
         let todaysTrades = 0;
         let winStreak = 0;
+        let currentLeaderboardView = 'daily';
         
         ws.onopen = function() {
             console.log('WebSocket connected!');
@@ -3704,7 +2632,7 @@ DASHBOARD_HTML = """
                     if (currentFilter === 'buys') return entry.includes('BUY');
                     if (currentFilter === 'sells') return entry.includes('Sold');
                     if (currentFilter === 'errors') return entry.includes('SL') || entry.includes('blacklist') || entry.includes('rejected') || entry.includes('EMERGENCY');
-                    if (currentFilter === 'skipped') return entry.includes('skipping') || entry.includes('FAIL');
+                    if (currentFilter === 'achievements') return entry.includes('[ACHIEVEMENT]');
                     return true;
                 });
             }
@@ -3714,9 +2642,76 @@ DASHBOARD_HTML = """
                 if (entry.includes('BUY') || entry.includes('Sold')) className += ' success';
                 else if (entry.includes('SL') || entry.includes('blacklist') || entry.includes('EMERGENCY')) className += ' error';
                 else if (entry.includes('skipping') || entry.includes('FAIL')) className += ' warning';
+                else if (entry.includes('[ACHIEVEMENT]')) className += ' achievement';
                 return `<div class="${className}">${entry}</div>`;
             }).join('');
             logContainer.scrollTop = logContainer.scrollHeight;
+        }
+        
+        function showLeaderboard(timeframe) {
+            currentLeaderboardView = timeframe;
+            document.querySelectorAll('.leaderboard-tabs .tab').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            // Show/hide detailed rankings based on timeframe
+            const detailedRankings = document.getElementById('detailed-rankings');
+            if (timeframe === 'alltime') {
+                detailedRankings.style.display = 'block';
+            } else {
+                detailedRankings.style.display = 'none';
+            }
+        }
+        
+        function updateAchievements(achievements) {
+            const container = document.getElementById('achievements-bar');
+            const html = Object.entries(achievements).map(([key, achievement]) => {
+                const isLocked = !achievement.unlocked;
+                const hasProgress = achievement.progress > 0 && achievement.progress < 100;
+                
+                return `
+                    <div class="achievement-badge ${achievement.unlocked ? 'earned' : isLocked ? 'locked' : 'progress'}" 
+                         title="${achievement.description}">
+                        <div class="badge-icon">${achievement.icon}</div>
+                        <div class="badge-name">${achievement.name}</div>
+                        ${hasProgress ? `
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: ${achievement.progress}%"></div>
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            }).join('');
+            
+            container.innerHTML = html;
+            
+            // Check for newly unlocked achievements
+            Object.entries(achievements).forEach(([key, achievement]) => {
+                if (achievement.unlocked && !container.dataset[key]) {
+                    container.dataset[key] = 'true';
+                    const badge = container.querySelector(`[title="${achievement.description}"]`);
+                    if (badge) {
+                        badge.classList.add('achievement-unlock');
+                    }
+                }
+            });
+        }
+        
+        function updateSharpeGauge(value) {
+            const gauge = document.querySelector('.gauge-arc');
+            const gaugeValue = document.querySelector('.gauge-value');
+            
+            // Color based on Sharpe ratio
+            let color = '#ff0066'; // Bad
+            if (value >= 1.5) color = '#00ff88'; // Excellent
+            else if (value >= 1.0) color = '#ffaa00'; // Good
+            else if (value >= 0.5) color = '#0088ff'; // OK
+            
+            const fillPercent = Math.min(100, Math.max(0, value * 33.33)); // Scale 0-3 to 0-100%
+            
+            gauge.style.setProperty('--gauge-color', color);
+            gauge.style.setProperty('--gauge-fill', `${fillPercent}%`);
+            gaugeValue.textContent = value.toFixed(2);
+            gaugeValue.style.color = color;
         }
         
         function updatePersonalityLeaderboard(data) {
@@ -3728,7 +2723,9 @@ DASHBOARD_HTML = """
                     trades: data.ultra_total,
                     wins: data.ultra_wins,
                     pl: data.ultra_pl,
-                    winRate: data.ultra_total ? (data.ultra_wins / data.ultra_total * 100) : 0
+                    winRate: data.ultra_total ? (data.ultra_wins / data.ultra_total * 100) : 0,
+                    avgTime: data.ultra_avg_time || 0,
+                    sharpe: data.ultra_sharpe || 0
                 },
                 {
                     name: 'Analyst',
@@ -3736,7 +2733,9 @@ DASHBOARD_HTML = """
                     trades: data.scalper_total,
                     wins: data.scalper_wins,
                     pl: data.scalper_pl,
-                    winRate: data.scalper_total ? (data.scalper_wins / data.scalper_total * 100) : 0
+                    winRate: data.scalper_total ? (data.scalper_wins / data.scalper_total * 100) : 0,
+                    avgReturn: data.scalper_avg_return || 0,
+                    sharpe: data.scalper_sharpe || 0
                 },
                 {
                     name: 'Whale Tracker',
@@ -3744,7 +2743,9 @@ DASHBOARD_HTML = """
                     trades: data.community_total,
                     wins: data.community_wins,
                     pl: data.community_pl,
-                    winRate: data.community_total ? (data.community_wins / data.community_total * 100) : 0
+                    winRate: data.community_total ? (data.community_wins / data.community_total * 100) : 0,
+                    followSuccess: data.community_follow_success || 0,
+                    sharpe: data.community_sharpe || 0
                 }
             ];
             
@@ -3769,6 +2770,47 @@ DASHBOARD_HTML = """
             `).join('');
             
             document.getElementById('personality-podium').innerHTML = podiumHTML;
+            
+            // Update detailed rankings
+            if (currentLeaderboardView === 'alltime') {
+                // Sharpe rankings
+                const sharpeSorted = [...personalities].sort((a, b) => b.sharpe - a.sharpe);
+                document.getElementById('sharpe-rankings').innerHTML = sharpeSorted.map((bot, i) => `
+                    <div class="ranking-item">
+                        <span>${bot.avatar} ${bot.name}</span>
+                        <span style="color: ${bot.sharpe >= 1.5 ? '#00ff88' : bot.sharpe >= 0.5 ? '#ffaa00' : '#ff0066'}">
+                            ${bot.sharpe.toFixed(2)}
+                        </span>
+                    </div>
+                `).join('');
+                
+                // Speed rankings (for Speed Demon avg time)
+                document.getElementById('speed-rankings').innerHTML = `
+                    <div class="ranking-item">
+                        <span>⚡ Avg Entry Time</span>
+                        <span>${formatAge(data.ultra_avg_time || 0)}</span>
+                    </div>
+                    <div class="ranking-item">
+                        <span>🔍 Avg Hold Time</span>
+                        <span>${formatAge(data.scalper_avg_hold || 0)}</span>
+                    </div>
+                    <div class="ranking-item">
+                        <span>🐋 Avg Follow Delay</span>
+                        <span>${formatAge(5)}</span>
+                    </div>
+                `;
+                
+                // Accuracy rankings
+                const accuracySorted = [...personalities].sort((a, b) => b.winRate - a.winRate);
+                document.getElementById('accuracy-rankings').innerHTML = accuracySorted.map((bot, i) => `
+                    <div class="ranking-item">
+                        <span>${bot.avatar} ${bot.name}</span>
+                        <span style="color: ${bot.winRate >= 70 ? '#00ff88' : bot.winRate >= 50 ? '#ffaa00' : '#ff0066'}">
+                            ${bot.winRate.toFixed(1)}%
+                        </span>
+                    </div>
+                `).join('');
+            }
         }
         
         // Connection status monitor
@@ -3809,6 +2851,11 @@ DASHBOARD_HTML = """
                 riskWarning.style.display = 'none';
             }
             
+            // Update achievements
+            if (data.achievements) {
+                updateAchievements(data.achievements);
+            }
+            
             // Update metrics
             document.getElementById('wallet').textContent = `${formatNumber(data.wallet_balance, 2)} SOL`;
             document.getElementById('total-pl').textContent = `${data.pl >= 0 ? '+' : ''}${formatNumber(data.pl)}`;
@@ -3817,6 +2864,12 @@ DASHBOARD_HTML = """
             document.getElementById('positions-count').textContent = Object.keys(data.positions || {}).length;
             document.getElementById('exposure').textContent = `${formatNumber(data.exposure)} SOL`;
             document.getElementById('exposure-limit').textContent = formatNumber(data.wallet_balance * 0.5);
+            
+            // Update advanced metrics
+            updateSharpeGauge(data.sharpe_ratio || 0);
+            document.getElementById('max-drawdown').textContent = `${formatNumber(data.max_drawdown || 0, 1)}%`;
+            document.getElementById('recovery').textContent = `${formatNumber(data.drawdown_recovery || 100, 0)}%`;
+            document.getElementById('profit-factor').textContent = formatNumber(data.profit_factor || 0, 2);
             
             // Daily P/L
             const dailyPL = data.wallet_balance - data.daily_starting_balance;
@@ -3834,12 +2887,14 @@ DASHBOARD_HTML = """
             document.getElementById('ultra-pl').textContent = `${data.ultra_pl >= 0 ? '+' : ''}${formatNumber(data.ultra_pl)}`;
             document.getElementById('ultra-pl').className = data.ultra_pl >= 0 ? 'positive' : 'negative';
             document.getElementById('ultra-limit').textContent = `${data.ultra_total}/${data.ultra_max_daily || 20}`;
+            document.getElementById('ultra-avg-time').textContent = formatAge(data.ultra_avg_time || 0);
             
             document.getElementById('scalper-trades').textContent = `${data.scalper_wins}/${data.scalper_total}`;
             document.getElementById('scalper-winrate').textContent = 
                 `${data.scalper_total ? formatNumber(100 * data.scalper_wins / data.scalper_total, 1) : 0}%`;
             document.getElementById('scalper-pl').textContent = `${data.scalper_pl >= 0 ? '+' : ''}${formatNumber(data.scalper_pl)}`;
             document.getElementById('scalper-pl').className = data.scalper_pl >= 0 ? 'positive' : 'negative';
+            document.getElementById('scalper-avg-return').textContent = `${formatNumber(data.scalper_avg_return || 0, 1)}%`;
             
             // Count active scalper positions
             const scalperPositions = Object.values(data.positions || {}).filter(p => p.src === 'bitquery').length;
@@ -3852,6 +2907,7 @@ DASHBOARD_HTML = """
                 `${data.community_pl >= 0 ? '+' : ''}${formatNumber(data.community_pl)}`;
             document.getElementById('community-pl').className = data.community_pl >= 0 ? 'positive' : 'negative';
             document.getElementById('community-limit').textContent = `${data.community_total}/${data.community_max_daily || 10}`;
+            document.getElementById('community-follow').textContent = `${formatNumber(data.community_follow_success || 0, 0)}%`;
             
             // Update quick stats
             todaysTrades = data.ultra_total + data.scalper_total + data.community_total;
