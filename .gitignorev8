@@ -1,0 +1,21 @@
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Database files
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+toxibot.db
+
+# Log files
+*.log
+logs/
+toxibot.log
+
+# Python
+__pycache__/
+*.py[cod]
+# ... etc
