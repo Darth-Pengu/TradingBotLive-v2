@@ -583,126 +583,91 @@ async def pumpportal_newtoken_feed(callback):
             logger.error(f"PumpPortal WS error (retry {retry_count}/{max_retries}): {e}")
             await asyncio.sleep(wait_time)
 
-async def bitquery_streaming_feed(callback):
-    """Bitquery REST API polling for trending tokens"""
+async def bitquery_polling_feed(callback):
+    """Bitquery V2 REST API polling for trending tokens (free plan, correct endpoint)"""
     if not BITQUERY_API_KEY or BITQUERY_API_KEY == "disabled":
         logger.warning("Bitquery feed disabled - set BITQUERY_API_KEY='disabled' to silence this")
         return
-    
-    # Check if user wants to disable Bitquery
-    if BITQUERY_API_KEY.lower() in ["disabled", "none", "false", ""]:
-        logger.info("Bitquery feed intentionally disabled")
-        return
-    
-    url = "https://graphql.bitquery.io/"
-    
-    # Updated query with correct schema
+
+    url = "https://streaming.bitquery.io/graphql"  # Correct V2 REST endpoint
+    # V2 query: capitalize Solana, DEXTrades, Block, Trade, etc.
     query = """
-    {
-      solana(network: solana) {
-        dexTrades(
-          options: {limit: 20, desc: "block.timestamp.iso8601"}
-          exchangeName: {is: "Raydium"}
-          baseCurrency: {notIn: ["So11111111111111111111111111111111111111112"]}
-          quoteCurrency: {is: "So11111111111111111111111111111111111111112"}
-          tradeAmountUsd: {gt: 100}
-        ) {
-          block {
-            timestamp {
-              iso8601
+    query {
+        Solana {
+            DEXTrades(
+                limit: {count: 20}
+                orderBy: {descending: Block_Time}
+                where: {
+                    Trade: {
+                        Buy: {
+                            Currency: {MintAddress: {notIn: ["So11111111111111111111111111111111111111112"]}}
+                            PriceInUSD: {gt: 0.00001}
+                        }
+                    }
+                    Transaction: {Result: {Success: true}}
+                }
+            ) {
+                Block { Time }
+                Trade {
+                    Buy {
+                        Currency { MintAddress Symbol Name }
+                        PriceInUSD Amount
+                    }
+                    Dex { ProtocolName }
+                }
+                Transaction { Signature }
             }
-          }
-          baseCurrency {
-            address
-            symbol
-          }
-          quoteCurrency {
-            symbol
-          }
-          tradeAmount(in: USD)
-          quoteAmount
-          transaction {
-            hash
-          }
         }
-      }
     }
     """
-    
-    # Bitquery requires Bearer token format
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {BITQUERY_API_KEY}"
     }
-    
     seen_tokens = set()
-    last_timestamp = None
-    
     while True:
-        if not is_circuit_broken("bitquery"):
-            try:
-                async with get_session() as session:
-                    async def _fetch():
-                        async with session.post(url, json={"query": query}, headers=headers) as resp:
-                            if resp.status == 401:
-                                logger.error("Bitquery authentication failed. Please check your API key or set BITQUERY_API_KEY='disabled' to skip")
-                                trip_circuit_breaker("bitquery")
-                                return
-                            
-                            if resp.status != 200:
-                                text = await resp.text()
-                                raise Exception(f"HTTP {resp.status}: {text}")
-                            
-                            data = await resp.json()
-                            
-                            if "errors" in data:
-                                logger.error(f"Bitquery GraphQL errors: {data['errors']}")
-                                # Try alternative query format
-                                return
-                            
-                            trades = data.get("data", {}).get("solana", {}).get("dexTrades", [])
-                            
-                            if not trades:
-                                logger.debug("Bitquery: No new trades")
-                                return
-                            
-                            new_tokens = 0
-                            for trade in trades:
-                                # Skip if we've seen this timestamp before
-                                timestamp = trade.get("block", {}).get("timestamp", {}).get("iso8601")
-                                if timestamp == last_timestamp:
-                                    continue
-                                
-                                mint = trade.get("baseCurrency", {}).get("address")
-                                symbol = trade.get("baseCurrency", {}).get("symbol", "")
-                                trade_amount = trade.get("tradeAmount", 0)
-                                
-                                # Filter for interesting tokens
-                                if (mint and 
-                                    mint not in seen_tokens and 
-                                    trade_amount > 100 and  # Minimum volume
-                                    symbol and symbol != "UNKNOWN"):  # Has a symbol
-                                    
-                                    seen_tokens.add(mint)
-                                    new_tokens += 1
-                                    await callback(mint, "bitquery")
-                                    
-                                    # Limit memory usage
-                                    if len(seen_tokens) > 1000:
-                                        # Keep only recent 500 tokens
-                                        seen_tokens = set(list(seen_tokens)[-500:])
-                            
-                            if new_tokens > 0:
-                                logger.info(f"Bitquery: Found {new_tokens} new trending tokens")
-                                last_timestamp = trades[0].get("block", {}).get("timestamp", {}).get("iso8601")
-                    
-                    await retry_with_backoff(_fetch)
-            except Exception as e:
-                logger.error(f"Bitquery API error: {e}")
-                trip_circuit_breaker("bitquery")
-        
-        # Poll every 30 seconds
-        await asyncio.sleep(30)
+        try:
+            async with get_session() as session:
+                async def _fetch():
+                    async with session.post(url, json={"query": query}, headers=headers) as resp:
+                        if resp.status == 401:
+                            logger.error("Bitquery authentication failed. Check your API key or set BITQUERY_API_KEY='disabled'")
+                            trip_circuit_breaker("bitquery")
+                            return
+                        if resp.status != 200:
+                            text = await resp.text()
+                            raise Exception(f"HTTP {resp.status}: {text}")
+                        data = await resp.json()
+                        if "errors" in data:
+                            logger.error(f"Bitquery GraphQL errors: {data['errors']}")
+                            return
+                        trades = data.get("data", {}).get("Solana", {}).get("DEXTrades", [])
+                        new_tokens = 0
+                        for trade in trades:
+                            buy = trade.get("Trade", {}).get("Buy", {})
+                            currency = buy.get("Currency", {})
+                            mint = currency.get("MintAddress")
+                            if mint and mint not in seen_tokens:
+                                seen_tokens.add(mint)
+                                new_tokens += 1
+                                token_info = {
+                                    "mint": mint,
+                                    "symbol": currency.get("Symbol"),
+                                    "name": currency.get("Name"),
+                                    "price": buy.get("PriceInUSD"),
+                                    "amount": buy.get("Amount"),
+                                    "time": trade.get("Block", {}).get("Time"),
+                                    "dex": trade.get("Trade", {}).get("Dex", {}).get("ProtocolName"),
+                                    "tx": trade.get("Transaction", {}).get("Signature"),
+                                }
+                                await callback(mint, "bitquery", token_info)
+                        if new_tokens:
+                            logger.info(f"Bitquery: Found {new_tokens} new trending tokens")
+                await retry_with_backoff(_fetch)
+        except Exception as e:
+            logger.error(f"Bitquery API error: {e}")
+            trip_circuit_breaker("bitquery")
+        await asyncio.sleep(10)  # Poll every 10 seconds
 
 # =====================================
 # Community Vote Aggregator
