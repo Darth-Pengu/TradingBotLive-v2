@@ -2476,6 +2476,13 @@ async def bot_main():
     init_database()
     load_positions()
     
+    # Test Bitquery access
+    if BITQUERY_API_KEY and BITQUERY_API_KEY != "disabled":
+        has_solana = await test_bitquery_solana_access()
+        if not has_solana:
+            logger.warning("Disabling Bitquery - no Solana access on free tier")
+            # Don't start Bitquery feed
+    
     # Connect to ToxiBot
     toxibot = ToxiBotClient(
         TELEGRAM_API_ID,
@@ -2485,33 +2492,28 @@ async def bot_main():
     )
     await toxibot.connect()
     
-    # Start all feeds and managers - FIXED to use asyncio.create_task
+    # Start feeds
     feeds = [
-        # Position management
         update_position_prices_and_wallet(),
-        
-        # Risk management
         risk_management_monitor(),
         update_trading_parameters(),
-        
-        # Helius monitoring
         monitor_wallet_with_helius(),
-        
-        # Community trading
         community_trade_manager(toxibot),
     ]
     
-    # Start data feeds as tasks - FIXED
+    # Start PumpPortal (works for Solana)
     asyncio.create_task(pumpportal_newtoken_feed(
         lambda token, src: asyncio.create_task(process_token(token, src))
     ))
     
-    asyncio.create_task(bitquery_polling_feed(
-        lambda token, src, info=None: asyncio.create_task(process_token(token, src))
-    ))
-    
-    # Add community signal aggregation - FIXED
-    asyncio.create_task(bitquery_polling_feed(community_candidate_callback))
+    # Only start Bitquery if we have Solana access
+    if BITQUERY_API_KEY and BITQUERY_API_KEY != "disabled":
+        # This will likely fail on free tier
+        asyncio.create_task(bitquery_polling_feed(
+            lambda token, src, info=None: asyncio.create_task(process_token(token, src))
+        ))
+    else:
+        logger.info("Bitquery disabled - using PumpPortal and DexScreener only")
     
     await asyncio.gather(*feeds)
 
