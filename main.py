@@ -707,19 +707,17 @@ async def pumpportal_newtoken_feed(callback):
                 while True:
                     try:
                         msg = await asyncio.wait_for(ws.recv(), timeout=30)
-                        # You can remove the debug log now if you wish, or keep it for a bit
-                        logger.info(f"PumpPortal RAW MSG: {msg}") 
                         data = json.loads(msg)
                         
-                        # === THIS IS THE CORRECTED LOGIC ===
+                        # Corrected logic to parse new token events
                         if "mint" in data and data.get("txType") == "create":
-                            token = data["mint"] # <-- CORRECTED: No "params"
+                            token = data["mint"]
                             logger.info(f"🚀 PumpPortal: New token {token}")
                             activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🚀 New Pump.fun token: {token[:8]}...")
                             await callback(token, "pumpportal")
                             
                         # Trade event for monitoring
-                        elif "signature" in data and data.get("txType") != "create": # <-- MODIFIED to avoid double processing
+                        elif "signature" in data and data.get("txType") != "create":
                             trade = data
                             token = trade.get("mint")
                             if token in positions:
@@ -740,155 +738,105 @@ async def pumpportal_newtoken_feed(callback):
             await asyncio.sleep(wait_time)
 
 async def bitquery_streaming_feed(callback):
-    """BitQuery V2 WebSocket streaming for Solana tokens"""
+    """BitQuery V2 WebSocket streaming for Solana tokens, filtered for NEW tokens."""
     if not BITQUERY_API_KEY or BITQUERY_API_KEY == "disabled":
         logger.warning("BitQuery feed disabled")
         return
     
-    # Correct WebSocket URL for streaming
     ws_url = f"wss://streaming.bitquery.io/eap?token={BITQUERY_API_KEY}"
-    
     retry_count = 0
     max_retries = 10
     
     while retry_count < max_retries:
         try:
             async with websockets.connect(ws_url, subprotocols=["graphql-ws"]) as ws:
-                # Initialize connection
                 await ws.send(json.dumps({"type": "connection_init"}))
-                
-                # Wait for connection_ack
                 ack = await ws.recv()
                 ack_data = json.loads(ack)
                 
                 if ack_data.get("type") == "connection_ack":
                     logger.info("✅ BitQuery WebSocket connected!")
                     activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ BitQuery streaming connected")
+
+                    # Calculate timestamp for 1 hour ago in ISO 8601 format
+                    one_hour_ago = (datetime.utcnow() - timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M:%SZ')
                     
-                    # Subscribe to Solana DEX trades
-                    subscription = {
-                        "id": "1",
-                        "type": "start",
-                        "payload": {
-                            "query": """
-                            subscription {
-                                Solana {
-                                    DEXTradeByTokens(
-                                        where: {
-                                            Trade: {
-                                                Currency: {
-                                                    MintAddress: {not: "So11111111111111111111111111111111111111112"}
-                                                }
-                                                Dex: {
-                                                    ProgramAddress: {in: [
-                                                        "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",
-                                                        "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
-                                                        "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"
-                                                    ]}
-                                                }
-                                                AmountInUSD: {gt: "100"}
-                                            }
-                                            Transaction: {Result: {Success: true}}
-                                        }
-                                    ) {
-                                        Block {
-                                            Time
-                                        }
-                                        Trade {
-                                            Currency {
-                                                MintAddress
-                                                Symbol
-                                                Name
-                                            }
-                                            Price
-                                            PriceInUSD
-                                            Amount
-                                            AmountInUSD
-                                            Dex {
-                                                ProtocolName
-                                                ProgramAddress
-                                            }
-                                        }
-                                        Transaction {
-                                            Signature
-                                        }
-                                    }
-                                }
-                            }
-                            """
-                        }
-                    }
+                    # Define the GraphQL query as a template
+                    query_template = """
+                    subscription {{
+                        Solana {{
+                            DEXTradeByTokens(
+                                where: {{
+                                    Trade: {{
+                                        Currency: {{
+                                            MintAddress: {{not: "So11111111111111111111111111111111111111112"}},
+                                            CreationTime: {{since: "{timestamp}"}}
+                                        }}
+                                        Dex: {{
+                                            ProgramAddress: {{in: [
+                                                "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",
+                                                "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
+                                                "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"
+                                            ]}}
+                                        }}
+                                        AmountInUSD: {{gt: "100"}}
+                                    }}
+                                    Transaction: {{Result: {{Success: true}}}}
+                                }}
+                            ) {{
+                                Block {{ Time }}
+                                Trade {{
+                                    Currency {{ MintAddress Symbol Name CreationTime }}
+                                    Price PriceInUSD Amount AmountInUSD
+                                    Dex {{ ProtocolName ProgramAddress }}
+                                }}
+                                Transaction {{ Signature }}
+                            }}
+                        }}
+                    }}
+                    """
+                    # Inject the dynamic timestamp into the query
+                    final_query = query_template.format(timestamp=one_hour_ago)
+                    
+                    subscription = {"id": "1", "type": "start", "payload": {"query": final_query}}
                     
                     await ws.send(json.dumps(subscription))
-                    logger.info("📡 BitQuery subscription sent for Solana DEX trades")
+                    logger.info(f"📡 BitQuery subscription sent for trades on tokens created since {one_hour_ago}")
                     
-                    # Track seen tokens to avoid duplicates
                     seen_tokens = set()
-                    recent_tokens = collections.deque(maxlen=1000)
+                    retry_count = 0 
                     
-                    retry_count = 0  # Reset on successful connection
-                    
-                    # Listen for data
                     while True:
                         try:
                             msg = await asyncio.wait_for(ws.recv(), timeout=30)
                             data = json.loads(msg)
                             
                             if data.get("type") == "data":
-                                logger.info(f"BitQuery RAW PAYLOAD: {data.get('payload')}") # <-- ADDED FOR DEBUGGING
                                 trades = data.get("payload", {}).get("data", {}).get("Solana", {}).get("DEXTradeByTokens", [])
                                 
                                 for trade in trades:
                                     token_info = trade.get("Trade", {}).get("Currency", {})
                                     mint = token_info.get("MintAddress")
                                     
-                                    if mint and mint not in recent_tokens:
-                                        recent_tokens.append(mint)
-                                        
-                                        # Log discovery
+                                    if mint and mint not in seen_tokens:
+                                        seen_tokens.add(mint)
                                         symbol = token_info.get("Symbol", "Unknown")
-                                        price = trade.get("Trade", {}).get("PriceInUSD", 0)
-                                        dex = trade.get("Trade", {}).get("Dex", {}).get("ProtocolName", "Unknown")
+                                        creation_time = token_info.get("CreationTime", "")
                                         
-                                        logger.info(f"🔍 BitQuery: {symbol} ({mint[:8]}...) ${price:.6f} on {dex}")
+                                        logger.info(f"🔥 BitQuery New Token: {symbol} ({mint[:8]}...) created at {creation_time}")
                                         activity_log.append(
                                             f"[{datetime.now().strftime('%H:%M:%S')}] "
-                                            f"🔍 BitQuery: {symbol} ${price:.6f} ({dex})"
+                                            f"🔥 BitQuery New: {symbol} ({mint[:8]}...)"
                                         )
-                                        
-                                        # Only process truly new tokens
-                                        if mint not in seen_tokens:
-                                            seen_tokens.add(mint)
-                                            
-                                            # Check if it's from Pump.fun
-                                            if trade.get("Trade", {}).get("Dex", {}).get("ProgramAddress") == "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P":
-                                                # Send to ultra-early handler
-                                                await callback(mint, "pumpfun")
-                                            else:
-                                                # Send to scalper for trending tokens
-                                                await callback(mint, "bitquery", {
-                                                    "symbol": symbol,
-                                                    "price": price,
-                                                    "dex": dex,
-                                                    "source": "streaming"
-                                                })
+                                        await callback(mint, "bitquery")
                             
-                            elif data.get("type") == "complete":
-                                logger.warning("BitQuery subscription completed")
-                                break
-                                
                             elif data.get("type") == "error":
                                 logger.error(f"BitQuery error: {data}")
                                 break
                                 
                         except asyncio.TimeoutError:
-                            # Send ping to keep connection alive
                             await ws.ping()
                             
-        except websockets.exceptions.ConnectionClosed:
-                    logger.warning("BitQuery WebSocket closed")
-                    break
-                    
         except Exception as e:
             retry_count += 1
             wait_time = min(60, 2 ** retry_count)
@@ -1631,13 +1579,15 @@ async def community_trade_manager(toxibot):
 # =====================================
 async def process_token(token, src):
     """Route token to appropriate strategy"""
-    logger.info(f"🔍 DISCOVERED: {token} from {src}")
-    activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🔍 Discovered {token[:8]}... from {src}")
-    
+    # This check prevents routing a token from a source it shouldn't handle.
+    # e.g. bitquery tokens should not go to the ultra_early_handler
     if src in ("pumpfun", "pumpportal"):
         await ultra_early_handler(token, toxibot)
     elif src in ("bitquery", "dexscreener"):
         await scalper_handler(token, src, toxibot)
+    else:
+        logger.warning(f"Unknown source '{src}' for token {token}. Not processing.")
+
 
 # =====================================
 # Position Management - PRICES ARE CONSTANTLY MONITORED HERE
@@ -2759,6 +2709,11 @@ async def bot_main():
     )
     await toxibot.connect()
     
+    # Define a callback function for the data feeds
+    async def feed_callback(token, src, info=None):
+        # The 'info' parameter is not used in process_token, so we can ignore it
+        await process_token(token, src)
+
     # Start monitoring tasks
     feeds = [
         update_position_prices_and_wallet(),  # CONSTANTLY MONITORS PRICES
@@ -2767,26 +2722,17 @@ async def bot_main():
         monitor_wallet_with_helius(),
         monitor_whale_wallets(),  # Monitor whale wallets
         community_trade_manager(toxibot),
+        pumpportal_newtoken_feed(feed_callback),
+        dexscreener_new_pairs_monitor(),
     ]
-    
-    # Start PumpPortal (works for Solana)
-    asyncio.create_task(pumpportal_newtoken_feed(
-        lambda token, src: asyncio.create_task(process_token(token, src))
-    ))
     
     # Start BitQuery streaming if available
     if BITQUERY_API_KEY and BITQUERY_API_KEY != "disabled":
-        asyncio.create_task(bitquery_streaming_feed(
-            lambda token, src, info=None: asyncio.create_task(process_token(token, src))
-        ))
+        feeds.append(bitquery_streaming_feed(feed_callback))
         logger.info("✅ BitQuery Solana streaming enabled")
-    
-    # Start DexScreener backup monitor
-    asyncio.create_task(dexscreener_new_pairs_monitor())
-    
-    # Optional: Run test
-    # await test_token_processing()
-    
+    else:
+        logger.warning("BitQuery feed is disabled or API key is not set.")
+
     await asyncio.gather(*feeds)
 
 # =====================================
