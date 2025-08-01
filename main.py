@@ -5,7 +5,6 @@ import asyncio
 import logging
 import json
 import time
-import random
 import aiohttp
 import websockets
 import collections
@@ -15,7 +14,6 @@ from telethon import TelegramClient
 from telethon.sessions import StringSession
 from aiohttp import web
 from typing import Set, Dict, Any, Optional, List, Tuple
-from functools import lru_cache
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 
@@ -29,23 +27,22 @@ CACHE_TTL = 30  # 30 seconds
 
 # === TRADING PARAMETERS (ADJUSTED FOR MORE ACTIVITY) ===
 # Speed Demon (Ultra-Early)
-ULTRA_MIN_LIQ = 3  # Lowered from 5
+ULTRA_MIN_LIQ = 3
 ULTRA_BUY_AMOUNT = 0.05
 ULTRA_TP_X = 3.0
 ULTRA_SL_X = 0.5
-ULTRA_MIN_RISES = 2
 ULTRA_AGE_MAX_S = 300
-ULTRA_MIN_ML_SCORE = 60  # Lowered from 65
+ULTRA_MIN_ML_SCORE = 60
 
 # Analyst (Trending/Surge) - MODIFIED STRATEGY
 ANALYST_BUY_AMOUNT = 0.05
-ANALYST_MIN_LIQ = 8  # Lowered from 10
+ANALYST_MIN_LIQ = 8
 ANALYST_TP_LEVEL_1_PRICE_MULT = 2.0  # Sell at 2x (100% rise)
 ANALYST_TP_LEVEL_1_SELL_PCT = 80   # Sell 80% of the position
 ANALYST_SL_X = 0.7
 ANALYST_TRAIL = 0.15
 ANALYST_MAX_POOLAGE = 30 * 60
-ANALYST_MIN_ML_SCORE = 65  # Lowered from 70
+ANALYST_MIN_ML_SCORE = 65
 
 # Whale Tracker (Community)
 COMMUNITY_BUY_AMOUNT = 0.05
@@ -53,7 +50,6 @@ COMM_HOLDER_THRESHOLD = 100
 COMM_MAX_CONC = 0.15
 COMM_TP_LEVELS = [2.0, 5.0, 10.0]
 COMM_SL_PCT = 0.6
-COMM_TRAIL = 0.25
 COMM_HOLD_SECONDS = 3600
 COMM_MIN_SIGNALS = 2
 
@@ -116,44 +112,21 @@ logging.basicConfig(
 logger = logging.getLogger("toxibot")
 
 # === GLOBAL STATE ===
-blacklisted_tokens: Set[str] = set()
-blacklisted_devs: Set[str] = set()
 positions: Dict[str, Dict[str, Any]] = {}
-activity_log: collections.deque = collections.deque(maxlen=1000)
+activity_log = collections.deque(maxlen=1000)
 tokens_checked_count = 0
-
-# Stats tracking
 ultra_wins, ultra_total, ultra_pl = 0, 0, 0.0
 analyst_wins, analyst_total, analyst_pl = 0, 0, 0.0
 community_wins, community_total, community_pl = 0, 0, 0.0
-
-# Performance tracking
-api_failures: Dict[str, int] = collections.defaultdict(int)
-api_circuit_breakers: Dict[str, float] = {}
+api_failures = collections.defaultdict(int)
+api_circuit_breakers = {}
 price_cache: Dict[str, Tuple[float, float]] = {}
 session_pool: Optional[aiohttp.ClientSession] = None
-
-# Community voting
 community_signal_votes = collections.defaultdict(lambda: {"sources": set(), "first_seen": time.time()})
 community_token_queue = asyncio.Queue()
-recent_rugdevs = set()
-
-# Wallet tracking
-current_wallet_balance = 0.0
-daily_loss = 0.0
-exposure = 0.0
-
-# Risk management globals
+current_wallet_balance, daily_loss, exposure = 0.0, 0.0, 0.0
 trading_enabled = True
 daily_starting_balance = 0.0
-daily_trades_count = 0
-consecutive_profitable_trades = 0
-
-# Whale tracking
-whale_performance = collections.defaultdict(lambda: {"trades": 0, "success": 0, "total_pl": 0.0})
-whale_recent_tokens = collections.defaultdict(list)
-
-# Bot client
 toxibot = None
 startup_time = time.time()
 
@@ -372,8 +345,9 @@ async def monitor_whale_wallets():
             try:
                 if is_circuit_broken("helius_whale"): await asyncio.sleep(10); continue
                 url = f"https://api.helius.xyz/v0/addresses/{whale}/transactions?api-key={HELIUS_API_KEY}&limit=10&type=SWAP"
-                async with get_session() as session, session.get(url) as resp:
-                    if resp.status == 200:
+                async with get_session() as session:
+                    async with session.get(url) as resp:
+                        resp.raise_for_status() # Raises an error for bad status codes (4xx or 5xx)
                         for tx in await resp.json():
                             if time.time() - tx.get("timestamp", 0) > 300: continue
                             for transfer in tx.get("tokenTransfers", []):
@@ -382,8 +356,12 @@ async def monitor_whale_wallets():
                                     if token and token != "So11111111111111111111111111111111111111112":
                                         logger.info(f"🐋 Whale {whale[:6]}... bought {token[:6]}...")
                                         await community_token_queue.put(token)
+            except aiohttp.ClientResponseError as e:
+                logger.error(f"Whale monitoring HTTP error for {whale[:6]}: Status={e.status}, Message='{e.message}'")
+                trip_circuit_breaker("helius_whale")
             except Exception as e:
-                logger.error(f"Whale monitoring error for {whale[:6]}: {e}"); trip_circuit_breaker("helius_whale")
+                logger.error(f"Unexpected whale monitoring error for {whale[:6]}: {e}")
+                trip_circuit_breaker("helius_whale")
         await asyncio.sleep(30)
 
 # =====================================
