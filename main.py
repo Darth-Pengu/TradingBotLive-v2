@@ -707,6 +707,7 @@ async def pumpportal_newtoken_feed(callback):
                 while True:
                     try:
                         msg = await asyncio.wait_for(ws.recv(), timeout=30)
+                        logger.info(f"PumpPortal RAW MSG: {msg}") # <-- ADDED FOR DEBUGGING
                         data = json.loads(msg)
                         
                         # New token event
@@ -833,6 +834,7 @@ async def bitquery_streaming_feed(callback):
                             data = json.loads(msg)
                             
                             if data.get("type") == "data":
+                                logger.info(f"BitQuery RAW PAYLOAD: {data.get('payload')}") # <-- ADDED FOR DEBUGGING
                                 trades = data.get("payload", {}).get("data", {}).get("Solana", {}).get("DEXTradeByTokens", [])
                                 
                                 for trade in trades:
