@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 import os
 import sys
 import asyncio
@@ -28,25 +27,25 @@ API_RETRY_COUNT = 3
 API_RETRY_DELAY = 1
 CACHE_TTL = 30  # 30 seconds
 
-# === TRADING PARAMETERS ===
+# === TRADING PARAMETERS (ADJUSTED FOR MORE ACTIVITY) ===
 # Speed Demon (Ultra-Early)
-ULTRA_MIN_LIQ = 3
+ULTRA_MIN_LIQ = 3  # Lowered from 5
 ULTRA_BUY_AMOUNT = 0.05
 ULTRA_TP_X = 3.0
 ULTRA_SL_X = 0.5
 ULTRA_MIN_RISES = 2
 ULTRA_AGE_MAX_S = 300
-ULTRA_MIN_ML_SCORE = 60
+ULTRA_MIN_ML_SCORE = 60  # Lowered from 65
 
 # Analyst (Trending/Surge) - MODIFIED STRATEGY
 ANALYST_BUY_AMOUNT = 0.05
-ANALYST_MIN_LIQ = 8
+ANALYST_MIN_LIQ = 8  # Lowered from 10
 ANALYST_TP_LEVEL_1_PRICE_MULT = 2.0  # Sell at 2x (100% rise)
 ANALYST_TP_LEVEL_1_SELL_PCT = 80   # Sell 80% of the position
 ANALYST_SL_X = 0.7
 ANALYST_TRAIL = 0.15
 ANALYST_MAX_POOLAGE = 30 * 60
-ANALYST_MIN_ML_SCORE = 65
+ANALYST_MIN_ML_SCORE = 65  # Lowered from 70
 
 # Whale Tracker (Community)
 COMMUNITY_BUY_AMOUNT = 0.05
@@ -464,7 +463,6 @@ async def analyst_handler(token, src, toxibot_client):
 async def community_trade_manager(toxibot_client):
     while True:
         token = await community_token_queue.get()
-        # This is a simplified handler. You can expand it to be a full strategy like the others.
         logger.info(f"COMMUNITY TOKEN DETECTED: {token[:8]}, passing to Analyst handler.")
         await process_token(token, "community")
 
@@ -538,7 +536,7 @@ async def update_positions_and_risk():
 # =====================================
 # Dashboard and Server
 # =====================================
-DASHBOARD_HTML = """
+DASHBOARD_HTML = r"""
 <!DOCTYPE html>
 <html lang="en" data-bs-theme="dark">
 <head>
