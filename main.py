@@ -128,6 +128,7 @@ blacklisted_tokens: Set[str] = set()
 blacklisted_devs: Set[str] = set()
 positions: Dict[str, Dict[str, Any]] = {}
 activity_log: collections.deque = collections.deque(maxlen=1000)
+tokens_checked_count = 0 # <-- ADDED FOR DASHBOARD
 
 # Stats tracking
 ultra_wins = 0
@@ -1579,15 +1580,16 @@ async def community_trade_manager(toxibot):
 # =====================================
 async def process_token(token, src):
     """Route token to appropriate strategy"""
-    # This check prevents routing a token from a source it shouldn't handle.
-    # e.g. bitquery tokens should not go to the ultra_early_handler
+    global tokens_checked_count # <-- ADDED FOR DASHBOARD
+    tokens_checked_count += 1   # <-- ADDED FOR DASHBOARD
+    
+    logger.info(f"🔍 DISCOVERED (#{tokens_checked_count}): {token} from {src}")
+    activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🔍 Discovered {token[:8]}... from {src}")
+    
     if src in ("pumpfun", "pumpportal"):
         await ultra_early_handler(token, toxibot)
     elif src in ("bitquery", "dexscreener"):
         await scalper_handler(token, src, toxibot)
-    else:
-        logger.warning(f"Unknown source '{src}' for token {token}. Not processing.")
-
 
 # =====================================
 # Position Management - PRICES ARE CONSTANTLY MONITORED HERE
@@ -1821,445 +1823,166 @@ DASHBOARD_HTML = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TOXIBOT v2 | TRON INTERFACE</title>
+    <title>ToxiBot v2 | Dashboard</title>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Roboto+Mono:wght@400;700&display=swap');
         
+        :root {
+            --color-bg: #111827;
+            --color-bg-secondary: #1F2937;
+            --color-border: #374151;
+            --color-text-primary: #F9FAFB;
+            --color-text-secondary: #9CA3AF;
+            --color-accent: #3B82F6;
+            --color-success: #10B981;
+            --color-danger: #EF4444;
+            --color-warning: #F59E0B;
+        }
+
         * { margin: 0; padding: 0; box-sizing: border-box; }
         
         body { 
-            background: #000; 
-            color: #00ffff; 
-            font-family: 'Orbitron', monospace; 
-            overflow-x: hidden; 
-            position: relative; 
-        }
-        
-        body::before { 
-            content: ""; 
-            position: fixed; 
-            top: 0; 
-            left: 0; 
-            width: 100%; 
-            height: 100%;
-            background-image: 
-                linear-gradient(rgba(0, 255, 255, 0.1) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(0, 255, 255, 0.1) 1px, transparent 1px);
-            background-size: 50px 50px; 
-            z-index: -2; 
-        }
-        
-        body::after { 
-            content: ""; 
-            position: fixed; 
-            top: 0; 
-            left: 0; 
-            width: 100%; 
-            height: 100%;
-            background: repeating-linear-gradient(
-                0deg, transparent, transparent 2px, rgba(0, 255, 255, 0.03) 2px, rgba(0, 255, 255, 0.03) 4px
-            ); 
-            pointer-events: none; 
-            z-index: 1; 
+            background-color: var(--color-bg); 
+            color: var(--color-text-primary); 
+            font-family: 'Inter', sans-serif;
+            font-size: 14px;
         }
         
         .container { 
-            max-width: 1400px; 
+            max-width: 1600px; 
             margin: 0 auto; 
-            padding: 20px; 
-            position: relative; 
-            z-index: 2; 
+            padding: 24px;
         }
         
-        .header { 
-            text-align: center; 
-            margin-bottom: 30px; 
-            position: relative; 
-            padding: 30px 0; 
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
         }
-        
-        .header::before { 
-            content: ""; 
-            position: absolute; 
-            top: 0; 
-            left: -50%; 
-            right: -50%; 
-            height: 1px;
-            background: linear-gradient(90deg, transparent, #00ffff, transparent); 
-            animation: scan 3s linear infinite; 
-        }
-        
-        @keyframes scan { 
-            0% { transform: translateX(-100%); } 
-            100% { transform: translateX(100%); } 
-        }
-        
+
         h1 { 
-            font-size: 4em; 
-            font-weight: 900; 
-            text-transform: uppercase; 
-            letter-spacing: 0.1em;
-            text-shadow: 0 0 10px #00ffff, 0 0 20px #00ffff, 0 0 30px #00ffff, 0 0 40px #0088ff;
-            animation: pulse-glow 2s ease-in-out infinite; 
+            font-size: 1.5em;
+            font-weight: 700;
+            letter-spacing: -0.025em;
         }
         
-        @keyframes pulse-glow { 
-            0%, 100% { opacity: 1; } 
-            50% { opacity: 0.8; } 
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            border-radius: 9999px;
+            font-weight: 500;
+            font-size: 0.875em;
         }
+        .status-badge .dot { width: 8px; height: 8px; border-radius: 50%; }
         
-        .status-indicator { 
-            display: inline-block; 
-            padding: 10px 30px; 
-            margin-top: 20px; 
-            border: 2px solid #00ff00;
-            background: rgba(0, 255, 0, 0.1); 
-            font-weight: 700; 
-            text-transform: uppercase; 
-            position: relative; 
-            overflow: hidden; 
-        }
+        .status-badge.active { background-color: rgba(16, 185, 129, 0.1); color: var(--color-success); }
+        .status-badge.active .dot { background-color: var(--color-success); }
+
+        .status-badge.limited { background-color: rgba(245, 158, 11, 0.1); color: var(--color-warning); }
+        .status-badge.limited .dot { background-color: var(--color-warning); }
         
-        .status-indicator.active { 
-            color: #00ff00; 
-            text-shadow: 0 0 10px #00ff00; 
-        }
-        
-        .status-indicator.inactive { 
-            border-color: #ff0066; 
-            background: rgba(255, 0, 102, 0.1);
-            color: #ff0066; 
-            text-shadow: 0 0 10px #ff0066; 
-        }
-        
-        .status-indicator.limited {
-            border-color: #ffaa00;
-            background: rgba(255, 170, 0, 0.1);
-            color: #ffaa00;
-            text-shadow: 0 0 10px #ffaa00;
-        }
-        
-        .status-indicator::before { 
-            content: ""; 
-            position: absolute; 
-            top: 0; 
-            left: -100%; 
-            width: 100%; 
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent); 
-            animation: sweep 3s linear infinite; 
-        }
-        
-        @keyframes sweep { 
-            0% { left: -100%; } 
-            100% { left: 100%; } 
-        }
-        
+        .status-badge.disconnected { background-color: rgba(239, 68, 68, 0.1); color: var(--color-danger); }
+        .status-badge.disconnected .dot { background-color: var(--color-danger); }
+
         .metrics-grid { 
             display: grid; 
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); 
-            gap: 20px; 
-            margin-bottom: 30px; 
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); 
+            gap: 16px; 
+            margin-bottom: 24px; 
         }
         
         .metric-card { 
-            background: rgba(0, 20, 40, 0.8); 
-            border: 1px solid #00ffff; 
-            padding: 20px; 
-            position: relative; 
-            overflow: hidden; 
-            transition: all 0.3s ease; 
-        }
-        
-        .metric-card::before { 
-            content: ""; 
-            position: absolute; 
-            top: 0; 
-            left: 0; 
-            right: 0; 
-            height: 2px;
-            background: linear-gradient(90deg, transparent, #00ffff, transparent); 
-            animation: slide 2s linear infinite; 
-        }
-        
-        .metric-card:hover { 
-            transform: translateY(-5px); 
-            box-shadow: 0 10px 30px rgba(0,255,255,0.3); 
-            border-color: #00ff00; 
+            background-color: var(--color-bg-secondary); 
+            border: 1px solid var(--color-border);
+            border-radius: 8px;
+            padding: 16px;
         }
         
         .metric-label { 
-            font-size: 0.9em; 
-            color: #0088ff; 
-            text-transform: uppercase; 
-            letter-spacing: 0.1em; 
+            font-size: 0.875em; 
+            color: var(--color-text-secondary);
+            margin-bottom: 8px;
         }
         
         .metric-value { 
-            font-size: 1.8em; 
-            font-weight: 700; 
-            margin-top: 10px; 
-            font-family: 'Share Tech Mono', monospace; 
+            font-size: 1.5em; 
+            font-weight: 600;
+            font-family: 'Roboto Mono', monospace;
         }
         
-        .metric-value.positive { color: #00ff00; }
-        .metric-value.negative { color: #ff0066; }
-        .metric-value.warning { color: #ffaa00; }
+        .positive { color: var(--color-success); }
+        .negative { color: var(--color-danger); }
         
-        .bots-section {
+        .content-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
         }
-        
-        .bot-card {
-            background: rgba(0, 40, 80, 0.6);
-            border: 2px solid #0088ff;
+
+        .section-card {
+            background-color: var(--color-bg-secondary);
+            border: 1px solid var(--color-border);
+            border-radius: 8px;
             padding: 20px;
-            position: relative;
-        }
-        
-        .bot-name {
-            font-size: 1.2em;
-            font-weight: 700;
-            color: #00ffff;
-            margin-bottom: 15px;
-            text-transform: uppercase;
-        }
-        
-        .bot-stats {
             display: flex;
             flex-direction: column;
-            gap: 10px;
-        }
-        
-        .stat-row {
-            display: flex;
-            justify-content: space-between;
-            font-family: 'Share Tech Mono', monospace;
-        }
-        
-        .stat-row span:first-child {
-            color: #0088ff;
-        }
-        
-        .stat-row span:last-child {
-            color: #00ffff;
-            font-weight: 700;
-        }
-        
-        .positions-section {
-            margin-bottom: 30px;
         }
         
         .section-title {
-            font-size: 1.5em;
-            font-weight: 700;
-            color: #00ffff;
-            margin-bottom: 20px;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
+            font-size: 1.125em;
+            font-weight: 600;
+            margin-bottom: 16px;
         }
-        
+
         .positions-table {
             width: 100%;
             border-collapse: collapse;
-            background: rgba(0, 20, 40, 0.6);
+            flex-grow: 1;
         }
         
-        .positions-table th,
-        .positions-table td {
-            padding: 12px;
+        .positions-table th, .positions-table td {
+            padding: 10px 12px;
             text-align: left;
-            border-bottom: 1px solid rgba(0, 255, 255, 0.2);
+            border-bottom: 1px solid var(--color-border);
+            font-family: 'Roboto Mono', monospace;
         }
         
         .positions-table th {
-            background: rgba(0, 40, 80, 0.8);
-            color: #0088ff;
-            font-weight: 700;
+            color: var(--color-text-secondary);
+            font-family: 'Inter', sans-serif;
+            font-weight: 500;
+            font-size: 0.75em;
             text-transform: uppercase;
-            font-size: 0.9em;
         }
         
-        .positions-table td {
-            font-family: 'Share Tech Mono', monospace;
-        }
-        
-        .positions-table tr:hover {
-            background: rgba(0, 255, 255, 0.05);
-        }
-        
-        .positive { color: #00ff00; }
-        .negative { color: #ff0066; }
-        
-        /* Position alerts */
-        .alert-profit {
-            animation: blink-green 1s infinite;
-        }
-        
-        .alert-loss {
-            animation: blink-red 1s infinite;
-        }
-        
-        .alert-old {
-            animation: blink-yellow 1s infinite;
-        }
-        
-        @keyframes blink-green {
-            0%, 50% { background: rgba(0, 255, 0, 0.1); }
-            51%, 100% { background: transparent; }
-        }
-        
-        @keyframes blink-red {
-            0%, 50% { background: rgba(255, 0, 102, 0.1); }
-            51%, 100% { background: transparent; }
-        }
-        
-        @keyframes blink-yellow {
-            0%, 50% { background: rgba(255, 170, 0, 0.1); }
-            51%, 100% { background: transparent; }
-        }
-        
-        /* Quick stats bar */
-        .quick-stats {
-            display: flex;
-            justify-content: space-around;
-            padding: 15px;
-            margin-bottom: 20px;
-            background: rgba(0, 20, 40, 0.6);
-            border: 1px solid #0088ff;
-            font-family: 'Share Tech Mono', monospace;
-        }
-        
-        .quick-stats span {
-            color: #0088ff;
-        }
-        
-        .quick-stats span span {
-            color: #00ffff;
-            font-weight: 700;
-        }
-        
-        /* Connection status */
-        .connection-status {
-            position: absolute;
-            top: 10px;
-            right: 20px;
-            font-size: 0.9em;
-            font-family: 'Share Tech Mono', monospace;
-        }
-        
-        .connection-status.connected {
-            color: #00ff00;
-        }
-        
-        .connection-status.disconnected {
-            color: #ff0066;
-            animation: pulse 1s infinite;
-        }
-        
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-        
-        /* Log filters */
-        .log-filters {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 10px;
-        }
-        
-        .log-filters button {
-            padding: 8px 16px;
-            background: rgba(0, 40, 80, 0.8);
-            border: 1px solid #0088ff;
-            color: #00ffff;
-            font-family: 'Orbitron', monospace;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            text-transform: uppercase;
-            font-size: 0.8em;
-        }
-        
-        .log-filters button:hover {
-            background: rgba(0, 80, 160, 0.8);
-            border-color: #00ffff;
-            transform: translateY(-2px);
-        }
-        
-        .log-filters button.active {
-            background: rgba(0, 255, 255, 0.2);
-            border-color: #00ff00;
-        }
-        
-        .log-section {
-            margin-top: 40px;
-        }
+        .positions-table tr:last-child td { border-bottom: none; }
         
         .log-container {
-            background: rgba(0, 10, 20, 0.9);
-            border: 1px solid #0088ff;
-            padding: 20px;
-            height: 400px;
+            flex-grow: 1;
             overflow-y: auto;
-            font-family: 'Share Tech Mono', monospace;
-            font-size: 0.9em;
+            font-family: 'Roboto Mono', monospace;
+            font-size: 0.875em;
+            background-color: var(--color-bg);
+            padding: 12px;
+            border-radius: 6px;
         }
-        
-        .log-entry {
-            margin-bottom: 8px;
-            padding: 4px 8px;
-            border-left: 3px solid #0088ff;
-        }
-        
-        .log-entry.success {
-            border-left-color: #00ff00;
-            color: #00ff00;
-        }
-        
-        .log-entry.error {
-            border-left-color: #ff0066;
-            color: #ff0066;
-        }
-        
-        .log-entry.warning {
-            border-left-color: #ffaa00;
-            color: #ffaa00;
-        }
-        
-        .log-entry.info {
-            border-left-color: #00ffff;
-            color: #00ffff;
-        }
-        
-        ::-webkit-scrollbar {
-            width: 12px;
-        }
-        
-        ::-webkit-scrollbar-track {
-            background: rgba(0, 20, 40, 0.8);
-            border: 1px solid #0088ff;
-        }
-        
-        ::-webkit-scrollbar-thumb {
-            background: #0088ff;
-            border: 1px solid #00ffff;
-        }
-        
-        ::-webkit-scrollbar-thumb:hover {
-            background: #00ffff;
-        }
+        .log-entry.info { color: #A5B4FC; }
+        .log-entry.success { color: var(--color-success); }
+        .log-entry.error { color: var(--color-danger); }
+        .log-entry.warning { color: var(--color-warning); }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>TOXIBOT v2.0</h1>
-            <div id="status" class="status-indicator active">SYSTEM ACTIVE</div>
-            <div class="connection-status connected" id="connection-status">● Connected</div>
+            <h1>ToxiBot v2 Dashboard</h1>
+            <div id="status" class="status-badge active">
+                <div class="dot"></div>
+                <span id="status-text">Connecting...</span>
+            </div>
         </div>
         
         <div class="metrics-grid">
@@ -2276,323 +1999,122 @@ DASHBOARD_HTML = """
                 <div class="metric-value" id="winrate">0.0%</div>
             </div>
             <div class="metric-card">
-                <div class="metric-label">Active Positions</div>
-                <div class="metric-value" id="positions-count">0</div>
-            </div>
-            <div class="metric-card">
                 <div class="metric-label">Exposure</div>
                 <div class="metric-value" id="exposure">0.000 SOL</div>
             </div>
             <div class="metric-card">
-                <div class="metric-label">Daily Loss</div>
-                <div class="metric-value negative" id="daily-loss">0.000 SOL</div>
+                <div class="metric-label">Active Pos.</div>
+                <div class="metric-value" id="positions-count">0</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Tokens Checked</div>
+                <div class="metric-value" id="tokens-checked">0</div>
             </div>
         </div>
         
-        <div class="quick-stats">
-            <span>🔥 Best Trade: <span id="best-trade">+0.000</span></span>
-            <span>💀 Worst Trade: <span id="worst-trade">-0.000</span></span>
-            <span>📊 Today's Trades: <span id="todays-trades">0</span></span>
-            <span>⚡ Active Feeds: <span id="active-feeds">3</span></span>
-        </div>
-        
-        <div class="bots-section">
-            <div class="bot-card">
-                <div class="bot-name">⚡ Speed Demon</div>
-                <div class="bot-stats">
-                    <div class="stat-row">
-                        <span>Trades</span>
-                        <span id="ultra-trades">0/0</span>
-                    </div>
-                    <div class="stat-row">
-                        <span>Win Rate</span>
-                        <span id="ultra-winrate">0%</span>
-                    </div>
-                    <div class="stat-row">
-                        <span>P/L</span>
-                        <span id="ultra-pl">+0.000</span>
-                    </div>
+        <div class="content-grid">
+            <div class="section-card">
+                <h2 class="section-title">Active Positions</h2>
+                <div style="overflow-x: auto; flex-grow: 1;">
+                    <table class="positions-table">
+                        <thead>
+                            <tr><th>Token</th><th>Source</th><th>Size</th><th>Entry</th><th>P/L</th><th>P/L %</th></tr>
+                        </thead>
+                        <tbody id="positions-tbody"></tbody>
+                    </table>
                 </div>
             </div>
-            
-            <div class="bot-card">
-                <div class="bot-name">🔍 Analyst</div>
-                <div class="bot-stats">
-                    <div class="stat-row">
-                        <span>Trades</span>
-                        <span id="scalper-trades">0/0</span>
-                    </div>
-                    <div class="stat-row">
-                        <span>Win Rate</span>
-                        <span id="scalper-winrate">0%</span>
-                    </div>
-                    <div class="stat-row">
-                        <span>P/L</span>
-                        <span id="scalper-pl">+0.000</span>
-                    </div>
-                </div>
+            <div class="section-card">
+                <h2 class="section-title">System Activity Log</h2>
+                <div class="log-container" id="log-container"></div>
             </div>
-            
-            <div class="bot-card">
-                <div class="bot-name">🐋 Whale Tracker</div>
-                <div class="bot-stats">
-                    <div class="stat-row">
-                        <span>Trades</span>
-                        <span id="community-trades">0/0</span>
-                    </div>
-                    <div class="stat-row">
-                        <span>Win Rate</span>
-                        <span id="community-winrate">0%</span>
-                    </div>
-                    <div class="stat-row">
-                        <span>P/L</span>
-                        <span id="community-pl">+0.000</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <div class="positions-section">
-            <h2 class="section-title">Active Positions</h2>
-            <table class="positions-table">
-                <thead>
-                    <tr>
-                        <th>Token</th>
-                        <th>Source</th>
-                        <th>Size</th>
-                        <th>Entry</th>
-                        <th>Current</th>
-                        <th>P/L</th>
-                        <th>P/L %</th>
-                        <th>Phase</th>
-                        <th>Age</th>
-                    </tr>
-                </thead>
-                <tbody id="positions-tbody"></tbody>
-            </table>
-        </div>
-        
-        <div class="log-section">
-            <h2 class="section-title">System Activity</h2>
-            <div class="log-filters">
-                <button class="active" onclick="filterLog('all')">All</button>
-                <button onclick="filterLog('buys')">Buys</button>
-                <button onclick="filterLog('sells')">Sells</button>
-                <button onclick="filterLog('errors')">Errors</button>
-                <button onclick="filterLog('discovered')">Discovered</button>
-            </div>
-            <div class="log-container" id="log-container"></div>
         </div>
     </div>
     
     <script>
-        // Fix WebSocket URL for Railway deployment
         const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${wsProtocol}//${location.host}/ws`;
-        console.log('Connecting to WebSocket:', wsUrl);
         const ws = new WebSocket(wsUrl);
         
-        let lastUpdate = Date.now();
-        let allLogs = [];
-        let currentFilter = 'all';
-        let bestTrade = 0;
-        let worstTrade = 0;
-        let todaysTrades = 0;
-        
-        ws.onopen = function() {
-            console.log('WebSocket connected!');
-            document.getElementById('connection-status').className = 'connection-status connected';
-            document.getElementById('connection-status').textContent = '● Connected';
+        ws.onopen = () => console.log('WebSocket connected!');
+        ws.onerror = (error) => console.error('WebSocket error:', error);
+        ws.onclose = () => {
+            const statusBadge = document.getElementById('status');
+            const statusText = document.getElementById('status-text');
+            statusBadge.className = 'status-badge disconnected';
+            statusText.textContent = 'Disconnected';
         };
-        
-        ws.onerror = function(error) {
-            console.error('WebSocket error:', error);
-            document.getElementById('connection-status').className = 'connection-status disconnected';
-            document.getElementById('connection-status').textContent = '● Connection Error';
-        };
-        
-        function formatNumber(num, decimals = 3) {
-            return parseFloat(num || 0).toFixed(decimals);
+
+        function formatNumber(num, decimals = 3, sign = false) {
+            const val = parseFloat(num || 0);
+            const text = val.toFixed(decimals);
+            return sign && val > 0 ? `+${text}` : text;
         }
-        
-        function formatAge(seconds) {
-            if (!seconds) return '';
-            const d = Math.floor(seconds / 86400);
-            const h = Math.floor((seconds % 86400) / 3600);
-            const m = Math.floor((seconds % 3600) / 60);
-            const s = Math.floor(seconds % 60);
-            
-            const parts = [];
-            if (d) parts.push(`${d}d`);
-            if (h) parts.push(`${h}h`);
-            if (m) parts.push(`${m}m`);
-            if (s && !d && !h) parts.push(`${s}s`);
-            
-            return parts.join(' ') || '0s';
-        }
-        
-        function filterLog(filter) {
-            currentFilter = filter;
-            document.querySelectorAll('.log-filters button').forEach(btn => btn.classList.remove('active'));
-            event.target.classList.add('active');
-            updateLogDisplay();
-        }
-        
-        function updateLogDisplay() {
-            const logContainer = document.getElementById('log-container');
-            let filtered = allLogs;
-            
-            if (currentFilter !== 'all') {
-                filtered = allLogs.filter(entry => {
-                    if (currentFilter === 'buys') return entry.includes('BUY');
-                    if (currentFilter === 'sells') return entry.includes('Sold');
-                    if (currentFilter === 'errors') return entry.includes('❌') || entry.includes('FAIL');
-                    if (currentFilter === 'discovered') return entry.includes('Discovered') || entry.includes('New');
-                    return true;
-                });
-            }
-            
-            logContainer.innerHTML = filtered.map(entry => {
-                let className = 'log-entry';
-                if (entry.includes('✅') || entry.includes('💚')) className += ' success';
-                else if (entry.includes('❌') || entry.includes('💔')) className += ' error';
-                else if (entry.includes('⚠️')) className += ' warning';
-                else if (entry.includes('🔍') || entry.includes('🚀')) className += ' info';
-                return `<div class="${className}">${entry}</div>`;
-            }).join('');
-            logContainer.scrollTop = logContainer.scrollHeight;
-        }
-        
-        // Connection status monitor
-        setInterval(() => {
-            const timeSinceUpdate = Date.now() - lastUpdate;
-            const indicator = document.getElementById('connection-status');
-            if (timeSinceUpdate > 5000) {
-                indicator.className = 'connection-status disconnected';
-                indicator.textContent = '● Disconnected';
-            } else {
-                indicator.className = 'connection-status connected';
-                indicator.textContent = '● Connected';
-            }
-        }, 1000);
-        
+
         ws.onmessage = function(event) {
-            lastUpdate = Date.now();
             const data = JSON.parse(event.data);
             
-            // Update status
-            const statusEl = document.getElementById('status');
+            // Update Status Badge
+            const statusBadge = document.getElementById('status');
+            const statusText = document.getElementById('status-text');
             if (!data.trading_enabled) {
-                statusEl.className = 'status-indicator limited';
-                statusEl.textContent = 'SELLING ONLY - LOSS LIMIT';
-            } else if (data.status && data.status.toLowerCase().includes('active')) {
-                statusEl.className = 'status-indicator active';
-                statusEl.textContent = 'SYSTEM ACTIVE';
+                statusBadge.className = 'status-badge limited';
+                statusText.textContent = 'Selling Only';
             } else {
-                statusEl.className = 'status-indicator inactive';
-                statusEl.textContent = 'SYSTEM OFFLINE';
+                statusBadge.className = 'status-badge active';
+                statusText.textContent = 'System Active';
             }
             
-            // Update metrics
+            // Update Metrics
             document.getElementById('wallet').textContent = `${formatNumber(data.wallet_balance, 2)} SOL`;
-            document.getElementById('total-pl').textContent = `${data.pl >= 0 ? '+' : ''}${formatNumber(data.pl)}`;
-            document.getElementById('total-pl').className = `metric-value ${data.pl >= 0 ? 'positive' : 'negative'}`;
+            const totalPL = parseFloat(data.pl || 0);
+            document.getElementById('total-pl').textContent = formatNumber(totalPL, 4, true);
+            document.getElementById('total-pl').className = `metric-value ${totalPL >= 0 ? 'positive' : 'negative'}`;
             document.getElementById('winrate').textContent = `${formatNumber(data.winrate, 1)}%`;
-            document.getElementById('positions-count').textContent = Object.keys(data.positions || {}).length;
             document.getElementById('exposure').textContent = `${formatNumber(data.exposure)} SOL`;
-            document.getElementById('daily-loss').textContent = `${formatNumber(data.daily_loss)} SOL`;
-            document.getElementById('daily-loss').className = `metric-value ${data.daily_loss > 0.3 ? 'negative' : data.daily_loss > 0.1 ? 'warning' : 'negative'}`;
+            const posCount = Object.keys(data.positions || {}).length;
+            document.getElementById('positions-count').textContent = posCount;
+            document.getElementById('tokens-checked').textContent = data.tokens_checked || 0;
             
-            // Update bot stats
-            document.getElementById('ultra-trades').textContent = `${data.ultra_wins}/${data.ultra_total}`;
-            document.getElementById('ultra-winrate').textContent = 
-                `${data.ultra_total ? formatNumber(100 * data.ultra_wins / data.ultra_total, 1) : 0}%`;
-            document.getElementById('ultra-pl').textContent = `${data.ultra_pl >= 0 ? '+' : ''}${formatNumber(data.ultra_pl)}`;
-            document.getElementById('ultra-pl').className = data.ultra_pl >= 0 ? 'positive' : 'negative';
-            
-            document.getElementById('scalper-trades').textContent = `${data.scalper_wins}/${data.scalper_total}`;
-            document.getElementById('scalper-winrate').textContent = 
-                `${data.scalper_total ? formatNumber(100 * data.scalper_wins / data.scalper_total, 1) : 0}%`;
-            document.getElementById('scalper-pl').textContent = `${data.scalper_pl >= 0 ? '+' : ''}${formatNumber(data.scalper_pl)}`;
-            document.getElementById('scalper-pl').className = data.scalper_pl >= 0 ? 'positive' : 'negative';
-            
-            document.getElementById('community-trades').textContent = `${data.community_wins}/${data.community_total}`;
-            document.getElementById('community-winrate').textContent = 
-                `${data.community_total ? formatNumber(100 * data.community_wins / data.community_total, 1) : 0}%`;
-            document.getElementById('community-pl').textContent = 
-                `${data.community_pl >= 0 ? '+' : ''}${formatNumber(data.community_pl)}`;
-            document.getElementById('community-pl').className = data.community_pl >= 0 ? 'positive' : 'negative';
-            
-            // Update quick stats
-            todaysTrades = data.ultra_total + data.scalper_total + data.community_total;
-            document.getElementById('todays-trades').textContent = todaysTrades;
-            
-            // Calculate best/worst trades from positions
-            Object.values(data.positions || {}).forEach(pos => {
-                const pl = pos.pl || 0;
-                if (pl > bestTrade) bestTrade = pl;
-                if (pl < worstTrade) worstTrade = pl;
-            });
-            
-            document.getElementById('best-trade').textContent = `${bestTrade >= 0 ? '+' : ''}${formatNumber(bestTrade)}`;
-            document.getElementById('best-trade').className = bestTrade >= 0 ? 'positive' : 'negative';
-            document.getElementById('worst-trade').textContent = `${worstTrade >= 0 ? '+' : ''}${formatNumber(worstTrade)}`;
-            document.getElementById('worst-trade').className = worstTrade >= 0 ? 'positive' : 'negative';
-            
-            // Update positions table with alerts
+            // Update Positions Table
             const tbody = document.getElementById('positions-tbody');
-            tbody.innerHTML = '';
-            const now = Date.now() / 1000;
-            
-            Object.entries(data.positions || {}).forEach(([token, pos]) => {
-                const entry = parseFloat(pos.entry_price || 0);
-                const last = parseFloat(pos.last_price || entry);
-                const size = parseFloat(pos.size || 0);
-                const pl = (last - entry) * size;
-                const plPct = entry ? 100 * (last - entry) / entry : 0;
-                const age = now - (pos.buy_time || now);
-                
-                const row = tbody.insertRow();
-                
-                // Add alert classes
-                if (plPct >= 50) row.classList.add('alert-profit');
-                else if (plPct <= -20) row.classList.add('alert-loss');
-                else if (age > 3600) row.classList.add('alert-old');
-                
-                row.innerHTML = `
-                    <td style="color: #00ffff">${token.slice(0, 6)}...${token.slice(-4)}</td>
-                    <td>${pos.src || ''}</td>
-                    <td>${formatNumber(size)}</td>
-                    <td>${formatNumber(entry, 6)}</td>
-                    <td>${formatNumber(last, 6)}</td>
-                    <td class="${pl >= 0 ? 'positive' : 'negative'}">${formatNumber(pl, 4)}</td>
-                    <td class="${plPct >= 0 ? 'positive' : 'negative'}">${formatNumber(plPct, 2)}%</td>
-                    <td>${pos.phase || ''}</td>
-                    <td>${formatAge(age)}</td>
-                `;
-            });
-            
-            // Update activity log
-            allLogs = data.log || [];
-            updateLogDisplay();
-        };
-        
-        ws.onclose = function() {
-            setTimeout(() => { location.reload(); }, 5000);
-        };
-        
-        // Keyboard shortcuts
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'r' && e.ctrlKey) {
-                e.preventDefault();
-                location.reload();
+            tbody.innerHTML = ''; // Clear old rows
+            if (posCount > 0) {
+                Object.entries(data.positions).forEach(([token, pos]) => {
+                    const entry = parseFloat(pos.entry_price || 0);
+                    const last = parseFloat(pos.last_price || entry);
+                    const size = parseFloat(pos.size || 0);
+                    const pl = (last - entry) * size;
+                    const plPct = entry ? (100 * (last - entry) / entry) : 0;
+                    
+                    const row = tbody.insertRow();
+                    row.innerHTML = `
+                        <td><a href="https://solscan.io/token/${token}" target="_blank" style="color: var(--color-accent); text-decoration:none;">${token.slice(0,6)}...${token.slice(-4)}</a></td>
+                        <td>${pos.src || ''}</td>
+                        <td>${formatNumber(size, 2)}</td>
+                        <td>${formatNumber(entry, 6)}</td>
+                        <td class="${pl >= 0 ? 'positive' : 'negative'}">${formatNumber(pl, 4, true)}</td>
+                        <td class="${plPct >= 0 ? 'positive' : 'negative'}">${formatNumber(plPct, 2, true)}%</td>
+                    `;
+                });
+            } else {
+                 tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color: var(--color-text-secondary); padding: 20px;">No active positions.</td></tr>';
             }
-            if (e.key === 'c' && e.ctrlKey) {
-                e.preventDefault();
-                allLogs = [];
-                updateLogDisplay();
-            }
-        });
+            
+            // Update Activity Log
+            const logContainer = document.getElementById('log-container');
+            const logs = data.log || [];
+            logContainer.innerHTML = logs.map(entry => {
+                let className = 'log-entry';
+                if (entry.includes('✅') || entry.includes('💚') || entry.includes('BUY')) className += ' success';
+                else if (entry.includes('❌') || entry.includes('💔') || entry.includes('failed')) className += ' error';
+                else if (entry.includes('⚠️')) className += ' warning';
+                else className += ' info';
+                // Remove timestamp for cleaner view, e.g., "[17:45:10] ✅ ..." -> "✅ ..."
+                return `<div class="${className}">${entry.replace(/^\[[0-9:]{8}\]\s/, '')}</div>`;
+            }).join('');
+            logContainer.scrollTop = logContainer.scrollHeight;
+        };
     </script>
 </body>
 </html>
@@ -2629,10 +2151,11 @@ async def ws_handler(request):
                 "community_wins": community_wins,
                 "community_total": community_total,
                 "community_pl": community_pl,
-                "trading_enabled": trading_enabled,  # Send trading status
+                "tokens_checked": tokens_checked_count, # <-- ADDED FOR DASHBOARD
+                "trading_enabled": trading_enabled,
             }
             
-            await ws.send_str(json.dumps(data))
+            await ws.send_str(json.dumps(data, default=str)) # Use default=str to handle potential non-serializable data
             await asyncio.sleep(2)
         except Exception as e:
             logger.error(f"WS send error: {e}")
@@ -2662,12 +2185,14 @@ async def run_dashboard_server():
     
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, port=PORT)
+    site = web.TCPSite(runner, '0.0.0.0', PORT)
     await site.start()
     logger.info(f"Dashboard up at http://0.0.0.0:{PORT}")
     
+    # In a real deployment, you'd let the main task loop handle sleeping.
+    # For a standalone dashboard server, this keeps it alive.
     while True:
-        await asyncio.sleep(3600)  # Keep running
+        await asyncio.sleep(3600)
 
 # =====================================
 # Test Functions
@@ -2711,16 +2236,15 @@ async def bot_main():
     
     # Define a callback function for the data feeds
     async def feed_callback(token, src, info=None):
-        # The 'info' parameter is not used in process_token, so we can ignore it
         await process_token(token, src)
 
     # Start monitoring tasks
-    feeds = [
-        update_position_prices_and_wallet(),  # CONSTANTLY MONITORS PRICES
+    tasks = [
+        update_position_prices_and_wallet(),
         risk_management_monitor(),
         update_trading_parameters(),
         monitor_wallet_with_helius(),
-        monitor_whale_wallets(),  # Monitor whale wallets
+        monitor_whale_wallets(),
         community_trade_manager(toxibot),
         pumpportal_newtoken_feed(feed_callback),
         dexscreener_new_pairs_monitor(),
@@ -2728,12 +2252,12 @@ async def bot_main():
     
     # Start BitQuery streaming if available
     if BITQUERY_API_KEY and BITQUERY_API_KEY != "disabled":
-        feeds.append(bitquery_streaming_feed(feed_callback))
+        tasks.append(bitquery_streaming_feed(feed_callback))
         logger.info("✅ BitQuery Solana streaming enabled")
     else:
         logger.warning("BitQuery feed is disabled or API key is not set.")
 
-    await asyncio.gather(*feeds)
+    await asyncio.gather(*tasks)
 
 # =====================================
 # Cleanup on Exit
@@ -2759,8 +2283,9 @@ startup_time = time.time()
 async def main():
     # Set up signal handlers for graceful shutdown
     import signal
-    signal.signal(signal.SIGINT, lambda s, f: asyncio.create_task(cleanup()))
-    signal.signal(signal.SIGTERM, lambda s, f: asyncio.create_task(cleanup()))
+    loop = asyncio.get_event_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, lambda s=sig: asyncio.create_task(cleanup()))
     
     task_dashboard = asyncio.create_task(run_dashboard_server())
     task_bot = asyncio.create_task(bot_main())
@@ -2768,7 +2293,7 @@ async def main():
     try:
         await asyncio.gather(task_dashboard, task_bot)
     except Exception as e:
-        logger.error(f"Fatal error: {e}")
+        logger.error(f"Fatal error in main gather: {e}")
         await cleanup()
 
 if __name__ == "__main__":
@@ -2777,5 +2302,5 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         logger.info("Interrupted by user")
     except Exception as e:
-        logger.error(f"Unhandled exception: {e}")
+        logger.error(f"Unhandled exception at top level: {e}")
         traceback.print_exc()
