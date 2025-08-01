@@ -6,6 +6,7 @@ import asyncio
 import logging
 import json
 import time
+import random
 import aiohttp
 import websockets
 import collections
@@ -14,7 +15,8 @@ import traceback
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 from aiohttp import web
-from typing import Set, Dict, Any, Optional
+from typing import Set, Dict, Any, Optional, List, Tuple
+from functools import lru_cache
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 
@@ -36,15 +38,25 @@ ULTRA_MIN_RISES = 2
 ULTRA_AGE_MAX_S = 300
 ULTRA_MIN_ML_SCORE = 60
 
-# Analyst (Trending/Surge)
+# Analyst (Trending/Surge) - MODIFIED STRATEGY
 ANALYST_BUY_AMOUNT = 0.05
 ANALYST_MIN_LIQ = 8
-ANALYST_TP_LEVEL_1_PRICE_MULT = 2.0
-ANALYST_TP_LEVEL_1_SELL_PCT = 80
+ANALYST_TP_LEVEL_1_PRICE_MULT = 2.0  # Sell at 2x (100% rise)
+ANALYST_TP_LEVEL_1_SELL_PCT = 80   # Sell 80% of the position
 ANALYST_SL_X = 0.7
 ANALYST_TRAIL = 0.15
 ANALYST_MAX_POOLAGE = 30 * 60
 ANALYST_MIN_ML_SCORE = 65
+
+# Whale Tracker (Community)
+COMMUNITY_BUY_AMOUNT = 0.05
+COMM_HOLDER_THRESHOLD = 100
+COMM_MAX_CONC = 0.15
+COMM_TP_LEVELS = [2.0, 5.0, 10.0]
+COMM_SL_PCT = 0.6
+COMM_TRAIL = 0.25
+COMM_HOLD_SECONDS = 3600
+COMM_MIN_SIGNALS = 2
 
 # Risk Management
 MAX_WALLET_EXPOSURE = 0.5
@@ -57,6 +69,7 @@ TOXIBOT_COMMAND_DELAY = 2
 # Performance settings
 ULTRA_MAX_DAILY_TRADES = 20
 ANALYST_MAX_POSITIONS = 20
+COMMUNITY_MAX_DAILY = 10
 
 # === WHALE WALLETS TO MONITOR ===
 WHALE_WALLETS = [
@@ -73,37 +86,75 @@ TELEGRAM_API_HASH = os.environ.get("TELEGRAM_API_HASH", "")
 TELEGRAM_STRING_SESSION = os.environ.get("TELEGRAM_STRING_SESSION", "")
 TOXIBOT_USERNAME = os.environ.get("TOXIBOT_USERNAME", "@toxi_solana_bot")
 HELIUS_API_KEY = os.environ.get("HELIUS_API_KEY", "")
-HELIUS_RPC_URL = f"https://mainnet.helius-rpc.com/?api-key={HELIUS_API_KEY}"
+HELIUS_RPC_URL = os.environ.get("HELIUS_RPC_URL", f"https://mainnet.helius-rpc.com/?api-key={HELIUS_API_KEY}")
 WALLET_ADDRESS = os.environ.get("WALLET_ADDRESS", "")
 BITQUERY_API_KEY = os.environ.get("BITQUERY_API_KEY", "")
 PORT = int(os.environ.get("PORT", "8080"))
 
-# Basic setup
+# Configure stdout/stderr for Railway
 sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
+
+# Database configuration - use volume for Railway
 if os.environ.get('RAILWAY_ENVIRONMENT'):
     data_dir = '/data'
     os.makedirs(data_dir, exist_ok=True)
     DB_PATH = os.path.join(data_dir, 'toxibot.db')
     LOG_PATH = os.path.join(data_dir, 'toxibot.log')
 else:
-    DB_PATH, LOG_PATH = 'toxibot.db', 'toxibot.log'
+    DB_PATH = 'toxibot.db'
+    LOG_PATH = 'toxibot.log'
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", handlers=[logging.StreamHandler(sys.stdout), logging.FileHandler(LOG_PATH)])
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s",
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler(LOG_PATH)
+    ]
+)
 logger = logging.getLogger("toxibot")
 
 # === GLOBAL STATE ===
+blacklisted_tokens: Set[str] = set()
+blacklisted_devs: Set[str] = set()
 positions: Dict[str, Dict[str, Any]] = {}
-activity_log = collections.deque(maxlen=1000)
+activity_log: collections.deque = collections.deque(maxlen=1000)
 tokens_checked_count = 0
+
+# Stats tracking
 ultra_wins, ultra_total, ultra_pl = 0, 0, 0.0
 analyst_wins, analyst_total, analyst_pl = 0, 0, 0.0
-api_failures = collections.defaultdict(int)
-api_circuit_breakers = {}
-price_cache = {}
+community_wins, community_total, community_pl = 0, 0, 0.0
+
+# Performance tracking
+api_failures: Dict[str, int] = collections.defaultdict(int)
+api_circuit_breakers: Dict[str, float] = {}
+price_cache: Dict[str, Tuple[float, float]] = {}
 session_pool: Optional[aiohttp.ClientSession] = None
-current_wallet_balance, daily_loss, exposure = 0.0, 0.0, 0.0
+
+# Community voting
+community_signal_votes = collections.defaultdict(lambda: {"sources": set(), "first_seen": time.time()})
+community_token_queue = asyncio.Queue()
+recent_rugdevs = set()
+
+# Wallet tracking
+current_wallet_balance = 0.0
+daily_loss = 0.0
+exposure = 0.0
+
+# Risk management globals
 trading_enabled = True
+daily_starting_balance = 0.0
+daily_trades_count = 0
+consecutive_profitable_trades = 0
+
+# Whale tracking
+whale_performance = collections.defaultdict(lambda: {"trades": 0, "success": 0, "total_pl": 0.0})
+whale_recent_tokens = collections.defaultdict(list)
+
+# Bot client
 toxibot = None
 startup_time = time.time()
 
@@ -182,27 +233,18 @@ def trip_circuit_breaker(service: str):
         api_circuit_breakers[service] = time.time() + CIRCUIT_BREAKER_TIMEOUT
         logger.warning(f"Circuit breaker tripped for {service}")
 
-# =====================================
-# --- THIS IS THE MISSING FUNCTION ---
 async def fetch_wallet_balance() -> Optional[float]:
-    """Fetch SOL balance using Helius RPC"""
-    if not WALLET_ADDRESS or is_circuit_broken("helius"):
-        return None
+    if not WALLET_ADDRESS or is_circuit_broken("helius"): return None
     try:
         async with get_session() as session:
             payload = {"jsonrpc": "2.0", "id": 1, "method": "getBalance", "params": [WALLET_ADDRESS]}
             async with session.post(HELIUS_RPC_URL, json=payload) as resp:
-                if resp.status != 200:
-                    raise Exception(f"HTTP Error {resp.status}")
-                data = await resp.json()
-                if "result" in data and "value" in data["result"]:
-                    return data["result"]["value"] / 1e9  # Convert lamports to SOL
+                if resp.status == 200:
+                    data = await resp.json()
+                    if "result" in data and "value" in data["result"]: return data["result"]["value"] / 1e9
     except Exception as e:
-        logger.error(f"Failed to fetch wallet balance: {e}")
-        trip_circuit_breaker("helius")
+        logger.error(f"Failed to fetch wallet balance: {e}"); trip_circuit_breaker("helius")
     return None
-# --- END OF MISSING FUNCTION ---
-# =====================================
 
 async def fetch_token_price(token: str) -> Optional[float]:
     if token in price_cache and time.time() - price_cache[token][1] < CACHE_TTL: return price_cache[token][0]
@@ -266,7 +308,7 @@ def rug_gate(rug: Dict[str, Any]) -> Optional[str]:
     return None
 
 # =====================================
-# Data Feeds (PumpPortal, BitQuery, Trending)
+# Data Feeds (PumpPortal, BitQuery, Trending, Whales)
 # =====================================
 async def pumpportal_newtoken_feed(callback):
     uri = "wss://pumpportal.fun/api/data"
@@ -323,14 +365,38 @@ async def dexscreener_trending_monitor(callback):
             logger.error(f"Error in dexscreener_trending_monitor: {e}")
         await asyncio.sleep(90)
 
+async def monitor_whale_wallets():
+    if not HELIUS_API_KEY or not WHALE_WALLETS: return logger.warning("Whale monitoring disabled.")
+    logger.info(f"Monitoring {len(WHALE_WALLETS)} whale wallets...")
+    while True:
+        for whale in WHALE_WALLETS:
+            try:
+                if is_circuit_broken("helius_whale"): await asyncio.sleep(10); continue
+                url = f"https://api.helius.xyz/v0/addresses/{whale}/transactions?api-key={HELIUS_API_KEY}&limit=10&type=SWAP"
+                async with get_session() as session, session.get(url) as resp:
+                    if resp.status == 200:
+                        for tx in await resp.json():
+                            if time.time() - tx.get("timestamp", 0) > 300: continue
+                            for transfer in tx.get("tokenTransfers", []):
+                                if transfer.get("toUserAccount") == whale:
+                                    token = transfer.get("mint")
+                                    if token and token != "So11111111111111111111111111111111111111112":
+                                        logger.info(f"🐋 Whale {whale[:6]}... bought {token[:6]}...")
+                                        await community_token_queue.put(token)
+            except Exception as e:
+                logger.error(f"Whale monitoring error for {whale[:6]}: {e}"); trip_circuit_breaker("helius_whale")
+        await asyncio.sleep(30)
+
 # =====================================
 # ML Scoring & Trading Logic
 # =====================================
 async def ml_score_token(meta: Dict[str, Any]) -> float:
     score = 50.0
-    if meta.get('liq', 0) > 50: score += 20
-    elif meta.get('liq', 0) > 10: score += 10
-    if meta.get('vol_1h', 0) > meta.get('vol_6h', 0) / 6 * 1.5: score += 15
+    liq = meta.get("liq", 0)
+    if liq > 50: score += 20
+    elif liq > 10: score += 10
+    vol_1h = meta.get('vol_1h', 0); vol_6h = meta.get('vol_6h', 0)
+    if vol_6h > 0 and vol_1h > (vol_6h / 6 * 1.5): score += 15
     if meta.get('age', 9999) < 300: score += 10
     return min(95, max(5, score))
 
@@ -340,7 +406,7 @@ async def calculate_position_size(bot_type: str, ml_score: float) -> float:
     available_capital = (current_wallet_balance * MAX_WALLET_EXPOSURE) - exposure
     if available_capital <= 0.01: return 0
     base = ANALYST_BUY_AMOUNT if bot_type == "analyst" else ULTRA_BUY_AMOUNT
-    ml_multiplier = 0.75 + ((ml_score - 50) / 100) # Scale from 0.75x to 1.25x
+    ml_multiplier = 0.75 + ((ml_score - 50) / 100)
     return min(base * ml_multiplier, available_capital, 0.1)
 
 class ToxiBotClient:
@@ -395,23 +461,30 @@ async def analyst_handler(token, src, toxibot_client):
         save_position(token, positions[token]); record_trade(token, "BUY", size, price)
         activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ BUY {token[:8]} @ ${price:.6f} (Analyst)")
 
+async def community_trade_manager(toxibot_client):
+    while True:
+        token = await community_token_queue.get()
+        # This is a simplified handler. You can expand it to be a full strategy like the others.
+        logger.info(f"COMMUNITY TOKEN DETECTED: {token[:8]}, passing to Analyst handler.")
+        await process_token(token, "community")
+
 # =====================================
-# Main Event Loop and Position Management
+# Main Loop, Position & Risk Management
 # =====================================
 async def process_token(token, src):
     global tokens_checked_count
     tokens_checked_count += 1
     if src in ("pumpfun", "pumpportal"): await ultra_early_handler(token, toxibot)
-    elif src in ("bitquery", "dexscreener_trending"): await analyst_handler(token, src, toxibot)
+    elif src in ("bitquery", "dexscreener_trending", "community"): await analyst_handler(token, src, toxibot)
 
 async def handle_position_exit(token, pos, last_price, toxibot_client):
-    global exposure, analyst_wins, ultra_wins
+    global exposure, analyst_wins, ultra_wins, analyst_pl, ultra_pl
     pl_ratio = last_price / pos['entry_price'] if pos['entry_price'] > 0 else 0
     sell_percent, reason = 0, ""
     if pos['src'] == 'pumpportal':
         if pl_ratio >= ULTRA_TP_X: sell_percent, reason = 100, f"{ULTRA_TP_X}x TP"
         elif pl_ratio <= ULTRA_SL_X: sell_percent, reason = 100, "Stop Loss"
-    else:
+    else: # Analyst & Community
         if pl_ratio >= ANALYST_TP_LEVEL_1_PRICE_MULT and pos['total_sold_percent'] == 0:
             sell_percent, reason = ANALYST_TP_LEVEL_1_SELL_PCT, f"{ANALYST_TP_LEVEL_1_PRICE_MULT}x TP"
         elif pl_ratio <= ANALYST_SL_X: sell_percent, reason = 100 - pos['total_sold_percent'], "Stop Loss"
@@ -424,13 +497,25 @@ async def handle_position_exit(token, pos, last_price, toxibot_client):
         if pl > 0:
             if pos['src'] == 'pumpportal': ultra_wins += 1
             else: analyst_wins += 1
+        if pos['src'] == 'pumpportal': ultra_pl += pl
+        else: analyst_pl += pl
         record_trade(token, "SELL", sold_amt, last_price, pl); save_position(token, pos)
         activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] 💰 SELL {token[:8]} for {reason}, P/L: {pl:+.4f}")
 
-async def update_positions():
-    global exposure, current_wallet_balance
+async def update_positions_and_risk():
+    global exposure, current_wallet_balance, trading_enabled, daily_starting_balance, daily_loss
     while True:
-        current_wallet_balance = await fetch_wallet_balance() or current_wallet_balance
+        balance = await fetch_wallet_balance()
+        if balance is not None:
+            current_wallet_balance = balance
+            if daily_starting_balance == 0: daily_starting_balance = balance
+
+        daily_loss = daily_starting_balance - current_wallet_balance
+        if daily_starting_balance > 0 and (daily_loss / daily_starting_balance) >= DAILY_LOSS_LIMIT_PERCENT:
+            if trading_enabled: logger.critical(f"BUYING DISABLED: Daily loss limit reached!"); trading_enabled = False
+        else:
+            if not trading_enabled: logger.info("Trading re-enabled."); trading_enabled = True
+
         active_tokens = list(positions.keys())
         temp_exposure = 0
         for token in active_tokens:
@@ -540,9 +625,9 @@ async def ws_handler(request):
     await ws.prepare(request)
     while True:
         try:
-            total_pl = ultra_pl + analyst_pl
-            total_trades = ultra_total + analyst_total
-            total_wins = ultra_wins + analyst_wins
+            total_pl = ultra_pl + analyst_pl + community_pl
+            total_trades = ultra_total + analyst_total + community_total
+            total_wins = ultra_wins + analyst_wins + community_wins
             winrate = (total_wins / total_trades * 100) if total_trades > 0 else 0
             data = {"wallet_balance": current_wallet_balance, "pl": total_pl, "winrate": winrate, "positions": positions, "exposure": exposure, "log": list(activity_log), "tokens_checked": tokens_checked_count, "trading_enabled": trading_enabled}
             await ws.send_str(json.dumps(data, default=str))
@@ -569,10 +654,19 @@ async def bot_main():
     init_database(); load_positions()
     toxibot = ToxiBotClient(TELEGRAM_API_ID, TELEGRAM_API_HASH, TELEGRAM_STRING_SESSION, TOXIBOT_USERNAME)
     await toxibot.connect()
+    
     async def feed_callback(token, src): await process_token(token, src)
-    tasks = [update_positions(), pumpportal_newtoken_feed(feed_callback), dexscreener_trending_monitor(feed_callback)]
+    
+    tasks = [
+        update_positions_and_risk(),
+        pumpportal_newtoken_feed(feed_callback),
+        dexscreener_trending_monitor(feed_callback),
+        monitor_whale_wallets(),
+        community_trade_manager(toxibot)
+    ]
     if BITQUERY_API_KEY and BITQUERY_API_KEY != "disabled":
         tasks.append(bitquery_streaming_feed(feed_callback))
+    
     await asyncio.gather(*tasks)
 
 async def main():
