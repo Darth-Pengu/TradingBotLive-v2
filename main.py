@@ -707,19 +707,20 @@ async def pumpportal_newtoken_feed(callback):
                 while True:
                     try:
                         msg = await asyncio.wait_for(ws.recv(), timeout=30)
-                        logger.info(f"PumpPortal RAW MSG: {msg}") # <-- ADDED FOR DEBUGGING
+                        # You can remove the debug log now if you wish, or keep it for a bit
+                        logger.info(f"PumpPortal RAW MSG: {msg}") 
                         data = json.loads(msg)
                         
-                        # New token event
-                        if "mint" in data.get("params", {}):
-                            token = data["params"]["mint"]
+                        # === THIS IS THE CORRECTED LOGIC ===
+                        if "mint" in data and data.get("txType") == "create":
+                            token = data["mint"] # <-- CORRECTED: No "params"
                             logger.info(f"🚀 PumpPortal: New token {token}")
                             activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🚀 New Pump.fun token: {token[:8]}...")
                             await callback(token, "pumpportal")
                             
                         # Trade event for monitoring
-                        elif "signature" in data.get("params", {}):
-                            trade = data["params"]
+                        elif "signature" in data and data.get("txType") != "create": # <-- MODIFIED to avoid double processing
+                            trade = data
                             token = trade.get("mint")
                             if token in positions:
                                 # Update position with real-time trade data
