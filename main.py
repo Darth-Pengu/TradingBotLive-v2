@@ -799,7 +799,7 @@ async def bot_main():
         pumpportal_newtoken_feed(feed_callback),
         dexscreener_trending_monitor(feed_callback),
         monitor_whale_wallets(),
-        community_trade_manager(toxibot)
+        community_trade_manager(toxibot),
         monitor_watchlist()
     ]
     if BITQUERY_API_KEY and BITQUERY_API_KEY != "disabled":
