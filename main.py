@@ -33,6 +33,9 @@ ULTRA_TP_X = 3.0
 ULTRA_SL_X = 0.5
 ULTRA_AGE_MAX_S = 300
 ULTRA_MIN_ML_SCORE = 60
+WATCH_DURATION_SECONDS = 300  # 5 minutes
+MARKET_CAP_RISE_THRESHOLD = 1.5  # 1.5x = 50% rise
+WATCHLIST_POLL_INTERVAL = 20  # Check the watchlist every 20 seconds
 
 # Analyst (Trending/Surge) - MODIFIED STRATEGY
 ANALYST_BUY_AMOUNT = 0.05
@@ -113,6 +116,7 @@ logger = logging.getLogger("toxibot")
 
 # === GLOBAL STATE ===
 positions: Dict[str, Dict[str, Any]] = {}
+watchlist: Dict[str, Dict[str, Any]] = {} 
 activity_log = collections.deque(maxlen=1000)
 tokens_checked_count = 0
 ultra_wins, ultra_total, ultra_pl = 0, 0, 0.0
@@ -364,6 +368,25 @@ async def monitor_whale_wallets():
                 trip_circuit_breaker("helius_whale")
         await asyncio.sleep(30)
 
+async def fetch_market_cap(token: str) -> Optional[float]:
+    """Fetch market cap data from DexScreener."""
+    if is_circuit_broken("dexscreener"): return None
+    try:
+        async with get_session() as session:
+            url = f"https://api.dexscreener.com/latest/dex/tokens/{token}"
+            async with session.get(url) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    if data.get("pairs"):
+                        # Find the SOL pair for the most accurate market cap
+                        for pair in data["pairs"]:
+                            if pair.get("quoteToken", {}).get("symbol") == "SOL":
+                                return float(pair.get("fdv", 0)) # FDV is often used as market cap
+    except Exception as e:
+        logger.error(f"DexScreener market cap error: {e}")
+        trip_circuit_breaker("dexscreener")
+    return None
+    
 # =====================================
 # ML Scoring & Trading Logic
 # =====================================
@@ -407,20 +430,31 @@ class ToxiBotClient:
 # Trading Strategy Handlers
 # =====================================
 async def ultra_early_handler(token, toxibot_client):
-    global ultra_total, exposure
-    if not trading_enabled or ultra_total >= ULTRA_MAX_DAILY_TRADES or token in positions: return
+    """
+    Performs initial check on new tokens and adds them to the watchlist if they pass.
+    """
+    if token in watchlist or token in positions:
+        return # Already watching or own this token
+
+    # 1. Initial Rugcheck
     rug_info = await rugcheck(token)
-    if rug_gate(rug_info): return
-    stats = await fetch_volumes(token); age = await fetch_pool_age(token)
-    if not stats or age is None or stats['liq'] < ULTRA_MIN_LIQ or age > ULTRA_AGE_MAX_S: return
-    ml_score = await ml_score_token({'liq': stats['liq'], 'age': age, 'vol_1h': stats['vol_1h'], 'vol_6h': stats['vol_6h']})
-    if ml_score < ULTRA_MIN_ML_SCORE: return
-    size = await calculate_position_size("ultra", ml_score)
-    if size > 0 and await toxibot_client.send_buy(token, size):
-        price = await fetch_token_price(token) or 1e-9; ultra_total += 1; exposure += size * price
-        positions[token] = {"src": "pumpportal", "buy_time": time.time(), "size": size, "entry_price": price, "total_sold_percent": 0, "local_high": price}
-        save_position(token, positions[token]); record_trade(token, "BUY", size, price)
-        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ BUY {token[:8]} @ ${price:.6f}")
+    if rug_gate(rug_info):
+        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}]  watchlist reject: {token[:8]} (rugcheck fail)")
+        return
+
+    # 2. Get Initial Market Cap
+    initial_mcap = await fetch_market_cap(token)
+    if not initial_mcap or initial_mcap == 0:
+        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] watchlist reject: {token[:8]} (no mcap)")
+        return
+        
+    # 3. Add to Watchlist
+    watchlist[token] = {
+        "start_time": time.time(),
+        "initial_mcap": initial_mcap
+    }
+    logger.info(f"🔎 Added {token[:8]} to watchlist with initial MCAP: ${initial_mcap:,.0f}")
+    activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🔎 Watching {token[:8]} (MCAP: ${initial_mcap:,.0f})")
 
 async def analyst_handler(token, src, toxibot_client):
     global analyst_total, exposure
@@ -450,8 +484,10 @@ async def community_trade_manager(toxibot_client):
 async def process_token(token, src):
     global tokens_checked_count
     tokens_checked_count += 1
-    if src in ("pumpfun", "pumpportal"): await ultra_early_handler(token, toxibot)
-    elif src in ("bitquery", "dexscreener_trending", "community"): await analyst_handler(token, src, toxibot)
+    if src in ("pumpfun", "pumpportal"):
+        await ultra_early_handler(token, toxibot)
+    elif src in ("bitquery", "dexscreener_trending", "community", "watchlist_hit"): # <-- ADD THIS SOURCE
+        await analyst_handler(token, src, toxibot)
 
 async def handle_position_exit(token, pos, last_price, toxibot_client):
     global exposure, analyst_wins, ultra_wins, analyst_pl, ultra_pl
@@ -510,6 +546,48 @@ async def update_positions_and_risk():
                 logger.warning(f"Could not fetch price for active position {token}")
         exposure = temp_exposure
         await asyncio.sleep(15)
+
+async def monitor_watchlist():
+    """Monitors tokens for a sharp market cap rise and hands them off for buying."""
+    while True:
+        try:
+            # Create a copy of keys to avoid issues with modifying dict during iteration
+            tokens_to_check = list(watchlist.keys())
+            
+            for token in tokens_to_check:
+                if token not in watchlist: continue # Might have been processed already
+
+                watch_data = watchlist[token]
+                elapsed_time = time.time() - watch_data["start_time"]
+
+                # Remove stale tokens from watchlist
+                if elapsed_time > WATCH_DURATION_SECONDS:
+                    logger.info(f"Token {token[:8]} expired from watchlist.")
+                    del watchlist[token]
+                    continue
+
+                # Fetch current market cap
+                current_mcap = await fetch_market_cap(token)
+                if not current_mcap:
+                    continue
+                
+                initial_mcap = watch_data["initial_mcap"]
+                
+                # THE TRIGGER: Check for a sharp rise
+                if current_mcap >= initial_mcap * MARKET_CAP_RISE_THRESHOLD:
+                    logger.info(f"🔥 WATCHLIST TRIGGER! {token[:8]} surged from ${initial_mcap:,.0f} to ${current_mcap:,.0f}")
+                    activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🔥 WATCHLIST HIT on {token[:8]}!")
+                    
+                    # Hand off to the Analyst bot to perform final checks and buy
+                    await process_token(token, "watchlist_hit") 
+                    
+                    # Remove from watchlist once triggered
+                    del watchlist[token]
+
+        except Exception as e:
+            logger.error(f"Error in monitor_watchlist: {e}")
+        
+        await asyncio.sleep(WATCHLIST_POLL_INTERVAL)
 
 # =====================================
 # Dashboard and Server
@@ -639,6 +717,7 @@ async def bot_main():
         dexscreener_trending_monitor(feed_callback),
         monitor_whale_wallets(),
         community_trade_manager(toxibot)
+        monitor_watchlist()
     ]
     if BITQUERY_API_KEY and BITQUERY_API_KEY != "disabled":
         tasks.append(bitquery_streaming_feed(feed_callback))
