@@ -633,158 +633,79 @@ DASHBOARD_HTML = r"""
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ToxiBot v2 | Dashboard</title>
-    </head>
+    <style>
+        /* --- START OF INLINED CSS --- */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Roboto+Mono:wght@400;700&display=swap');
+        :root { --color-bg: #111827; --color-bg-secondary: #1F2937; --color-border: #374151; --color-text-primary: #F9FAFB; --color-text-secondary: #9CA3AF; --color-accent: #3B82F6; --color-success: #10B981; --color-danger: #EF4444; --color-warning: #F59E0B; }
+        * { margin: 0; padding: 0; box-sizing: border-box; } 
+        body { background-color: var(--color-bg); color: var(--color-text-primary); font-family: 'Inter', sans-serif; font-size: 14px; }
+        .container { max-width: 1600px; margin: 0 auto; padding: 24px; } 
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+        h1 { font-size: 1.5em; font-weight: 700; letter-spacing: -0.025em; }
+        .status-badge { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 9999px; font-weight: 500; font-size: 0.875em; }
+        .status-badge .dot { width: 8px; height: 8px; border-radius: 50%; }
+        .status-badge.active { background-color: rgba(16, 185, 129, 0.1); color: var(--color-success); } .status-badge.active .dot { background-color: var(--color-success); }
+        .status-badge.limited { background-color: rgba(245, 158, 11, 0.1); color: var(--color-warning); } .status-badge.limited .dot { background-color: var(--color-warning); }
+        .status-badge.disconnected { background-color: rgba(239, 68, 68, 0.1); color: var(--color-danger); } .status-badge.disconnected .dot { background-color: var(--color-danger); }
+        .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 24px; }
+        .metric-card { background-color: var(--color-bg-secondary); border: 1px solid var(--color-border); border-radius: 8px; padding: 16px; }
+        .metric-label { font-size: 0.875em; color: var(--color-text-secondary); margin-bottom: 8px; } 
+        .metric-value { font-size: 1.5em; font-weight: 600; font-family: 'Roboto Mono', monospace; }
+        .positive { color: var(--color-success); } .negative { color: var(--color-danger); } 
+        .content-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+        .section-card { background-color: var(--color-bg-secondary); border: 1px solid var(--color-border); border-radius: 8px; padding: 20px; display: flex; flex-direction: column; }
+        .section-title { font-size: 1.125em; font-weight: 600; margin-bottom: 16px; } 
+        .positions-table { width: 100%; border-collapse: collapse; flex-grow: 1; }
+        .positions-table th, .positions-table td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--color-border); font-family: 'Roboto Mono', monospace; }
+        .positions-table th { color: var(--color-text-secondary); font-family: 'Inter', sans-serif; font-weight: 500; font-size: 0.75em; text-transform: uppercase; }
+        .positions-table tr:last-child td { border-bottom: none; } 
+        .log-container { flex-grow: 1; overflow-y: auto; font-family: 'Roboto Mono', monospace; font-size: 0.875em; background-color: var(--color-bg); padding: 12px; border-radius: 6px; }
+        .log-entry.info { color: #A5B4FC; } .log-entry.success { color: var(--color-success); } .log-entry.error { color: var(--color-danger); } .log-entry.warning { color: var(--color-warning); }
+        /* --- END OF INLINED CSS --- */
+    </style>
+</head>
 <body>
     <div class="container">
-        <div class="header">
-            <h1>ToxiBot v2 Dashboard</h1>
-            <div id="status" class="status-badge active">
-                <div class="dot"></div>
-                <span id="status-text">Connecting...</span>
-            </div>
-        </div>
-        
-        <div class="metrics-grid">
-            <div class="metric-card">
-                <div class="metric-label">Wallet Balance</div>
-                <div class="metric-value positive" id="wallet">0.00 SOL</div>
-            </div>
-            <div class="metric-card">
-                <div class="metric-label">Total P/L</div>
-                <div class="metric-value" id="total-pl">+0.000</div>
-            </div>
-            <div class="metric-card">
-                <div class="metric-label">Win Rate</div>
-                <div class="metric-value" id="winrate">0.0%</div>
-            </div>
-            <div class="metric-card">
-                <div class="metric-label">Exposure</div>
-                <div class="metric-value" id="exposure">0.000 SOL</div>
-            </div>
-            <div class="metric-card">
-                <div class="metric-label">Active Pos.</div>
-                <div class="metric-value" id="positions-count">0</div>
-            </div>
-            <div class="metric-card">
-                <div class="metric-label">Tokens Checked</div>
-                <div class="metric-value" id="tokens-checked">0</div>
-            </div>
-        </div>
-        
-        <div class="content-grid">
-            <div class="section-card">
-                <h2 class="section-title">Active Positions</h2>
-                <div style="overflow-x: auto; flex-grow: 1;">
-                    <table class="positions-table">
-                        <thead>
-                            <tr><th>Token</th><th>Source</th><th>Size</th><th>Entry</th><th>P/L</th><th>P/L %</th></tr>
-                        </thead>
-                        <tbody id="positions-tbody">
-                            </tbody>
-                    </table>
-                </div>
-            </div>
-            <div class="section-card">
-                <h2 class="section-title">System Activity Log</h2>
-                <div class="log-container" id="log-container">
-                    </div>
-            </div>
-        </div>
+        <div class="header"><h1>ToxiBot v2 Dashboard</h1><div id="status" class="status-badge active"><div class="dot"></div><span id="status-text">Connecting...</span></div></div>
+        <div class="metrics-grid"><div class="metric-card"><div class="metric-label">Wallet Balance</div><div class="metric-value positive" id="wallet">0.00 SOL</div></div><div class="metric-card"><div class="metric-label">Total P/L</div><div class="metric-value" id="total-pl">+0.000</div></div><div class="metric-card"><div class="metric-label">Win Rate</div><div class="metric-value" id="winrate">0.0%</div></div><div class="metric-card"><div class="metric-label">Exposure</div><div class="metric-value" id="exposure">0.000 SOL</div></div><div class="metric-card"><div class="metric-label">Active Pos.</div><div class="metric-value" id="positions-count">0</div></div><div class="metric-card"><div class="metric-label">Tokens Checked</div><div class="metric-value" id="tokens-checked">0</div></div></div>
+        <div class="content-grid"><div class="section-card"><h2 class="section-title">Active Positions</h2><div style="overflow-x: auto; flex-grow: 1;"><table class="positions-table"><thead><tr><th>Token</th><th>Source</th><th>Size</th><th>Entry</th><th>P/L</th><th>P/L %</th></tr></thead><tbody id="positions-tbody"></tbody></table></div></div><div class="section-card"><h2 class="section-title">System Activity Log</h2><div class="log-container" id="log-container"></div></div></div>
     </div>
-    
     <script>
-        // NOTE: The theme's main.js would be inlined here first.
-        // This is the WebSocket logic that brings the dashboard to life.
-        
+        // --- START OF INLINED JAVASCRIPT ---
         const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`);
-        
         ws.onopen = () => console.log('WebSocket connected!');
-        ws.onerror = (error) => console.error('WebSocket error:', error);
-        ws.onclose = () => {
-            const statusBadge = document.getElementById('status');
-            const statusText = document.getElementById('status-text');
-            if (statusBadge) {
-                statusBadge.className = 'status-badge disconnected';
-            }
-            if (statusText) {
-                statusText.textContent = 'Disconnected';
-            }
-        };
-
-        function formatNumber(num, decimals = 3, sign = false) {
-            const val = parseFloat(num || 0);
-            const text = val.toFixed(decimals);
-            return sign && val > 0 ? `+${text}` : text;
-        }
-
+        ws.onerror = (e) => console.error('WebSocket error:', e);
+        ws.onclose = () => { document.getElementById('status').className = 'status-badge disconnected'; document.getElementById('status-text').textContent = 'Disconnected'; };
+        function formatNumber(n, d = 3, s = false) { const v = parseFloat(n || 0); return (s && v > 0 ? '+' : '') + v.toFixed(d); }
         ws.onmessage = function(event) {
             const data = JSON.parse(event.data);
-            
-            // Update Status Badge
-            const statusBadge = document.getElementById('status');
-            const statusText = document.getElementById('status-text');
-            if (statusBadge && statusText) {
-                if (!data.trading_enabled) {
-                    statusBadge.className = 'status-badge limited';
-                    statusText.textContent = 'Selling Only';
-                } else {
-                    statusBadge.className = 'status-badge active';
-                    statusText.textContent = 'System Active';
-                }
-            }
-            
-            // Update Metrics
+            const statusBadge = document.getElementById('status'), statusText = document.getElementById('status-text');
+            if (!data.trading_enabled) { statusBadge.className = 'status-badge limited'; statusText.textContent = 'Selling Only'; }
+            else { statusBadge.className = 'status-badge active'; statusText.textContent = 'System Active'; }
             document.getElementById('wallet').textContent = `${formatNumber(data.wallet_balance, 2)} SOL`;
             const totalPL = parseFloat(data.pl || 0);
-            const totalPlEl = document.getElementById('total-pl');
-            totalPlEl.textContent = formatNumber(totalPL, 4, true);
-            totalPlEl.className = `metric-value ${totalPL >= 0 ? 'positive' : 'negative'}`;
-            
+            document.getElementById('total-pl').textContent = formatNumber(totalPL, 4, true);
+            document.getElementById('total-pl').className = `metric-value ${totalPL >= 0 ? 'positive' : 'negative'}`;
             document.getElementById('winrate').textContent = `${formatNumber(data.winrate, 1)}%`;
             document.getElementById('exposure').textContent = `${formatNumber(data.exposure, 3)} SOL`;
-            
             const posCount = Object.keys(data.positions || {}).length;
             document.getElementById('positions-count').textContent = posCount;
             document.getElementById('tokens-checked').textContent = data.tokens_checked || 0;
-            
-            // Update Positions Table
             const tbody = document.getElementById('positions-tbody');
-            tbody.innerHTML = ''; // Clear old rows
+            tbody.innerHTML = '';
             if (posCount > 0) {
                 Object.entries(data.positions).forEach(([token, pos]) => {
-                    const entry = parseFloat(pos.entry_price || 0);
-                    const last = parseFloat(pos.last_price || entry);
-                    const size = parseFloat(pos.size || 0);
-                    const pl = (last - entry) * size;
-                    const plPct = entry ? (100 * (last - entry) / entry) : 0;
-                    
+                    const entry = parseFloat(pos.entry_price || 0), last = parseFloat(pos.last_price || pos.entry_price), size = parseFloat(pos.size || 0);
+                    const pl = (last - entry) * size, plPct = entry ? (100 * (last - entry) / entry) : 0;
                     const row = tbody.insertRow();
-                    row.innerHTML = `
-                        <td><a href="https://solscan.io/token/${token}" target="_blank" style="color:var(--color-accent);text-decoration:none;">${token.slice(0,6)}...${token.slice(-4)}</a></td>
-                        <td>${pos.src||''}</td>
-                        <td>${formatNumber(size,2)}</td>
-                        <td>${formatNumber(entry,6)}</td>
-                        <td class="${pl>=0?'positive':'negative'}">${formatNumber(pl,4,true)}</td>
-                        <td class="${plPct>=0?'positive':'negative'}">${formatNumber(plPct,2,true)}%</td>
-                    `;
+                    row.innerHTML = `<td><a href="https://solscan.io/token/${token}" target="_blank" style="color:var(--color-accent);text-decoration:none;">${token.slice(0,6)}...${token.slice(-4)}</a></td><td>${pos.src||''}</td><td>${formatNumber(size,2)}</td><td>${formatNumber(entry,6)}</td><td class="${pl>=0?'positive':'negative'}">${formatNumber(pl,4,true)}</td><td class="${plPct>=0?'positive':'negative'}">${formatNumber(plPct,2,true)}%</td>`;
                 });
-            } else {
-                 tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--color-text-secondary);padding:20px;">No active positions.</td></tr>';
-            }
-            
-            // Update Activity Log
+            } else { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--color-text-secondary);padding:20px;">No active positions.</td></tr>'; }
             const logContainer = document.getElementById('log-container');
-            const logs = data.log || [];
-            logContainer.innerHTML = logs.map(entry => {
-                let className = 'log-entry';
-                if (entry.includes('✅') || entry.includes('BUY')) className += ' success';
-                else if (entry.includes('❌') || entry.includes('💔') || entry.includes('failed')) className += ' error';
-                else if (entry.includes('⚠️')) className += ' warning';
-                else className += ' info';
-                return `<div class="${className}">${entry.replace(/^\[[0-9:]{8}\]\s/,'')}</div>`;
-            }).join('');
+            logContainer.innerHTML = (data.log || []).map(entry => { let c='info'; if(entry.includes('✅')||entry.includes('BUY'))c='success';else if(entry.includes('❌')||entry.includes('failed'))c='error';else if(entry.includes('⚠️'))c='warning'; return `<div class="log-entry ${c}">${entry.replace(/^\[[0-9:]{8}\]\s/,'')}</div>`; }).join('');
             logContainer.scrollTop = logContainer.scrollHeight;
         };
+        // --- END OF INLINED JAVASCRIPT ---
     </script>
 </body>
 </html>
