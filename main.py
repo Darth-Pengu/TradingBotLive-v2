@@ -16,6 +16,7 @@ from aiohttp import web
 from typing import Set, Dict, Any, Optional, List, Tuple
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
+from bs4 import BeautifulSoup
 
 # === CONFIGURATION CONSTANTS ===
 MAX_CONCURRENT_REQUESTS = 10
@@ -244,6 +245,76 @@ async def fetch_token_price(token: str) -> Optional[float]:
         except Exception as e:
             logger.error(f"DexScreener price error for {token}: {e}"); trip_circuit_breaker("dexscreener")
     return None
+    
+async def axiom_trending_monitor(callback):
+    """Polls axiom.trade/discover to find newly surging tokens by scraping the page."""
+    seen_axiom_tokens = collections.deque(maxlen=500)
+    # --- UPDATED URL ---
+    url = "https://axiom.trade/discover"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    
+    logger.info("📈 Starting Axiom trending monitor for axiom.trade/discover...")
+    
+    while True:
+        try:
+            async with get_session() as session:
+                async with session.get(url, headers=headers) as resp:
+                    if resp.status != 200:
+                        logger.warning(f"Axiom scraper failed with status: {resp.status}")
+                        await asyncio.sleep(120)
+                        continue
+                        
+                    html_content = await resp.text()
+                    soup = BeautifulSoup(html_content, 'html.parser')
+                    
+                    # --- NEW SCRAPING LOGIC FOR AXIOM.TRADE ---
+                    # NOTE: These selectors are based on the typical structure of modern data tables.
+                    # They might need to be adjusted if the site's code is unusual.
+                    
+                    # Find all links that contain a Solana token address
+                    token_links = soup.find_all('a', href=lambda href: href and '/token/SOL/' in href)
+
+                    for link in token_links:
+                        try:
+                            token_address = link['href'].split('/token/SOL/')[1].split('?')[0]
+                            if not token_address or token_address in seen_axiom_tokens:
+                                continue
+
+                            # Find the parent container of the entire row of data
+                            parent_row = link.find_parent(class_=lambda c: c and 'MuiDataGrid-row' in c)
+                            if not parent_row: continue
+                            
+                            # The 5M change is usually the 4th data cell ('data-colindex="3"')
+                            price_5m_cell = parent_row.select_one('[data-colindex="3"] p')
+                            if not price_5m_cell: continue
+
+                            price_5m_change_text = price_5m_cell.text.strip().replace('%', '').replace('−', '-')
+                            price_5m_change = float(price_5m_change_text)
+
+                            # --- THE SURGE FILTER ---
+                            if price_5m_change > 25:
+                                seen_axiom_tokens.append(token_address)
+                                
+                                # Get the token name from the same row
+                                name_cell = parent_row.select_one('[data-colindex="0"] p')
+                                token_name = name_cell.text if name_cell else "Unknown"
+
+                                logger.info(f"🔥 Axiom SURGE detected: {token_name} ({token_address[:8]}) | 5M Change: +{price_5m_change:.2f}%")
+                                activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🔥 Axiom Surge: {token_name} (+{price_5m_change:.0f}%)")
+                                
+                                await callback(token_address, "axiom_trending")
+
+                        except (ValueError, IndexError, TypeError, AttributeError):
+                            continue # Ignore rows that don't match the expected format
+                            
+        except Exception as e:
+            logger.error(f"Error in axiom_trending_monitor: {e}")
+        
+        await asyncio.sleep(60)
     
 async def ultra_early_handler(token, toxibot_client):
     """
@@ -533,10 +604,9 @@ async def process_token(token, src):
     tokens_checked_count += 1
     if src in ("pumpfun", "pumpportal"):
         await ultra_early_handler(token, toxibot)
-    # Add "watchlist_hit" to this line
-    elif src in ("bitquery", "dexscreener_trending", "community", "watchlist_hit"):
+    elif src in ("bitquery", "dexscreener_trending", "community", "watchlist_hit", "axiom_trending"):
         await analyst_handler(token, src, toxibot)
-
+    
 async def handle_position_exit(token, pos, last_price, toxibot_client):
     global exposure, analyst_wins, ultra_wins, analyst_pl, ultra_pl
     pl_ratio = last_price / pos['entry_price'] if pos['entry_price'] > 0 else 0
@@ -914,6 +984,7 @@ async def bot_main():
         monitor_whale_wallets(),
         community_trade_manager(toxibot),
         monitor_watchlist()
+        axiom_trending_monitor(feed_callback),
     ]
     if BITQUERY_API_KEY and BITQUERY_API_KEY != "disabled":
         tasks.append(bitquery_streaming_feed(feed_callback))
