@@ -56,6 +56,11 @@ COMM_SL_PCT = 0.6
 COMM_HOLD_SECONDS = 3600
 COMM_MIN_SIGNALS = 2
 
+# Watcher Strategy
+WATCH_DURATION_SECONDS = 300  # 5 minutes
+MARKET_CAP_RISE_THRESHOLD = 1.5  # 1.5x = 50% rise
+WATCHLIST_POLL_INTERVAL = 20  # Check the watchlist every 20 seconds
+
 # Risk Management
 MAX_WALLET_EXPOSURE = 0.5
 DAILY_LOSS_LIMIT_PERCENT = 0.5
@@ -237,6 +242,34 @@ async def fetch_token_price(token: str) -> Optional[float]:
         except Exception as e:
             logger.error(f"DexScreener price error for {token}: {e}"); trip_circuit_breaker("dexscreener")
     return None
+    
+async def ultra_early_handler(token, toxibot_client):
+   async def ultra_early_handler(token, toxibot_client):
+    """
+    Performs initial check on new tokens and adds them to the watchlist if they pass.
+    """
+    if token in watchlist or token in positions:
+        return # Already watching or own this token
+
+    # 1. Initial Rugcheck
+    rug_info = await rugcheck(token)
+    if rug_gate(rug_info):
+        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] watchlist reject: {token[:8]} (rugcheck fail)")
+        return
+
+    # 2. Get Initial Market Cap
+    initial_mcap = await fetch_market_cap(token)
+    if not initial_mcap or initial_mcap == 0:
+        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] watchlist reject: {token[:8]} (no mcap)")
+        return
+        
+    # 3. Add to Watchlist
+    watchlist[token] = {
+        "start_time": time.time(),
+        "initial_mcap": initial_mcap
+    }
+    logger.info(f"🔎 Added {token[:8]} to watchlist with initial MCAP: ${initial_mcap:,.0f}")
+    activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🔎 Watching {token[:8]} (MCAP: ${initial_mcap:,.0f})")
 
 async def fetch_volumes(token: str) -> Dict[str, Any]:
     if is_circuit_broken("dexscreener"): return {"liq": 0, "vol_1h": 0, "vol_6h": 0}
@@ -486,7 +519,8 @@ async def process_token(token, src):
     tokens_checked_count += 1
     if src in ("pumpfun", "pumpportal"):
         await ultra_early_handler(token, toxibot)
-    elif src in ("bitquery", "dexscreener_trending", "community", "watchlist_hit"): # <-- ADD THIS SOURCE
+    # Add "watchlist_hit" to this line
+    elif src in ("bitquery", "dexscreener_trending", "community", "watchlist_hit"):
         await analyst_handler(token, src, toxibot)
 
 async def handle_position_exit(token, pos, last_price, toxibot_client):
