@@ -138,6 +138,8 @@ trading_enabled = True
 daily_starting_balance = 0.0
 toxibot = None
 startup_time = time.time()
+watcher_processed_today = 0
+watcher_hits_today = 0
 
 # =====================================
 # Database Functions
@@ -244,7 +246,7 @@ async def fetch_token_price(token: str) -> Optional[float]:
     return None
     
 async def ultra_early_handler(token, toxibot_client):
-   async def ultra_early_handler(token, toxibot_client):
+    global watcher_processed_today
     """
     Performs initial check on new tokens and adds them to the watchlist if they pass.
     """
@@ -264,12 +266,14 @@ async def ultra_early_handler(token, toxibot_client):
         return
         
     # 3. Add to Watchlist
+    watcher_processed_today += 1
     watchlist[token] = {
         "start_time": time.time(),
         "initial_mcap": initial_mcap
     }
     logger.info(f"🔎 Added {token[:8]} to watchlist with initial MCAP: ${initial_mcap:,.0f}")
     activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🔎 Watching {token[:8]} (MCAP: ${initial_mcap:,.0f})")
+    
 
 async def fetch_volumes(token: str) -> Dict[str, Any]:
     if is_circuit_broken("dexscreener"): return {"liq": 0, "vol_1h": 0, "vol_6h": 0}
@@ -609,6 +613,7 @@ async def monitor_watchlist():
                 
                 # THE TRIGGER: Check for a sharp rise
                 if current_mcap >= initial_mcap * MARKET_CAP_RISE_THRESHOLD:
+                    watcher_hits_today += 1
                     logger.info(f"🔥 WATCHLIST TRIGGER! {token[:8]} surged from ${initial_mcap:,.0f} to ${current_mcap:,.0f}")
                     activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🔥 WATCHLIST HIT on {token[:8]}!")
                     
@@ -628,84 +633,215 @@ async def monitor_watchlist():
 # =====================================
 DASHBOARD_HTML = r"""
 <!DOCTYPE html>
-<html lang="en" data-bs-theme="dark">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ToxiBot v2 | Dashboard</title>
+    <title>ToxiBot Trading Dashboard</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/moment@2.29.4/moment.min.js"></script>
     <style>
-        /* --- START OF INLINED CSS --- */
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Roboto+Mono:wght@400;700&display=swap');
-        :root { --color-bg: #111827; --color-bg-secondary: #1F2937; --color-border: #374151; --color-text-primary: #F9FAFB; --color-text-secondary: #9CA3AF; --color-accent: #3B82F6; --color-success: #10B981; --color-danger: #EF4444; --color-warning: #F59E0B; }
-        * { margin: 0; padding: 0; box-sizing: border-box; } 
-        body { background-color: var(--color-bg); color: var(--color-text-primary); font-family: 'Inter', sans-serif; font-size: 14px; }
-        .container { max-width: 1600px; margin: 0 auto; padding: 24px; } 
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
-        h1 { font-size: 1.5em; font-weight: 700; letter-spacing: -0.025em; }
-        .status-badge { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 9999px; font-weight: 500; font-size: 0.875em; }
-        .status-badge .dot { width: 8px; height: 8px; border-radius: 50%; }
-        .status-badge.active { background-color: rgba(16, 185, 129, 0.1); color: var(--color-success); } .status-badge.active .dot { background-color: var(--color-success); }
-        .status-badge.limited { background-color: rgba(245, 158, 11, 0.1); color: var(--color-warning); } .status-badge.limited .dot { background-color: var(--color-warning); }
-        .status-badge.disconnected { background-color: rgba(239, 68, 68, 0.1); color: var(--color-danger); } .status-badge.disconnected .dot { background-color: var(--color-danger); }
-        .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 24px; }
-        .metric-card { background-color: var(--color-bg-secondary); border: 1px solid var(--color-border); border-radius: 8px; padding: 16px; }
-        .metric-label { font-size: 0.875em; color: var(--color-text-secondary); margin-bottom: 8px; } 
-        .metric-value { font-size: 1.5em; font-weight: 600; font-family: 'Roboto Mono', monospace; }
-        .positive { color: var(--color-success); } .negative { color: var(--color-danger); } 
-        .content-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
-        .section-card { background-color: var(--color-bg-secondary); border: 1px solid var(--color-border); border-radius: 8px; padding: 20px; display: flex; flex-direction: column; }
-        .section-title { font-size: 1.125em; font-weight: 600; margin-bottom: 16px; } 
-        .positions-table { width: 100%; border-collapse: collapse; flex-grow: 1; }
-        .positions-table th, .positions-table td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--color-border); font-family: 'Roboto Mono', monospace; }
-        .positions-table th { color: var(--color-text-secondary); font-family: 'Inter', sans-serif; font-weight: 500; font-size: 0.75em; text-transform: uppercase; }
-        .positions-table tr:last-child td { border-bottom: none; } 
-        .log-container { flex-grow: 1; overflow-y: auto; font-family: 'Roboto Mono', monospace; font-size: 0.875em; background-color: var(--color-bg); padding: 12px; border-radius: 6px; }
-        .log-entry.info { color: #A5B4FC; } .log-entry.success { color: var(--color-success); } .log-entry.error { color: var(--color-danger); } .log-entry.warning { color: var(--color-warning); }
-        /* --- END OF INLINED CSS --- */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif; background: #0a0e1a; color: #e0e0e0; line-height: 1.6; }
+        .dashboard { padding: 20px; max-width: 1600px; margin: 0 auto; }
+        h1 { font-size: 2.5rem; margin-bottom: 30px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-align: center; }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 30px; }
+        .stat-card { background: linear-gradient(135deg, #1a1f2e 0%, #1e243a 100%); padding: 25px; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); position: relative; overflow: hidden; transition: transform 0.3s ease, box-shadow 0.3s ease; }
+        .stat-card:hover { transform: translateY(-5px); box-shadow: 0 15px 40px rgba(0,0,0,0.4); }
+        .stat-card::before { content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 3px; background: linear-gradient(90deg, #667eea, #764ba2); }
+        .stat-label { font-size: 0.9rem; color: #9ca3af; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; }
+        .stat-value { font-size: 2rem; font-weight: 700; color: #fff; margin-bottom: 5px; }
+        .positive { color: #10b981; } .negative { color: #ef4444; } .neutral { color: #6b7280; }
+        .bot-personalities { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-bottom: 30px; }
+        .bot-card { background: #1a1f2e; border-radius: 15px; padding: 25px; position: relative; overflow: hidden; }
+        .bot-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .bot-name { font-size: 1.5rem; font-weight: 600; }
+        .bot-status { padding: 5px 15px; border-radius: 20px; font-size: 0.85rem; font-weight: 500; }
+        .status-active { background: rgba(16, 185, 129, 0.2); color: #10b981; }
+        .bot-stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; }
+        .bot-stat { background: rgba(255,255,255,0.05); padding: 15px; border-radius: 10px; }
+        .bot-stat-label { font-size: 0.8rem; color: #9ca3af; margin-bottom: 5px; }
+        .bot-stat-value { font-size: 1.2rem; font-weight: 600; }
+        .charts-section { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-bottom: 30px; }
+        .chart-container { background: #1a1f2e; padding: 25px; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
+        .chart-title { font-size: 1.3rem; margin-bottom: 20px; color: #e0e0e0; }
+        .recent-trades { background: #1a1f2e; padding: 25px; border-radius: 15px; margin-bottom: 30px; }
+        .trades-table { width: 100%; border-collapse: collapse; }
+        .trades-table th { text-align: left; padding: 12px; border-bottom: 2px solid #2d3748; color: #9ca3af; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px; }
+        .trades-table td { padding: 12px; border-bottom: 1px solid rgba(45, 55, 72, 0.5); }
+        .trade-token a { font-weight: 600; color: #667eea; text-decoration: none; }
+        .trade-token a:hover { text-decoration: underline; }
+        .alert { background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); color: #ef4444; padding: 15px 20px; border-radius: 10px; margin-bottom: 20px; display: none; align-items: center; gap: 10px; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+        .live-indicator { display: inline-block; width: 8px; height: 8px; background: #10b981; border-radius: 50%; margin-left: 10px; animation: pulse 2s infinite; }
+        .live-indicator.disconnected { background: #ef4444; animation: none; }
+        @media (max-width: 768px) { .stats-grid, .charts-section, .bot-personalities { grid-template-columns: 1fr; } }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header"><h1>ToxiBot v2 Dashboard</h1><div id="status" class="status-badge active"><div class="dot"></div><span id="status-text">Connecting...</span></div></div>
-        <div class="metrics-grid"><div class="metric-card"><div class="metric-label">Wallet Balance</div><div class="metric-value positive" id="wallet">0.00 SOL</div></div><div class="metric-card"><div class="metric-label">Total P/L</div><div class="metric-value" id="total-pl">+0.000</div></div><div class="metric-card"><div class="metric-label">Win Rate</div><div class="metric-value" id="winrate">0.0%</div></div><div class="metric-card"><div class="metric-label">Exposure</div><div class="metric-value" id="exposure">0.000 SOL</div></div><div class="metric-card"><div class="metric-label">Active Pos.</div><div class="metric-value" id="positions-count">0</div></div><div class="metric-card"><div class="metric-label">Tokens Checked</div><div class="metric-value" id="tokens-checked">0</div></div></div>
-        <div class="content-grid"><div class="section-card"><h2 class="section-title">Active Positions</h2><div style="overflow-x: auto; flex-grow: 1;"><table class="positions-table"><thead><tr><th>Token</th><th>Source</th><th>Size</th><th>Entry</th><th>P/L</th><th>P/L %</th></tr></thead><tbody id="positions-tbody"></tbody></table></div></div><div class="section-card"><h2 class="section-title">System Activity Log</h2><div class="log-container" id="log-container"></div></div></div>
+    <div class="dashboard">
+        <h1>ToxiBot Trading Dashboard <span id="liveIndicator" class="live-indicator"></span></h1>
+        
+        <div id="alertSection" class="alert">
+            <span>⚠️</span>
+            <span id="alertText"></span>
+        </div>
+        
+        <div class="stats-grid">
+            <div class="stat-card"><div class="stat-label">Total P&L (SOL)</div><div class="stat-value" id="totalPL">+0.00</div></div>
+            <div class="stat-card"><div class="stat-label">Active Positions</div><div class="stat-value" id="activePositions">0</div></div>
+            <div class="stat-card"><div class="stat-label">Win Rate</div><div class="stat-value" id="winRate">0.0%</div></div>
+            <div class="stat-card"><div class="stat-label">Tokens Checked</div><div class="stat-value" id="tokensChecked">0</div></div>
+            <div class="stat-card"><div class="stat-label">Wallet Balance (SOL)</div><div class="stat-value" id="walletBalance">0.00</div></div>
+            <div class="stat-card"><div class="stat-label">Exposure (SOL)</div><div class="stat-value" id="exposure">0.00</div></div>
+        </div>
+
+        <div class="bot-personalities">
+            <div class="bot-card">
+                <div class="bot-header"><div class="bot-name">🔭 Watcher</div><div class="bot-status status-active">Active</div></div>
+                <div class="bot-stats">
+                    <div class="bot-stat"><div class="bot-stat-label">Currently Watching</div><div class="bot-stat-value" id="watcherWatching">0</div></div>
+                    <div class="bot-stat"><div class="bot-stat-label">Processed Today</div><div class="bot-stat-value" id="watcherProcessed">0</div></div>
+                    <div class="bot-stat"><div class="bot-stat-label">Successful Hits</div><div class="bot-stat-value" id="watcherHits">0</div></div>
+                </div>
+            </div>
+            <div class="bot-card">
+                <div class="bot-header"><div class="bot-name">📊 Analyst</div><div class="bot-status status-active">Active</div></div>
+                <div class="bot-stats">
+                    <div class="bot-stat"><div class="bot-stat-label">Trades</div><div class="bot-stat-value" id="analystTrades">0</div></div>
+                    <div class="bot-stat"><div class="bot-stat-label">Win Rate</div><div class="bot-stat-value" id="analystWinRate">0%</div></div>
+                    <div class="bot-stat"><div class="bot-stat-label">P&L (SOL)</div><div class="bot-stat-value" id="analystPL">0.00</div></div>
+                </div>
+            </div>
+            <div class="bot-card">
+                <div class="bot-header"><div class="bot-name">🐋 Whale Tracker</div><div class="bot-status status-active">Active</div></div>
+                <div class="bot-stats">
+                    <div class="bot-stat"><div class="bot-stat-label">Trades</div><div class="bot-stat-value" id="communityTrades">0</div></div>
+                    <div class="bot-stat"><div class="bot-stat-label">Win Rate</div><div class="bot-stat-value" id="communityWinRate">0%</div></div>
+                    <div class="bot-stat"><div class="bot-stat-label">P&L (SOL)</div><div class="bot-stat-value" id="communityPL">0.00</div></div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="charts-section">
+            <div class="chart-container"><h3 class="chart-title">P&L Performance (Last 7 Days)</h3><canvas id="plChart"></canvas></div>
+            <div class="chart-container"><h3 class="chart-title">Trade Volume by Bot</h3><canvas id="volumeChart"></canvas></div>
+        </div>
+        
+        <div class="recent-trades">
+            <h2 style="font-size: 1.8rem; margin-bottom: 20px;">Activity Log</h2>
+            <div id="logContainer" style="height: 300px; overflow-y: auto; background: #111624; border-radius: 10px; padding: 15px; font-family: 'Roboto Mono', monospace;"></div>
+        </div>
     </div>
+    
     <script>
-        // --- START OF INLINED JAVASCRIPT ---
+        // --- FIX: Cleaned up all indentation in this script for readability ---
+        let plChart, volumeChart;
+
+        function initializeCharts() {
+            const chartOptions = {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { display: false, labels: { color: '#9ca3af' } } },
+                scales: {
+                    y: { grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#9ca3af' } },
+                    x: { grid: { display: false }, ticks: { color: '#9ca3af' } }
+                }
+            };
+
+            const plCtx = document.getElementById('plChart').getContext('2d');
+            plChart = new Chart(plCtx, {
+                type: 'line',
+                data: { labels: [], datasets: [{ label: 'Daily P&L (SOL)', data: [], borderColor: '#667eea', backgroundColor: 'rgba(102, 126, 234, 0.1)', tension: 0.4, fill: true }] },
+                options: chartOptions
+            });
+
+            const volumeCtx = document.getElementById('volumeChart').getContext('2d');
+            volumeChart = new Chart(volumeCtx, {
+                type: 'doughnut',
+                data: { labels: ['Watcher Processed', 'Analyst', 'Community'], datasets: [{ data: [0, 0, 0], backgroundColor: ['#667eea', '#764ba2', '#f093fb'], borderWidth: 0 }] },
+                options: { ...chartOptions, plugins: { legend: { position: 'bottom', labels: { color: '#9ca3af', padding: 20 } } } }
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', initializeCharts);
+
         const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`);
-        ws.onopen = () => console.log('WebSocket connected!');
-        ws.onerror = (e) => console.error('WebSocket error:', e);
-        ws.onclose = () => { document.getElementById('status').className = 'status-badge disconnected'; document.getElementById('status-text').textContent = 'Disconnected'; };
+        ws.onopen = () => document.getElementById('liveIndicator').classList.remove('disconnected');
+        ws.onerror = () => document.getElementById('liveIndicator').classList.add('disconnected');
+        ws.onclose = () => document.getElementById('liveIndicator').classList.add('disconnected');
+
         function formatNumber(n, d = 3, s = false) { const v = parseFloat(n || 0); return (s && v > 0 ? '+' : '') + v.toFixed(d); }
+
         ws.onmessage = function(event) {
             const data = JSON.parse(event.data);
-            const statusBadge = document.getElementById('status'), statusText = document.getElementById('status-text');
-            if (!data.trading_enabled) { statusBadge.className = 'status-badge limited'; statusText.textContent = 'Selling Only'; }
-            else { statusBadge.className = 'status-badge active'; statusText.textContent = 'System Active'; }
-            document.getElementById('wallet').textContent = `${formatNumber(data.wallet_balance, 2)} SOL`;
+            
+            // Stats
             const totalPL = parseFloat(data.pl || 0);
-            document.getElementById('total-pl').textContent = formatNumber(totalPL, 4, true);
-            document.getElementById('total-pl').className = `metric-value ${totalPL >= 0 ? 'positive' : 'negative'}`;
-            document.getElementById('winrate').textContent = `${formatNumber(data.winrate, 1)}%`;
-            document.getElementById('exposure').textContent = `${formatNumber(data.exposure, 3)} SOL`;
-            const posCount = Object.keys(data.positions || {}).length;
-            document.getElementById('positions-count').textContent = posCount;
-            document.getElementById('tokens-checked').textContent = data.tokens_checked || 0;
-            const tbody = document.getElementById('positions-tbody');
-            tbody.innerHTML = '';
-            if (posCount > 0) {
-                Object.entries(data.positions).forEach(([token, pos]) => {
-                    const entry = parseFloat(pos.entry_price || 0), last = parseFloat(pos.last_price || pos.entry_price), size = parseFloat(pos.size || 0);
-                    const pl = (last - entry) * size, plPct = entry ? (100 * (last - entry) / entry) : 0;
-                    const row = tbody.insertRow();
-                    row.innerHTML = `<td><a href="https://solscan.io/token/${token}" target="_blank" style="color:var(--color-accent);text-decoration:none;">${token.slice(0,6)}...${token.slice(-4)}</a></td><td>${pos.src||''}</td><td>${formatNumber(size,2)}</td><td>${formatNumber(entry,6)}</td><td class="${pl>=0?'positive':'negative'}">${formatNumber(pl,4,true)}</td><td class="${plPct>=0?'positive':'negative'}">${formatNumber(plPct,2,true)}%</td>`;
-                });
-            } else { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--color-text-secondary);padding:20px;">No active positions.</td></tr>'; }
-            const logContainer = document.getElementById('log-container');
-            logContainer.innerHTML = (data.log || []).map(entry => { let c='info'; if(entry.includes('✅')||entry.includes('BUY'))c='success';else if(entry.includes('❌')||entry.includes('failed'))c='error';else if(entry.includes('⚠️'))c='warning'; return `<div class="log-entry ${c}">${entry.replace(/^\[[0-9:]{8}\]\s/,'')}</div>`; }).join('');
+            const totalPlEl = document.getElementById('totalPL');
+            totalPlEl.textContent = formatNumber(totalPL, 4, true);
+            totalPlEl.className = `stat-value ${totalPL >= 0 ? 'positive' : 'negative'}`;
+            
+            document.getElementById('activePositions').textContent = Object.keys(data.positions || {}).length;
+            document.getElementById('winRate').textContent = `${formatNumber(data.winrate, 1)}%`;
+            document.getElementById('tokensChecked').textContent = data.tokens_checked || 0;
+            document.getElementById('walletBalance').textContent = formatNumber(data.wallet_balance, 2);
+            document.getElementById('exposure').textContent = formatNumber(data.exposure, 3);
+
+            // Bot Personalities
+            // Update Watcher Stats
+            const watcherStats = data.watcher_stats || {watching: 0, processed: 0, hits: 0};
+            document.getElementById('watcherWatching').textContent = watcherStats.watching;
+            document.getElementById('watcherProcessed').textContent = watcherStats.processed;
+            document.getElementById('watcherHits').textContent = watcherStats.hits;
+
+            // Update Analyst and Community Stats
+            ['analyst', 'community'].forEach(bot => {
+                const stats = data[`${bot}_stats`] || {trades: 0, wins: 0, pl: 0};
+                document.getElementById(`${bot}Trades`).textContent = stats.trades;
+                document.getElementById(`${bot}WinRate`).textContent = `${stats.trades > 0 ? formatNumber(stats.wins / stats.trades * 100, 1) : '0'}%`;
+                const plEl = document.getElementById(`${bot}PL`);
+                plEl.textContent = formatNumber(stats.pl, 4, true);
+                plEl.className = `bot-stat-value ${stats.pl >= 0 ? 'positive' : 'negative'}`;
+            });
+            // --- FIX: Removed duplicated code block that was here ---
+
+            // Alert
+            const alertSection = document.getElementById('alertSection');
+            if (!data.trading_enabled) {
+                alertSection.style.display = 'flex';
+                document.getElementById('alertText').textContent = 'Warning: Trading is disabled due to risk limits.';
+            } else {
+                alertSection.style.display = 'none';
+            }
+
+            // Charts
+            if (plChart && data.historical_pl) {
+                const labels = data.historical_pl.map(d => moment(d[0]).format('MMM D'));
+                const values = data.historical_pl.map(d => d[1]);
+                plChart.data.labels = labels;
+                plChart.data.datasets[0].data = values;
+                plChart.update();
+            }
+            if (volumeChart) {
+                // --- FIX: Updated volume chart to use watcher and other stats ---
+                const watcherData = data.watcher_stats || {processed: 0};
+                const analystData = data.analyst_stats || {trades: 0};
+                const communityData = data.community_stats || {trades: 0};
+                volumeChart.data.datasets[0].data = [watcherData.processed, analystData.trades, communityData.trades];
+                volumeChart.update();
+            }
+
+            // Log
+            const logContainer = document.getElementById('logContainer');
+            logContainer.innerHTML = (data.log || []).map(entry => {
+                let color = '#9ca3af';
+                if (entry.includes('✅') || entry.includes('BUY')) color = '#10b981';
+                else if (entry.includes('❌') || entry.includes('failed')) color = '#ef4444';
+                else if (entry.includes('💰') || entry.includes('SELL')) color = '#667eea';
+                return `<div style="color: ${color};">${entry.replace(/^\[[0-9:]{8}\]\s/, '')}</div>`;
+            }).join('');
             logContainer.scrollTop = logContainer.scrollHeight;
         };
-        // --- END OF INLINED JAVASCRIPT ---
     </script>
 </body>
 </html>
@@ -717,11 +853,42 @@ async def ws_handler(request):
     await ws.prepare(request)
     while True:
         try:
+            # --- NEW: Fetch historical P&L for the chart ---
+            conn = sqlite3.connect(DB_PATH)
+            cursor = conn.cursor()
+            # Get daily P&L for the last 7 days
+            cursor.execute("""
+                SELECT strftime('%Y-%m-%d', timestamp), SUM(pl)
+                FROM trades
+                WHERE timestamp >= date('now', '-7 days')
+                GROUP BY 1
+                ORDER BY 1;
+            """)
+            historical_pl = cursor.fetchall()
+            conn.close()
+            # --- END NEW ---
+            
             total_pl = ultra_pl + analyst_pl + community_pl
             total_trades = ultra_total + analyst_total + community_total
             total_wins = ultra_wins + analyst_wins + community_wins
             winrate = (total_wins / total_trades * 100) if total_trades > 0 else 0
-            data = {"wallet_balance": current_wallet_balance, "pl": total_pl, "winrate": winrate, "positions": positions, "exposure": exposure, "log": list(activity_log), "tokens_checked": tokens_checked_count, "trading_enabled": trading_enabled}
+            
+            data = {
+                "wallet_balance": current_wallet_balance,
+                "pl": total_pl,
+                "winrate": winrate,
+                "positions": positions,
+                "exposure": exposure,
+                "log": list(activity_log),
+                "tokens_checked": tokens_checked_count,
+                "trading_enabled": trading_enabled,
+                # Bot specific stats
+                "watcher_stats": {"watching": len(watchlist), "processed": watcher_processed_today, "hits": watcher_hits_today},
+                "analyst_stats": {"trades": analyst_total, "wins": analyst_wins, "pl": analyst_pl},
+                "community_stats": {"trades": community_total, "wins": community_wins, "pl": community_pl},
+                # Historical data for chart
+                "historical_pl": historical_pl
+            }
             await ws.send_str(json.dumps(data, default=str))
             await asyncio.sleep(2)
         except Exception as e:
