@@ -648,163 +648,130 @@ DASHBOARD_HTML = r"""
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ToxiBot Trading Dashboard</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/moment@2.29.4/moment.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif; background: #0a0e1a; color: #e0e0e0; line-height: 1.6; }
-        .dashboard { padding: 20px; max-width: 1600px; margin: 0 auto; }
-        h1 { font-size: 2.5rem; margin-bottom: 30px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-align: center; }
-        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 30px; }
-        .stat-card { background: linear-gradient(135deg, #1a1f2e 0%, #1e243a 100%); padding: 25px; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); position: relative; overflow: hidden; transition: transform 0.3s ease, box-shadow 0.3s ease; }
-        .stat-card:hover { transform: translateY(-5px); box-shadow: 0 15px 40px rgba(0,0,0,0.4); }
-        .stat-card::before { content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 3px; background: linear-gradient(90deg, #667eea, #764ba2); }
+        .dashboard { padding: 20px; max-width: 1800px; margin: 0 auto; }
+        h1 { font-size: 2.5rem; margin-bottom: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-align: center; }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 20px; }
+        .stat-card { background: #1a1f2e; padding: 20px; border-radius: 12px; border-top: 3px solid #667eea; }
         .stat-label { font-size: 0.9rem; color: #9ca3af; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; }
-        .stat-value { font-size: 2rem; font-weight: 700; color: #fff; margin-bottom: 5px; }
-        .positive { color: #10b981; } .negative { color: #ef4444; } .neutral { color: #6b7280; }
-        .bot-personalities { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-bottom: 30px; }
-        .bot-card { background: #1a1f2e; border-radius: 15px; padding: 25px; position: relative; overflow: hidden; }
-        .bot-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        .bot-name { font-size: 1.5rem; font-weight: 600; }
-        .bot-status { padding: 5px 15px; border-radius: 20px; font-size: 0.85rem; font-weight: 500; }
-        .status-active { background: rgba(16, 185, 129, 0.2); color: #10b981; }
-        .bot-stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; }
-        .bot-stat { background: rgba(255,255,255,0.05); padding: 15px; border-radius: 10px; }
-        .bot-stat-label { font-size: 0.8rem; color: #9ca3af; margin-bottom: 5px; }
-        .bot-stat-value { font-size: 1.2rem; font-weight: 600; }
-        .charts-section { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-bottom: 30px; }
-        .chart-container { background: #1a1f2e; padding: 25px; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
-        .chart-title { font-size: 1.3rem; margin-bottom: 20px; color: #e0e0e0; }
-        .recent-trades { background: #1a1f2e; padding: 25px; border-radius: 15px; margin-bottom: 30px; }
-        .trades-table { width: 100%; border-collapse: collapse; }
-        .trades-table th { text-align: left; padding: 12px; border-bottom: 2px solid #2d3748; color: #9ca3af; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px; }
-        .trades-table td { padding: 12px; border-bottom: 1px solid rgba(45, 55, 72, 0.5); }
+        .stat-value { font-size: 1.8rem; font-weight: 700; color: #fff; }
+        .positive { color: #10b981; } .negative { color: #ef4444; }
+        .bot-personalities { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 20px; }
+        .bot-card { background: #1a1f2e; border-radius: 12px; padding: 20px; }
+        .bot-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        .bot-name { font-size: 1.2rem; font-weight: 600; }
+        .bot-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+        .bot-stat { text-align: center; }
+        .bot-stat-label { font-size: 0.75rem; color: #9ca3af; margin-bottom: 5px; text-transform: uppercase; }
+        .bot-stat-value { font-size: 1.1rem; font-weight: 600; }
+        .log-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .log-panel { background: #1a1f2e; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; }
+        .log-title { font-size: 1.3rem; margin-bottom: 15px; color: #e0e0e0; padding-bottom: 10px; border-bottom: 1px solid #2d3748; }
+        .log-content { flex-grow: 1; height: 500px; /* Approx 30 lines */ overflow-y: auto; font-family: 'Roboto Mono', monospace; font-size: 0.85rem; }
+        /* Custom scrollbar for log content */
+        .log-content::-webkit-scrollbar { width: 8px; }
+        .log-content::-webkit-scrollbar-track { background: #111624; border-radius: 4px; }
+        .log-content::-webkit-scrollbar-thumb { background: #2d3748; border-radius: 4px; }
+        .log-content::-webkit-scrollbar-thumb:hover { background: #667eea; }
+        .trade-history-table { width: 100%; border-collapse: collapse; }
+        .trade-history-table th { text-align: left; padding: 8px; color: #9ca3af; font-size: 0.75rem; text-transform: uppercase; border-bottom: 1px solid #2d3748; }
+        .trade-history-table td { padding: 8px; border-bottom: 1px solid #2d3748; }
         .trade-token a { font-weight: 600; color: #667eea; text-decoration: none; }
-        .trade-token a:hover { text-decoration: underline; }
-        .alert { background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); color: #ef4444; padding: 15px 20px; border-radius: 10px; margin-bottom: 20px; display: none; align-items: center; gap: 10px; }
         @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
         .live-indicator { display: inline-block; width: 8px; height: 8px; background: #10b981; border-radius: 50%; margin-left: 10px; animation: pulse 2s infinite; }
         .live-indicator.disconnected { background: #ef4444; animation: none; }
-        @media (max-width: 768px) { .stats-grid, .charts-section, .bot-personalities { grid-template-columns: 1fr; } }
     </style>
 </head>
 <body>
     <div class="dashboard">
         <h1>ToxiBot Trading Dashboard <span id="liveIndicator" class="live-indicator"></span></h1>
         
-        <div id="alertSection" class="alert">
-            <span>⚠️</span>
-            <span id="alertText"></span>
+        <div class="stats-grid">
+            <div class="stat-card"><div class="stat-label">Wallet Balance</div><div class="stat-value" id="walletBalance">0.00 SOL</div></div>
+            <div class="stat-card"><div class="stat-label">Total P&L</div><div class="stat-value" id="totalPL">+0.00</div></div>
+            <div class="stat-card"><div class="stat-label">Win Rate</div><div class="stat-value" id="winRate">0.0%</div></div>
+            <div class="stat-card"><div class="stat-label">Exposure</div><div class="stat-value" id="exposure">0.00</div></div>
+            <div class="stat-card"><div class="stat-label">Tokens Checked</div><div class="stat-value" id="tokensChecked">0</div></div>
         </div>
         
-        <div class="stats-grid">
-            <div class="stat-card"><div class="stat-label">Total P&L (SOL)</div><div class="stat-value" id="totalPL">+0.00</div></div>
-            <div class="stat-card"><div class="stat-label">Active Positions</div><div class="stat-value" id="activePositions">0</div></div>
-            <div class="stat-card"><div class="stat-label">Win Rate</div><div class="stat-value" id="winRate">0.0%</div></div>
-            <div class="stat-card"><div class="stat-label">Tokens Checked</div><div class="stat-value" id="tokensChecked">0</div></div>
-            <div class="stat-card"><div class="stat-label">Wallet Balance (SOL)</div><div class="stat-value" id="walletBalance">0.00</div></div>
-            <div class="stat-card"><div class="stat-label">Exposure (SOL)</div><div class="stat-value" id="exposure">0.00</div></div>
-        </div>
-
         <div class="bot-personalities">
             <div class="bot-card">
-                <div class="bot-header"><div class="bot-name">🔭 Watcher</div><div class="bot-status status-active">Active</div></div>
+                <div class="bot-header"><div class="bot-name">🔭 Watcher</div></div>
                 <div class="bot-stats">
-                    <div class="bot-stat"><div class="bot-stat-label">Currently Watching</div><div class="bot-stat-value" id="watcherWatching">0</div></div>
-                    <div class="bot-stat"><div class="bot-stat-label">Processed Today</div><div class="bot-stat-value" id="watcherProcessed">0</div></div>
-                    <div class="bot-stat"><div class="bot-stat-label">Successful Hits</div><div class="bot-stat-value" id="watcherHits">0</div></div>
+                    <div class="bot-stat"><div class="bot-stat-label">Watching</div><div class="bot-stat-value" id="watcherWatching">0</div></div>
+                    <div class="bot-stat"><div class="bot-stat-label">Processed</div><div class="bot-stat-value" id="watcherProcessed">0</div></div>
+                    <div class="bot-stat"><div class="bot-stat-label">Hits</div><div class="bot-stat-value" id="watcherHits">0</div></div>
                 </div>
             </div>
             <div class="bot-card">
-                <div class="bot-header"><div class="bot-name">📊 Analyst</div><div class="bot-status status-active">Active</div></div>
+                <div class="bot-header"><div class="bot-name">📊 Analyst</div></div>
                 <div class="bot-stats">
                     <div class="bot-stat"><div class="bot-stat-label">Trades</div><div class="bot-stat-value" id="analystTrades">0</div></div>
                     <div class="bot-stat"><div class="bot-stat-label">Win Rate</div><div class="bot-stat-value" id="analystWinRate">0%</div></div>
-                    <div class="bot-stat"><div class="bot-stat-label">P&L (SOL)</div><div class="bot-stat-value" id="analystPL">0.00</div></div>
+                    <div class="bot-stat"><div class="bot-stat-label">P&L</div><div class="bot-stat-value" id="analystPL">0.00</div></div>
                 </div>
             </div>
             <div class="bot-card">
-                <div class="bot-header"><div class="bot-name">🐋 Whale Tracker</div><div class="bot-status status-active">Active</div></div>
+                <div class="bot-header"><div class="bot-name">🐋 Whale Tracker</div></div>
                 <div class="bot-stats">
                     <div class="bot-stat"><div class="bot-stat-label">Trades</div><div class="bot-stat-value" id="communityTrades">0</div></div>
                     <div class="bot-stat"><div class="bot-stat-label">Win Rate</div><div class="bot-stat-value" id="communityWinRate">0%</div></div>
-                    <div class="bot-stat"><div class="bot-stat-label">P&L (SOL)</div><div class="bot-stat-value" id="communityPL">0.00</div></div>
+                    <div class="bot-stat"><div class="bot-stat-label">P&L</div><div class="bot-stat-value" id="communityPL">0.00</div></div>
                 </div>
             </div>
         </div>
         
-        <div class="charts-section">
-            <div class="chart-container"><h3 class="chart-title">P&L Performance (Last 7 Days)</h3><canvas id="plChart"></canvas></div>
-            <div class="chart-container"><h3 class="chart-title">Trade Volume by Bot</h3><canvas id="volumeChart"></canvas></div>
-        </div>
-        
-        <div class="recent-trades">
-            <h2 style="font-size: 1.8rem; margin-bottom: 20px;">Activity Log</h2>
-            <div id="logContainer" style="height: 300px; overflow-y: auto; background: #111624; border-radius: 10px; padding: 15px; font-family: 'Roboto Mono', monospace;"></div>
+        <div class="log-grid">
+            <div class="log-panel">
+                <h2 class="log-title">Trade History</h2>
+                <div class="log-content">
+                    <table class="trade-history-table">
+                        <thead><tr><th>Time</th><th>Token</th><th>Bot</th><th>Action</th><th>P&L</th></tr></thead>
+                        <tbody id="tradeHistoryTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="log-panel">
+                <h2 class="log-title">System Activity Log</h2>
+                <div class="log-content" id="logContainer"></div>
+            </div>
         </div>
     </div>
     
     <script>
-        // --- FIX: Cleaned up all indentation in this script for readability ---
-        let plChart, volumeChart;
-
-        function initializeCharts() {
-            const chartOptions = {
-                responsive: true, maintainAspectRatio: false,
-                plugins: { legend: { display: false, labels: { color: '#9ca3af' } } },
-                scales: {
-                    y: { grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#9ca3af' } },
-                    x: { grid: { display: false }, ticks: { color: '#9ca3af' } }
-                }
-            };
-
-            const plCtx = document.getElementById('plChart').getContext('2d');
-            plChart = new Chart(plCtx, {
-                type: 'line',
-                data: { labels: [], datasets: [{ label: 'Daily P&L (SOL)', data: [], borderColor: '#667eea', backgroundColor: 'rgba(102, 126, 234, 0.1)', tension: 0.4, fill: true }] },
-                options: chartOptions
-            });
-
-            const volumeCtx = document.getElementById('volumeChart').getContext('2d');
-            volumeChart = new Chart(volumeCtx, {
-                type: 'doughnut',
-                data: { labels: ['Watcher Processed', 'Analyst', 'Community'], datasets: [{ data: [0, 0, 0], backgroundColor: ['#667eea', '#764ba2', '#f093fb'], borderWidth: 0 }] },
-                options: { ...chartOptions, plugins: { legend: { position: 'bottom', labels: { color: '#9ca3af', padding: 20 } } } }
-            });
-        }
-
-        document.addEventListener('DOMContentLoaded', initializeCharts);
-
         const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`);
         ws.onopen = () => document.getElementById('liveIndicator').classList.remove('disconnected');
         ws.onerror = () => document.getElementById('liveIndicator').classList.add('disconnected');
         ws.onclose = () => document.getElementById('liveIndicator').classList.add('disconnected');
 
         function formatNumber(n, d = 3, s = false) { const v = parseFloat(n || 0); return (s && v > 0 ? '+' : '') + v.toFixed(d); }
+        function getBotName(src) {
+            if (!src) return 'N/A';
+            if (src.includes('pump') || src.includes('watchlist')) return 'Watcher/Ultra';
+            if (src.includes('whale') || src.includes('community')) return 'Whale';
+            return 'Analyst';
+        }
 
         ws.onmessage = function(event) {
             const data = JSON.parse(event.data);
             
             // Stats
             const totalPL = parseFloat(data.pl || 0);
-            const totalPlEl = document.getElementById('totalPL');
-            totalPlEl.textContent = formatNumber(totalPL, 4, true);
-            totalPlEl.className = `stat-value ${totalPL >= 0 ? 'positive' : 'negative'}`;
-            
-            document.getElementById('activePositions').textContent = Object.keys(data.positions || {}).length;
+            document.getElementById('totalPL').textContent = formatNumber(totalPL, 4, true);
+            document.getElementById('totalPL').className = `stat-value ${totalPL >= 0 ? 'positive' : 'negative'}`;
             document.getElementById('winRate').textContent = `${formatNumber(data.winrate, 1)}%`;
             document.getElementById('tokensChecked').textContent = data.tokens_checked || 0;
             document.getElementById('walletBalance').textContent = formatNumber(data.wallet_balance, 2);
             document.getElementById('exposure').textContent = formatNumber(data.exposure, 3);
 
             // Bot Personalities
-            // Update Watcher Stats
             const watcherStats = data.watcher_stats || {watching: 0, processed: 0, hits: 0};
             document.getElementById('watcherWatching').textContent = watcherStats.watching;
             document.getElementById('watcherProcessed').textContent = watcherStats.processed;
             document.getElementById('watcherHits').textContent = watcherStats.hits;
-
-            // Update Analyst and Community Stats
             ['analyst', 'community'].forEach(bot => {
                 const stats = data[`${bot}_stats`] || {trades: 0, wins: 0, pl: 0};
                 document.getElementById(`${bot}Trades`).textContent = stats.trades;
@@ -813,35 +780,26 @@ DASHBOARD_HTML = r"""
                 plEl.textContent = formatNumber(stats.pl, 4, true);
                 plEl.className = `bot-stat-value ${stats.pl >= 0 ? 'positive' : 'negative'}`;
             });
-            // --- FIX: Removed duplicated code block that was here ---
 
-            // Alert
-            const alertSection = document.getElementById('alertSection');
-            if (!data.trading_enabled) {
-                alertSection.style.display = 'flex';
-                document.getElementById('alertText').textContent = 'Warning: Trading is disabled due to risk limits.';
-            } else {
-                alertSection.style.display = 'none';
-            }
+            // NEW: Trade History Panel
+            const tradeBody = document.getElementById('tradeHistoryTableBody');
+            tradeBody.innerHTML = (data.trade_history || []).map(trade => {
+                const time = moment(trade.timestamp).fromNow();
+                const actionClass = trade.action === 'BUY' ? 'positive' : 'negative';
+                const plFormatted = trade.action === 'SELL' ? `<span class="${trade.pl >= 0 ? 'positive' : 'negative'}">${formatNumber(trade.pl, 4, true)}</span>` : '-';
+                const botName = getBotName(trade.bot_source);
+                return `
+                    <tr>
+                        <td>${time}</td>
+                        <td class="trade-token"><a href="https://solscan.io/token/${trade.token_address}" target="_blank">${trade.token}</a></td>
+                        <td>${botName}</td>
+                        <td class="${actionClass}">${trade.action}</td>
+                        <td>${plFormatted}</td>
+                    </tr>
+                `;
+            }).join('');
 
-            // Charts
-            if (plChart && data.historical_pl) {
-                const labels = data.historical_pl.map(d => moment(d[0]).format('MMM D'));
-                const values = data.historical_pl.map(d => d[1]);
-                plChart.data.labels = labels;
-                plChart.data.datasets[0].data = values;
-                plChart.update();
-            }
-            if (volumeChart) {
-                // --- FIX: Updated volume chart to use watcher and other stats ---
-                const watcherData = data.watcher_stats || {processed: 0};
-                const analystData = data.analyst_stats || {trades: 0};
-                const communityData = data.community_stats || {trades: 0};
-                volumeChart.data.datasets[0].data = [watcherData.processed, analystData.trades, communityData.trades];
-                volumeChart.update();
-            }
-
-            // Log
+            // System Activity Log
             const logContainer = document.getElementById('logContainer');
             logContainer.innerHTML = (data.log || []).map(entry => {
                 let color = '#9ca3af';
@@ -863,19 +821,34 @@ async def ws_handler(request):
     await ws.prepare(request)
     while True:
         try:
-            # --- NEW: Fetch historical P&L for the chart ---
+            # --- NEW: Fetch recent trade history for the new panel ---
             conn = sqlite3.connect(DB_PATH)
+            conn.row_factory = sqlite3.Row # Allows accessing columns by name
             cursor = conn.cursor()
-            # Get daily P&L for the last 7 days
+            # Get the last 30 trades to display on the dashboard
             cursor.execute("""
-                SELECT strftime('%Y-%m-%d', timestamp), SUM(pl)
-                FROM trades
-                WHERE timestamp >= date('now', '-7 days')
-                GROUP BY 1
-                ORDER BY 1;
+                SELECT t.timestamp, p.data, t.action, t.size, t.pl
+                FROM trades t
+                JOIN positions p ON t.token = p.token
+                ORDER BY t.timestamp DESC
+                LIMIT 30;
             """)
-            historical_pl = cursor.fetchall()
+            trade_history_rows = cursor.fetchall()
             conn.close()
+
+            # Format trade history for sending
+            trade_history = []
+            for row in trade_history_rows:
+                pos_data = json.loads(row['data'])
+                trade_history.append({
+                    "timestamp": row['timestamp'],
+                    "token": pos_data.get('token_symbol', row['token'][:8]), # Assumes you might store a symbol
+                    "token_address": row['token'],
+                    "bot_source": pos_data.get('src', 'Unknown'),
+                    "action": row['action'],
+                    "size": row['size'],
+                    "pl": row['pl']
+                })
             # --- END NEW ---
             
             total_pl = ultra_pl + analyst_pl + community_pl
@@ -887,17 +860,14 @@ async def ws_handler(request):
                 "wallet_balance": current_wallet_balance,
                 "pl": total_pl,
                 "winrate": winrate,
-                "positions": positions,
                 "exposure": exposure,
                 "log": list(activity_log),
                 "tokens_checked": tokens_checked_count,
                 "trading_enabled": trading_enabled,
-                # Bot specific stats
                 "watcher_stats": {"watching": len(watchlist), "processed": watcher_processed_today, "hits": watcher_hits_today},
                 "analyst_stats": {"trades": analyst_total, "wins": analyst_wins, "pl": analyst_pl},
                 "community_stats": {"trades": community_total, "wins": community_wins, "pl": community_pl},
-                # Historical data for chart
-                "historical_pl": historical_pl
+                "trade_history": trade_history # Send the new trade history data
             }
             await ws.send_str(json.dumps(data, default=str))
             await asyncio.sleep(2)
