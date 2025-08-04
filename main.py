@@ -246,27 +246,28 @@ async def fetch_token_price(token: str) -> Optional[float]:
     return None
     
 async def ultra_early_handler(token, toxibot_client):
-    global watcher_processed_today
     """
     Performs initial check on new tokens and adds them to the watchlist if they pass.
     """
+    # NEW: Log that we are checking this token
+    activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🧐 Checking [Ultra]: {token[:8]}...")
+
     if token in watchlist or token in positions:
         return # Already watching or own this token
 
     # 1. Initial Rugcheck
     rug_info = await rugcheck(token)
     if rug_gate(rug_info):
-        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] watchlist reject: {token[:8]} (rugcheck fail)")
+        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ Watchlist reject: {token[:8]} (rugcheck fail)")
         return
 
     # 2. Get Initial Market Cap
     initial_mcap = await fetch_market_cap(token)
     if not initial_mcap or initial_mcap == 0:
-        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] watchlist reject: {token[:8]} (no mcap)")
+        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ Watchlist reject: {token[:8]} (no mcap)")
         return
         
     # 3. Add to Watchlist
-    watcher_processed_today += 1
     watchlist[token] = {
         "start_time": time.time(),
         "initial_mcap": initial_mcap
@@ -274,7 +275,6 @@ async def ultra_early_handler(token, toxibot_client):
     logger.info(f"🔎 Added {token[:8]} to watchlist with initial MCAP: ${initial_mcap:,.0f}")
     activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🔎 Watching {token[:8]} (MCAP: ${initial_mcap:,.0f})")
     
-
 async def fetch_volumes(token: str) -> Dict[str, Any]:
     if is_circuit_broken("dexscreener"): return {"liq": 0, "vol_1h": 0, "vol_6h": 0}
     try:
@@ -386,9 +386,8 @@ async def monitor_whale_wallets():
             try:
                 if is_circuit_broken("helius_whale"): await asyncio.sleep(10); continue
                 url = f"https://api.helius.xyz/v0/addresses/{whale}/transactions?api-key={HELIUS_API_KEY}&limit=10&type=SWAP"
-                async with get_session() as session:
-                    async with session.get(url) as resp:
-                        resp.raise_for_status() # Raises an error for bad status codes (4xx or 5xx)
+                async with get_session() as session, session.get(url) as resp:
+                    if resp.status == 200:
                         for tx in await resp.json():
                             if time.time() - tx.get("timestamp", 0) > 300: continue
                             for transfer in tx.get("tokenTransfers", []):
@@ -396,13 +395,16 @@ async def monitor_whale_wallets():
                                     token = transfer.get("mint")
                                     if token and token != "So11111111111111111111111111111111111111112":
                                         logger.info(f"🐋 Whale {whale[:6]}... bought {token[:6]}...")
+                                        # NEW: Log whale buys to the dashboard activity log
+                                        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🐋 Whale {whale[:6]} bought {token[:8]}...")
                                         await community_token_queue.put(token)
-            except aiohttp.ClientResponseError as e:
-                logger.error(f"Whale monitoring HTTP error for {whale[:6]}: Status={e.status}, Message='{e.message}'")
-                trip_circuit_breaker("helius_whale")
+                    elif resp.status == 400:
+                        logger.error(f"Whale monitoring HTTP error for {whale[:6]}: Status=400. Check if this is a valid Solana address.")
+                    else:
+                        logger.warning(f"Whale monitoring HTTP warning for {whale[:6]}: Status={resp.status}")
+
             except Exception as e:
-                logger.error(f"Unexpected whale monitoring error for {whale[:6]}: {e}")
-                trip_circuit_breaker("helius_whale")
+                logger.error(f"Whale monitoring exception for {whale[:6]}: {e}"); trip_circuit_breaker("helius_whale")
         await asyncio.sleep(30)
 
 async def fetch_market_cap(token: str) -> Optional[float]:
@@ -495,13 +497,21 @@ async def ultra_early_handler(token, toxibot_client):
 
 async def analyst_handler(token, src, toxibot_client):
     global analyst_total, exposure
-    if not trading_enabled or len([p for p in positions.values() if 'pump' not in p['src']]) >= ANALYST_MAX_POSITIONS or token in positions: return
+
+    # NEW: Log that we are checking this token
+    activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🧐 Checking [Analyst]: {token[:8]}...")
+
+    if not trading_enabled or len([p for p in positions.values() if 'pump' not in p.get('src','')]) >= ANALYST_MAX_POSITIONS or token in positions: return
+    
     rug_info = await rugcheck(token)
     if rug_gate(rug_info): return
+
     stats = await fetch_volumes(token); age = await fetch_pool_age(token)
     if not stats or age is None or stats['liq'] < ANALYST_MIN_LIQ or age > ANALYST_MAX_POOLAGE: return
+    
     ml_score = await ml_score_token({'liq': stats['liq'], 'age': age, 'vol_1h': stats['vol_1h'], 'vol_6h': stats['vol_6h']})
     if ml_score < ANALYST_MIN_ML_SCORE: return
+    
     size = await calculate_position_size("analyst", ml_score)
     if size > 0 and await toxibot_client.send_buy(token, size):
         price = await fetch_token_price(token) or 1e-9; analyst_total += 1; exposure += size * price
