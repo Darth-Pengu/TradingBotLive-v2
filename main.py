@@ -821,15 +821,22 @@ async def ws_handler(request):
     await ws.prepare(request)
     while True:
         try:
-            # --- NEW: Fetch recent trade history for the new panel ---
+            # --- Fetch recent trade history for the new panel ---
             conn = sqlite3.connect(DB_PATH)
             conn.row_factory = sqlite3.Row # Allows accessing columns by name
             cursor = conn.cursor()
-            # Get the last 30 trades to display on the dashboard
+            
+            # --- QUERY IS CORRECTED HERE ---
             cursor.execute("""
-                SELECT t.timestamp, p.data, t.action, t.size, t.pl
+                SELECT 
+                    t.timestamp, 
+                    p.data, 
+                    t.action, 
+                    t.size, 
+                    t.pl,
+                    t.token -- ADDED the missing token column
                 FROM trades t
-                JOIN positions p ON t.token = p.token
+                LEFT JOIN positions p ON t.token = p.token -- CHANGED to LEFT JOIN for robustness
                 ORDER BY t.timestamp DESC
                 LIMIT 30;
             """)
@@ -839,18 +846,22 @@ async def ws_handler(request):
             # Format trade history for sending
             trade_history = []
             for row in trade_history_rows:
-                pos_data = json.loads(row['data'])
-                trade_history.append({
-                    "timestamp": row['timestamp'],
-                    "token": pos_data.get('token_symbol', row['token'][:8]), # Assumes you might store a symbol
-                    "token_address": row['token'],
-                    "bot_source": pos_data.get('src', 'Unknown'),
-                    "action": row['action'],
-                    "size": row['size'],
-                    "pl": row['pl']
-                })
-            # --- END NEW ---
-            
+                # Use a try-except block for extra safety with potentially missing data
+                try:
+                    pos_data = json.loads(row['data']) if row['data'] else {}
+                    token_address = row['token']
+                    trade_history.append({
+                        "timestamp": row['timestamp'],
+                        "token": pos_data.get('symbol', token_address[:8]),
+                        "token_address": token_address,
+                        "bot_source": pos_data.get('src', 'Unknown'),
+                        "action": row['action'],
+                        "size": row['size'],
+                        "pl": row['pl']
+                    })
+                except Exception as e:
+                    logger.error(f"Error processing trade history row: {e}")
+
             total_pl = ultra_pl + analyst_pl + community_pl
             total_trades = ultra_total + analyst_total + community_total
             total_wins = ultra_wins + analyst_wins + community_wins
@@ -867,7 +878,7 @@ async def ws_handler(request):
                 "watcher_stats": {"watching": len(watchlist), "processed": watcher_processed_today, "hits": watcher_hits_today},
                 "analyst_stats": {"trades": analyst_total, "wins": analyst_wins, "pl": analyst_pl},
                 "community_stats": {"trades": community_total, "wins": community_wins, "pl": community_pl},
-                "trade_history": trade_history # Send the new trade history data
+                "trade_history": trade_history
             }
             await ws.send_str(json.dumps(data, default=str))
             await asyncio.sleep(2)
