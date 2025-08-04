@@ -983,7 +983,7 @@ async def bot_main():
         dexscreener_trending_monitor(feed_callback),
         monitor_whale_wallets(),
         community_trade_manager(toxibot),
-        monitor_watchlist()
+        monitor_watchlist(),
         axiom_trending_monitor(feed_callback),
     ]
     if BITQUERY_API_KEY and BITQUERY_API_KEY != "disabled":
