@@ -10,6 +10,7 @@ import websockets
 import collections
 from collections import deque
 import sqlite3
+import numpy as np
 import traceback
 import statistics
 from telethon import TelegramClient
@@ -107,6 +108,16 @@ SOLSCAN_API_BASE = "https://api.solscan.io"
 WHALE_MIN_BALANCE = 1000  # Minimum SOL balance to be considered a whale
 WHALE_MIN_TRANSACTION_VALUE = 50  # Minimum USD value for whale transaction
 
+# === ML SCORING WEIGHTS ===
+ML_SCORE_WEIGHTS = {
+    'liquidity': 0.20,
+    'volume_momentum': 0.25,
+    'price_momentum': 0.20,
+    'holder_distribution': 0.15,
+    'age_factor': 0.10,
+    'rug_risk': 0.10
+}
+
 # Configure stdout/stderr for Railway
 sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
@@ -189,6 +200,14 @@ watcher_hits_today = 0
 
 # Pump.fun monitoring state
 pump_fun_monitoring: Dict[str, Dict[str, Any]] = {}
+
+# Market sentiment tracking
+market_sentiment = {
+    'recent_performance': deque(maxlen=50),
+    'avg_win_rate': 0.5,
+    'bull_market': True,
+    'volatility_index': 1.0
+}
 
 # =====================================
 # Database Functions
@@ -1205,181 +1224,6 @@ async def process_pump_fun_token(token_addr: str):
 # =====================================
 # Dashboard and Server
 # =====================================
-DASHBOARD_HTML = r"""
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ToxiBot Trading Dashboard</title>
-    <script src="https://cdn.jsdelivr.net/npm/moment@2.29.4/moment.min.js"></script>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif; background: #0a0e1a; color: #e0e0e0; line-height: 1.6; }
-        .dashboard { padding: 20px; max-width: 1800px; margin: 0 auto; }
-        h1 { font-size: 2.5rem; margin-bottom: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-align: center; }
-        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 20px; }
-        .stat-card { background: #1a1f2e; padding: 20px; border-radius: 12px; border-top: 3px solid #667eea; }
-        .stat-label { font-size: 0.9rem; color: #9ca3af; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; }
-        .stat-value { font-size: 1.8rem; font-weight: 700; color: #fff; }
-        .positive { color: #10b981; } .negative { color: #ef4444; }
-        .bot-personalities { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 20px; }
-        .bot-card { background: #1a1f2e; border-radius: 12px; padding: 20px; }
-        .bot-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
-        .bot-name { font-size: 1.2rem; font-weight: 600; }
-        .bot-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-        .bot-stat { text-align: center; }
-        .bot-stat-label { font-size: 0.75rem; color: #9ca3af; margin-bottom: 5px; text-transform: uppercase; }
-        .bot-stat-value { font-size: 1.1rem; font-weight: 600; }
-        .log-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-        .log-panel { background: #1a1f2e; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; }
-        .log-title { font-size: 1.3rem; margin-bottom: 15px; color: #e0e0e0; padding-bottom: 10px; border-bottom: 1px solid #2d3748; }
-        .log-content { flex-grow: 1; height: 500px; /* Approx 30 lines */ overflow-y: auto; font-family: 'Roboto Mono', monospace; font-size: 0.85rem; }
-        /* Custom scrollbar for log content */
-        .log-content::-webkit-scrollbar { width: 8px; }
-        .log-content::-webkit-scrollbar-track { background: #111624; border-radius: 4px; }
-        .log-content::-webkit-scrollbar-thumb { background: #2d3748; border-radius: 4px; }
-        .log-content::-webkit-scrollbar-thumb:hover { background: #667eea; }
-        .trade-history-table { width: 100%; border-collapse: collapse; }
-        .trade-history-table th { text-align: left; padding: 8px; color: #9ca3af; font-size: 0.75rem; text-transform: uppercase; border-bottom: 1px solid #2d3748; }
-        .trade-history-table td { padding: 8px; border-bottom: 1px solid #2d3748; }
-        .trade-token a { font-weight: 600; color: #667eea; text-decoration: none; }
-        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
-        .live-indicator { display: inline-block; width: 8px; height: 8px; background: #10b981; border-radius: 50%; margin-left: 10px; animation: pulse 2s infinite; }
-        .live-indicator.disconnected { background: #ef4444; animation: none; }
-    </style>
-</head>
-<body>
-    <div class="dashboard">
-        <h1>ToxiBot Trading Dashboard <span id="liveIndicator" class="live-indicator"></span></h1>
-        
-        <div class="stats-grid">
-            <div class="stat-card"><div class="stat-label">Wallet Balance</div><div class="stat-value" id="walletBalance">0.00 SOL</div></div>
-            <div class="stat-card"><div class="stat-label">Total P&L</div><div class="stat-value" id="totalPL">+0.00</div></div>
-            <div class="stat-card"><div class="stat-label">Win Rate</div><div class="stat-value" id="winRate">0.0%</div></div>
-            <div class="stat-card"><div class="stat-label">Exposure</div><div class="stat-value" id="exposure">0.00</div></div>
-            <div class="stat-card"><div class="stat-label">Tokens Checked</div><div class="stat-value" id="tokensChecked">0</div></div>
-        </div>
-        
-        <div class="bot-personalities">
-            <div class="bot-card">
-                <div class="bot-header"><div class="bot-name">🔭 Watcher</div></div>
-                <div class="bot-stats">
-                    <div class="bot-stat"><div class="bot-stat-label">Watching</div><div class="bot-stat-value" id="watcherWatching">0</div></div>
-                    <div class="bot-stat"><div class="bot-stat-label">Processed</div><div class="bot-stat-value" id="watcherProcessed">0</div></div>
-                    <div class="bot-stat"><div class="bot-stat-label">Hits</div><div class="bot-stat-value" id="watcherHits">0</div></div>
-                </div>
-            </div>
-            <div class="bot-card">
-                <div class="bot-header"><div class="bot-name">📊 Analyst</div></div>
-                <div class="bot-stats">
-                    <div class="bot-stat"><div class="bot-stat-label">Trades</div><div class="bot-stat-value" id="analystTrades">0</div></div>
-                    <div class="bot-stat"><div class="bot-stat-label">Win Rate</div><div class="bot-stat-value" id="analystWinRate">0%</div></div>
-                    <div class="bot-stat"><div class="bot-stat-label">P&L</div><div class="bot-stat-value" id="analystPL">0.00</div></div>
-                </div>
-            </div>
-            <div class="bot-card">
-                <div class="bot-header"><div class="bot-name">🐋 Whale Tracker</div></div>
-                <div class="bot-stats">
-                    <div class="bot-stat"><div class="bot-stat-label">Trades</div><div class="bot-stat-value" id="communityTrades">0</div></div>
-                    <div class="bot-stat"><div class="bot-stat-label">Win Rate</div><div class="bot-stat-value" id="communityWinRate">0%</div></div>
-                    <div class="bot-stat"><div class="bot-stat-label">P&L</div><div class="bot-stat-value" id="communityPL">0.00</div></div>
-                </div>
-            </div>
-        </div>
-        
-        <div class="log-grid">
-            <div class="log-panel">
-                <h2 class="log-title">Trade History</h2>
-                <div class="log-content">
-                    <table class="trade-history-table">
-                        <thead><tr><th>Time</th><th>Token</th><th>Bot</th><th>Action</th><th>P&L</th></tr></thead>
-                        <tbody id="tradeHistoryTableBody"></tbody>
-                    </table>
-                </div>
-            </div>
-            <div class="log-panel">
-                <h2 class="log-title">System Activity Log</h2>
-                <div class="log-content" id="logContainer"></div>
-            </div>
-        </div>
-    </div>
-    
-    <script>
-        const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`);
-        ws.onopen = () => document.getElementById('liveIndicator').classList.remove('disconnected');
-        ws.onerror = () => document.getElementById('liveIndicator').classList.add('disconnected');
-        ws.onclose = () => document.getElementById('liveIndicator').classList.add('disconnected');
-
-        function formatNumber(n, d = 3, s = false) { const v = parseFloat(n || 0); return (s && v > 0 ? '+' : '') + v.toFixed(d); }
-        function getBotName(src) {
-            if (!src) return 'N/A';
-            if (src.includes('pump') || src.includes('watchlist')) return 'Watcher/Ultra';
-            if (src.includes('whale') || src.includes('community')) return 'Whale';
-            return 'Analyst';
-        }
-
-        ws.onmessage = function(event) {
-            const data = JSON.parse(event.data);
-            
-            // Stats
-            const totalPL = parseFloat(data.pl || 0);
-            document.getElementById('totalPL').textContent = formatNumber(totalPL, 4, true);
-            document.getElementById('totalPL').className = `stat-value ${totalPL >= 0 ? 'positive' : 'negative'}`;
-            document.getElementById('winRate').textContent = `${formatNumber(data.winrate, 1)}%`;
-            document.getElementById('tokensChecked').textContent = data.tokens_checked || 0;
-            document.getElementById('walletBalance').textContent = formatNumber(data.wallet_balance, 2);
-            document.getElementById('exposure').textContent = formatNumber(data.exposure, 3);
-
-            // Bot Personalities
-            const watcherStats = data.watcher_stats || {watching: 0, processed: 0, hits: 0};
-            document.getElementById('watcherWatching').textContent = watcherStats.watching;
-            document.getElementById('watcherProcessed').textContent = watcherStats.processed;
-            document.getElementById('watcherHits').textContent = watcherStats.hits;
-            ['analyst', 'community'].forEach(bot => {
-                const stats = data[`${bot}_stats`] || {trades: 0, wins: 0, pl: 0};
-                document.getElementById(`${bot}Trades`).textContent = stats.trades;
-                document.getElementById(`${bot}WinRate`).textContent = `${stats.trades > 0 ? formatNumber(stats.wins / stats.trades * 100, 1) : '0'}%`;
-                const plEl = document.getElementById(`${bot}PL`);
-                plEl.textContent = formatNumber(stats.pl, 4, true);
-                plEl.className = `bot-stat-value ${stats.pl >= 0 ? 'positive' : 'negative'}`;
-            });
-
-            // NEW: Trade History Panel
-            const tradeBody = document.getElementById('tradeHistoryTableBody');
-            tradeBody.innerHTML = (data.trade_history || []).map(trade => {
-                const time = moment(trade.timestamp).fromNow();
-                const actionClass = trade.action === 'BUY' ? 'positive' : 'negative';
-                const plFormatted = trade.action === 'SELL' ? `<span class="${trade.pl >= 0 ? 'positive' : 'negative'}">${formatNumber(trade.pl, 4, true)}</span>` : '-';
-                const botName = getBotName(trade.bot_source);
-                return `
-                    <tr>
-                        <td>${time}</td>
-                        <td class="trade-token"><a href="https://solscan.io/token/${trade.token_address}" target="_blank">${trade.token}</a></td>
-                        <td>${botName}</td>
-                        <td class="${actionClass}">${trade.action}</td>
-                        <td>${plFormatted}</td>
-                    </tr>
-                `;
-            }).join('');
-
-            // System Activity Log
-            const logContainer = document.getElementById('logContainer');
-            logContainer.innerHTML = (data.log || []).map(entry => {
-                let color = '#9ca3af';
-                if (entry.includes('✅') || entry.includes('BUY')) color = '#10b981';
-                else if (entry.includes('❌') || entry.includes('failed')) color = '#ef4444';
-                else if (entry.includes('💰') || entry.includes('SELL')) color = '#667eea';
-                return `<div style="color: ${color};">${entry.replace(/^\[[0-9:]{8}\]\s/, '')}</div>`;
-            }).join('');
-            logContainer.scrollTop = logContainer.scrollHeight;
-        };
-    </script>
-</body>
-</html>
-"""
-
-async def html_handler(request): return web.Response(text=DASHBOARD_HTML, content_type="text/html")
 async def ws_handler(request):
     ws = web.WebSocketResponse()
     await ws.prepare(request)
@@ -1452,13 +1296,12 @@ async def ws_handler(request):
 
 async def run_server():
     app = web.Application()
-    app.router.add_get('/', html_handler)
     app.router.add_get('/ws', ws_handler)
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, '0.0.0.0', PORT)
     await site.start()
-    logger.info(f"Dashboard up at http://0.0.0.0:{PORT}")
+    logger.info(f"WebSocket server up at ws://0.0.0.0:{PORT}/ws")
     await asyncio.Event().wait()
 
 async def bot_main():
@@ -1489,7 +1332,7 @@ async def bot_main():
 
 def run_flask():
     """Run Flask server in a separate thread"""
-    socketio.run(app, host='0.0.0.0', port=5000, debug=False, allow_unsafe_werkzeug=True)
+    socketio.run(app, host='0.0.0.0', port=PORT, debug=False, allow_unsafe_werkzeug=True)
 
 async def main():
     # Start Flask server in a separate thread
