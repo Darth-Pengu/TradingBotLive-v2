@@ -1302,6 +1302,7 @@ async def run_server():
     site = web.TCPSite(runner, '0.0.0.0', PORT)
     await site.start()
     logger.info(f"WebSocket server up at ws://0.0.0.0:{PORT}/ws")
+    logger.info(f"Flask dashboard will be available at http://0.0.0.0:{PORT + 1}")
     await asyncio.Event().wait()
 
 async def bot_main():
@@ -1332,7 +1333,9 @@ async def bot_main():
 
 def run_flask():
     """Run Flask server in a separate thread"""
-    socketio.run(app, host='0.0.0.0', port=PORT, debug=False, allow_unsafe_werkzeug=True)
+    # Use a different port for Flask to avoid conflict with aiohttp server
+    flask_port = PORT + 1  # Use PORT + 1 to avoid conflict
+    socketio.run(app, host='0.0.0.0', port=flask_port, debug=False, allow_unsafe_werkzeug=True)
 
 async def main():
     # Start Flask server in a separate thread
@@ -1344,11 +1347,15 @@ async def main():
 
 if __name__ == "__main__":
     try:
+        logger.info(f"Starting bot on port {PORT} (WebSocket) and {PORT + 1} (Flask Dashboard)")
         asyncio.run(main())
     except KeyboardInterrupt:
         logger.info("Bot stopped by user.")
     except Exception as e:
-        logger.error(f"Top-level error: {e}"); traceback.print_exc()
+        logger.error(f"Top-level error: {e}")
+        traceback.print_exc()
+        # Exit with error code for deployment platforms
+        sys.exit(1)
 
 # === ENHANCED DASHBOARD LOGGING ===
 def log_rug_check_result(token: str, rug_results: Dict[str, Any], source: str):
