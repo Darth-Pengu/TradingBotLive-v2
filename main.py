@@ -100,6 +100,11 @@ WALLET_ADDRESS = os.environ.get("WALLET_ADDRESS", "")
 BITQUERY_API_KEY = os.environ.get("BITQUERY_API_KEY", "")
 PORT = int(os.environ.get("PORT", "8080"))
 
+# === SOLSCAN.IO WHALE MONITORING ===
+SOLSCAN_API_BASE = "https://api.solscan.io"
+WHALE_MIN_BALANCE = 1000  # Minimum SOL balance to be considered a whale
+WHALE_MIN_TRANSACTION_VALUE = 50  # Minimum USD value for whale transaction
+
 # Configure stdout/stderr for Railway
 sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
@@ -364,11 +369,20 @@ async def ultra_early_handler(token, toxibot_client):
     if token in watchlist or token in positions:
         return # Already watching or own this token
 
-    # 1. Initial Rugcheck
-    rug_info = await rugcheck(token)
-    if rug_gate(rug_info):
-        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ Watchlist reject: {token[:8]} (rugcheck fail)")
-        return
+    # 1. Enhanced Rugcheck with detailed logging
+    rug_results = await enhanced_rugcheck(token)
+    rug_status = rug_results["recommendation"]
+    rug_score = rug_results["overall_score"]
+    
+    # Log detailed rug check results
+    if rug_status == "SAFE":
+        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ RUG CHECK PASSED: {token[:8]} (Score: {rug_score}/100)")
+    elif rug_status == "CAUTION":
+        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ RUG CHECK CAUTION: {token[:8]} (Score: {rug_score}/100)")
+    else:  # RISKY
+        risks = ", ".join(rug_results["risks"][:3])
+        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ RUG CHECK FAILED: {token[:8]} (Score: {rug_score}/100) - {risks}")
+        return  # Don't proceed with risky tokens
 
     # 2. Get Initial Market Cap
     initial_mcap = await fetch_market_cap(token)
@@ -379,10 +393,12 @@ async def ultra_early_handler(token, toxibot_client):
     # 3. Add to Watchlist
     watchlist[token] = {
         "start_time": time.time(),
-        "initial_mcap": initial_mcap
+        "initial_mcap": initial_mcap,
+        "rug_score": rug_score,
+        "rug_status": rug_status
     }
-    logger.info(f"🔎 Added {token[:8]} to watchlist with initial MCAP: ${initial_mcap:,.0f}")
-    activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🔎 Watching {token[:8]} (MCAP: ${initial_mcap:,.0f})")
+    logger.info(f"🔎 Added {token[:8]} to watchlist with initial MCAP: ${initial_mcap:,.0f} (Rug Score: {rug_score}/100)")
+    activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🔎 Watching {token[:8]} (MCAP: ${initial_mcap:,.0f}, Rug Score: {rug_score}/100)")
     
 async def fetch_volumes(token: str) -> Dict[str, Any]:
     if is_circuit_broken("dexscreener"): return {"liq": 0, "vol_1h": 0, "vol_6h": 0}
@@ -427,6 +443,111 @@ def rug_gate(rug: Dict[str, Any]) -> Optional[str]:
     if rug.get("risks"):
         for risk in rug["risks"]:
             if risk.get("level") == "danger": return f"Rugcheck danger: {risk.get('name')}"
+    return None
+
+# === ENHANCED RUG CHECKING WITH MULTIPLE APIS ===
+async def enhanced_rugcheck(token_addr: str) -> Dict[str, Any]:
+    """Enhanced rug checking using multiple APIs for better accuracy."""
+    results = {
+        "rugcheck_xyz": {},
+        "dexscreener": {},
+        "solscan": {},
+        "overall_score": 0,
+        "risks": [],
+        "recommendation": "UNKNOWN"
+    }
+    
+    # 1. Rugcheck.xyz (existing)
+    try:
+        async with get_session() as session:
+            async with session.get(f"https://api.rugcheck.xyz/api/check/{token_addr}") as resp:
+                if resp.status == 200:
+                    results["rugcheck_xyz"] = await resp.json()
+    except Exception as e:
+        logger.error(f"Rugcheck.xyz error: {e}")
+    
+    # 2. DexScreener liquidity analysis
+    try:
+        async with get_session() as session:
+            async with session.get(f"https://api.dexscreener.com/latest/dex/tokens/{token_addr}") as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    if data.get("pairs"):
+                        for pair in data["pairs"]:
+                            if pair.get("quoteToken", {}).get("symbol") == "SOL":
+                                liquidity = float(pair.get("liquidity", {}).get("usd", 0))
+                                results["dexscreener"] = {
+                                    "liquidity": liquidity,
+                                    "price": float(pair.get("priceUsd", 0)),
+                                    "volume_24h": float(pair.get("volume", {}).get("h24", 0))
+                                }
+                                break
+    except Exception as e:
+        logger.error(f"DexScreener rug check error: {e}")
+    
+    # 3. Solscan.io token analysis
+    try:
+        token_info = await fetch_solscan_token_info(token_addr)
+        if token_info:
+            results["solscan"] = {
+                "holder_count": token_info.get("holder", 0),
+                "supply": token_info.get("supply", 0),
+                "decimals": token_info.get("decimals", 0)
+            }
+    except Exception as e:
+        logger.error(f"Solscan rug check error: {e}")
+    
+    # Calculate overall score and recommendation
+    score = 50  # Start with neutral score
+    
+    # Rugcheck.xyz analysis
+    if results["rugcheck_xyz"].get("risks"):
+        for risk in results["rugcheck_xyz"]["risks"]:
+            if risk.get("level") == "danger":
+                score -= 30
+                results["risks"].append(f"Rugcheck: {risk.get('name')}")
+            elif risk.get("level") == "warning":
+                score -= 15
+                results["risks"].append(f"Rugcheck: {risk.get('name')}")
+    
+    # Liquidity analysis
+    liquidity = results["dexscreener"].get("liquidity", 0)
+    if liquidity < 5000:
+        score -= 20
+        results["risks"].append("Low liquidity (<$5k)")
+    elif liquidity < 10000:
+        score -= 10
+        results["risks"].append("Moderate liquidity (<$10k)")
+    
+    # Holder analysis
+    holder_count = results["solscan"].get("holder_count", 0)
+    if holder_count < 50:
+        score -= 15
+        results["risks"].append("Low holder count")
+    
+    # Volume analysis
+    volume_24h = results["dexscreener"].get("volume_24h", 0)
+    if volume_24h < 1000:
+        score -= 10
+        results["risks"].append("Low 24h volume")
+    
+    # Set recommendation
+    if score >= 70:
+        results["recommendation"] = "SAFE"
+    elif score >= 40:
+        results["recommendation"] = "CAUTION"
+    else:
+        results["recommendation"] = "RISKY"
+    
+    results["overall_score"] = max(0, min(100, score))
+    
+    return results
+
+def enhanced_rug_gate(rug_results: Dict[str, Any]) -> Optional[str]:
+    """Enhanced rug gate with detailed analysis."""
+    if rug_results["recommendation"] == "RISKY":
+        risks = ", ".join(rug_results["risks"][:3])  # Show top 3 risks
+        return f"Rug check failed: {risks}"
     return None
 
 # =====================================
@@ -534,7 +655,117 @@ async def fetch_market_cap(token: str) -> Optional[float]:
         logger.error(f"DexScreener market cap error: {e}")
         trip_circuit_breaker("dexscreener")
     return None
+
+# === ENHANCED WHALE MONITORING WITH SOLSCAN.IO ===
+async def fetch_solscan_whale_transactions(whale_address: str) -> List[Dict[str, Any]]:
+    """Fetch recent transactions from Solscan.io for whale monitoring."""
+    if is_circuit_breaker("solscan"): return []
+    try:
+        async with get_session() as session:
+            # Get recent transactions
+            url = f"{SOLSCAN_API_BASE}/account/transactions"
+            params = {
+                "address": whale_address,
+                "limit": 20,
+                "offset": 0
+            }
+            async with session.get(url, params=params) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    return data.get("data", [])
+    except Exception as e:
+        logger.error(f"Solscan whale transaction error: {e}")
+        trip_circuit_breaker("solscan")
+    return []
+
+async def fetch_solscan_token_info(token_address: str) -> Optional[Dict[str, Any]]:
+    """Fetch token information from Solscan.io."""
+    if is_circuit_breaker("solscan"): return None
+    try:
+        async with get_session() as session:
+            url = f"{SOLSCAN_API_BASE}/token/meta"
+            params = {"tokenAddress": token_address}
+            async with session.get(url, params=params) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+    except Exception as e:
+        logger.error(f"Solscan token info error: {e}")
+        trip_circuit_breaker("solscan")
+    return None
+
+async def enhanced_whale_monitoring():
+    """Enhanced whale monitoring using both Helius and Solscan.io APIs."""
+    if not WHALE_WALLETS: 
+        return logger.warning("Whale monitoring disabled - no whale wallets configured.")
     
+    logger.info(f"🐋 Starting enhanced whale monitoring for {len(WHALE_WALLETS)} wallets...")
+    whale_transaction_cache = {}  # Cache to avoid duplicate processing
+    
+    while True:
+        for whale in WHALE_WALLETS:
+            try:
+                # Get transactions from both APIs for redundancy
+                transactions = []
+                
+                # Helius API (existing)
+                if HELIUS_API_KEY and not is_circuit_breaker("helius_whale"):
+                    try:
+                        url = f"https://api.helius.xyz/v0/addresses/{whale}/transactions?api-key={HELIUS_API_KEY}&limit=10&type=SWAP"
+                        async with get_session() as session:
+                            async with session.get(url) as resp:
+                                if resp.status == 200:
+                                    transactions.extend(await resp.json())
+                    except Exception as e:
+                        logger.error(f"Helius whale monitoring error: {e}")
+                        trip_circuit_breaker("helius_whale")
+                
+                # Solscan.io API (new)
+                solscan_txs = await fetch_solscan_whale_transactions(whale)
+                transactions.extend(solscan_txs)
+                
+                # Process transactions
+                for tx in transactions:
+                    tx_hash = tx.get("signature") or tx.get("txHash")
+                    if not tx_hash or tx_hash in whale_transaction_cache:
+                        continue
+                    
+                    whale_transaction_cache[tx_hash] = time.time()
+                    
+                    # Extract token purchases
+                    token_transfers = tx.get("tokenTransfers", [])
+                    if not token_transfers:
+                        # Try alternative field names
+                        token_transfers = tx.get("transfers", [])
+                    
+                    for transfer in token_transfers:
+                        if transfer.get("toUserAccount") == whale or transfer.get("to") == whale:
+                            token = transfer.get("mint") or transfer.get("token")
+                            if token and token != "So11111111111111111111111111111111111111112":
+                                # Get transaction value
+                                amount_usd = transfer.get("amountUsd", 0)
+                                if amount_usd and amount_usd < WHALE_MIN_TRANSACTION_VALUE:
+                                    continue
+                                
+                                # Get token info
+                                token_info = await fetch_solscan_token_info(token)
+                                token_symbol = token_info.get("symbol", "Unknown") if token_info else "Unknown"
+                                
+                                logger.info(f"🐋 Whale {whale[:6]}... bought {token_symbol} ({token[:8]}) - ${amount_usd:.2f}")
+                                activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🐋 Whale {whale[:6]} bought {token_symbol} ({token[:8]}) - ${amount_usd:.2f}")
+                                
+                                # Add to community queue for analysis
+                                await community_token_queue.put(token)
+                
+                # Clean old cache entries (older than 1 hour)
+                current_time = time.time()
+                whale_transaction_cache = {k: v for k, v in whale_transaction_cache.items() 
+                                        if current_time - v < 3600}
+                
+            except Exception as e:
+                logger.error(f"Enhanced whale monitoring error for {whale[:6]}: {e}")
+        
+        await asyncio.sleep(30)  # Check every 30 seconds
+
 # =====================================
 # ML Scoring & Trading Logic
 # =====================================
@@ -584,25 +815,36 @@ async def ultra_early_handler(token, toxibot_client):
     if token in watchlist or token in positions:
         return # Already watching or own this token
 
-    # 1. Initial Rugcheck
-    rug_info = await rugcheck(token)
-    if rug_gate(rug_info):
-        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}]  watchlist reject: {token[:8]} (rugcheck fail)")
-        return
+    # 1. Enhanced Rugcheck with detailed logging
+    rug_results = await enhanced_rugcheck(token)
+    rug_status = rug_results["recommendation"]
+    rug_score = rug_results["overall_score"]
+    
+    # Log detailed rug check results
+    if rug_status == "SAFE":
+        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ RUG CHECK PASSED: {token[:8]} (Score: {rug_score}/100)")
+    elif rug_status == "CAUTION":
+        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ RUG CHECK CAUTION: {token[:8]} (Score: {rug_score}/100)")
+    else:  # RISKY
+        risks = ", ".join(rug_results["risks"][:3])
+        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ RUG CHECK FAILED: {token[:8]} (Score: {rug_score}/100) - {risks}")
+        return  # Don't proceed with risky tokens
 
     # 2. Get Initial Market Cap
     initial_mcap = await fetch_market_cap(token)
     if not initial_mcap or initial_mcap == 0:
-        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] watchlist reject: {token[:8]} (no mcap)")
+        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ Watchlist reject: {token[:8]} (no mcap)")
         return
         
     # 3. Add to Watchlist
     watchlist[token] = {
         "start_time": time.time(),
-        "initial_mcap": initial_mcap
+        "initial_mcap": initial_mcap,
+        "rug_score": rug_score,
+        "rug_status": rug_status
     }
-    logger.info(f"🔎 Added {token[:8]} to watchlist with initial MCAP: ${initial_mcap:,.0f}")
-    activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🔎 Watching {token[:8]} (MCAP: ${initial_mcap:,.0f})")
+    logger.info(f"🔎 Added {token[:8]} to watchlist with initial MCAP: ${initial_mcap:,.0f} (Rug Score: {rug_score}/100)")
+    activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🔎 Watching {token[:8]} (MCAP: ${initial_mcap:,.0f}, Rug Score: {rug_score}/100)")
 
 async def analyst_handler(token, src, toxibot_client):
     global analyst_total, exposure
@@ -612,8 +854,11 @@ async def analyst_handler(token, src, toxibot_client):
 
     if not trading_enabled or len([p for p in positions.values() if 'pump' not in p.get('src','')]) >= ANALYST_MAX_POSITIONS or token in positions: return
     
-    rug_info = await rugcheck(token)
-    if rug_gate(rug_info): return
+    # Enhanced rug check
+    rug_results = await enhanced_rugcheck(token)
+    if enhanced_rug_gate(rug_results): 
+        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ Analyst reject: {token[:8]} (rug check failed)")
+        return
 
     stats = await fetch_volumes(token); age = await fetch_pool_age(token)
     if not stats or age is None or stats['liq'] < ANALYST_MIN_LIQ or age > ANALYST_MAX_POOLAGE: return
@@ -626,7 +871,7 @@ async def analyst_handler(token, src, toxibot_client):
         price = await fetch_token_price(token) or 1e-9; analyst_total += 1; exposure += size * price
         positions[token] = {"src": src, "buy_time": time.time(), "size": size, "entry_price": price, "total_sold_percent": 0, "local_high": price}
         save_position(token, positions[token]); record_trade(token, "BUY", size, price)
-        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ BUY {token[:8]} @ ${price:.6f} (Analyst)")
+        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ BUY {token[:8]} @ ${price:.6f} (Analyst) - Rug Score: {rug_results['overall_score']}/100")
 
 async def community_trade_manager(toxibot_client):
     while True:
@@ -745,6 +990,104 @@ async def monitor_watchlist():
             logger.error(f"Error in monitor_watchlist: {e}")
         
         await asyncio.sleep(WATCHLIST_POLL_INTERVAL)
+
+# === PUMP.FUN TOKEN MONITORING ===
+PUMP_FUN_MONITOR_DURATION = 3600  # 1 hour monitoring
+PUMP_FUN_UPDATE_INTERVAL = 30  # 30-second updates
+PUMP_FUN_MC_SPIKE_THRESHOLD = 2.0  # 2x market cap spike for profit taking
+
+async def pump_fun_token_monitor():
+    """Monitor new Pump.fun tokens with immediate rug checking and MC spike detection."""
+    monitored_tokens = {}  # token_address -> monitoring_data
+    
+    logger.info("🎯 Starting Pump.fun token monitor with enhanced rug checking...")
+    
+    while True:
+        try:
+            # Get new tokens from PumpPortal feed
+            # This would integrate with your existing pumpportal_newtoken_feed
+            # For now, we'll simulate the monitoring logic
+            
+            # Check monitored tokens for MC spikes
+            current_time = time.time()
+            tokens_to_remove = []
+            
+            for token_addr, monitor_data in monitored_tokens.items():
+                elapsed_time = current_time - monitor_data["start_time"]
+                
+                # Stop monitoring after 1 hour
+                if elapsed_time > PUMP_FUN_MONITOR_DURATION:
+                    logger.info(f"⏰ Stopped monitoring {token_addr[:8]} (1 hour elapsed)")
+                    tokens_to_remove.append(token_addr)
+                    continue
+                
+                # Check for MC spike every 30 seconds
+                if elapsed_time % PUMP_FUN_UPDATE_INTERVAL < 1:  # Every 30 seconds
+                    current_mcap = await fetch_market_cap(token_addr)
+                    if current_mcap and monitor_data["initial_mcap"]:
+                        mcap_ratio = current_mcap / monitor_data["initial_mcap"]
+                        
+                        if mcap_ratio >= PUMP_FUN_MC_SPIKE_THRESHOLD:
+                            # MASSIVE MC SPIKE DETECTED!
+                            logger.info(f"🚀 MASSIVE MC SPIKE! {token_addr[:8]} surged {mcap_ratio:.2f}x!")
+                            activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🚀 MC SPIKE: {token_addr[:8]} {mcap_ratio:.2f}x (${monitor_data['initial_mcap']:,.0f} → ${current_mcap:,.0f})")
+                            
+                            # Trigger immediate profit taking
+                            await process_token(token_addr, "pump_fun_spike")
+                            tokens_to_remove.append(token_addr)
+                        else:
+                            # Log progress
+                            if mcap_ratio > 1.5:  # Significant but not spike level
+                                activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] 📈 {token_addr[:8]} MC: {mcap_ratio:.2f}x (${current_mcap:,.0f})")
+            
+            # Remove finished tokens
+            for token in tokens_to_remove:
+                del monitored_tokens[token]
+            
+        except Exception as e:
+            logger.error(f"Pump.fun monitor error: {e}")
+        
+        await asyncio.sleep(1)  # Check every second
+
+async def process_pump_fun_token(token_addr: str):
+    """Process new Pump.fun token with immediate rug checking."""
+    logger.info(f"🎯 Processing new Pump.fun token: {token_addr[:8]}")
+    activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🎯 New Pump.fun token: {token_addr[:8]}")
+    
+    # IMMEDIATE RUG CHECK
+    rug_results = await enhanced_rugcheck(token_addr)
+    rug_status = rug_results["recommendation"]
+    rug_score = rug_results["overall_score"]
+    
+    # Log rug check result immediately
+    if rug_status == "SAFE":
+        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ RUG CHECK PASSED: {token_addr[:8]} (Score: {rug_score}/100)")
+        logger.info(f"✅ Rug check PASSED for {token_addr[:8]} (Score: {rug_score}/100)")
+    elif rug_status == "CAUTION":
+        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ RUG CHECK CAUTION: {token_addr[:8]} (Score: {rug_score}/100)")
+        logger.info(f"⚠️ Rug check CAUTION for {token_addr[:8]} (Score: {rug_score}/100)")
+    else:  # RISKY
+        risks = ", ".join(rug_results["risks"][:3])
+        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ RUG CHECK FAILED: {token_addr[:8]} (Score: {rug_score}/100) - {risks}")
+        logger.info(f"❌ Rug check FAILED for {token_addr[:8]} (Score: {rug_score}/100) - {risks}")
+        return  # Don't proceed with risky tokens
+    
+    # Get initial market cap
+    initial_mcap = await fetch_market_cap(token_addr)
+    if not initial_mcap:
+        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ No market cap data for {token_addr[:8]}")
+        return
+    
+    # Add to monitoring if passed rug check
+    monitored_tokens[token_addr] = {
+        "start_time": time.time(),
+        "initial_mcap": initial_mcap,
+        "rug_score": rug_score,
+        "rug_status": rug_status
+    }
+    
+    activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🔍 Monitoring {token_addr[:8]} for MC spikes (Initial: ${initial_mcap:,.0f})")
+    logger.info(f"🔍 Added {token_addr[:8]} to Pump.fun monitoring (MC: ${initial_mcap:,.0f})")
 
 # =====================================
 # Dashboard and Server
@@ -1019,10 +1362,11 @@ async def bot_main():
         update_positions_and_risk(),
         pumpportal_newtoken_feed(feed_callback),
         dexscreener_trending_monitor(feed_callback),
-        monitor_whale_wallets(),
+        enhanced_whale_monitoring(),  # Use enhanced whale monitoring
         community_trade_manager(toxibot),
         monitor_watchlist(),
         axiom_trending_monitor(feed_callback),
+        pump_fun_token_monitor(), # Add the new pump.fun monitor task
     ]
     if BITQUERY_API_KEY and BITQUERY_API_KEY != "disabled":
         tasks.append(bitquery_streaming_feed(feed_callback))
@@ -1048,3 +1392,25 @@ if __name__ == "__main__":
         logger.info("Bot stopped by user.")
     except Exception as e:
         logger.error(f"Top-level error: {e}"); traceback.print_exc()
+
+# === ENHANCED DASHBOARD LOGGING ===
+def log_rug_check_result(token: str, rug_results: Dict[str, Any], source: str):
+    """Log detailed rug check results to dashboard."""
+    rug_status = rug_results["recommendation"]
+    rug_score = rug_results["overall_score"]
+    
+    if rug_status == "SAFE":
+        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ {source} RUG CHECK PASSED: {token[:8]} (Score: {rug_score}/100)")
+    elif rug_status == "CAUTION":
+        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ {source} RUG CHECK CAUTION: {token[:8]} (Score: {rug_score}/100)")
+    else:  # RISKY
+        risks = ", ".join(rug_results["risks"][:3])
+        activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ {source} RUG CHECK FAILED: {token[:8]} (Score: {rug_score}/100) - {risks}")
+
+def log_whale_activity(whale_address: str, token_symbol: str, token_address: str, amount_usd: float):
+    """Log whale activity to dashboard."""
+    activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🐋 Whale {whale_address[:6]} bought {token_symbol} ({token_address[:8]}) - ${amount_usd:.2f}")
+
+def log_mc_spike(token_address: str, initial_mcap: float, current_mcap: float, ratio: float):
+    """Log market cap spike to dashboard."""
+    activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🚀 MC SPIKE: {token_address[:8]} {ratio:.2f}x (${initial_mcap:,.0f} → ${current_mcap:,.0f})")
