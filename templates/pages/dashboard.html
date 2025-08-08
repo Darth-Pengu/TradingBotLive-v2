@@ -9,172 +9,504 @@
     <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='css/utility.css') }}">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.2/font/bootstrap-icons.css">
     <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f=satoshi@900,700,500,300,401,400&display=swap">
+    <style>
+        :root {
+            --primary-purple: #6366f1;
+            --secondary-purple: #8b5cf6;
+            --success-green: #10b981;
+            --danger-red: #ef4444;
+            --warning-orange: #f59e0b;
+            --dark-bg: #0f172a;
+            --card-bg: #1e293b;
+            --text-light: #f1f5f9;
+            --text-muted: #94a3b8;
+            --border-color: #334155;
+        }
+        
+        body {
+            background: var(--dark-bg);
+            color: var(--text-light);
+            font-family: 'Satoshi', sans-serif;
+        }
+        
+        .sidebar {
+            background: var(--card-bg);
+            min-height: 100vh;
+            border-right: 1px solid var(--border-color);
+        }
+        
+        .sidebar .nav-link {
+            color: var(--text-muted);
+            padding: 0.75rem 1rem;
+            border-radius: 0.5rem;
+            margin: 0.25rem 0;
+            transition: all 0.3s ease;
+        }
+        
+        .sidebar .nav-link:hover,
+        .sidebar .nav-link.active {
+            background: var(--primary-purple);
+            color: white;
+        }
+        
+        .main-content {
+            background: var(--dark-bg);
+            min-height: 100vh;
+        }
+        
+        .header {
+            background: var(--card-bg);
+            border-bottom: 1px solid var(--border-color);
+            padding: 1rem 2rem;
+        }
+        
+        .search-bar {
+            background: var(--dark-bg);
+            border: 1px solid var(--border-color);
+            color: var(--text-light);
+            border-radius: 0.5rem;
+            padding: 0.5rem 1rem;
+        }
+        
+        .crypto-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            transition: all 0.3s ease;
+        }
+        
+        .crypto-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+        }
+        
+        .balance-card {
+            background: linear-gradient(135deg, var(--primary-purple), var(--secondary-purple));
+            border-radius: 1rem;
+            padding: 2rem;
+            color: white;
+        }
+        
+        .staking-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 1rem;
+            padding: 1.5rem;
+        }
+        
+        .chart-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 1rem;
+            padding: 1.5rem;
+        }
+        
+        .transaction-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 1rem;
+            padding: 1.5rem;
+        }
+        
+        .status-badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 1rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        
+        .status-pending {
+            background: rgba(245, 158, 11, 0.2);
+            color: var(--warning-orange);
+        }
+        
+        .status-success {
+            background: rgba(16, 185, 129, 0.2);
+            color: var(--success-green);
+        }
+        
+        .progress-bar {
+            background: var(--border-color);
+            border-radius: 1rem;
+            height: 0.5rem;
+            overflow: hidden;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary-purple), var(--secondary-purple));
+            border-radius: 1rem;
+        }
+        
+        .btn-trade {
+            background: var(--primary-purple);
+            color: white;
+            border: none;
+            padding: 0.5rem 1.5rem;
+            border-radius: 0.5rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-trade:hover {
+            background: var(--secondary-purple);
+            transform: translateY(-1px);
+        }
+        
+        .btn-liquidity {
+            background: transparent;
+            color: var(--text-light);
+            border: 1px solid var(--border-color);
+            padding: 0.5rem 1.5rem;
+            border-radius: 0.5rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-liquidity:hover {
+            background: var(--border-color);
+        }
+        
+        .live-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background: var(--success-green);
+            border-radius: 50%;
+            margin-left: 0.5rem;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        
+        .crypto-icon {
+            width: 2rem;
+            height: 2rem;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: white;
+        }
+        
+        .btc-icon { background: #f7931a; }
+        .ada-icon { background: #0033ad; }
+        .eos-icon { background: #000000; }
+        .eth-icon { background: #627eea; }
+        .xrp-icon { background: #23292f; }
+    </style>
 </head>
-<body class="p-1 p-lg-2">
+<body>
     <div class="container-fluid">
         <div class="row">
             <!-- Sidebar -->
-            <nav class="col-md-3 col-lg-2 d-md-block bg-dark sidebar">
-                <div class="position-sticky pt-3">
+            <nav class="col-md-3 col-lg-2 sidebar">
+                <div class="p-3">
+                    <!-- Logo -->
+                    <div class="d-flex align-items-center mb-4">
+                        <i class="bi bi-moon-stars text-primary me-2"></i>
+                        <h5 class="mb-0 text-white">satoshi</h5>
+                    </div>
+                    
+                    <!-- Navigation -->
                     <ul class="nav flex-column">
                         <li class="nav-item">
-                            <a class="nav-link active text-white" href="/dashboard">
-                                <i class="bi bi-speedometer2"></i> Dashboard
+                            <a class="nav-link active" href="/dashboard">
+                                <i class="bi bi-speedometer2 me-2"></i>
+                                Dashboards
+                            </a>
+                            <ul class="nav flex-column ms-3">
+                                <li class="nav-item">
+                                    <a class="nav-link" href="/dashboard">Default</a>
+                                </li>
+                                <li class="nav-item">
+                                    <a class="nav-link" href="/analytics">Analytics</a>
+                                </li>
+                                <li class="nav-item">
+                                    <a class="nav-link" href="/wallet">Wallet</a>
+                                </li>
+                            </ul>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#">
+                                <i class="bi bi-file-earmark me-2"></i>
+                                Pages
+                                <i class="bi bi-chevron-right ms-auto"></i>
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link text-white" href="/trades">
-                                <i class="bi bi-graph-up"></i> Trades
+                            <a class="nav-link" href="#">
+                                <i class="bi bi-person me-2"></i>
+                                Account
+                                <i class="bi bi-chevron-right ms-auto"></i>
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link text-white" href="/analytics">
-                                <i class="bi bi-bar-chart"></i> Analytics
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link text-white" href="/settings">
-                                <i class="bi bi-gear"></i> Settings
+                            <a class="nav-link" href="#">
+                                <i class="bi bi-three-dots me-2"></i>
+                                Other
+                                <i class="bi bi-chevron-right ms-auto"></i>
                             </a>
                         </li>
                     </ul>
+                    
+                    <!-- Resources -->
+                    <hr class="my-4">
+                    <h6 class="text-muted mb-3">Resources</h6>
+                    <ul class="nav flex-column">
+                        <li class="nav-item">
+                            <a class="nav-link" href="#">
+                                <i class="bi bi-file-text me-2"></i>
+                                Documentation
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#">
+                                <i class="bi bi-puzzle me-2"></i>
+                                Components
+                                <i class="bi bi-chevron-right ms-auto"></i>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#">
+                                <i class="bi bi-grid me-2"></i>
+                                Widgets
+                                <span class="badge bg-danger ms-auto">Hot</span>
+                            </a>
+                        </li>
+                    </ul>
+                    
+                    <!-- Upgrade Card -->
+                    <div class="mt-4 p-3" style="background: linear-gradient(135deg, #1e293b, #334155); border-radius: 0.75rem;">
+                        <div class="d-flex align-items-center mb-2">
+                            <i class="bi bi-rocket text-warning me-2"></i>
+                            <small class="text-muted">Upgrade your account to Pro for even more examples.</small>
+                        </div>
+                        <button class="btn btn-sm text-white" style="background: var(--primary-purple); border: none;">
+                            Upgrade now →
+                        </button>
+                    </div>
                 </div>
             </nav>
 
-            <!-- Main content -->
-            <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
-                <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
-                    <h1 class="h2">Trading Bot Dashboard</h1>
-                    <div class="btn-toolbar mb-2 mb-md-0">
-                        <div class="btn-group me-2">
-                            <button type="button" class="btn btn-sm btn-outline-success" id="startBot">Start Bot</button>
-                            <button type="button" class="btn btn-sm btn-outline-danger" id="stopBot">Stop Bot</button>
+            <!-- Main Content -->
+            <main class="col-md-9 ms-sm-auto col-lg-10 main-content">
+                <!-- Header -->
+                <div class="header d-flex justify-content-between align-items-center">
+                    <div class="d-flex align-items-center">
+                        <small class="text-muted me-3">← View theme info</small>
+                        <h4 class="mb-0">satoshi</h4>
+                    </div>
+                    
+                    <div class="d-flex align-items-center gap-3">
+                        <!-- Search Bar -->
+                        <div class="position-relative">
+                            <input type="text" class="search-bar" placeholder="Search" style="width: 300px;">
+                        </div>
+                        
+                        <!-- Market Stats -->
+                        <div class="d-flex gap-4 text-muted">
+                            <small>Cryptos: 21,713</small>
+                            <small>Market Cap: $871,322,862,585</small>
+                            <small>24h Vol: $180,639,667,232</small>
+                        </div>
+                        
+                        <!-- Header Icons -->
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-sm text-muted">
+                                <i class="bi bi-display"></i>
+                            </button>
+                            <button class="btn btn-sm text-muted">
+                                <i class="bi bi-phone"></i>
+                            </button>
+                            <select class="form-select form-select-sm" style="background: var(--card-bg); color: var(--text-light); border: 1px solid var(--border-color);">
+                                <option>Standard License</option>
+                            </select>
+                            <button class="btn btn-sm" style="background: var(--primary-purple); color: white; border: none;">
+                                Add to cart $49.00
+                            </button>
+                            <button class="btn btn-sm" style="background: var(--card-bg); color: var(--text-light); border: 1px solid var(--border-color);">
+                                Connect
+                            </button>
+                            <button class="btn btn-sm text-muted">
+                                <i class="bi bi-bell"></i>
+                            </button>
+                            <div class="rounded-circle bg-secondary" style="width: 32px; height: 32px;"></div>
                         </div>
                     </div>
                 </div>
 
-                <!-- Status Cards -->
-                <div class="row mb-4">
-                    <div class="col-xl-3 col-md-6 mb-4">
-                        <div class="card border-left-primary shadow h-100 py-2">
-                            <div class="card-body">
-                                <div class="row no-gutters align-items-center">
-                                    <div class="col mr-2">
-                                        <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">
-                                            Bot Status
-                                        </div>
-                                        <div class="h5 mb-0 font-weight-bold text-gray-800" id="botStatus">Active</div>
-                                    </div>
-                                    <div class="col-auto">
-                                        <i class="bi bi-robot fa-2x text-gray-300"></i>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="col-xl-3 col-md-6 mb-4">
-                        <div class="card border-left-success shadow h-100 py-2">
-                            <div class="card-body">
-                                <div class="row no-gutters align-items-center">
-                                    <div class="col mr-2">
-                                        <div class="text-xs font-weight-bold text-success text-uppercase mb-1">
-                                            Balance
-                                        </div>
-                                        <div class="h5 mb-0 font-weight-bold text-gray-800" id="accountBalance">$0.00</div>
-                                    </div>
-                                    <div class="col-auto">
-                                        <i class="bi bi-wallet2 fa-2x text-gray-300"></i>
+                <!-- Dashboard Content -->
+                <div class="p-4">
+                    <h1 class="mb-4">Dashboard <span class="live-indicator"></span></h1>
+                    
+                    <!-- Crypto Overview Cards -->
+                    <div class="row mb-4">
+                        <div class="col-md-3">
+                            <div class="crypto-card">
+                                <div class="d-flex align-items-center justify-content-between">
+                                    <div>
+                                        <div class="crypto-icon btc-icon mb-2">₿</div>
+                                        <h6 class="mb-1">3.2893 USDT</h6>
+                                        <small class="text-success">+13.7%</small>
                                     </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
-
-                    <div class="col-xl-3 col-md-6 mb-4">
-                        <div class="card border-left-info shadow h-100 py-2">
-                            <div class="card-body">
-                                <div class="row no-gutters align-items-center">
-                                    <div class="col mr-2">
-                                        <div class="text-xs font-weight-bold text-info text-uppercase mb-1">
-                                            P&L Today
-                                        </div>
-                                        <div class="h5 mb-0 font-weight-bold text-gray-800" id="dailyPL">$0.00</div>
-                                    </div>
-                                    <div class="col-auto">
-                                        <i class="bi bi-graph-up fa-2x text-gray-300"></i>
+                        <div class="col-md-3">
+                            <div class="crypto-card">
+                                <div class="d-flex align-items-center justify-content-between">
+                                    <div>
+                                        <div class="crypto-icon ada-icon mb-2">₳</div>
+                                        <h6 class="mb-1">10.745,49 ADA</h6>
+                                        <small class="text-danger">-3.2%</small>
                                     </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
-
-                    <div class="col-xl-3 col-md-6 mb-4">
-                        <div class="card border-left-warning shadow h-100 py-2">
-                            <div class="card-body">
-                                <div class="row no-gutters align-items-center">
-                                    <div class="col mr-2">
-                                        <div class="text-xs font-weight-bold text-warning text-uppercase mb-1">
-                                            Active Positions
-                                        </div>
-                                        <div class="h5 mb-0 font-weight-bold text-gray-800" id="activePositions">0</div>
-                                    </div>
-                                    <div class="col-auto">
-                                        <i class="bi bi-list-check fa-2x text-gray-300"></i>
+                        <div class="col-md-3">
+                            <div class="crypto-card">
+                                <div class="d-flex align-items-center justify-content-between">
+                                    <div>
+                                        <div class="crypto-icon eos-icon mb-2">E</div>
+                                        <h6 class="mb-1">7.890,00 EOS</h6>
+                                        <small class="text-danger">-2.2%</small>
                                     </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
-                </div>
-
-                <!-- Charts Row -->
-                <div class="row">
-                    <div class="col-xl-8 col-lg-7">
-                        <div class="card shadow mb-4">
-                            <div class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
-                                <h6 class="m-0 font-weight-bold text-primary">Price Chart</h6>
-                            </div>
-                            <div class="card-body">
-                                <canvas id="priceChart" width="400" height="200"></canvas>
+                        <div class="col-md-3">
+                            <div class="crypto-card d-flex align-items-center justify-content-center">
+                                <button class="btn btn-sm text-muted">
+                                    <i class="bi bi-plus-lg"></i>
+                                </button>
                             </div>
                         </div>
                     </div>
-
-                    <div class="col-xl-4 col-lg-5">
-                        <div class="card shadow mb-4">
-                            <div class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
-                                <h6 class="m-0 font-weight-bold text-primary">Performance</h6>
+                    
+                    <div class="row">
+                        <!-- Balance & Staking Section -->
+                        <div class="col-lg-4">
+                            <!-- Balance Card -->
+                            <div class="balance-card mb-4">
+                                <h6 class="mb-3">Balance</h6>
+                                <h2 class="mb-3" id="accountBalance">23.863,21 USDT</h2>
+                                <small class="text-success mb-3 d-block">↑ 7.8%</small>
+                                
+                                <div class="row mb-3">
+                                    <div class="col-6">
+                                        <small class="text-muted d-block">Income</small>
+                                        <small class="text-success">$23.863,21 USD</small>
+                                    </div>
+                                    <div class="col-6">
+                                        <small class="text-muted d-block">Expenses</small>
+                                        <small class="text-danger">$5.678,45 USD</small>
+                                    </div>
+                                </div>
+                                
+                                <div class="d-flex gap-2">
+                                    <button class="btn-liquidity">Liquidity</button>
+                                    <button class="btn-trade">Trade</button>
+                                </div>
                             </div>
-                            <div class="card-body">
-                                <canvas id="performanceChart" width="400" height="200"></canvas>
+                            
+                            <!-- Staking Rewards Card -->
+                            <div class="staking-card">
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <h6 class="mb-0">Staking rewards</h6>
+                                    <button class="btn btn-sm text-muted">
+                                        <i class="bi bi-arrow-clockwise"></i>
+                                    </button>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <div class="d-flex align-items-center">
+                                            <div class="crypto-icon ada-icon me-2">₳</div>
+                                            <div>
+                                                <small class="d-block">Staked ADA</small>
+                                                <small class="text-muted">25% APR</small>
+                                            </div>
+                                        </div>
+                                        <small>1030 ADA</small>
+                                    </div>
+                                    <div class="progress-bar">
+                                        <div class="progress-fill" style="width: 75%;"></div>
+                                    </div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <div class="d-flex align-items-center">
+                                            <div class="crypto-icon eth-icon me-2">Ξ</div>
+                                            <div>
+                                                <small class="d-block">Staked ETH</small>
+                                                <small class="text-muted">16% APR</small>
+                                            </div>
+                                        </div>
+                                        <small>9.5 ETH</small>
+                                    </div>
+                                    <div class="progress-bar">
+                                        <div class="progress-fill" style="width: 60%;"></div>
+                                    </div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <div class="d-flex align-items-center">
+                                            <div class="crypto-icon xrp-icon me-2">✕</div>
+                                            <div>
+                                                <small class="d-block">Staked XRP</small>
+                                                <small class="text-muted">13% APR</small>
+                                            </div>
+                                        </div>
+                                        <small>760 XRP</small>
+                                    </div>
+                                    <div class="progress-bar">
+                                        <div class="progress-fill" style="width: 45%;"></div>
+                                    </div>
+                                </div>
+                                
+                                <small class="text-muted">Built by Webpixels</small>
                             </div>
                         </div>
-                    </div>
-                </div>
-
-                <!-- Recent Trades -->
-                <div class="card shadow mb-4">
-                    <div class="card-header py-3">
-                        <h6 class="m-0 font-weight-bold text-primary">Recent Trades</h6>
-                    </div>
-                    <div class="card-body">
-                        <div class="table-responsive">
-                            <table class="table table-bordered" id="tradeHistory" width="100%" cellspacing="0">
-                                <thead>
-                                    <tr>
-                                        <th>Time</th>
-                                        <th>Token</th>
-                                        <th>Action</th>
-                                        <th>Price</th>
-                                        <th>Amount</th>
-                                        <th>P&L</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="tradeHistoryBody">
-                                    <!-- Trade history will be populated here -->
-                                </tbody>
-                            </table>
+                        
+                        <!-- Charts Section -->
+                        <div class="col-lg-8">
+                            <!-- Earnings Chart -->
+                            <div class="chart-card mb-4">
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <h6 class="mb-0">Earnings</h6>
+                                    <button class="btn btn-sm text-muted">
+                                        <i class="bi bi-arrow-clockwise"></i>
+                                    </button>
+                                </div>
+                                <canvas id="earningsChart" height="200"></canvas>
+                            </div>
+                            
+                            <!-- Transaction History -->
+                            <div class="transaction-card">
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <h6 class="mb-0">Transaction History</h6>
+                                    <button class="btn btn-sm text-muted">
+                                        <i class="bi bi-arrow-clockwise"></i>
+                                    </button>
+                                </div>
+                                
+                                <div class="table-responsive">
+                                    <table class="table table-borderless text-white">
+                                        <tbody id="transactionHistory">
+                                            <!-- Transactions will be populated here -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -192,24 +524,48 @@
         // Initialize Socket.IO connection
         const socket = io();
         
-        // Bot control buttons
-        document.getElementById('startBot').addEventListener('click', function() {
-            socket.emit('start_bot');
-        });
-        
-        document.getElementById('stopBot').addEventListener('click', function() {
-            socket.emit('stop_bot');
-        });
-        
-        // Socket event listeners
-        socket.on('bot_started', function(data) {
-            document.getElementById('botStatus').textContent = 'Active';
-            document.getElementById('botStatus').className = 'h5 mb-0 font-weight-bold text-success';
-        });
-        
-        socket.on('bot_stopped', function(data) {
-            document.getElementById('botStatus').textContent = 'Stopped';
-            document.getElementById('botStatus').className = 'h5 mb-0 font-weight-bold text-danger';
+        // Initialize Earnings Chart
+        const earningsCtx = document.getElementById('earningsChart').getContext('2d');
+        const earningsChart = new Chart(earningsCtx, {
+            type: 'bar',
+            data: {
+                labels: ['May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+                datasets: [{
+                    label: 'Earnings',
+                    data: [25, 18, 22, 28, 32, 26, 30, 35],
+                    backgroundColor: 'rgba(99, 102, 241, 0.8)',
+                    borderColor: 'rgba(99, 102, 241, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        grid: {
+                            color: 'rgba(148, 163, 184, 0.1)'
+                        },
+                        ticks: {
+                            color: '#94a3b8'
+                        }
+                    },
+                    x: {
+                        grid: {
+                            display: false
+                        },
+                        ticks: {
+                            color: '#94a3b8'
+                        }
+                    }
+                }
+            }
         });
         
         // Update dashboard data
@@ -218,7 +574,34 @@
                 .then(response => response.json())
                 .then(data => {
                     document.getElementById('accountBalance').textContent = `$${data.balance.toFixed(2)}`;
-                    document.getElementById('dailyPL').textContent = `$${data.current_price.toFixed(2)}`;
+                    
+                    // Update transaction history
+                    const transactionHistory = document.getElementById('transactionHistory');
+                    if (data.recent_trades && data.recent_trades.length > 0) {
+                        transactionHistory.innerHTML = data.recent_trades.map(trade => `
+                            <tr>
+                                <td>
+                                    <div class="d-flex align-items-center">
+                                        <div class="crypto-icon btc-icon me-2">₿</div>
+                                        <div>
+                                            <small class="d-block">Bitcoin</small>
+                                            <small class="text-muted">2 days ago</small>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>
+                                    <small class="text-muted">Oxd029384sd343fd...eq23</small>
+                                </td>
+                                <td>
+                                    <span class="status-badge status-pending">Pending</span>
+                                </td>
+                                <td class="text-end">
+                                    <small class="text-success">+0.2948 BTC</small><br>
+                                    <small class="text-success">+$10,930.90</small>
+                                </td>
+                            </tr>
+                        `).join('');
+                    }
                 })
                 .catch(error => console.error('Error fetching dashboard data:', error));
         }

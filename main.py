@@ -770,6 +770,7 @@ async def enhanced_whale_monitoring():
 # ML Scoring & Trading Logic
 # =====================================
 async def ml_score_token(meta: Dict[str, Any]) -> float:
+    """Legacy ML scoring - kept for backward compatibility."""
     score = 50.0
     liq = meta.get("liq", 0)
     if liq > 50: score += 20
@@ -778,6 +779,82 @@ async def ml_score_token(meta: Dict[str, Any]) -> float:
     if vol_6h > 0 and vol_1h > (vol_6h / 6 * 1.5): score += 15
     if meta.get('age', 9999) < 300: score += 10
     return min(95, max(5, score))
+
+async def advanced_ml_score_token(token: str, meta: Dict[str, Any], rug_results: Dict[str, Any]) -> Dict[str, Any]:
+    """Advanced ML scoring with multiple factors and market sentiment."""
+    score_components = {}
+    
+    # 1. Liquidity Analysis (25% weight)
+    liq = meta.get("liq", 0)
+    if liq > 100: score_components['liquidity'] = 95
+    elif liq > 50: score_components['liquidity'] = 85
+    elif liq > 20: score_components['liquidity'] = 70
+    elif liq > 10: score_components['liquidity'] = 50
+    else: score_components['liquidity'] = 20
+    
+    # 2. Volume Momentum (20% weight)
+    vol_1h = meta.get('vol_1h', 0)
+    vol_6h = meta.get('vol_6h', 0)
+    if vol_6h > 0:
+        momentum_ratio = vol_1h / (vol_6h / 6)
+        if momentum_ratio > 3: score_components['volume_momentum'] = 95
+        elif momentum_ratio > 2: score_components['volume_momentum'] = 80
+        elif momentum_ratio > 1.5: score_components['volume_momentum'] = 65
+        else: score_components['volume_momentum'] = 40
+    else:
+        score_components['volume_momentum'] = 30
+    
+    # 3. Price Momentum (15% weight)
+    price_change_5m = meta.get('price_change_5m', 0)
+    if price_change_5m > 50: score_components['price_momentum'] = 95
+    elif price_change_5m > 30: score_components['price_momentum'] = 80
+    elif price_change_5m > 15: score_components['price_momentum'] = 65
+    elif price_change_5m > 5: score_components['price_momentum'] = 50
+    else: score_components['price_momentum'] = 30
+    
+    # 4. Holder Distribution (15% weight)
+    holder_count = rug_results.get("solscan", {}).get("holder_count", 0)
+    if holder_count > 500: score_components['holder_distribution'] = 95
+    elif holder_count > 200: score_components['holder_distribution'] = 80
+    elif holder_count > 100: score_components['holder_distribution'] = 65
+    elif holder_count > 50: score_components['holder_distribution'] = 50
+    else: score_components['holder_distribution'] = 30
+    
+    # 5. Age Factor (10% weight)
+    age = meta.get('age', 9999)
+    if age < 300: score_components['age_factor'] = 90  # Very new
+    elif age < 1800: score_components['age_factor'] = 75  # New
+    elif age < 3600: score_components['age_factor'] = 60  # Medium
+    else: score_components['age_factor'] = 40  # Old
+    
+    # 6. Rug Risk (15% weight) - Inverse scoring
+    rug_score = rug_results.get("overall_score", 50)
+    score_components['rug_risk'] = rug_score  # Higher rug score = lower risk
+    
+    # Calculate weighted score
+    total_score = 0
+    for component, weight in ML_SCORE_WEIGHTS.items():
+        if component in score_components:
+            total_score += score_components[component] * weight
+    
+    # Market sentiment adjustment
+    if market_sentiment['bull_market']:
+        total_score *= 1.1  # 10% boost in bull market
+    elif market_sentiment['avg_win_rate'] < 0.4:
+        total_score *= 0.9  # 10% reduction in bear market
+    
+    # Volatility adjustment
+    total_score *= market_sentiment['volatility_index']
+    
+    return {
+        'overall_score': min(95, max(5, total_score)),
+        'components': score_components,
+        'market_adjustment': {
+            'bull_market': market_sentiment['bull_market'],
+            'win_rate': market_sentiment['avg_win_rate'],
+            'volatility': market_sentiment['volatility_index']
+        }
+    }
 
 async def calculate_position_size(bot_type: str, ml_score: float) -> float:
     global exposure, current_wallet_balance
@@ -863,7 +940,9 @@ async def analyst_handler(token, src, toxibot_client):
     stats = await fetch_volumes(token); age = await fetch_pool_age(token)
     if not stats or age is None or stats['liq'] < ANALYST_MIN_LIQ or age > ANALYST_MAX_POOLAGE: return
     
-    ml_score = await ml_score_token({'liq': stats['liq'], 'age': age, 'vol_1h': stats['vol_1h'], 'vol_6h': stats['vol_6h']})
+    # Use advanced ML scoring with rug results
+    ml_results = await advanced_ml_score_token(token, {'liq': stats['liq'], 'age': age, 'vol_1h': stats['vol_1h'], 'vol_6h': stats['vol_6h']}, rug_results)
+    ml_score = ml_results['overall_score']
     if ml_score < ANALYST_MIN_ML_SCORE: return
     
     size = await calculate_position_size("analyst", ml_score)
@@ -912,6 +991,10 @@ async def handle_position_exit(token, pos, last_price, toxibot_client):
             else: analyst_wins += 1
         if pos['src'] == 'pumpportal': ultra_pl += pl
         else: analyst_pl += pl
+        
+        # Update market sentiment with trade performance
+        market_sentiment['recent_performance'].append(pl)
+        
         record_trade(token, "SELL", sold_amt, last_price, pl); save_position(token, pos)
         activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] 💰 SELL {token[:8]} for {reason}, P/L: {pl:+.4f}")
 
@@ -1367,6 +1450,7 @@ async def bot_main():
         monitor_watchlist(),
         axiom_trending_monitor(feed_callback),
         pump_fun_token_monitor(), # Add the new pump.fun monitor task
+        update_market_sentiment(), # Add market sentiment updates
     ]
     if BITQUERY_API_KEY and BITQUERY_API_KEY != "disabled":
         tasks.append(bitquery_streaming_feed(feed_callback))
@@ -1414,3 +1498,131 @@ def log_whale_activity(whale_address: str, token_symbol: str, token_address: str
 def log_mc_spike(token_address: str, initial_mcap: float, current_mcap: float, ratio: float):
     """Log market cap spike to dashboard."""
     activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🚀 MC SPIKE: {token_address[:8]} {ratio:.2f}x (${initial_mcap:,.0f} → ${current_mcap:,.0f})")
+
+# === ADVANCED MACHINE LEARNING SCORING ===
+import numpy as np
+from collections import deque
+import statistics
+
+# ML Scoring Parameters
+ML_SCORE_WEIGHTS = {
+    'liquidity': 0.25,
+    'volume_momentum': 0.20,
+    'price_momentum': 0.15,
+    'holder_distribution': 0.15,
+    'age_factor': 0.10,
+    'rug_risk': 0.15
+}
+
+# Market sentiment tracking
+market_sentiment = {
+    'bull_market': False,
+    'avg_win_rate': 0.5,
+    'recent_performance': deque(maxlen=50),
+    'volatility_index': 1.0
+}
+
+async def advanced_ml_score_token(token: str, meta: Dict[str, Any], rug_results: Dict[str, Any]) -> Dict[str, Any]:
+    """Advanced ML scoring with multiple factors and market sentiment."""
+    score_components = {}
+    
+    # 1. Liquidity Analysis (25% weight)
+    liq = meta.get("liq", 0)
+    if liq > 100: score_components['liquidity'] = 95
+    elif liq > 50: score_components['liquidity'] = 85
+    elif liq > 20: score_components['liquidity'] = 70
+    elif liq > 10: score_components['liquidity'] = 50
+    else: score_components['liquidity'] = 20
+    
+    # 2. Volume Momentum (20% weight)
+    vol_1h = meta.get('vol_1h', 0)
+    vol_6h = meta.get('vol_6h', 0)
+    if vol_6h > 0:
+        momentum_ratio = vol_1h / (vol_6h / 6)
+        if momentum_ratio > 3: score_components['volume_momentum'] = 95
+        elif momentum_ratio > 2: score_components['volume_momentum'] = 80
+        elif momentum_ratio > 1.5: score_components['volume_momentum'] = 65
+        else: score_components['volume_momentum'] = 40
+    else:
+        score_components['volume_momentum'] = 30
+    
+    # 3. Price Momentum (15% weight)
+    price_change_5m = meta.get('price_change_5m', 0)
+    if price_change_5m > 50: score_components['price_momentum'] = 95
+    elif price_change_5m > 30: score_components['price_momentum'] = 80
+    elif price_change_5m > 15: score_components['price_momentum'] = 65
+    elif price_change_5m > 5: score_components['price_momentum'] = 50
+    else: score_components['price_momentum'] = 30
+    
+    # 4. Holder Distribution (15% weight)
+    holder_count = rug_results.get("solscan", {}).get("holder_count", 0)
+    if holder_count > 500: score_components['holder_distribution'] = 95
+    elif holder_count > 200: score_components['holder_distribution'] = 80
+    elif holder_count > 100: score_components['holder_distribution'] = 65
+    elif holder_count > 50: score_components['holder_distribution'] = 50
+    else: score_components['holder_distribution'] = 30
+    
+    # 5. Age Factor (10% weight)
+    age = meta.get('age', 9999)
+    if age < 300: score_components['age_factor'] = 90  # Very new
+    elif age < 1800: score_components['age_factor'] = 75  # New
+    elif age < 3600: score_components['age_factor'] = 60  # Medium
+    else: score_components['age_factor'] = 40  # Old
+    
+    # 6. Rug Risk (15% weight) - Inverse scoring
+    rug_score = rug_results.get("overall_score", 50)
+    score_components['rug_risk'] = rug_score  # Higher rug score = lower risk
+    
+    # Calculate weighted score
+    total_score = 0
+    for component, weight in ML_SCORE_WEIGHTS.items():
+        if component in score_components:
+            total_score += score_components[component] * weight
+    
+    # Market sentiment adjustment
+    if market_sentiment['bull_market']:
+        total_score *= 1.1  # 10% boost in bull market
+    elif market_sentiment['avg_win_rate'] < 0.4:
+        total_score *= 0.9  # 10% reduction in bear market
+    
+    # Volatility adjustment
+    total_score *= market_sentiment['volatility_index']
+    
+    return {
+        'overall_score': min(95, max(5, total_score)),
+        'components': score_components,
+        'market_adjustment': {
+            'bull_market': market_sentiment['bull_market'],
+            'win_rate': market_sentiment['avg_win_rate'],
+            'volatility': market_sentiment['volatility_index']
+        }
+    }
+
+async def update_market_sentiment():
+    """Update market sentiment based on recent performance."""
+    global market_sentiment
+    
+    while True:
+        try:
+            # Calculate recent win rate
+            if len(market_sentiment['recent_performance']) > 10:
+                recent_wins = sum(1 for p in market_sentiment['recent_performance'] if p > 0)
+                market_sentiment['avg_win_rate'] = recent_wins / len(market_sentiment['recent_performance'])
+            
+            # Determine bull/bear market
+            if market_sentiment['avg_win_rate'] > 0.6:
+                market_sentiment['bull_market'] = True
+            elif market_sentiment['avg_win_rate'] < 0.4:
+                market_sentiment['bull_market'] = False
+            
+            # Calculate volatility index
+            if len(market_sentiment['recent_performance']) > 5:
+                returns = list(market_sentiment['recent_performance'])
+                volatility = statistics.stdev(returns) if len(returns) > 1 else 0
+                market_sentiment['volatility_index'] = 1.0 + (volatility * 0.5)  # Adjust for volatility
+            
+            await asyncio.sleep(300)  # Update every 5 minutes
+            
+        except Exception as e:
+            logger.error(f"Market sentiment update error: {e}")
+            await asyncio.sleep(60)
