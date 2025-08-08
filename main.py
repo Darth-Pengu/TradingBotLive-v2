@@ -33,54 +33,54 @@ API_RETRY_COUNT = 3
 API_RETRY_DELAY = 1
 CACHE_TTL = 30  # 30 seconds
 
-# === TRADING PARAMETERS (ADJUSTED FOR MORE ACTIVITY) ===
-# Speed Demon (Ultra-Early)
-ULTRA_MIN_LIQ = 3
-ULTRA_BUY_AMOUNT = 0.05
-ULTRA_TP_X = 3.0
-ULTRA_SL_X = 0.5
-ULTRA_AGE_MAX_S = 300
-ULTRA_MIN_ML_SCORE = 60
-WATCH_DURATION_SECONDS = 300  # 5 minutes
-MARKET_CAP_RISE_THRESHOLD = 1.5  # 1.5x = 50% rise
-WATCHLIST_POLL_INTERVAL = 20  # Check the watchlist every 20 seconds
+# === TRADING PARAMETERS (AGGRESSIVE MODE) ===
+# Speed Demon (Ultra-Early) - MORE AGGRESSIVE
+ULTRA_MIN_LIQ = 2  # Lowered from 3
+ULTRA_BUY_AMOUNT = 0.08  # Increased from 0.05
+ULTRA_TP_X = 2.5  # Lowered from 3.0 for faster exits
+ULTRA_SL_X = 0.6  # Increased from 0.5 for less aggressive stop loss
+ULTRA_AGE_MAX_S = 600  # Increased from 300 (10 minutes)
+ULTRA_MIN_ML_SCORE = 50  # Lowered from 60
+WATCH_DURATION_SECONDS = 180  # Reduced from 300 (3 minutes)
+MARKET_CAP_RISE_THRESHOLD = 1.3  # Lowered from 1.5 (30% rise)
+WATCHLIST_POLL_INTERVAL = 10  # Reduced from 20 seconds
 
-# Analyst (Trending/Surge) - MODIFIED STRATEGY
-ANALYST_BUY_AMOUNT = 0.05
-ANALYST_MIN_LIQ = 8
-ANALYST_TP_LEVEL_1_PRICE_MULT = 2.0  # Sell at 2x (100% rise)
-ANALYST_TP_LEVEL_1_SELL_PCT = 80   # Sell 80% of the position
-ANALYST_SL_X = 0.7
-ANALYST_TRAIL = 0.15
-ANALYST_MAX_POOLAGE = 30 * 60
-ANALYST_MIN_ML_SCORE = 65
+# Analyst (Trending/Surge) - MUCH MORE AGGRESSIVE
+ANALYST_BUY_AMOUNT = 0.08  # Increased from 0.05
+ANALYST_MIN_LIQ = 5  # Lowered from 8
+ANALYST_TP_LEVEL_1_PRICE_MULT = 1.8  # Lowered from 2.0 (80% rise)
+ANALYST_TP_LEVEL_1_SELL_PCT = 70   # Reduced from 80% for faster profit taking
+ANALYST_SL_X = 0.75  # Increased from 0.7
+ANALYST_TRAIL = 0.10  # Reduced from 0.15 for tighter trailing
+ANALYST_MAX_POOLAGE = 60 * 60  # Increased from 30 minutes to 1 hour
+ANALYST_MIN_ML_SCORE = 55  # Lowered from 65
 
-# Whale Tracker (Community)
-COMMUNITY_BUY_AMOUNT = 0.05
-COMM_HOLDER_THRESHOLD = 100
-COMM_MAX_CONC = 0.15
-COMM_TP_LEVELS = [2.0, 5.0, 10.0]
-COMM_SL_PCT = 0.6
-COMM_HOLD_SECONDS = 3600
-COMM_MIN_SIGNALS = 2
+# Whale Tracker (Community) - MORE AGGRESSIVE
+COMMUNITY_BUY_AMOUNT = 0.08  # Increased from 0.05
+COMM_HOLDER_THRESHOLD = 50  # Lowered from 100
+COMM_MAX_CONC = 0.20  # Increased from 0.15
+COMM_TP_LEVELS = [1.5, 3.0, 6.0]  # Lowered targets for faster exits
+COMM_SL_PCT = 0.7  # Increased from 0.6
+COMM_HOLD_SECONDS = 1800  # Reduced from 3600 (30 minutes)
+COMM_MIN_SIGNALS = 1  # Reduced from 2
 
-# Watcher Strategy
-WATCH_DURATION_SECONDS = 300  # 5 minutes
-MARKET_CAP_RISE_THRESHOLD = 1.5  # 1.5x = 50% rise
-WATCHLIST_POLL_INTERVAL = 20  # Check the watchlist every 20 seconds
+# Watcher Strategy - MORE AGGRESSIVE
+WATCH_DURATION_SECONDS = 180  # Reduced from 300 (3 minutes)
+MARKET_CAP_RISE_THRESHOLD = 1.3  # Lowered from 1.5 (30% rise)
+WATCHLIST_POLL_INTERVAL = 10  # Reduced from 20 seconds
 
-# Risk Management
-MAX_WALLET_EXPOSURE = 0.5
-DAILY_LOSS_LIMIT_PERCENT = 0.5
-ANTI_SNIPE_DELAY = 2
+# Risk Management - MORE AGGRESSIVE
+MAX_WALLET_EXPOSURE = 0.7  # Increased from 0.5
+DAILY_LOSS_LIMIT_PERCENT = 1.0  # Increased from 0.5
+ANTI_SNIPE_DELAY = 1  # Reduced from 2
 
 # ToxiBot specific
-TOXIBOT_COMMAND_DELAY = 2
+TOXIBOT_COMMAND_DELAY = 1  # Reduced from 2
 
-# Performance settings
-ULTRA_MAX_DAILY_TRADES = 20
-ANALYST_MAX_POSITIONS = 20
-COMMUNITY_MAX_DAILY = 10
+# Performance settings - MORE AGGRESSIVE
+ULTRA_MAX_DAILY_TRADES = 30  # Increased from 20
+ANALYST_MAX_POSITIONS = 30  # Increased from 20
+COMMUNITY_MAX_DAILY = 20  # Increased from 10
 
 # === WHALE WALLETS TO MONITOR ===
 WHALE_WALLETS = [
@@ -813,48 +813,48 @@ async def advanced_ml_score_token(token: str, meta: Dict[str, Any], rug_results:
     """Advanced ML scoring with multiple factors and market sentiment."""
     score_components = {}
     
-    # 1. Liquidity Analysis (25% weight)
+    # 1. Liquidity Analysis (20% weight) - MORE AGGRESSIVE
     liq = meta.get("liq", 0)
-    if liq > 100: score_components['liquidity'] = 95
-    elif liq > 50: score_components['liquidity'] = 85
-    elif liq > 20: score_components['liquidity'] = 70
-    elif liq > 10: score_components['liquidity'] = 50
-    else: score_components['liquidity'] = 20
+    if liq > 50: score_components['liquidity'] = 95  # Lowered from 100
+    elif liq > 20: score_components['liquidity'] = 85  # Lowered from 50
+    elif liq > 10: score_components['liquidity'] = 70  # Lowered from 20
+    elif liq > 5: score_components['liquidity'] = 50  # Lowered from 10
+    else: score_components['liquidity'] = 30  # Increased from 20
     
-    # 2. Volume Momentum (20% weight)
+    # 2. Volume Momentum (25% weight) - MORE AGGRESSIVE
     vol_1h = meta.get('vol_1h', 0)
     vol_6h = meta.get('vol_6h', 0)
     if vol_6h > 0:
         momentum_ratio = vol_1h / (vol_6h / 6)
-        if momentum_ratio > 3: score_components['volume_momentum'] = 95
-        elif momentum_ratio > 2: score_components['volume_momentum'] = 80
-        elif momentum_ratio > 1.5: score_components['volume_momentum'] = 65
-        else: score_components['volume_momentum'] = 40
+        if momentum_ratio > 2: score_components['volume_momentum'] = 95  # Lowered from 3
+        elif momentum_ratio > 1.5: score_components['volume_momentum'] = 80  # Lowered from 2
+        elif momentum_ratio > 1.2: score_components['volume_momentum'] = 65  # Lowered from 1.5
+        else: score_components['volume_momentum'] = 45  # Increased from 40
     else:
-        score_components['volume_momentum'] = 30
+        score_components['volume_momentum'] = 35  # Increased from 30
     
-    # 3. Price Momentum (15% weight)
+    # 3. Price Momentum (20% weight) - MORE AGGRESSIVE
     price_change_5m = meta.get('price_change_5m', 0)
-    if price_change_5m > 50: score_components['price_momentum'] = 95
-    elif price_change_5m > 30: score_components['price_momentum'] = 80
-    elif price_change_5m > 15: score_components['price_momentum'] = 65
-    elif price_change_5m > 5: score_components['price_momentum'] = 50
-    else: score_components['price_momentum'] = 30
+    if price_change_5m > 30: score_components['price_momentum'] = 95  # Lowered from 50
+    elif price_change_5m > 20: score_components['price_momentum'] = 80  # Lowered from 30
+    elif price_change_5m > 10: score_components['price_momentum'] = 65  # Lowered from 15
+    elif price_change_5m > 3: score_components['price_momentum'] = 50  # Lowered from 5
+    else: score_components['price_momentum'] = 35  # Increased from 30
     
-    # 4. Holder Distribution (15% weight)
+    # 4. Holder Distribution (15% weight) - MORE AGGRESSIVE
     holder_count = rug_results.get("solscan", {}).get("holder_count", 0)
-    if holder_count > 500: score_components['holder_distribution'] = 95
-    elif holder_count > 200: score_components['holder_distribution'] = 80
-    elif holder_count > 100: score_components['holder_distribution'] = 65
-    elif holder_count > 50: score_components['holder_distribution'] = 50
-    else: score_components['holder_distribution'] = 30
+    if holder_count > 200: score_components['holder_distribution'] = 95  # Lowered from 500
+    elif holder_count > 100: score_components['holder_distribution'] = 80  # Lowered from 200
+    elif holder_count > 50: score_components['holder_distribution'] = 65  # Lowered from 100
+    elif holder_count > 25: score_components['holder_distribution'] = 50  # Lowered from 50
+    else: score_components['holder_distribution'] = 35  # Increased from 30
     
-    # 5. Age Factor (10% weight)
+    # 5. Age Factor (10% weight) - MORE AGGRESSIVE
     age = meta.get('age', 9999)
-    if age < 300: score_components['age_factor'] = 90  # Very new
-    elif age < 1800: score_components['age_factor'] = 75  # New
-    elif age < 3600: score_components['age_factor'] = 60  # Medium
-    else: score_components['age_factor'] = 40  # Old
+    if age < 600: score_components['age_factor'] = 90  # Increased from 300 (10 minutes)
+    elif age < 3600: score_components['age_factor'] = 75  # Increased from 1800 (1 hour)
+    elif age < 7200: score_components['age_factor'] = 60  # Increased from 3600 (2 hours)
+    else: score_components['age_factor'] = 45  # Increased from 40
     
     # 6. Rug Risk (15% weight) - Inverse scoring
     rug_score = rug_results.get("overall_score", 50)
@@ -891,8 +891,9 @@ async def calculate_position_size(bot_type: str, ml_score: float) -> float:
     available_capital = (current_wallet_balance * MAX_WALLET_EXPOSURE) - exposure
     if available_capital <= 0.01: return 0
     base = ANALYST_BUY_AMOUNT if bot_type == "analyst" else ULTRA_BUY_AMOUNT
-    ml_multiplier = 0.75 + ((ml_score - 50) / 100)
-    return min(base * ml_multiplier, available_capital, 0.1)
+    # MORE AGGRESSIVE: Lower minimum score requirement and higher multiplier
+    ml_multiplier = 0.6 + ((ml_score - 40) / 80)  # Changed from 0.75 + ((ml_score - 50) / 100)
+    return min(base * ml_multiplier, available_capital, 0.15)  # Increased max from 0.1 to 0.15
 
 class ToxiBotClient:
     def __init__(self, api_id, api_hash, session_id, username):
@@ -1528,102 +1529,6 @@ def log_mc_spike(token_address: str, initial_mcap: float, current_mcap: float, r
     """Log market cap spike to dashboard."""
     activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🚀 MC SPIKE: {token_address[:8]} {ratio:.2f}x (${initial_mcap:,.0f} → ${current_mcap:,.0f})")
 
-# === ADVANCED MACHINE LEARNING SCORING ===
-from collections import deque
-import statistics
 
-# ML Scoring Parameters
-ML_SCORE_WEIGHTS = {
-    'liquidity': 0.25,
-    'volume_momentum': 0.20,
-    'price_momentum': 0.15,
-    'holder_distribution': 0.15,
-    'age_factor': 0.10,
-    'rug_risk': 0.15
-}
-
-# Market sentiment tracking
-market_sentiment = {
-    'bull_market': False,
-    'avg_win_rate': 0.5,
-    'recent_performance': deque(maxlen=50),
-    'volatility_index': 1.0
-}
-
-async def advanced_ml_score_token(token: str, meta: Dict[str, Any], rug_results: Dict[str, Any]) -> Dict[str, Any]:
-    """Advanced ML scoring with multiple factors and market sentiment."""
-    score_components = {}
-    
-    # 1. Liquidity Analysis (25% weight)
-    liq = meta.get("liq", 0)
-    if liq > 100: score_components['liquidity'] = 95
-    elif liq > 50: score_components['liquidity'] = 85
-    elif liq > 20: score_components['liquidity'] = 70
-    elif liq > 10: score_components['liquidity'] = 50
-    else: score_components['liquidity'] = 20
-    
-    # 2. Volume Momentum (20% weight)
-    vol_1h = meta.get('vol_1h', 0)
-    vol_6h = meta.get('vol_6h', 0)
-    if vol_6h > 0:
-        momentum_ratio = vol_1h / (vol_6h / 6)
-        if momentum_ratio > 3: score_components['volume_momentum'] = 95
-        elif momentum_ratio > 2: score_components['volume_momentum'] = 80
-        elif momentum_ratio > 1.5: score_components['volume_momentum'] = 65
-        else: score_components['volume_momentum'] = 40
-    else:
-        score_components['volume_momentum'] = 30
-    
-    # 3. Price Momentum (15% weight)
-    price_change_5m = meta.get('price_change_5m', 0)
-    if price_change_5m > 50: score_components['price_momentum'] = 95
-    elif price_change_5m > 30: score_components['price_momentum'] = 80
-    elif price_change_5m > 15: score_components['price_momentum'] = 65
-    elif price_change_5m > 5: score_components['price_momentum'] = 50
-    else: score_components['price_momentum'] = 30
-    
-    # 4. Holder Distribution (15% weight)
-    holder_count = rug_results.get("solscan", {}).get("holder_count", 0)
-    if holder_count > 500: score_components['holder_distribution'] = 95
-    elif holder_count > 200: score_components['holder_distribution'] = 80
-    elif holder_count > 100: score_components['holder_distribution'] = 65
-    elif holder_count > 50: score_components['holder_distribution'] = 50
-    else: score_components['holder_distribution'] = 30
-    
-    # 5. Age Factor (10% weight)
-    age = meta.get('age', 9999)
-    if age < 300: score_components['age_factor'] = 90  # Very new
-    elif age < 1800: score_components['age_factor'] = 75  # New
-    elif age < 3600: score_components['age_factor'] = 60  # Medium
-    else: score_components['age_factor'] = 40  # Old
-    
-    # 6. Rug Risk (15% weight) - Inverse scoring
-    rug_score = rug_results.get("overall_score", 50)
-    score_components['rug_risk'] = rug_score  # Higher rug score = lower risk
-    
-    # Calculate weighted score
-    total_score = 0
-    for component, weight in ML_SCORE_WEIGHTS.items():
-        if component in score_components:
-            total_score += score_components[component] * weight
-    
-    # Market sentiment adjustment
-    if market_sentiment['bull_market']:
-        total_score *= 1.1  # 10% boost in bull market
-    elif market_sentiment['avg_win_rate'] < 0.4:
-        total_score *= 0.9  # 10% reduction in bear market
-    
-    # Volatility adjustment
-    total_score *= market_sentiment['volatility_index']
-    
-    return {
-        'overall_score': min(95, max(5, total_score)),
-        'components': score_components,
-        'market_adjustment': {
-            'bull_market': market_sentiment['bull_market'],
-            'win_rate': market_sentiment['avg_win_rate'],
-            'volatility': market_sentiment['volatility_index']
-        }
-    }
 
 
