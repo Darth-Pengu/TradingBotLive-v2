@@ -8,8 +8,10 @@ import time
 import aiohttp
 import websockets
 import collections
+from collections import deque
 import sqlite3
 import traceback
+import statistics
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 from aiohttp import web
@@ -184,6 +186,9 @@ toxibot = None
 startup_time = time.time()
 watcher_processed_today = 0
 watcher_hits_today = 0
+
+# Pump.fun monitoring state
+pump_fun_monitoring: Dict[str, Dict[str, Any]] = {}
 
 # =====================================
 # Database Functions
@@ -542,6 +547,30 @@ async def enhanced_rugcheck(token_addr: str) -> Dict[str, Any]:
     results["overall_score"] = max(0, min(100, score))
     
     return results
+
+async def update_market_sentiment():
+    """Update market sentiment based on recent performance."""
+    while True:
+        try:
+            if len(market_sentiment['recent_performance']) >= 10:
+                # Calculate average win rate
+                wins = sum(1 for p in market_sentiment['recent_performance'] if p > 0)
+                market_sentiment['avg_win_rate'] = wins / len(market_sentiment['recent_performance'])
+                
+                # Determine market condition
+                avg_performance = statistics.mean(market_sentiment['recent_performance'])
+                market_sentiment['bull_market'] = avg_performance > 0.1  # 10% average profit
+                
+                # Calculate volatility
+                if len(market_sentiment['recent_performance']) >= 5:
+                    market_sentiment['volatility_index'] = statistics.stdev(market_sentiment['recent_performance'])
+                
+                logger.info(f"Market sentiment updated: Bull={market_sentiment['bull_market']}, Win rate={market_sentiment['avg_win_rate']:.2f}, Volatility={market_sentiment['volatility_index']:.4f}")
+            
+        except Exception as e:
+            logger.error(f"Market sentiment update error: {e}")
+        
+        await asyncio.sleep(300)  # Update every 5 minutes
 
 def enhanced_rug_gate(rug_results: Dict[str, Any]) -> Optional[str]:
     """Enhanced rug gate with detailed analysis."""
@@ -1459,7 +1488,7 @@ async def bot_main():
 
 def run_flask():
     """Run Flask server in a separate thread"""
-    socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+    socketio.run(app, host='0.0.0.0', port=5000, debug=False, allow_unsafe_werkzeug=True)
 
 async def main():
     # Start Flask server in a separate thread
@@ -1500,7 +1529,6 @@ def log_mc_spike(token_address: str, initial_mcap: float, current_mcap: float, r
     activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🚀 MC SPIKE: {token_address[:8]} {ratio:.2f}x (${initial_mcap:,.0f} → ${current_mcap:,.0f})")
 
 # === ADVANCED MACHINE LEARNING SCORING ===
-import numpy as np
 from collections import deque
 import statistics
 
@@ -1598,31 +1626,4 @@ async def advanced_ml_score_token(token: str, meta: Dict[str, Any], rug_results:
         }
     }
 
-async def update_market_sentiment():
-    """Update market sentiment based on recent performance."""
-    global market_sentiment
-    
-    while True:
-        try:
-            # Calculate recent win rate
-            if len(market_sentiment['recent_performance']) > 10:
-                recent_wins = sum(1 for p in market_sentiment['recent_performance'] if p > 0)
-                market_sentiment['avg_win_rate'] = recent_wins / len(market_sentiment['recent_performance'])
-            
-            # Determine bull/bear market
-            if market_sentiment['avg_win_rate'] > 0.6:
-                market_sentiment['bull_market'] = True
-            elif market_sentiment['avg_win_rate'] < 0.4:
-                market_sentiment['bull_market'] = False
-            
-            # Calculate volatility index
-            if len(market_sentiment['recent_performance']) > 5:
-                returns = list(market_sentiment['recent_performance'])
-                volatility = statistics.stdev(returns) if len(returns) > 1 else 0
-                market_sentiment['volatility_index'] = 1.0 + (volatility * 0.5)  # Adjust for volatility
-            
-            await asyncio.sleep(300)  # Update every 5 minutes
-            
-        except Exception as e:
-            logger.error(f"Market sentiment update error: {e}")
-            await asyncio.sleep(60)
+
