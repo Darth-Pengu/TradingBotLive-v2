@@ -18,6 +18,11 @@ from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 from bs4 import BeautifulSoup
 
+# Flask imports for web dashboard
+from flask import Flask, render_template, jsonify, request
+from flask_socketio import SocketIO, emit
+import threading
+
 # === CONFIGURATION CONSTANTS ===
 MAX_CONCURRENT_REQUESTS = 10
 CIRCUIT_BREAKER_THRESHOLD = 5
@@ -98,6 +103,39 @@ PORT = int(os.environ.get("PORT", "8080"))
 # Configure stdout/stderr for Railway
 sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
+
+# Initialize Flask app for web dashboard
+app = Flask(__name__)
+socketio = SocketIO(app, cors_allowed_origins="*")
+
+# Flask routes
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/dashboard')
+def dashboard():
+    return render_template('pages/dashboard.html')
+
+@app.route('/api/dashboard-data')
+def api_dashboard_data():
+    # Return mock data for now - will be connected to real data
+    return jsonify({
+        'current_price': 150.25,
+        'balance': 1000.50,
+        'bot_status': 'active',
+        'recent_trades': []
+    })
+
+@socketio.on('start_bot')
+def handle_start_bot():
+    # Add bot start logic here
+    emit('bot_started', {'status': 'Bot started'})
+
+@socketio.on('stop_bot')
+def handle_stop_bot():
+    # Add bot stop logic here
+    emit('bot_stopped', {'status': 'Bot stopped'})
 
 # Database configuration - use volume for Railway
 if os.environ.get('RAILWAY_ENVIRONMENT'):
@@ -991,7 +1029,16 @@ async def bot_main():
     
     await asyncio.gather(*tasks)
 
+def run_flask():
+    """Run Flask server in a separate thread"""
+    socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 async def main():
+    # Start Flask server in a separate thread
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+    
+    # Run the existing aiohttp server and bot
     await asyncio.gather(run_server(), bot_main())
 
 if __name__ == "__main__":
