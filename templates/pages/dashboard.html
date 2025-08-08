@@ -16,21 +16,24 @@
             --success-green: #10b981;
             --danger-red: #ef4444;
             --warning-orange: #f59e0b;
-            --dark-bg: #0f172a;
-            --card-bg: #1e293b;
+            --dark-bg: #1e293b;
+            --light-bg: #ffffff;
+            --card-bg: #ffffff;
+            --text-dark: #1e293b;
             --text-light: #f1f5f9;
-            --text-muted: #94a3b8;
-            --border-color: #334155;
+            --text-muted: #64748b;
+            --border-color: #e2e8f0;
+            --sidebar-bg: #0f172a;
         }
         
         body {
-            background: var(--dark-bg);
-            color: var(--text-light);
+            background: var(--light-bg);
+            color: var(--text-dark);
             font-family: 'Satoshi', sans-serif;
         }
         
         .sidebar {
-            background: var(--card-bg);
+            background: var(--sidebar-bg);
             min-height: 100vh;
             border-right: 1px solid var(--border-color);
         }
@@ -50,20 +53,20 @@
         }
         
         .main-content {
-            background: var(--dark-bg);
+            background: var(--light-bg);
             min-height: 100vh;
         }
         
         .header {
-            background: var(--card-bg);
+            background: var(--light-bg);
             border-bottom: 1px solid var(--border-color);
             padding: 1rem 2rem;
         }
         
         .search-bar {
-            background: var(--dark-bg);
+            background: var(--light-bg);
             border: 1px solid var(--border-color);
-            color: var(--text-light);
+            color: var(--text-dark);
             border-radius: 0.5rem;
             padding: 0.5rem 1rem;
         }
@@ -74,11 +77,12 @@
             border-radius: 0.75rem;
             padding: 1.5rem;
             transition: all 0.3s ease;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         }
         
         .crypto-card:hover {
             transform: translateY(-2px);
-            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
         }
         
         .balance-card {
@@ -93,6 +97,7 @@
             border: 1px solid var(--border-color);
             border-radius: 1rem;
             padding: 1.5rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         }
         
         .chart-card {
@@ -100,6 +105,7 @@
             border: 1px solid var(--border-color);
             border-radius: 1rem;
             padding: 1.5rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         }
         
         .transaction-card {
@@ -107,435 +113,439 @@
             border: 1px solid var(--border-color);
             border-radius: 1rem;
             padding: 1.5rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         }
         
-        .status-badge {
-            padding: 0.25rem 0.75rem;
+        .earnings-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
             border-radius: 1rem;
-            font-size: 0.75rem;
-            font-weight: 600;
+            padding: 1.5rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         }
         
-        .status-pending {
-            background: rgba(245, 158, 11, 0.2);
-            color: var(--warning-orange);
+        .market-overview {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 0.5rem;
+            padding: 0.5rem 1rem;
+            color: var(--text-dark);
         }
         
-        .status-success {
-            background: rgba(16, 185, 129, 0.2);
-            color: var(--success-green);
+        .btn-connect {
+            background: var(--primary-purple);
+            color: white;
+            border: none;
+            border-radius: 0.5rem;
+            padding: 0.5rem 1rem;
+            font-weight: 500;
+        }
+        
+        .btn-toggle {
+            background: var(--light-bg);
+            border: 1px solid var(--border-color);
+            color: var(--text-dark);
+            border-radius: 0.5rem;
+            padding: 0.5rem 1rem;
+            margin-left: 0.5rem;
+        }
+        
+        .btn-toggle.active {
+            background: var(--text-dark);
+            color: white;
         }
         
         .progress-bar {
             background: var(--border-color);
-            border-radius: 1rem;
+            border-radius: 0.25rem;
             height: 0.5rem;
             overflow: hidden;
         }
         
         .progress-fill {
-            height: 100%;
-            background: linear-gradient(90deg, var(--primary-purple), var(--secondary-purple));
-            border-radius: 1rem;
-        }
-        
-        .btn-trade {
             background: var(--primary-purple);
-            color: white;
-            border: none;
-            padding: 0.5rem 1.5rem;
-            border-radius: 0.5rem;
-            font-weight: 600;
-            transition: all 0.3s ease;
+            height: 100%;
+            border-radius: 0.25rem;
         }
         
-        .btn-trade:hover {
-            background: var(--secondary-purple);
-            transform: translateY(-1px);
+        .status-pending {
+            color: var(--warning-orange);
         }
         
-        .btn-liquidity {
-            background: transparent;
+        .status-completed {
+            color: var(--success-green);
+        }
+        
+        .text-success {
+            color: var(--success-green);
+        }
+        
+        .text-danger {
+            color: var(--danger-red);
+        }
+        
+        .text-muted {
+            color: var(--text-muted);
+        }
+        
+        .sidebar .brand {
             color: var(--text-light);
-            border: 1px solid var(--border-color);
-            padding: 0.5rem 1.5rem;
-            border-radius: 0.5rem;
+            font-weight: 700;
+            font-size: 1.25rem;
+        }
+        
+        .sidebar .nav-section {
+            color: var(--text-muted);
+            font-size: 0.75rem;
             font-weight: 600;
-            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-top: 2rem;
+            margin-bottom: 0.5rem;
         }
         
-        .btn-liquidity:hover {
-            background: var(--border-color);
-        }
-        
-        .live-indicator {
-            display: inline-block;
-            width: 8px;
-            height: 8px;
-            background: var(--success-green);
-            border-radius: 50%;
-            margin-left: 0.5rem;
-            animation: pulse 2s infinite;
-        }
-        
-        @keyframes pulse {
-            0% { opacity: 1; }
-            50% { opacity: 0.5; }
-            100% { opacity: 1; }
-        }
-        
-        .crypto-icon {
-            width: 2rem;
-            height: 2rem;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: bold;
+        .upgrade-card {
+            background: linear-gradient(135deg, #1e40af, #3b82f6);
+            border-radius: 0.75rem;
+            padding: 1rem;
+            margin-top: auto;
             color: white;
         }
         
-        .btc-icon { background: #f7931a; }
-        .ada-icon { background: #0033ad; }
-        .eos-icon { background: #000000; }
-        .eth-icon { background: #627eea; }
-        .xrp-icon { background: #23292f; }
+        .upgrade-card .btn-upgrade {
+            background: rgba(255,255,255,0.2);
+            color: white;
+            border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 0.5rem;
+            padding: 0.25rem 0.75rem;
+            font-size: 0.875rem;
+        }
+        
+        .hot-badge {
+            background: var(--warning-orange);
+            color: white;
+            font-size: 0.75rem;
+            padding: 0.125rem 0.5rem;
+            border-radius: 0.25rem;
+            margin-left: 0.5rem;
+        }
     </style>
 </head>
 <body>
-    <div class="container-fluid">
-        <div class="row">
-            <!-- Sidebar -->
-            <nav class="col-md-3 col-lg-2 sidebar">
-                <div class="p-3">
-                    <!-- Logo -->
-                    <div class="d-flex align-items-center mb-4">
-                        <i class="bi bi-moon-stars text-primary me-2"></i>
-                        <h5 class="mb-0 text-white">satoshi</h5>
-                    </div>
-                    
-                    <!-- Navigation -->
-                    <ul class="nav flex-column">
-                        <li class="nav-item">
-                            <a class="nav-link active" href="/dashboard">
-                                <i class="bi bi-speedometer2 me-2"></i>
-                                Dashboards
-                            </a>
-                            <ul class="nav flex-column ms-3">
-                                <li class="nav-item">
-                                    <a class="nav-link" href="/dashboard">Default</a>
-                                </li>
-                                <li class="nav-item">
-                                    <a class="nav-link" href="/analytics">Analytics</a>
-                                </li>
-                                <li class="nav-item">
-                                    <a class="nav-link" href="/wallet">Wallet</a>
-                                </li>
-                            </ul>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="#">
-                                <i class="bi bi-file-earmark me-2"></i>
-                                Pages
-                                <i class="bi bi-chevron-right ms-auto"></i>
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="#">
-                                <i class="bi bi-person me-2"></i>
-                                Account
-                                <i class="bi bi-chevron-right ms-auto"></i>
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="#">
-                                <i class="bi bi-three-dots me-2"></i>
-                                Other
-                                <i class="bi bi-chevron-right ms-auto"></i>
-                            </a>
-                        </li>
-                    </ul>
-                    
-                    <!-- Resources -->
-                    <hr class="my-4">
-                    <h6 class="text-muted mb-3">Resources</h6>
-                    <ul class="nav flex-column">
-                        <li class="nav-item">
-                            <a class="nav-link" href="#">
-                                <i class="bi bi-file-text me-2"></i>
-                                Documentation
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="#">
-                                <i class="bi bi-puzzle me-2"></i>
-                                Components
-                                <i class="bi bi-chevron-right ms-auto"></i>
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="#">
-                                <i class="bi bi-grid me-2"></i>
-                                Widgets
-                                <span class="badge bg-danger ms-auto">Hot</span>
-                            </a>
-                        </li>
-                    </ul>
-                    
-                    <!-- Upgrade Card -->
-                    <div class="mt-4 p-3" style="background: linear-gradient(135deg, #1e293b, #334155); border-radius: 0.75rem;">
-                        <div class="d-flex align-items-center mb-2">
-                            <i class="bi bi-rocket text-warning me-2"></i>
-                            <small class="text-muted">Upgrade your account to Pro for even more examples.</small>
-                        </div>
-                        <button class="btn btn-sm text-white" style="background: var(--primary-purple); border: none;">
-                            Upgrade now →
-                        </button>
-                    </div>
+    <div class="dashboard-layout">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="p-4">
+                <div class="brand mb-4">
+                    <i class="bi bi-moon-stars me-2"></i>
+                    satoshi
                 </div>
-            </nav>
-
-            <!-- Main Content -->
-            <main class="col-md-9 ms-sm-auto col-lg-10 main-content">
-                <!-- Header -->
-                <div class="header d-flex justify-content-between align-items-center">
+                
+                <div class="nav-section">Dashboards</div>
+                <a href="#" class="nav-link active d-flex align-items-center">
+                    <i class="bi bi-house me-2"></i>
+                    Dashboards
+                    <i class="bi bi-chevron-down ms-auto"></i>
+                </a>
+                <div class="ms-3">
+                    <a href="#" class="nav-link d-flex align-items-center">
+                        <i class="bi bi-circle me-2"></i>
+                        Default
+                    </a>
+                    <a href="#" class="nav-link d-flex align-items-center">
+                        <i class="bi bi-circle me-2"></i>
+                        Analytics
+                    </a>
+                    <a href="#" class="nav-link d-flex align-items-center">
+                        <i class="bi bi-circle me-2"></i>
+                        Wallet
+                    </a>
+                </div>
+                
+                <a href="#" class="nav-link d-flex align-items-center">
+                    <i class="bi bi-bar-chart me-2"></i>
+                    Pages
+                    <i class="bi bi-chevron-right ms-auto"></i>
+                </a>
+                
+                <a href="#" class="nav-link d-flex align-items-center">
+                    <i class="bi bi-gear me-2"></i>
+                    Account
+                    <i class="bi bi-chevron-right ms-auto"></i>
+                </a>
+                
+                <a href="#" class="nav-link d-flex align-items-center">
+                    <i class="bi bi-folder me-2"></i>
+                    Other
+                    <i class="bi bi-chevron-right ms-auto"></i>
+                </a>
+                
+                <div class="nav-section">Resources</div>
+                <a href="#" class="nav-link d-flex align-items-center">
+                    <i class="bi bi-book me-2"></i>
+                    Documentation
+                </a>
+                
+                <a href="#" class="nav-link d-flex align-items-center">
+                    <i class="bi bi-building me-2"></i>
+                    Components
+                    <i class="bi bi-chevron-right ms-auto"></i>
+                </a>
+                
+                <a href="#" class="nav-link d-flex align-items-center">
+                    <i class="bi bi-grid me-2"></i>
+                    Widgets
+                    <span class="hot-badge">Hot</span>
+                </a>
+                
+                <div class="upgrade-card mt-4">
+                    <div class="d-flex align-items-center mb-2">
+                        <i class="bi bi-rocket me-2"></i>
+                        <span class="fw-bold">Upgrade your account to Pro for even more examples.</span>
+                    </div>
+                    <button class="btn-upgrade">Upgrade now →</button>
+                </div>
+            </div>
+        </aside>
+        
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <header class="header">
+                <div class="d-flex align-items-center justify-content-between">
                     <div class="d-flex align-items-center">
-                        <small class="text-muted me-3">← View theme info</small>
-                        <h4 class="mb-0">satoshi</h4>
+                        <h1 class="h3 mb-0 me-4">Dashboard</h1>
+                        <div class="d-flex">
+                            <button class="btn-toggle">Liquidity</button>
+                            <button class="btn-toggle active">Trade</button>
+                        </div>
                     </div>
                     
-                    <div class="d-flex align-items-center gap-3">
-                        <!-- Search Bar -->
-                        <div class="position-relative">
-                            <input type="text" class="search-bar" placeholder="Search" style="width: 300px;">
+                    <div class="d-flex align-items-center">
+                        <div class="market-overview me-3">
+                            <small class="text-muted">Cryptos: 21,713</small> |
+                            <small class="text-muted">Market Cap: $871,322,862,585</small> |
+                            <small class="text-muted">24h Vol: $180,639,667,232</small>
                         </div>
                         
-                        <!-- Market Stats -->
-                        <div class="d-flex gap-4 text-muted">
-                            <small>Cryptos: 21,713</small>
-                            <small>Market Cap: $871,322,862,585</small>
-                            <small>24h Vol: $180,639,667,232</small>
+                        <button class="btn-connect me-3">Connect</button>
+                        <i class="bi bi-bell fs-5 me-3"></i>
+                        <div class="avatar me-3">
+                            <img src="https://via.placeholder.com/32x32" alt="User" class="rounded-circle" width="32" height="32">
                         </div>
-                        
-                        <!-- Header Icons -->
-                        <div class="d-flex gap-2">
-                            <button class="btn btn-sm text-muted">
-                                <i class="bi bi-display"></i>
-                            </button>
-                            <button class="btn btn-sm text-muted">
-                                <i class="bi bi-phone"></i>
-                            </button>
-                            <select class="form-select form-select-sm" style="background: var(--card-bg); color: var(--text-light); border: 1px solid var(--border-color);">
-                                <option>Standard License</option>
-                            </select>
-                            <button class="btn btn-sm" style="background: var(--primary-purple); color: white; border: none;">
-                                Add to cart $49.00
-                            </button>
-                            <button class="btn btn-sm" style="background: var(--card-bg); color: var(--text-light); border: 1px solid var(--border-color);">
-                                Connect
-                            </button>
-                            <button class="btn btn-sm text-muted">
-                                <i class="bi bi-bell"></i>
-                            </button>
-                            <div class="rounded-circle bg-secondary" style="width: 32px; height: 32px;"></div>
-                        </div>
+                        <i class="bi bi-display me-2"></i>
+                        <i class="bi bi-phone"></i>
                     </div>
                 </div>
-
-                <!-- Dashboard Content -->
-                <div class="p-4">
-                    <h1 class="mb-4">Dashboard <span class="live-indicator"></span></h1>
-                    
+            </header>
+            
+            <div class="p-4">
+                <div class="row">
                     <!-- Crypto Overview Cards -->
-                    <div class="row mb-4">
-                        <div class="col-md-3">
-                            <div class="crypto-card">
-                                <div class="d-flex align-items-center justify-content-between">
-                                    <div>
-                                        <div class="crypto-icon btc-icon mb-2">₿</div>
-                                        <h6 class="mb-1">3.2893 USDT</h6>
-                                        <small class="text-success">+13.7%</small>
+                    <div class="col-12 mb-4">
+                        <div class="row">
+                            <div class="col-md-3 mb-3">
+                                <div class="crypto-card">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <div>
+                                            <h6 class="mb-1">BTC</h6>
+                                            <div class="text-muted">3.2893 USDT</div>
+                                        </div>
+                                        <div class="text-success">
+                                            <i class="bi bi-arrow-up"></i>
+                                            +13.7%
+                                        </div>
                                     </div>
                                 </div>
                             </div>
-                        </div>
-                        <div class="col-md-3">
-                            <div class="crypto-card">
-                                <div class="d-flex align-items-center justify-content-between">
-                                    <div>
-                                        <div class="crypto-icon ada-icon mb-2">₳</div>
-                                        <h6 class="mb-1">10.745,49 ADA</h6>
-                                        <small class="text-danger">-3.2%</small>
+                            <div class="col-md-3 mb-3">
+                                <div class="crypto-card">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <div>
+                                            <h6 class="mb-1">ADA</h6>
+                                            <div class="text-muted">10.745,49 ADA</div>
+                                        </div>
+                                        <div class="text-danger">
+                                            <i class="bi bi-arrow-down"></i>
+                                            -3.2%
+                                        </div>
                                     </div>
                                 </div>
                             </div>
-                        </div>
-                        <div class="col-md-3">
-                            <div class="crypto-card">
-                                <div class="d-flex align-items-center justify-content-between">
-                                    <div>
-                                        <div class="crypto-icon eos-icon mb-2">E</div>
-                                        <h6 class="mb-1">7.890,00 EOS</h6>
-                                        <small class="text-danger">-2.2%</small>
+                            <div class="col-md-3 mb-3">
+                                <div class="crypto-card">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <div>
+                                            <h6 class="mb-1">EOS</h6>
+                                            <div class="text-muted">7.890,00 EOS</div>
+                                        </div>
+                                        <div class="text-danger">
+                                            <i class="bi bi-arrow-down"></i>
+                                            -2.2%
+                                        </div>
                                     </div>
                                 </div>
                             </div>
-                        </div>
-                        <div class="col-md-3">
-                            <div class="crypto-card d-flex align-items-center justify-content-center">
-                                <button class="btn btn-sm text-muted">
-                                    <i class="bi bi-plus-lg"></i>
-                                </button>
+                            <div class="col-md-3 mb-3">
+                                <div class="crypto-card d-flex align-items-center justify-content-center" style="cursor: pointer;">
+                                    <i class="bi bi-plus fs-1 text-muted"></i>
+                                </div>
                             </div>
                         </div>
                     </div>
                     
-                    <div class="row">
-                        <!-- Balance & Staking Section -->
-                        <div class="col-lg-4">
-                            <!-- Balance Card -->
-                            <div class="balance-card mb-4">
-                                <h6 class="mb-3">Balance</h6>
-                                <h2 class="mb-3" id="accountBalance">23.863,21 USDT</h2>
-                                <small class="text-success mb-3 d-block">↑ 7.8%</small>
-                                
-                                <div class="row mb-3">
-                                    <div class="col-6">
-                                        <small class="text-muted d-block">Income</small>
-                                        <small class="text-success">$23.863,21 USD</small>
-                                    </div>
-                                    <div class="col-6">
-                                        <small class="text-muted d-block">Expenses</small>
-                                        <small class="text-danger">$5.678,45 USD</small>
-                                    </div>
-                                </div>
-                                
-                                <div class="d-flex gap-2">
-                                    <button class="btn-liquidity">Liquidity</button>
-                                    <button class="btn-trade">Trade</button>
-                                </div>
+                    <!-- Earnings Chart -->
+                    <div class="col-lg-8 mb-4">
+                        <div class="earnings-card">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h5 class="mb-0">Earnings</h5>
+                                <i class="bi bi-arrow-clockwise"></i>
                             </div>
-                            
-                            <!-- Staking Rewards Card -->
-                            <div class="staking-card">
-                                <div class="d-flex justify-content-between align-items-center mb-3">
-                                    <h6 class="mb-0">Staking rewards</h6>
-                                    <button class="btn btn-sm text-muted">
-                                        <i class="bi bi-arrow-clockwise"></i>
-                                    </button>
-                                </div>
-                                
-                                <div class="mb-3">
-                                    <div class="d-flex justify-content-between align-items-center mb-2">
-                                        <div class="d-flex align-items-center">
-                                            <div class="crypto-icon ada-icon me-2">₳</div>
-                                            <div>
-                                                <small class="d-block">Staked ADA</small>
-                                                <small class="text-muted">25% APR</small>
-                                            </div>
-                                        </div>
-                                        <small>1030 ADA</small>
-                                    </div>
-                                    <div class="progress-bar">
-                                        <div class="progress-fill" style="width: 75%;"></div>
-                                    </div>
-                                </div>
-                                
-                                <div class="mb-3">
-                                    <div class="d-flex justify-content-between align-items-center mb-2">
-                                        <div class="d-flex align-items-center">
-                                            <div class="crypto-icon eth-icon me-2">Ξ</div>
-                                            <div>
-                                                <small class="d-block">Staked ETH</small>
-                                                <small class="text-muted">16% APR</small>
-                                            </div>
-                                        </div>
-                                        <small>9.5 ETH</small>
-                                    </div>
-                                    <div class="progress-bar">
-                                        <div class="progress-fill" style="width: 60%;"></div>
-                                    </div>
-                                </div>
-                                
-                                <div class="mb-3">
-                                    <div class="d-flex justify-content-between align-items-center mb-2">
-                                        <div class="d-flex align-items-center">
-                                            <div class="crypto-icon xrp-icon me-2">✕</div>
-                                            <div>
-                                                <small class="d-block">Staked XRP</small>
-                                                <small class="text-muted">13% APR</small>
-                                            </div>
-                                        </div>
-                                        <small>760 XRP</small>
-                                    </div>
-                                    <div class="progress-bar">
-                                        <div class="progress-fill" style="width: 45%;"></div>
-                                    </div>
-                                </div>
-                                
-                                <small class="text-muted">Built by Webpixels</small>
+                            <div class="chart-container" style="height: 200px;">
+                                <canvas id="earningsChart"></canvas>
                             </div>
                         </div>
-                        
-                        <!-- Charts Section -->
-                        <div class="col-lg-8">
-                            <!-- Earnings Chart -->
-                            <div class="chart-card mb-4">
-                                <div class="d-flex justify-content-between align-items-center mb-3">
-                                    <h6 class="mb-0">Earnings</h6>
-                                    <button class="btn btn-sm text-muted">
-                                        <i class="bi bi-arrow-clockwise"></i>
-                                    </button>
+                    </div>
+                    
+                    <!-- Balance Card -->
+                    <div class="col-lg-4 mb-4">
+                        <div class="balance-card">
+                            <div class="d-flex justify-content-between align-items-start mb-3">
+                                <h5 class="mb-0">Balance</h5>
+                                <span class="text-success">↑ 7.8%</span>
+                            </div>
+                            <h2 class="mb-3">23.863,21 USDT</h2>
+                            <div class="row">
+                                <div class="col-6">
+                                    <div class="d-flex align-items-center">
+                                        <i class="bi bi-arrow-down text-success me-2"></i>
+                                        <div>
+                                            <small class="text-light">Income</small>
+                                            <div class="fw-bold">$23.863,21 USD</div>
+                                        </div>
+                                    </div>
                                 </div>
-                                <canvas id="earningsChart" height="200"></canvas>
+                                <div class="col-6">
+                                    <div class="d-flex align-items-center">
+                                        <i class="bi bi-arrow-up text-danger me-2"></i>
+                                        <div>
+                                            <small class="text-light">Expenses</small>
+                                            <div class="fw-bold">$5.678,45 USD</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Staking Rewards -->
+                    <div class="col-lg-4 mb-4">
+                        <div class="staking-card">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h5 class="mb-0">Staking rewards</h5>
+                                <i class="bi bi-arrow-clockwise"></i>
                             </div>
                             
-                            <!-- Transaction History -->
-                            <div class="transaction-card">
-                                <div class="d-flex justify-content-between align-items-center mb-3">
-                                    <h6 class="mb-0">Transaction History</h6>
-                                    <button class="btn btn-sm text-muted">
-                                        <i class="bi bi-arrow-clockwise"></i>
-                                    </button>
+                            <div class="mb-3">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <div class="d-flex align-items-center">
+                                        <img src="https://via.placeholder.com/24x24" alt="ADA" class="me-2" width="24" height="24">
+                                        <span class="fw-bold">Staked ADA</span>
+                                    </div>
+                                    <div class="text-end">
+                                        <div class="fw-bold">25% APR</div>
+                                        <small class="text-muted">1030 ADA</small>
+                                    </div>
                                 </div>
-                                
-                                <div class="table-responsive">
-                                    <table class="table table-borderless text-white">
-                                        <tbody id="transactionHistory">
-                                            <!-- Transactions will be populated here -->
-                                        </tbody>
-                                    </table>
+                                <div class="progress-bar">
+                                    <div class="progress-fill" style="width: 70%;"></div>
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <div class="d-flex align-items-center">
+                                        <img src="https://via.placeholder.com/24x24" alt="ETH" class="me-2" width="24" height="24">
+                                        <span class="fw-bold">Staked ETH</span>
+                                    </div>
+                                    <div class="text-end">
+                                        <div class="fw-bold">16% APR</div>
+                                        <small class="text-muted">9.5 ETH</small>
+                                    </div>
+                                </div>
+                                <div class="progress-bar">
+                                    <div class="progress-fill" style="width: 40%;"></div>
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <div class="d-flex align-items-center">
+                                        <img src="https://via.placeholder.com/24x24" alt="XRP" class="me-2" width="24" height="24">
+                                        <span class="fw-bold">Staked XRP</span>
+                                    </div>
+                                    <div class="text-end">
+                                        <div class="fw-bold">13% APR</div>
+                                        <small class="text-muted">760 XRP</small>
+                                    </div>
+                                </div>
+                                <div class="progress-bar">
+                                    <div class="progress-fill" style="width: 80%;"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Transaction History -->
+                    <div class="col-lg-8 mb-4">
+                        <div class="transaction-card">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h5 class="mb-0">Transaction History</h5>
+                                <i class="bi bi-arrow-clockwise"></i>
+                            </div>
+                            
+                            <div class="transaction-item d-flex align-items-center p-3 border-bottom">
+                                <div class="me-3">
+                                    <i class="bi bi-send text-primary fs-4"></i>
+                                </div>
+                                <div class="flex-grow-1">
+                                    <div class="d-flex justify-content-between align-items-start">
+                                        <div>
+                                            <h6 class="mb-1">Bitcoin</h6>
+                                            <small class="text-muted">2 days ago</small>
+                                        </div>
+                                        <div class="text-end">
+                                            <div class="fw-bold">+0.2948 BTC</div>
+                                            <div class="text-success">+$10,930.90</div>
+                                        </div>
+                                    </div>
+                                    <div class="mt-2">
+                                        <small class="text-muted">ID: 0xd029384sd343fd...eq23</small>
+                                        <span class="status-pending ms-2">Pending</span>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
-            </main>
-        </div>
+            </div>
+        </main>
     </div>
-
-    <!-- Socket.IO -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
     <script src="{{ url_for('static', filename='js/switcher.js') }}"></script>
-    
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
-        // Initialize Socket.IO connection
-        const socket = io();
-        
-        // Initialize Earnings Chart
-        const earningsCtx = document.getElementById('earningsChart').getContext('2d');
-        const earningsChart = new Chart(earningsCtx, {
+        // Initialize earnings chart
+        const ctx = document.getElementById('earningsChart').getContext('2d');
+        new Chart(ctx, {
             type: 'bar',
             data: {
                 labels: ['May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
                 datasets: [{
                     label: 'Earnings',
-                    data: [25, 18, 22, 28, 32, 26, 30, 35],
-                    backgroundColor: 'rgba(99, 102, 241, 0.8)',
-                    borderColor: 'rgba(99, 102, 241, 1)',
-                    borderWidth: 1
+                    data: [28, 22, 18, 24, 20, 16, 12, 19],
+                    backgroundColor: '#6366f1',
+                    borderRadius: 4
                 }]
             },
             options: {
@@ -549,66 +559,14 @@
                 scales: {
                     y: {
                         beginAtZero: true,
-                        grid: {
-                            color: 'rgba(148, 163, 184, 0.1)'
-                        },
+                        max: 32,
                         ticks: {
-                            color: '#94a3b8'
-                        }
-                    },
-                    x: {
-                        grid: {
-                            display: false
-                        },
-                        ticks: {
-                            color: '#94a3b8'
+                            stepSize: 8
                         }
                     }
                 }
             }
         });
-        
-        // Update dashboard data
-        function updateDashboardData() {
-            fetch('/api/dashboard-data')
-                .then(response => response.json())
-                .then(data => {
-                    document.getElementById('accountBalance').textContent = `$${data.balance.toFixed(2)}`;
-                    
-                    // Update transaction history
-                    const transactionHistory = document.getElementById('transactionHistory');
-                    if (data.recent_trades && data.recent_trades.length > 0) {
-                        transactionHistory.innerHTML = data.recent_trades.map(trade => `
-                            <tr>
-                                <td>
-                                    <div class="d-flex align-items-center">
-                                        <div class="crypto-icon btc-icon me-2">₿</div>
-                                        <div>
-                                            <small class="d-block">Bitcoin</small>
-                                            <small class="text-muted">2 days ago</small>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td>
-                                    <small class="text-muted">Oxd029384sd343fd...eq23</small>
-                                </td>
-                                <td>
-                                    <span class="status-badge status-pending">Pending</span>
-                                </td>
-                                <td class="text-end">
-                                    <small class="text-success">+0.2948 BTC</small><br>
-                                    <small class="text-success">+$10,930.90</small>
-                                </td>
-                            </tr>
-                        `).join('');
-                    }
-                })
-                .catch(error => console.error('Error fetching dashboard data:', error));
-        }
-        
-        // Update data every 5 seconds
-        setInterval(updateDashboardData, 5000);
-        updateDashboardData(); // Initial load
     </script>
 </body>
 </html>
