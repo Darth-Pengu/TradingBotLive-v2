@@ -98,6 +98,180 @@ TELEGRAM_API_HASH = os.environ.get("TELEGRAM_API_HASH", "")
 TELEGRAM_STRING_SESSION = os.environ.get("TELEGRAM_STRING_SESSION", "")
 TOXIBOT_USERNAME = os.environ.get("TOXIBOT_USERNAME", "@toxi_solana_bot")
 HELIUS_API_KEY = os.environ.get("HELIUS_API_KEY", "")
+
+# === BLACKLIST AND PROTECTION SYSTEMS ===
+token_blacklist = set()
+developer_blacklist = set()
+fake_volume_tokens = set()
+mev_protection_enabled = True
+
+# Blacklist functions
+def add_to_token_blacklist(token_address: str, reason: str):
+    """Add token to blacklist with reason."""
+    token_blacklist.add(token_address)
+    logger.warning(f"Token {token_address[:8]} blacklisted: {reason}")
+    activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🚫 Token {token_address[:8]} blacklisted: {reason}")
+
+def add_to_developer_blacklist(developer_address: str, reason: str):
+    """Add developer to blacklist with reason."""
+    developer_blacklist.add(developer_address)
+    logger.warning(f"Developer {developer_address[:8]} blacklisted: {reason}")
+    activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🚫 Developer {developer_address[:8]} blacklisted: {reason}")
+
+def is_token_blacklisted(token_address: str) -> bool:
+    """Check if token is blacklisted."""
+    return token_address in token_blacklist
+
+def is_developer_blacklisted(developer_address: str) -> bool:
+    """Check if developer is blacklisted."""
+    return developer_address in developer_blacklist
+
+async def detect_fake_volume(token_address: str, volume_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Detect fake volume patterns using multiple indicators."""
+    try:
+        # Get volume data from multiple sources
+        async with get_session() as session:
+            # DexScreener volume check
+            dex_url = f"https://api.dexscreener.com/latest/dex/tokens/{token_address}"
+            async with session.get(dex_url) as resp:
+                if resp.status == 200:
+                    dex_data = await resp.json()
+                    if dex_data.get('pairs'):
+                        pair = dex_data['pairs'][0]
+                        volume_24h = float(pair.get('volume', {}).get('h24', 0))
+                        liquidity_usd = float(pair.get('liquidity', {}).get('usd', 0))
+                        
+                        # Volume to liquidity ratio (suspicious if > 10)
+                        vol_liq_ratio = volume_24h / liquidity_usd if liquidity_usd > 0 else 0
+                        
+                        # Check for volume spikes
+                        volume_change = float(pair.get('volume', {}).get('h6', 0)) / max(float(pair.get('volume', {}).get('h24', 1)), 1)
+                        
+                        # Suspicious patterns
+                        suspicious_patterns = []
+                        fake_volume_score = 0
+                        
+                        if vol_liq_ratio > 10:
+                            suspicious_patterns.append("High volume/liquidity ratio")
+                            fake_volume_score += 30
+                        
+                        if volume_change > 5:  # 500% increase in 6h vs 24h
+                            suspicious_patterns.append("Volume spike")
+                            fake_volume_score += 25
+                        
+                        # Check for wash trading patterns (repeated buy/sell cycles)
+                        if volume_data.get('buy_count', 0) > 0 and volume_data.get('sell_count', 0) > 0:
+                            buy_sell_ratio = volume_data['buy_count'] / volume_data['sell_count']
+                            if 0.8 <= buy_sell_ratio <= 1.2:  # Suspiciously balanced
+                                suspicious_patterns.append("Balanced buy/sell pattern")
+                                fake_volume_score += 20
+                        
+                        # Check for large single transactions
+                        if volume_data.get('largest_tx', 0) > volume_24h * 0.3:  # 30% of volume in one tx
+                            suspicious_patterns.append("Large single transaction")
+                            fake_volume_score += 15
+                        
+                        result = {
+                            "is_fake": fake_volume_score >= 50,
+                            "score": fake_volume_score,
+                            "patterns": suspicious_patterns,
+                            "vol_liq_ratio": vol_liq_ratio,
+                            "volume_change": volume_change
+                        }
+                        
+                        if result["is_fake"]:
+                            fake_volume_tokens.add(token_address)
+                            add_to_token_blacklist(token_address, f"Fake volume detected: {', '.join(suspicious_patterns)}")
+                        
+                        return result
+        
+        return {"is_fake": False, "score": 0, "patterns": [], "vol_liq_ratio": 0, "volume_change": 0}
+        
+    except Exception as e:
+        logger.error(f"Fake volume detection error: {e}")
+        return {"is_fake": False, "score": 0, "patterns": [], "vol_liq_ratio": 0, "volume_change": 0}
+
+async def check_mev_protection(token_address: str) -> Dict[str, Any]:
+    """Check for MEV protection and bundle purchase patterns."""
+    try:
+        async with get_session() as session:
+            # Check recent transactions for bundle patterns
+            helius_url = f"https://api.helius.xyz/v0/addresses/{token_address}/transactions?api-key={HELIUS_API_KEY}"
+            async with session.get(helius_url) as resp:
+                if resp.status == 200:
+                    tx_data = await resp.json()
+                    
+                    mev_indicators = []
+                    bundle_score = 0
+                    
+                    for tx in tx_data[:10]:  # Check last 10 transactions
+                        # Check for bundle transactions (multiple operations in one block)
+                        if tx.get('meta', {}).get('innerInstructions'):
+                            bundle_score += 10
+                            mev_indicators.append("Bundle transaction detected")
+                        
+                        # Check for front-running patterns
+                        if tx.get('meta', {}).get('preBalances') and tx.get('meta', {}).get('postBalances'):
+                            pre_balance = sum(tx['meta']['preBalances'])
+                            post_balance = sum(tx['meta']['postBalances'])
+                            if abs(post_balance - pre_balance) > 1000000:  # Large balance change
+                                bundle_score += 15
+                                mev_indicators.append("Large balance swing")
+                        
+                        # Check for sandwich attacks (buy before, sell after)
+                        if tx.get('meta', {}).get('logMessages'):
+                            logs = ' '.join(tx['meta']['logMessages'])
+                            if 'swap' in logs.lower() and ('buy' in logs.lower() or 'sell' in logs.lower()):
+                                bundle_score += 20
+                                mev_indicators.append("Swap pattern detected")
+                    
+                    # Check for protection mechanisms
+                    protection_score = 0
+                    protection_mechanisms = []
+                    
+                    # Check if token has anti-MEV features
+                    if bundle_score < 30:  # Low bundle activity
+                        protection_score += 25
+                        protection_mechanisms.append("Low bundle activity")
+                    
+                    # Check for time delays or other protections
+                    if len(mev_indicators) < 3:  # Few suspicious patterns
+                        protection_score += 20
+                        protection_mechanisms.append("Few MEV indicators")
+                    
+                    result = {
+                        "has_mev_protection": protection_score >= 30,
+                        "protection_score": protection_score,
+                        "bundle_score": bundle_score,
+                        "mev_indicators": mev_indicators,
+                        "protection_mechanisms": protection_mechanisms,
+                        "is_safe": bundle_score < 50 and protection_score >= 30
+                    }
+                    
+                    if not result["is_safe"]:
+                        add_to_token_blacklist(token_address, f"MEV risk detected: {', '.join(mev_indicators)}")
+                    
+                    return result
+        
+        return {
+            "has_mev_protection": False,
+            "protection_score": 0,
+            "bundle_score": 0,
+            "mev_indicators": [],
+            "protection_mechanisms": [],
+            "is_safe": False
+        }
+        
+    except Exception as e:
+        logger.error(f"MEV protection check error: {e}")
+        return {
+            "has_mev_protection": False,
+            "protection_score": 0,
+            "bundle_score": 0,
+            "mev_indicators": [],
+            "protection_mechanisms": [],
+            "is_safe": False
+        }
 HELIUS_RPC_URL = os.environ.get("HELIUS_RPC_URL", f"https://mainnet.helius-rpc.com/?api-key={HELIUS_API_KEY}")
 WALLET_ADDRESS = os.environ.get("WALLET_ADDRESS", "")
 BITQUERY_API_KEY = os.environ.get("BITQUERY_API_KEY", "")
@@ -1013,6 +1187,36 @@ async def community_trade_manager(toxibot_client):
 async def process_token(token, src):
     global tokens_checked_count
     tokens_checked_count += 1
+    
+    # === NEW PROTECTION CHECKS ===
+    # 1. Check if token is blacklisted
+    if is_token_blacklisted(token):
+        logger.info(f"Token {token[:8]} skipped - blacklisted")
+        return
+    
+    # 2. Check if developer is blacklisted (if we have developer info)
+    # This will be enhanced when we get developer info from APIs
+    # if is_developer_blacklisted(developer_address):
+    #     logger.info(f"Token {token[:8]} skipped - developer blacklisted")
+    #     return
+    
+    # 3. Check for fake volume
+    volume_data = await fetch_volumes(token)
+    fake_volume_result = await detect_fake_volume(token, volume_data)
+    if fake_volume_result["is_fake"]:
+        logger.warning(f"Token {token[:8]} skipped - fake volume detected")
+        log_fake_volume_detected(token, fake_volume_result["patterns"], fake_volume_result["score"])
+        return
+    
+    # 4. Check MEV protection (only if enabled)
+    if mev_protection_enabled:
+        mev_result = await check_mev_protection(token)
+        log_mev_protection_check(token, mev_result["is_safe"], mev_result["mev_indicators"])
+        if not mev_result["is_safe"]:
+            logger.warning(f"Token {token[:8]} skipped - MEV risk detected")
+            return
+    
+    # === PROCEED WITH TRADING ===
     if src in ("pumpfun", "pumpportal"):
         await ultra_early_handler(token, toxibot)
     elif src in ("bitquery", "dexscreener_trending", "community", "watchlist_hit", "axiom_trending"):
@@ -1378,6 +1582,15 @@ def log_whale_activity(whale_address: str, token_symbol: str, token_address: str
 def log_mc_spike(token_address: str, initial_mcap: float, current_mcap: float, ratio: float):
     """Log market cap spike to dashboard."""
     activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🚀 MC SPIKE: {token_address[:8]} {ratio:.2f}x (${initial_mcap:,.0f} → ${current_mcap:,.0f})")
+
+def log_fake_volume_detected(token_address: str, patterns: List[str], score: int):
+    """Log fake volume detection to dashboard."""
+    activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🚫 FAKE VOLUME: {token_address[:8]} (Score: {score}) - {', '.join(patterns)}")
+
+def log_mev_protection_check(token_address: str, is_safe: bool, indicators: List[str]):
+    """Log MEV protection check to dashboard."""
+    status = "✅ SAFE" if is_safe else "❌ RISKY"
+    activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] {status} MEV: {token_address[:8]} - {', '.join(indicators)}")
 
 
 
