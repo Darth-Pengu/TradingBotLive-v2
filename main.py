@@ -303,7 +303,7 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 # Flask routes
 @app.route('/')
 def index():
-    return render_template('index.html')
+    return render_template('pages/dashboard.html')
 
 @app.route('/dashboard')
 def dashboard():
