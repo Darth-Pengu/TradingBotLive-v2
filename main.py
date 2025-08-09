@@ -206,6 +206,25 @@ def log_mev_protection_check(token_address: str, is_safe: bool, indicators: List
         globals()['dashboard_logs'] = []
     globals()['dashboard_logs'].append(dashboard_log)
 
+# === BLACKLIST MANAGEMENT FUNCTIONS ===
+def add_to_token_blacklist(token_address: str, reason: str = ""):
+    """Add token to blacklist"""
+    token_blacklist.add(token_address)
+    logger.info(f"🚫 Token blacklisted: {token_address[:8]}... ({reason})")
+
+def add_to_developer_blacklist(dev_address: str, reason: str = ""):
+    """Add developer to blacklist"""
+    developer_blacklist.add(dev_address)
+    logger.info(f"🚫 Developer blacklisted: {dev_address[:8]}... ({reason})")
+
+def is_token_blacklisted(token_address: str) -> bool:
+    """Check if token is blacklisted"""
+    return token_address in token_blacklist
+
+def is_developer_blacklisted(dev_address: str) -> bool:
+    """Check if developer is blacklisted"""
+    return dev_address in developer_blacklist
+
 # === ENVIRONMENT VARIABLES ===
 HELIUS_RPC_URL = os.environ.get("HELIUS_RPC_URL", f"https://mainnet.helius-rpc.com/?api-key={HELIUS_API_KEY}")
 WALLET_ADDRESS = os.environ.get("WALLET_ADDRESS", "")
