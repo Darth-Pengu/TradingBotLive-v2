@@ -281,6 +281,105 @@ async def detect_fake_volume(token_address: str, volume_data: Dict[str, Any]) ->
             'details': volume_data
         }
 
+async def check_mev_protection(token_address: str) -> Dict[str, Any]:
+    """
+    Check MEV protection using Helius API to detect bundle patterns and front-running.
+    Returns dict with is_safe, mev_indicators, and risk_score.
+    """
+    try:
+        # Get recent transactions for the token
+        async with get_session() as session:
+            url = f"https://api.helius.xyz/v0/addresses/{token_address}/transactions"
+            params = {
+                "api-key": os.getenv("HELIUS_API_KEY", ""),
+                "until": int(time.time()),
+                "limit": 50
+            }
+            
+            async with session.get(url, params=params) as response:
+                if response.status != 200:
+                    return {"is_safe": True, "mev_indicators": [], "risk_score": 0}
+                
+                data = await response.json()
+                if not data:
+                    return {"is_safe": True, "mev_indicators": [], "risk_score": 0}
+                
+                indicators = []
+                risk_score = 0
+                
+                # Check for bundle patterns (multiple transactions in same block)
+                block_transactions = {}
+                for tx in data:
+                    block = tx.get("slot", 0)
+                    if block not in block_transactions:
+                        block_transactions[block] = []
+                    block_transactions[block].append(tx)
+                
+                # Check for suspicious bundle patterns
+                for block, txs in block_transactions.items():
+                    if len(txs) > 3:  # More than 3 transactions in same block
+                        indicators.append(f"Bundle pattern: {len(txs)} transactions in block {block}")
+                        risk_score += 20
+                
+                # Check for front-running indicators (large balance swings)
+                for tx in data[:10]:  # Check last 10 transactions
+                    if "meta" in tx and "postTokenBalances" in tx["meta"]:
+                        for balance in tx["meta"]["postTokenBalances"]:
+                            if balance.get("mint") == token_address:
+                                amount = float(balance.get("uiTokenAmount", {}).get("uiAmount", 0))
+                                if amount > 1000000:  # Large balance swing
+                                    indicators.append(f"Large balance swing: {amount:,.0f}")
+                                    risk_score += 15
+                
+                # Check for sandwich attack patterns
+                # Look for buy -> large transaction -> sell pattern
+                buy_txs = []
+                sell_txs = []
+                
+                for tx in data:
+                    if "meta" in tx and "logMessages" in tx["meta"]:
+                        logs = tx["meta"]["logMessages"]
+                        if any("buy" in log.lower() for log in logs):
+                            buy_txs.append(tx)
+                        elif any("sell" in log.lower() for log in logs):
+                            sell_txs.append(tx)
+                
+                if len(buy_txs) > 0 and len(sell_txs) > 0:
+                    # Check if there are large transactions between buy and sell
+                    for buy_tx in buy_txs[:3]:  # Check recent buys
+                        for sell_tx in sell_txs[:3]:  # Check recent sells
+                            if buy_tx.get("slot", 0) < sell_tx.get("slot", 0):
+                                # Look for large transactions in between
+                                buy_slot = buy_tx.get("slot", 0)
+                                sell_slot = sell_tx.get("slot", 0)
+                                
+                                for tx in data:
+                                    tx_slot = tx.get("slot", 0)
+                                    if buy_slot < tx_slot < sell_slot:
+                                        if "meta" in tx and "postTokenBalances" in tx["meta"]:
+                                            for balance in tx["meta"]["postTokenBalances"]:
+                                                if balance.get("mint") == token_address:
+                                                    amount = float(balance.get("uiTokenAmount", {}).get("uiAmount", 0))
+                                                    if amount > 500000:  # Large transaction between buy/sell
+                                                        indicators.append("Potential sandwich attack pattern detected")
+                                                        risk_score += 25
+                
+                # Determine if token is safe based on risk score
+                is_safe = risk_score < 50
+                
+                if not is_safe:
+                    add_to_token_blacklist(token_address, f"MEV risk detected: {', '.join(indicators)}")
+                
+                return {
+                    "is_safe": is_safe,
+                    "mev_indicators": indicators,
+                    "risk_score": risk_score
+                }
+                
+    except Exception as e:
+        logger.error(f"Error checking MEV protection for {token_address}: {e}")
+        return {"is_safe": True, "mev_indicators": [], "risk_score": 0}
+
 # === ENVIRONMENT VARIABLES ===
 HELIUS_RPC_URL = os.environ.get("HELIUS_RPC_URL", f"https://mainnet.helius-rpc.com/?api-key={HELIUS_API_KEY}")
 WALLET_ADDRESS = os.environ.get("WALLET_ADDRESS", "")
