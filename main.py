@@ -225,6 +225,62 @@ def is_developer_blacklisted(dev_address: str) -> bool:
     """Check if developer is blacklisted"""
     return dev_address in developer_blacklist
 
+# === FAKE VOLUME DETECTION ===
+async def detect_fake_volume(token_address: str, volume_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Detect fake volume patterns using DexScreener data"""
+    try:
+        patterns = []
+        score = 0
+        
+        # Check volume/liquidity ratio
+        if volume_data.get('volume24h') and volume_data.get('liquidity'):
+            vol_liq_ratio = volume_data['volume24h'] / volume_data['liquidity']
+            if vol_liq_ratio > 10:  # Suspicious if volume is 10x liquidity
+                patterns.append("High volume/liquidity ratio")
+                score += 30
+        
+        # Check for volume spikes
+        if volume_data.get('volumeChange24h'):
+            if volume_data['volumeChange24h'] > 500:  # 500% increase
+                patterns.append("Massive volume spike")
+                score += 25
+        
+        # Check buy/sell balance
+        if volume_data.get('buyVolume') and volume_data.get('sellVolume'):
+            buy_ratio = volume_data['buyVolume'] / (volume_data['buyVolume'] + volume_data['sellVolume'])
+            if buy_ratio > 0.9:  # 90%+ buys
+                patterns.append("Suspicious buy dominance")
+                score += 20
+        
+        # Check for large transactions
+        if volume_data.get('largeTransactions'):
+            large_tx_count = len([tx for tx in volume_data['largeTransactions'] if tx.get('amount', 0) > 1000])
+            if large_tx_count > 5:
+                patterns.append("Multiple large transactions")
+                score += 15
+        
+        # Determine if fake volume detected
+        is_fake = score >= 50
+        
+        if is_fake:
+            add_to_token_blacklist(token_address, f"Fake volume detected: {', '.join(patterns)}")
+        
+        return {
+            'is_fake': is_fake,
+            'score': score,
+            'patterns': patterns,
+            'details': volume_data
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in fake volume detection: {e}")
+        return {
+            'is_fake': False,
+            'score': 0,
+            'patterns': [],
+            'details': volume_data
+        }
+
 # === ENVIRONMENT VARIABLES ===
 HELIUS_RPC_URL = os.environ.get("HELIUS_RPC_URL", f"https://mainnet.helius-rpc.com/?api-key={HELIUS_API_KEY}")
 WALLET_ADDRESS = os.environ.get("WALLET_ADDRESS", "")
