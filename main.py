@@ -406,7 +406,9 @@ sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
 
 # Initialize Flask app for web dashboard
-app = Flask(__name__)
+app = Flask(__name__, 
+            static_folder='static',
+            template_folder='templates')
 socketio = SocketIO(app, cors_allowed_origins="*")
 
 # Flask routes
