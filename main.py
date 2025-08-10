@@ -1830,7 +1830,7 @@ async def run_server():
     site = web.TCPSite(runner, '0.0.0.0', ws_port)
     await site.start()
     logger.info(f"WebSocket server up at ws://0.0.0.0:{ws_port}/ws")
-            logger.info(f"Flask JSON API will be available at http://0.0.0.0:{PORT}")
+    logger.info(f"Flask JSON API will be available at http://0.0.0.0:{PORT}")
     await asyncio.Event().wait()
 
 async def bot_main():
