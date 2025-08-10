@@ -21,9 +21,8 @@ from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 from bs4 import BeautifulSoup
 
-# Flask imports for web dashboard
-from flask import Flask, render_template, jsonify, request
-from flask_socketio import SocketIO, emit
+# Flask imports for JSON API
+from flask import Flask, jsonify, request
 import threading
 
 # === CONFIGURATION CONSTANTS ===
@@ -405,40 +404,252 @@ ML_SCORE_WEIGHTS = {
 sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
 
-# Initialize Flask app for web dashboard
-app = Flask(__name__, 
-            static_folder='static',
-            template_folder='templates')
-socketio = SocketIO(app, cors_allowed_origins="*")
+# Initialize Flask app for JSON API
+app = Flask(__name__)
 
-# Flask routes
+# Flask routes - JSON API only
 @app.route('/')
 def index():
-    return render_template('pages/dashboard.html')
-
-@app.route('/dashboard')
-def dashboard():
-    return render_template('pages/dashboard.html')
-
-@app.route('/api/dashboard-data')
-def api_dashboard_data():
-    # Return mock data for now - will be connected to real data
     return jsonify({
-        'current_price': 150.25,
-        'balance': 1000.50,
-        'bot_status': 'active',
-        'recent_trades': []
+        "message": "ToxiBot Trading Bot API",
+        "endpoints": {
+            "/": "This info",
+            "/api/bot-status": "Real-time bot status and data",
+            "/api/positions": "Current trading positions",
+            "/api/activity": "Recent bot activity log",
+            "/api/performance": "Trading performance metrics"
+        }
     })
 
-@socketio.on('start_bot')
-def handle_start_bot():
-    # Add bot start logic here
-    emit('bot_started', {'status': 'Bot started'})
+@app.route('/api/bot-status')
+def api_bot_status():
+    """Main endpoint serving comprehensive bot data in JSON format"""
+    try:
+        # Get current wallet balance
+        current_balance = current_wallet_balance or 0.0
+        
+        # Calculate daily P&L
+        daily_pl = (current_balance - daily_starting_balance) if daily_starting_balance > 0 else 0.0
+        daily_pl_percent = (daily_pl / daily_starting_balance * 100) if daily_starting_balance > 0 else 0.0
+        
+        # Get active positions count
+        active_positions = len([p for p in positions.values() if p.get('status') == 'active'])
+        
+        # Get recent activity from log
+        recent_activity = list(activity_log)[-20:] if activity_log else []
+        
+        # Calculate uptime
+        uptime_seconds = time.time() - startup_time
+        uptime_hours = uptime_seconds / 3600
+        
+        # Get trading performance
+        total_trades = ultra_total + analyst_total + community_total
+        total_wins = ultra_wins + analyst_wins + community_wins
+        win_rate = (total_wins / total_trades * 100) if total_trades > 0 else 0.0
+        
+        # Get market sentiment
+        sentiment_score = market_sentiment.get('avg_win_rate', 0.5) * 100
+        volatility = market_sentiment.get('volatility_index', 1.0)
+        
+        return jsonify({
+            "bot_status": {
+                "status": "active" if trading_enabled else "paused",
+                "uptime_hours": round(uptime_hours, 2),
+                "last_update": datetime.now().isoformat(),
+                "trading_enabled": trading_enabled
+            },
+            "wallet": {
+                "current_balance_sol": round(current_balance, 4),
+                "daily_starting_balance_sol": round(daily_starting_balance, 4),
+                "daily_pl_sol": round(daily_pl, 4),
+                "daily_pl_percent": round(daily_pl_percent, 2),
+                "wallet_exposure_percent": round(exposure * 100, 2),
+                "daily_loss_limit_percent": DAILY_LOSS_LIMIT_PERCENT
+            },
+            "trading": {
+                "active_positions": active_positions,
+                "total_positions": len(positions),
+                "watchlist_tokens": len(watchlist),
+                "tokens_checked_today": tokens_checked_count,
+                "pump_fun_monitoring": len(pump_fun_monitoring)
+            },
+            "performance": {
+                "total_trades": total_trades,
+                "total_wins": total_wins,
+                "win_rate_percent": round(win_rate, 2),
+                "ultra_early": {
+                    "trades": ultra_total,
+                    "wins": ultra_wins,
+                    "pl": round(ultra_pl, 4)
+                },
+                "analyst": {
+                    "trades": analyst_total,
+                    "wins": analyst_wins,
+                    "pl": round(analyst_pl, 4)
+                },
+                "community": {
+                    "trades": community_total,
+                    "wins": community_wins,
+                    "pl": round(community_pl, 4)
+                }
+            },
+            "market_sentiment": {
+                "sentiment_score": round(sentiment_score, 1),
+                "volatility_index": round(volatility, 2),
+                "bull_market": market_sentiment.get('bull_market', True),
+                "recent_performance_count": len(market_sentiment.get('recent_performance', []))
+            },
+            "protection_systems": {
+                "blacklisted_tokens": len(token_blacklist),
+                "blacklisted_developers": len(developer_blacklist),
+                "fake_volume_tokens": len(fake_volume_tokens),
+                "mev_protection_enabled": mev_protection_enabled,
+                "circuit_breakers_active": len([cb for cb in api_circuit_breakers.values() if cb.get('tripped', False)])
+            },
+            "api_status": {
+                "failures": dict(api_failures),
+                "circuit_breakers": {k: v.get('tripped', False) for k, v in api_circuit_breakers.items()}
+            },
+            "recent_activity": recent_activity[-10:] if recent_activity else []
+        })
+    except Exception as e:
+        return jsonify({
+            "error": "Failed to get bot status",
+            "message": str(e),
+            "timestamp": datetime.now().isoformat()
+        }), 500
 
-@socketio.on('stop_bot')
-def handle_stop_bot():
-    # Add bot stop logic here
-    emit('bot_stopped', {'status': 'Bot stopped'})
+@app.route('/api/positions')
+def api_positions():
+    """Get current trading positions"""
+    try:
+        active_positions = []
+        for token, pos in positions.items():
+            if pos.get('status') == 'active':
+                active_positions.append({
+                    "token": token,
+                    "symbol": pos.get('symbol', 'Unknown'),
+                    "entry_price": pos.get('entry_price', 0),
+                    "current_price": pos.get('current_price', 0),
+                    "size_sol": pos.get('size', 0),
+                    "unrealized_pl": pos.get('unrealized_pl', 0),
+                    "strategy": pos.get('strategy', 'Unknown'),
+                    "entry_time": pos.get('entry_time', ''),
+                    "ml_score": pos.get('ml_score', 0)
+                })
+        
+        return jsonify({
+            "positions": active_positions,
+            "count": len(active_positions),
+            "timestamp": datetime.now().isoformat()
+        })
+    except Exception as e:
+        return jsonify({
+            "error": "Failed to get positions",
+            "message": str(e),
+            "timestamp": datetime.now().isoformat()
+        }), 500
+
+@app.route('/api/activity')
+def api_activity():
+    """Get recent bot activity log"""
+    try:
+        return jsonify({
+            "activity_log": list(activity_log)[-50:] if activity_log else [],
+            "count": len(activity_log) if activity_log else 0,
+            "timestamp": datetime.now().isoformat()
+        })
+    except Exception as e:
+        return jsonify({
+            "error": "Failed to get activity log",
+            "message": str(e),
+            "timestamp": datetime.now().isoformat()
+        }), 500
+
+@app.route('/api/performance')
+def api_performance():
+    """Get detailed trading performance metrics"""
+    try:
+        return jsonify({
+            "performance_metrics": {
+                "ultra_early": {
+                    "total_trades": ultra_total,
+                    "wins": ultra_wins,
+                    "losses": ultra_total - ultra_wins,
+                    "win_rate": round((ultra_wins / ultra_total * 100), 2) if ultra_total > 0 else 0,
+                    "total_pl": round(ultra_pl, 4),
+                    "avg_pl_per_trade": round(ultra_pl / ultra_total, 4) if ultra_total > 0 else 0
+                },
+                "analyst": {
+                    "total_trades": analyst_total,
+                    "wins": analyst_wins,
+                    "losses": analyst_total - analyst_wins,
+                    "win_rate": round((analyst_wins / analyst_total * 100), 2) if analyst_total > 0 else 0,
+                    "total_pl": round(analyst_pl, 4),
+                    "avg_pl_per_trade": round(analyst_pl / analyst_total, 4) if analyst_total > 0 else 0
+                },
+                "community": {
+                    "total_trades": community_total,
+                    "wins": community_wins,
+                    "losses": community_total - community_wins,
+                    "win_rate": round((community_wins / community_total * 100), 2) if community_total > 0 else 0,
+                    "total_pl": round(community_pl, 4),
+                    "avg_pl_per_trade": round(community_pl / community_total, 4) if community_total > 0 else 0
+                }
+            },
+            "overall": {
+                "total_trades": ultra_total + analyst_total + community_total,
+                "total_wins": ultra_wins + analyst_wins + community_wins,
+                "overall_win_rate": round(((ultra_wins + analyst_wins + community_wins) / (ultra_total + analyst_total + community_total) * 100), 2) if (ultra_total + analyst_total + community_total) > 0 else 0,
+                "total_pl": round(ultra_pl + analyst_pl + community_pl, 4)
+            },
+            "timestamp": datetime.now().isoformat()
+        })
+    except Exception as e:
+        return jsonify({
+            "error": "Failed to get performance metrics",
+            "message": str(e),
+            "timestamp": datetime.now().isoformat()
+        }), 500
+
+# Bot control endpoints
+@app.route('/api/bot/start', methods=['POST'])
+def api_start_bot():
+    """Start the trading bot"""
+    try:
+        global trading_enabled
+        trading_enabled = True
+        return jsonify({
+            "status": "success",
+            "message": "Bot started",
+            "trading_enabled": trading_enabled,
+            "timestamp": datetime.now().isoformat()
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e),
+            "timestamp": datetime.now().isoformat()
+        }), 500
+
+@app.route('/api/bot/stop', methods=['POST'])
+def api_stop_bot():
+    """Stop the trading bot"""
+    try:
+        global trading_enabled
+        trading_enabled = False
+        return jsonify({
+            "status": "success",
+            "message": "Bot stopped",
+            "trading_enabled": trading_enabled,
+            "timestamp": datetime.now().isoformat()
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e),
+            "timestamp": datetime.now().isoformat()
+        }), 500
 
 # Database configuration - use volume for Railway
 if os.environ.get('RAILWAY_ENVIRONMENT'):
@@ -1619,7 +1830,7 @@ async def run_server():
     site = web.TCPSite(runner, '0.0.0.0', ws_port)
     await site.start()
     logger.info(f"WebSocket server up at ws://0.0.0.0:{ws_port}/ws")
-    logger.info(f"Flask dashboard will be available at http://0.0.0.0:{PORT}")
+            logger.info(f"Flask JSON API will be available at http://0.0.0.0:{PORT}")
     await asyncio.Event().wait()
 
 async def bot_main():
@@ -1651,7 +1862,7 @@ async def bot_main():
 def run_flask():
     """Run Flask server in a separate thread"""
     # Flask should run on the main PORT for Railway deployment
-    socketio.run(app, host='0.0.0.0', port=PORT, debug=False, allow_unsafe_werkzeug=True)
+    app.run(host='0.0.0.0', port=PORT, debug=False)
 
 async def main():
     # Start Flask server in a separate thread
@@ -1663,7 +1874,7 @@ async def main():
 
 if __name__ == "__main__":
     try:
-        logger.info(f"Starting bot on port {PORT} (Flask Dashboard) and {PORT + 1} (WebSocket)")
+        logger.info(f"Starting bot on port {PORT} (Flask JSON API) and {PORT + 1} (WebSocket)")
         asyncio.run(main())
     except KeyboardInterrupt:
         logger.info("Bot stopped by user.")

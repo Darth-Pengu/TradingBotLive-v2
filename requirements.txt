@@ -9,12 +9,8 @@ numpy==1.26.4
 # Database
 aiosqlite==0.19.0
 
-# Flask and WebSocket dependencies
+# Flask dependencies
 Flask==3.0.0
-Flask-SocketIO==5.3.6
-python-socketio==5.9.0
-python-engineio==4.7.1
-eventlet==0.35.2
 
 # Additional dependencies for Python 3.12 compatibility
 setuptools>=68.0.0
