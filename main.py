@@ -20,6 +20,7 @@ from typing import Set, Dict, Any, Optional, List, Tuple
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 from bs4 import BeautifulSoup
+from functools import wraps
 
 # Flask imports for JSON API
 from flask import Flask, jsonify, request, Response, stream_with_context
@@ -409,6 +410,227 @@ try:
     CORS(app, resources={r"/api/*": {"origins": "*"}})
 except Exception:
     pass
+
+# --- Simple token auth and CORS for dashboard integration ---
+API_TOKEN = os.getenv("API_TOKEN", "")
+DASHBOARD_ORIGIN = os.getenv("DASHBOARD_ORIGIN", "*")
+
+
+def _is_options_preflight() -> bool:
+    return request.method == "OPTIONS"
+
+
+def _options_response():
+    from flask import make_response
+    resp = make_response("", 204)
+    resp.headers["Access-Control-Allow-Origin"] = DASHBOARD_ORIGIN
+    resp.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type"
+    resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    return resp
+
+
+def require_auth(view_func):
+    @wraps(view_func)
+    def wrapped(*args, **kwargs):
+        if _is_options_preflight():
+            return _options_response()
+        if API_TOKEN:
+            auth_header = request.headers.get("Authorization", "")
+            if not auth_header.startswith("Bearer ") or auth_header.split(" ", 1)[1] != API_TOKEN:
+                return jsonify({"error": "Unauthorized"}), 401
+        return view_func(*args, **kwargs)
+    return wrapped
+
+
+@app.after_request
+def add_cors_headers(response):
+    response.headers["Access-Control-Allow-Origin"] = DASHBOARD_ORIGIN
+    response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    return response
+
+
+# --- Helpers for API data formatting ---
+
+def _compute_summary():
+    current_balance = current_wallet_balance or 0.0
+    daily_pl = (current_balance - daily_starting_balance) if daily_starting_balance > 0 else 0.0
+    daily_pl_percent = (daily_pl / daily_starting_balance * 100) if daily_starting_balance > 0 else 0.0
+
+    total_trades = ultra_total + analyst_total + community_total
+    total_wins = ultra_wins + analyst_wins + community_wins
+    win_rate = (total_wins / total_trades * 100) if total_trades > 0 else 0.0
+
+    open_positions = len([p for p in positions.values() if p.get('status') == 'active'])
+
+    return {
+        "balances": {
+            "sol": round(current_balance, 4),
+        },
+        "pnl": {
+            "daily_pl_sol": round(daily_pl, 4),
+            "daily_pl_percent": round(daily_pl_percent, 2),
+        },
+        "positions": {
+            "open": open_positions,
+            "total": len(positions),
+        },
+        "performance": {
+            "total_trades": total_trades,
+            "total_wins": total_wins,
+            "win_rate_percent": round(win_rate, 2),
+        },
+        "bot": {
+            "status": "active" if trading_enabled else "paused",
+            "uptime_hours": round((time.time() - startup_time) / 3600.0, 2),
+        },
+        "timestamp": datetime.now().isoformat(),
+    }
+
+
+def _get_recent_trades(limit: int = 100):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT 
+                t.timestamp,
+                p.data,
+                t.action,
+                t.size,
+                t.price,
+                t.pl,
+                t.token
+            FROM trades t
+            LEFT JOIN positions p ON t.token = p.token
+            ORDER BY t.timestamp DESC
+            LIMIT ?;
+            """,
+            (limit,)
+        )
+        rows = cursor.fetchall()
+        conn.close()
+    except Exception as e:
+        logger.error(f"Failed to fetch recent trades: {e}")
+        rows = []
+
+    trades = []
+    for row in rows:
+        try:
+            pos_data = json.loads(row["data"]) if row["data"] else {}
+            token_address = row["token"]
+            trades.append({
+                "timestamp": row["timestamp"],
+                "symbol": pos_data.get("symbol", token_address[:8]),
+                "token_address": token_address,
+                "type": row["action"].lower(),
+                "quantity": row["size"],
+                "price": row.get("price") if isinstance(row, dict) else row["price"],
+                "pl": row["pl"],
+                "status": "filled",
+            })
+        except Exception:
+            # Fallback minimal record
+            trades.append({
+                "timestamp": row["timestamp"] if hasattr(row, "__getitem__") else datetime.now().isoformat(),
+                "symbol": "UNKNOWN",
+                "token_address": None,
+                "type": "trade",
+                "quantity": 0,
+                "price": 0,
+                "pl": 0,
+                "status": "filled",
+            })
+    return trades
+
+
+def _generate_price_series(base_price: float, points: int = 60, interval_sec: int = 60):
+    # Synthetic series when historical data is unavailable
+    series = []
+    now = int(time.time())
+    price = base_price
+    for i in range(points):
+        ts = now - (points - i) * interval_sec
+        # small random walk using deterministic math (no random import)
+        delta = ((i % 5) - 2) * 0.001 * base_price
+        price = max(0.0, price + delta)
+        series.append({"ts": ts * 1000, "price": round(price, 6)})
+    return series
+
+
+# --- New Dashboard Hooks ---
+@app.route('/api/summary', methods=['GET', 'OPTIONS'])
+@require_auth
+def api_summary():
+    try:
+        return jsonify(_compute_summary())
+    except Exception as e:
+        return jsonify({"error": "Failed to get summary", "message": str(e)}), 500
+
+
+@app.route('/api/trades', methods=['GET', 'OPTIONS'])
+@require_auth
+def api_trades():
+    try:
+        limit = int(request.args.get('limit', '100'))
+        limit = max(1, min(limit, 500))
+        trades = _get_recent_trades(limit)
+        return jsonify(trades)
+    except Exception as e:
+        return jsonify({"error": "Failed to get trades", "message": str(e)}), 500
+
+
+@app.route('/api/trade-history', methods=['GET', 'OPTIONS'])
+@require_auth
+def api_trade_history():
+    # Compatibility alias
+    return api_trades()
+
+
+@app.route('/api/prices', methods=['GET', 'OPTIONS'])
+@require_auth
+def api_prices():
+    try:
+        symbol = request.args.get('symbol') or request.args.get('token') or 'SOL'
+        points = int(request.args.get('points', '60'))
+        interval_sec = int(request.args.get('interval', '60'))
+        # Try to fetch a current price; fall back to 1.0
+        try:
+            current_price = asyncio.run(fetch_token_price(symbol)) or 1.0
+        except Exception:
+            current_price = 1.0
+        series = _generate_price_series(float(current_price), points=points, interval_sec=interval_sec)
+        return jsonify({
+            "symbol": symbol,
+            "series": series,
+            "timestamp": datetime.now().isoformat(),
+        })
+    except Exception as e:
+        return jsonify({"error": "Failed to get prices", "message": str(e)}), 500
+
+
+@app.route('/api/dashboard-data', methods=['GET', 'OPTIONS'])
+@require_auth
+def api_dashboard_data():
+    try:
+        # Compose minimal dataset commonly used by dashboard UIs
+        summary = _compute_summary()
+        # Attempt a representative price (SOL)
+        try:
+            current_price = asyncio.run(fetch_token_price('SOL')) or 0.0
+        except Exception:
+            current_price = 0.0
+        return jsonify({
+            "current_price": float(current_price),
+            "balance": summary.get("balances", {}).get("sol", 0.0),
+            "bot_status": summary.get("bot", {}).get("status", "unknown"),
+            "summary": summary,
+            "timestamp": datetime.now().isoformat()
+        })
+    except Exception as e:
+        return jsonify({"error": "Failed to get dashboard data", "message": str(e)}), 500
 
 # Flask routes - JSON API only
 @app.route('/')
