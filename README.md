@@ -11,6 +11,7 @@ A high-frequency Solana trading bot with advanced ML scoring, whale monitoring, 
 ### Trading Data
 - `GET /api/positions` - Current trading positions
 - `GET /api/activity` - Recent bot activity log
+- `GET /api/activity/stream` - Server-Sent Events stream of activity (for dashboards)
 - `GET /api/performance` - Detailed trading performance metrics
 
 ### Bot Control
