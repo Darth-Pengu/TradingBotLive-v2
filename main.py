@@ -22,7 +22,7 @@ from contextlib import asynccontextmanager
 from bs4 import BeautifulSoup
 
 # Flask imports for JSON API
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, Response, stream_with_context
 import threading
 
 # === CONFIGURATION CONSTANTS ===
@@ -104,28 +104,26 @@ developer_blacklist = set()
 fake_volume_tokens = set()
 mev_protection_enabled = True
 
-# === CIRCUIT BREAKER SYSTEM ===
-circuit_breaker_state = {}
+# === CIRCUIT BREAKER SYSTEM (Unified) ===
+api_failures = collections.defaultdict(int)
+api_circuit_breakers = {}
 
-def is_circuit_breaker(service: str) -> bool:
-    """Check if circuit breaker is active for a service"""
-    if service not in circuit_breaker_state:
-        return False
-    last_failure, failure_count = circuit_breaker_state[service]
-    if time.time() - last_failure < CIRCUIT_BREAKER_TIMEOUT:
-        return failure_count >= CIRCUIT_BREAKER_THRESHOLD
+def is_circuit_broken(service: str) -> bool:
+    """Return True if the service circuit is currently tripped."""
+    until_ts = api_circuit_breakers.get(service)
+    if until_ts and time.time() < until_ts:
+        return True
+    if service in api_circuit_breakers and time.time() >= api_circuit_breakers[service]:
+        del api_circuit_breakers[service]
+        api_failures[service] = 0
     return False
 
 def trip_circuit_breaker(service: str):
-    """Trip circuit breaker for a service"""
-    if service not in circuit_breaker_state:
-        circuit_breaker_state[service] = (time.time(), 1)
-    else:
-        last_failure, failure_count = circuit_breaker_state[service]
-        if time.time() - last_failure < CIRCUIT_BREAKER_TIMEOUT:
-            circuit_breaker_state[service] = (last_failure, failure_count + 1)
-        else:
-            circuit_breaker_state[service] = (time.time(), 1)
+    """Increment failures and trip if threshold exceeded."""
+    api_failures[service] += 1
+    if api_failures[service] >= CIRCUIT_BREAKER_THRESHOLD:
+        api_circuit_breakers[service] = time.time() + CIRCUIT_BREAKER_TIMEOUT
+        logger.warning(f"Circuit breaker tripped for {service}")
 
 # === LOGGING FUNCTIONS ===
 def log_rug_check_result(token: str, rug_results: Dict[str, Any], source: str):
@@ -406,6 +404,11 @@ sys.stderr.reconfigure(line_buffering=True)
 
 # Initialize Flask app for JSON API
 app = Flask(__name__)
+try:
+    from flask_cors import CORS
+    CORS(app, resources={r"/api/*": {"origins": "*"}})
+except Exception:
+    pass
 
 # Flask routes - JSON API only
 @app.route('/')
@@ -504,11 +507,11 @@ def api_bot_status():
                 "blacklisted_developers": len(developer_blacklist),
                 "fake_volume_tokens": len(fake_volume_tokens),
                 "mev_protection_enabled": mev_protection_enabled,
-                "circuit_breakers_active": len([cb for cb in api_circuit_breakers.values() if cb.get('tripped', False)])
+                "circuit_breakers_active": sum(1 for _ in api_circuit_breakers)
             },
             "api_status": {
                 "failures": dict(api_failures),
-                "circuit_breakers": {k: v.get('tripped', False) for k, v in api_circuit_breakers.items()}
+                "circuit_breakers": {k: (time.time() < v) for k, v in api_circuit_breakers.items()}
             },
             "recent_activity": recent_activity[-10:] if recent_activity else []
         })
@@ -680,8 +683,6 @@ tokens_checked_count = 0
 ultra_wins, ultra_total, ultra_pl = 0, 0, 0.0
 analyst_wins, analyst_total, analyst_pl = 0, 0, 0.0
 community_wins, community_total, community_pl = 0, 0, 0.0
-api_failures = collections.defaultdict(int)
-api_circuit_breakers = {}
 price_cache: Dict[str, Tuple[float, float]] = {}
 session_pool: Optional[aiohttp.ClientSession] = None
 community_signal_votes = collections.defaultdict(lambda: {"sources": set(), "first_seen": time.time()})
@@ -769,16 +770,6 @@ async def get_session():
     except Exception as e:
         logger.error(f"Session error: {e}"); raise
 
-def is_circuit_broken(service: str) -> bool:
-    if service in api_circuit_breakers and time.time() < api_circuit_breakers[service]: return True
-    if service in api_circuit_breakers: del api_circuit_breakers[service]; api_failures[service] = 0
-    return False
-
-def trip_circuit_breaker(service: str):
-    api_failures[service] += 1
-    if api_failures[service] >= CIRCUIT_BREAKER_THRESHOLD:
-        api_circuit_breakers[service] = time.time() + CIRCUIT_BREAKER_TIMEOUT
-        logger.warning(f"Circuit breaker tripped for {service}")
 
 async def fetch_wallet_balance() -> Optional[float]:
     if not WALLET_ADDRESS or is_circuit_broken("helius"): return None
@@ -1203,7 +1194,7 @@ async def fetch_market_cap(token: str) -> Optional[float]:
 # === ENHANCED WHALE MONITORING WITH SOLSCAN.IO ===
 async def fetch_solscan_whale_transactions(whale_address: str) -> List[Dict[str, Any]]:
     """Fetch recent transactions from Solscan.io for whale monitoring."""
-    if is_circuit_breaker("solscan"): return []
+    if is_circuit_broken("solscan"): return []
     try:
         async with get_session() as session:
             # Get recent transactions
@@ -1224,7 +1215,7 @@ async def fetch_solscan_whale_transactions(whale_address: str) -> List[Dict[str,
 
 async def fetch_solscan_token_info(token_address: str) -> Optional[Dict[str, Any]]:
     """Fetch token information from Solscan.io."""
-    if is_circuit_breaker("solscan"): return None
+    if is_circuit_broken("solscan"): return None
     try:
         async with get_session() as session:
             url = f"{SOLSCAN_API_BASE}/token/meta"
@@ -1252,7 +1243,7 @@ async def enhanced_whale_monitoring():
                 transactions = []
                 
                 # Helius API (existing)
-                if HELIUS_API_KEY and not is_circuit_breaker("helius_whale"):
+                if HELIUS_API_KEY and not is_circuit_broken("helius_whale"):
                     try:
                         url = f"https://api.helius.xyz/v0/addresses/{whale}/transactions?api-key={HELIUS_API_KEY}&limit=10&type=SWAP"
                         async with get_session() as session:
@@ -1869,8 +1860,8 @@ async def main():
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
     
-    # Run the existing aiohttp server and bot
-    await asyncio.gather(run_server(), bot_main())
+    # Run only the bot main; SSE lives on Flask port
+    await bot_main()
 
 if __name__ == "__main__":
     try:
@@ -1910,10 +1901,21 @@ def log_fake_volume_detected(token_address: str, patterns: List[str], score: int
     """Log fake volume detection to dashboard."""
     activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] 🚫 FAKE VOLUME: {token_address[:8]} (Score: {score}) - {', '.join(patterns)}")
 
-def log_mev_protection_check(token_address: str, is_safe: bool, indicators: List[str]):
-    """Log MEV protection check to dashboard."""
-    status = "✅ SAFE" if is_safe else "❌ RISKY"
-    activity_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] {status} MEV: {token_address[:8]} - {', '.join(indicators)}")
+
+@app.route('/api/activity/stream')
+def api_activity_stream():
+    """Server-Sent Events stream of recent activity on same PORT."""
+    def event_stream():
+        last_idx = 0
+        while True:
+            # Convert deque to list snapshot
+            events = list(activity_log)
+            if last_idx < len(events):
+                for entry in events[last_idx:]:
+                    yield f"data: {entry}\n\n"
+                last_idx = len(events)
+            time.sleep(1)
+    return Response(stream_with_context(event_stream()), mimetype='text/event-stream')
 
 
 
