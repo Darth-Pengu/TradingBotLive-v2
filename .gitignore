@@ -1,21 +1,18 @@
-# Environment variables
+**.gitignore:**
+```
 .env
 .env.local
-.env.*.local
-
-# Database files
-*.db
-*.db-journal
-*.sqlite
-*.sqlite3
+*.session
 toxibot.db
-
-# Log files
+*.db
 *.log
 logs/
-toxibot.log
-
-# Python
 __pycache__/
-*.py[cod]
-# ... etc
+*.pyc
+.venv/
+venv/
+ENV/
+.railway/
+data/whale_wallets_pending.json
+node_modules/
+.DS_Store
