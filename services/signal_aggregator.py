@@ -34,8 +34,9 @@ logger = logging.getLogger("signal_aggregator")
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 TEST_MODE = os.getenv("TEST_MODE", "true").lower() == "true"
 RUGCHECK_API_KEY = os.getenv("RUGCHECK_API_KEY", "")  # Not needed for summary endpoint (public), but required for bulk/full report
-BITQUERY_API_KEY = os.getenv("BITQUERY_API_KEY", "")
 VYBE_API_KEY = os.getenv("VYBE_API_KEY", "")
+HELIUS_RPC_URL = os.getenv("HELIUS_RPC_URL", "")
+SOLANAFM_API_KEY = os.getenv("SOLANAFM_API_KEY", "")
 
 # --- Deduplication ---
 DEDUP_WINDOW_SECONDS = 60
@@ -120,45 +121,123 @@ async def _fetch_rugcheck(session: aiohttp.ClientSession, mint: str) -> dict:
 
 
 async def _fetch_token_details(session: aiohttp.ClientSession, mint: str) -> dict:
-    """Fetch additional token details from available APIs."""
+    """
+    Fetch additional token details from free APIs:
+    - Helius getTokenLargestAccounts → holder concentration
+    - GeckoTerminal pool data → DEX volume, liquidity
+    - Vybe Network → creator wallet history
+    - SolanaFM → historical transaction lookups
+    """
     details = {}
 
-    # Try BitQuery for holder/volume data
-    if BITQUERY_API_KEY:
+    # Run independent fetches concurrently
+    results = await asyncio.gather(
+        _fetch_holder_data(session, mint),
+        _fetch_gecko_pool_data(session, mint),
+        _fetch_creator_history(session, mint),
+        return_exceptions=True,
+    )
+
+    for result in results:
+        if isinstance(result, dict):
+            details.update(result)
+
+    return details
+
+
+async def _fetch_holder_data(session: aiohttp.ClientSession, mint: str) -> dict:
+    """Fetch top holder data via Helius getTokenLargestAccounts."""
+    if not HELIUS_RPC_URL:
+        return {}
+    try:
+        payload = {
+            "jsonrpc": "2.0", "id": 1,
+            "method": "getTokenLargestAccounts",
+            "params": [mint],
+        }
+        async with session.post(HELIUS_RPC_URL, json=payload, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+            if resp.status != 200:
+                return {}
+            data = await resp.json()
+            accounts = data.get("result", {}).get("value", [])
+            if not accounts:
+                return {}
+
+            # Calculate holder concentration — top 10 holders as % of total
+            amounts = [float(a.get("uiAmount", 0) or 0) for a in accounts[:20]]
+            total_supply_sample = sum(amounts)
+            top10_sum = sum(amounts[:10])
+            top10_pct = (top10_sum / total_supply_sample * 100) if total_supply_sample > 0 else 0
+
+            return {
+                "holder_count_sample": len(accounts),
+                "top10_holder_pct": round(top10_pct, 1),
+            }
+    except Exception as e:
+        logger.debug("Helius holder data error for %s: %s", mint[:12], e)
+    return {}
+
+
+async def _fetch_gecko_pool_data(session: aiohttp.ClientSession, mint: str) -> dict:
+    """Fetch pool/volume data from GeckoTerminal."""
+    try:
+        url = f"https://api.geckoterminal.com/api/v2/networks/solana/tokens/{mint}/pools"
+        async with session.get(url, headers={"Accept": "application/json"},
+                               timeout=aiohttp.ClientTimeout(total=10)) as resp:
+            if resp.status != 200:
+                return {}
+            data = await resp.json()
+            pools = data.get("data", [])
+            if not pools:
+                return {}
+
+            # Use the first (highest volume) pool
+            attrs = pools[0].get("attributes", {})
+            return {
+                "volume_24h_usd": float(attrs.get("volume_usd", {}).get("h24", 0) or 0),
+                "reserve_usd": float(attrs.get("reserve_in_usd", 0) or 0),
+                "price_change_5min_pct": float(attrs.get("price_change_percentage", {}).get("m5", 0) or 0),
+                "price_change_1h_pct": float(attrs.get("price_change_percentage", {}).get("h1", 0) or 0),
+                "trade_count_24h": int(attrs.get("transactions", {}).get("h24", {}).get("buys", 0) or 0)
+                                 + int(attrs.get("transactions", {}).get("h24", {}).get("sells", 0) or 0),
+            }
+    except Exception as e:
+        logger.debug("GeckoTerminal pool error for %s: %s", mint[:12], e)
+    return {}
+
+
+async def _fetch_creator_history(session: aiohttp.ClientSession, mint: str) -> dict:
+    """Fetch creator wallet history via Vybe Network or SolanaFM."""
+    details = {}
+
+    # Try Vybe Network for creator/wallet data
+    if VYBE_API_KEY:
         try:
-            query = """
-            {
-              Solana {
-                DEXTradeByTokens(
-                  where: {Trade: {Currency: {MintAddress: {is: "%s"}}}}
-                  limit: {count: 1}
-                ) {
-                  Trade {
-                    Currency { MintAddress Name }
-                    Amount
-                  }
-                  count
-                }
-              }
-            }
-            """ % mint
-            headers = {
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {BITQUERY_API_KEY}",
-            }
-            async with session.post(
-                "https://streaming.bitquery.io/graphql",
-                json={"query": query},
-                headers=headers,
-                timeout=aiohttp.ClientTimeout(total=10),
-            ) as resp:
+            url = f"https://api.vybenetwork.xyz/token/{mint}"
+            headers = {"Authorization": f"Bearer {VYBE_API_KEY}"}
+            async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    trades = data.get("data", {}).get("Solana", {}).get("DEXTradeByTokens", [])
-                    if trades:
-                        details["trade_count"] = trades[0].get("count", 0)
+                    details["creator_address"] = data.get("creator", "")
+                    details["creator_token_count"] = data.get("creatorTokenCount", 0)
         except Exception as e:
-            logger.debug("BitQuery error for %s: %s", mint[:12], e)
+            logger.debug("Vybe error for %s: %s", mint[:12], e)
+
+    # Try SolanaFM for transaction history if we have a creator address
+    creator = details.get("creator_address", "")
+    if creator and SOLANAFM_API_KEY:
+        try:
+            url = f"https://api.solana.fm/v0/accounts/{creator}/transactions"
+            headers = {"ApiKey": SOLANAFM_API_KEY}
+            async with session.get(url, headers=headers, params={"limit": 50},
+                                   timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    txs = data.get("result", data.get("data", []))
+                    if isinstance(txs, list):
+                        details["creator_tx_count_recent"] = len(txs)
+        except Exception as e:
+            logger.debug("SolanaFM error for %s: %s", mint[:12], e)
 
     return details
 
@@ -362,8 +441,11 @@ async def _process_signals(redis_conn: aioredis.Redis):
                     logger.debug("HIBERNATE mode — skipping %s", mint[:12])
                     continue
 
-                # --- Enrich with Rugcheck ---
-                rugcheck = await _fetch_rugcheck(session, mint)
+                # --- Enrich with Rugcheck + token details (concurrent) ---
+                rugcheck, token_details = await asyncio.gather(
+                    _fetch_rugcheck(session, mint),
+                    _fetch_token_details(session, mint),
+                )
 
                 # --- Classify target personalities ---
                 targets = _classify_target_personalities(signal, rugcheck)
@@ -381,7 +463,7 @@ async def _process_signals(redis_conn: aioredis.Redis):
                     "bonding_curve_progress": float(raw.get("bondingCurveProgress", raw.get("bonding_curve_progress", 0))),
                     "buy_sell_ratio_5min": float(raw.get("buy_sell_ratio_5min", 1.0)),
                     "holder_count": int(raw.get("holder_count", raw.get("holders", 0))),
-                    "top10_holder_pct": float(raw.get("top10_holder_pct", 0)),
+                    "top10_holder_pct": float(token_details.get("top10_holder_pct", raw.get("top10_holder_pct", 0))),
                     "unique_buyers_30min": int(raw.get("unique_buyers_30min", 0)),
                     "volume_acceleration_15min": float(raw.get("volume_acceleration_15min", 0)),
                     "dev_wallet_hold_pct": float(raw.get("dev_wallet_hold_pct", 0)),
@@ -392,9 +474,9 @@ async def _process_signals(redis_conn: aioredis.Redis):
                     "creator_dead_tokens_30d": int(raw.get("creator_dead_tokens_30d", 0)),
                     "token_age_seconds": float(signal.get("age_seconds", 0)),
                     "market_cap_usd": float(raw.get("market_cap_usd", raw.get("usdMarketCap", 0))),
-                    "volume_24h_usd": float(raw.get("volume_24h_usd", 0)),
-                    "price_change_5min_pct": float(raw.get("price_change_5min_pct", 0)),
-                    "price_change_1h_pct": float(raw.get("price_change_1h_pct", 0)),
+                    "volume_24h_usd": float(token_details.get("volume_24h_usd", raw.get("volume_24h_usd", 0))),
+                    "price_change_5min_pct": float(token_details.get("price_change_5min_pct", raw.get("price_change_5min_pct", 0))),
+                    "price_change_1h_pct": float(token_details.get("price_change_1h_pct", raw.get("price_change_1h_pct", 0))),
                     "sol_price_usd": 0,  # Filled from market health
                     "cfgi_score": 0,
                     "market_mode_encoded": MARKET_MODE_ENCODING.get(market_mode, 2),

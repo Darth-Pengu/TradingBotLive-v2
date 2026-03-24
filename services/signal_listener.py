@@ -44,8 +44,48 @@ BACKOFF_BASE = 1.0
 BACKOFF_FACTOR = 2.0
 BACKOFF_MAX = 60.0
 
+# --- Real-time buy/sell ratio tracker (replaces BitQuery volume data) ---
+# Tracks buys and sells per mint from PumpPortal subscribeTokenTrade stream
+# Keyed by mint → {buys: int, sells: int, last_update: float}
+_trade_tracker: dict[str, dict] = {}
+TRADE_TRACKER_WINDOW = 300  # 5-minute rolling window
+TRADE_TRACKER_MAX = 2000    # Max tokens to track
+
+
+def _update_trade_tracker(mint: str, tx_type: str):
+    """Track buy/sell counts per token from the PumpPortal trade stream."""
+    now = time.time()
+    if mint not in _trade_tracker:
+        if len(_trade_tracker) >= TRADE_TRACKER_MAX:
+            # Evict oldest entries
+            oldest = sorted(_trade_tracker, key=lambda m: _trade_tracker[m]["last_update"])
+            for old_mint in oldest[:TRADE_TRACKER_MAX // 2]:
+                del _trade_tracker[old_mint]
+        _trade_tracker[mint] = {"buys": 0, "sells": 0, "last_update": now, "unique_buyers": set()}
+
+    entry = _trade_tracker[mint]
+    entry["last_update"] = now
+    if tx_type == "buy":
+        entry["buys"] += 1
+    elif tx_type == "sell":
+        entry["sells"] += 1
+
+
+def _get_buy_sell_ratio(mint: str) -> float:
+    """Get the buy/sell ratio for a token. Returns 1.0 if no data."""
+    entry = _trade_tracker.get(mint)
+    if not entry or entry["sells"] == 0:
+        return entry["buys"] if entry and entry["buys"] > 0 else 1.0
+    return round(entry["buys"] / entry["sells"], 2)
+
 
 def _build_signal(mint: str, source: str, signal_type: str, raw_data: dict, age_seconds: float = 0.0) -> dict:
+    # Enrich with real-time buy/sell ratio from trade tracker
+    if mint in _trade_tracker:
+        raw_data["buy_sell_ratio_5min"] = _get_buy_sell_ratio(mint)
+        raw_data["buys_5min"] = _trade_tracker[mint]["buys"]
+        raw_data["sells_5min"] = _trade_tracker[mint]["sells"]
+
     return {
         "mint": mint,
         "source": source,
@@ -121,12 +161,17 @@ async def pumpportal_listener(redis_conn: aioredis.Redis | None):
                     if not mint:
                         continue
 
+                    # Track buy/sell for real-time ratio calculation
+                    tx_type = data.get("txType", "")
+                    if tx_type in ("buy", "sell"):
+                        _update_trade_tracker(mint, tx_type)
+
                     # Classify signal type
-                    if data.get("txType") == "create" or "bondingCurveKey" in data:
+                    if tx_type == "create" or "bondingCurveKey" in data:
                         sig_type = "new_token"
-                    elif data.get("txType") in ("buy", "sell"):
+                    elif tx_type in ("buy", "sell"):
                         sig_type = "account_trade"
-                    elif "pool" in data or data.get("txType") == "migration":
+                    elif "pool" in data or tx_type == "migration":
                         sig_type = "migration"
                     else:
                         sig_type = "token_trade"

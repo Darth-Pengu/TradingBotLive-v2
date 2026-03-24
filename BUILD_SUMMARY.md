@@ -89,9 +89,9 @@
 - [ ] **Anthropic API key** — Get from console.anthropic.com. Set `ANTHROPIC_API_KEY`
 
 ### Optional (Improve signal quality)
-- [ ] **BitQuery API key** — Free tier at bitquery.io. Set `BITQUERY_API_KEY`
-- [ ] **Rugcheck API key** — Free at rugcheck.xyz. Set `RUGCHECK_API_KEY`
+- [ ] **Rugcheck API key** — Free at rugcheck.xyz. Set `RUGCHECK_API_KEY` (summary endpoint is public, key optional)
 - [ ] **Vybe Network API key** — Free tier at vybenetwork.xyz. Set `VYBE_API_KEY`
+- [ ] **SolanaFM API key** — Free at solana.fm. Set `SOLANAFM_API_KEY`
 - [ ] **Nansen API key** — Pro tier ($49/mo) at nansen.ai. Set `NANSEN_API_KEY`
 
 ### Post-Deploy Checklist
