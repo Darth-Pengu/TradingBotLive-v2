@@ -33,7 +33,7 @@ logger = logging.getLogger("signal_aggregator")
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 TEST_MODE = os.getenv("TEST_MODE", "true").lower() == "true"
-RUGCHECK_API_KEY = os.getenv("RUGCHECK_API_KEY", "")
+RUGCHECK_API_KEY = os.getenv("RUGCHECK_API_KEY", "")  # Not needed for summary endpoint (public), but required for bulk/full report
 BITQUERY_API_KEY = os.getenv("BITQUERY_API_KEY", "")
 VYBE_API_KEY = os.getenv("VYBE_API_KEY", "")
 
@@ -67,7 +67,14 @@ ANALYST_FILTERS = {
 }
 
 # --- Rugcheck ---
-RUGCHECK_URL = "https://api.rugcheck.xyz/v1/tokens/{mint}/report/summary"
+# /v1/tokens/{id}/report/summary is public (no auth required)
+# Response: {score, score_normalised, risks[], lpLockedPct, tokenType, tokenProgram}
+# risks[]: [{name, level, description, score, value}, ...]
+RUGCHECK_SUMMARY_URL = "https://api.rugcheck.xyz/v1/tokens/{mint}/report/summary"
+
+# Score thresholds — Rugcheck score is 0-100 where HIGHER = MORE RISK
+# (opposite of a "safety score")
+RUGCHECK_REJECT_SCORE = 50  # Reject tokens with risk score >= 50
 
 # --- ML thresholds (Section 12) ---
 ML_THRESHOLDS = {
@@ -78,16 +85,35 @@ ML_THRESHOLDS = {
 
 
 async def _fetch_rugcheck(session: aiohttp.ClientSession, mint: str) -> dict:
-    """Fetch token safety report from Rugcheck."""
-    url = RUGCHECK_URL.format(mint=mint)
-    headers = {}
-    if RUGCHECK_API_KEY:
-        headers["Authorization"] = f"Bearer {RUGCHECK_API_KEY}"
+    """
+    Fetch token safety report summary from Rugcheck.
+    The summary endpoint is public — no auth needed.
+    Returns: {score, score_normalised, risks[], lpLockedPct, tokenType, tokenProgram}
+    """
+    url = RUGCHECK_SUMMARY_URL.format(mint=mint)
     try:
-        async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
             if resp.status == 200:
-                return await resp.json()
-            logger.debug("Rugcheck HTTP %d for %s", resp.status, mint[:12])
+                data = await resp.json()
+                # Normalize the response for our filters
+                risks = data.get("risks", [])
+                risk_levels = [r.get("level", "") for r in risks]
+                has_danger = "danger" in risk_levels or "critical" in risk_levels
+                has_high = "high" in risk_levels or "warn" in risk_levels
+                return {
+                    "score": data.get("score", 0),
+                    "score_normalised": data.get("score_normalised", 0),
+                    "lp_locked_pct": data.get("lpLockedPct", 0),
+                    "risks": risks,
+                    "risk_names": [r.get("name", "") for r in risks],
+                    "has_danger": has_danger,
+                    "has_high_risk": has_high,
+                    "token_type": data.get("tokenType", ""),
+                }
+            elif resp.status == 429:
+                logger.warning("Rugcheck rate limited for %s", mint[:12])
+            else:
+                logger.debug("Rugcheck HTTP %d for %s", resp.status, mint[:12])
     except Exception as e:
         logger.debug("Rugcheck error for %s: %s", mint[:12], e)
     return {}
@@ -214,9 +240,15 @@ def _apply_hard_filters(personality: str, signal: dict, rugcheck: dict) -> tuple
             return False, f"liquidity {liq} < {ANALYST_FILTERS['min_liquidity_sol']}"
 
     # Rugcheck safety gate (all personalities)
-    risk_level = rugcheck.get("riskLevel", rugcheck.get("score", ""))
-    if risk_level in ("danger", "high"):
-        return False, f"rugcheck risk: {risk_level}"
+    # Check for danger/critical risk levels in the risks array
+    if rugcheck.get("has_danger"):
+        risk_names = rugcheck.get("risk_names", [])
+        return False, f"rugcheck danger risks: {', '.join(risk_names[:3])}"
+
+    # Also reject if the overall risk score is too high (higher = riskier)
+    rugcheck_score = rugcheck.get("score", 0)
+    if rugcheck_score >= RUGCHECK_REJECT_SCORE:
+        return False, f"rugcheck risk score {rugcheck_score} >= {RUGCHECK_REJECT_SCORE}"
 
     return True, ""
 
