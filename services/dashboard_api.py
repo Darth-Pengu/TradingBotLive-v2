@@ -9,12 +9,18 @@ Feeds live data to dashboard pages:
 - Treasury sweep data
 - Governance notes
 - ML model stats
+
+Authentication: cookie-based session via DASHBOARD_SECRET env var.
+All routes except /login require a valid session cookie.
 """
 
 import asyncio
+import hashlib
+import hmac
 import json
 import logging
 import os
+import secrets
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -37,16 +43,172 @@ logger = logging.getLogger("dashboard_api")
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 DATABASE_PATH = os.getenv("DATABASE_PATH", "toxibot.db")
 DASHBOARD_SECRET = os.getenv("DASHBOARD_SECRET", "")
+DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "")
 HELIUS_RPC_URL = os.getenv("HELIUS_RPC_URL", "")
 TRADING_WALLET_ADDRESS = os.getenv("TRADING_WALLET_ADDRESS", "")
 HOLDING_WALLET_ADDRESS = os.getenv("HOLDING_WALLET_ADDRESS", "")
 PORT = int(os.getenv("PORT", "8080"))
+
+SESSION_MAX_AGE = 86400 * 7  # 7 days
 
 # Dashboard static files directory
 DASHBOARD_DIR = Path("dashboard")
 
 # Active WebSocket connections
 _ws_clients: set[web.WebSocketResponse] = set()
+
+# In-memory session store: token -> expiry timestamp
+_sessions: dict[str, float] = {}
+
+
+# ---------------------------------------------------------------------------
+# Auth helpers
+# ---------------------------------------------------------------------------
+def _auth_enabled() -> bool:
+    return bool(DASHBOARD_PASSWORD)
+
+
+def _create_session() -> str:
+    token = secrets.token_urlsafe(48)
+    _sessions[token] = time.time() + SESSION_MAX_AGE
+    return token
+
+
+def _validate_session(token: str) -> bool:
+    if not token:
+        return False
+    expiry = _sessions.get(token)
+    if expiry is None:
+        return False
+    if time.time() > expiry:
+        _sessions.pop(token, None)
+        return False
+    return True
+
+
+def _get_session_token(request: web.Request) -> str:
+    cookie = request.cookies.get("toxibot_session", "")
+    return cookie
+
+
+def _check_password(password: str) -> bool:
+    return hmac.compare_digest(password, DASHBOARD_PASSWORD)
+
+
+# ---------------------------------------------------------------------------
+# Auth middleware
+# ---------------------------------------------------------------------------
+PUBLIC_PATHS = {"/login", "/api/health"}
+
+
+@web.middleware
+async def auth_middleware(request: web.Request, handler):
+    if not _auth_enabled():
+        return await handler(request)
+
+    if request.path in PUBLIC_PATHS:
+        return await handler(request)
+
+    # Allow static assets needed by the login page
+    if request.path.startswith("/css/") or request.path.startswith("/js/") or request.path.startswith("/img/"):
+        return await handler(request)
+
+    token = _get_session_token(request)
+    if _validate_session(token):
+        return await handler(request)
+
+    # For API/WS requests, return 401 JSON
+    if request.path.startswith("/api/") or request.path == "/ws":
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    # For page requests, redirect to login
+    raise web.HTTPFound("/login")
+
+
+# ---------------------------------------------------------------------------
+# Login page & handler
+# ---------------------------------------------------------------------------
+LOGIN_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ToxiBot — Login</title>
+<style>
+:root { --bg: #0a0a1a; --card: rgba(15,15,35,0.85); --accent: #00ffaa; --danger: #ff4466; --text: #e0e0e0; --dim: #888; }
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'Segoe UI',system-ui,sans-serif; background:var(--bg); color:var(--text);
+  min-height:100vh; display:flex; align-items:center; justify-content:center;
+  background-image: radial-gradient(ellipse at 20% 50%, rgba(0,255,170,0.03) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 20%, rgba(0,100,255,0.03) 0%, transparent 50%); }
+.card { background:var(--card); border:1px solid rgba(0,255,170,0.15); border-radius:12px;
+  padding:2.5rem; width:360px; backdrop-filter:blur(10px); }
+h1 { color:var(--accent); font-size:1.4rem; margin-bottom:1.5rem; letter-spacing:1px; }
+label { display:block; font-size:0.85rem; color:var(--dim); margin-bottom:0.3rem; }
+input[type=password] { width:100%; padding:0.7rem 1rem; background:rgba(255,255,255,0.05);
+  border:1px solid rgba(255,255,255,0.1); border-radius:8px; color:var(--text); font-size:1rem;
+  margin-bottom:1.2rem; outline:none; }
+input[type=password]:focus { border-color:var(--accent); }
+button { width:100%; padding:0.8rem; background:rgba(0,255,170,0.15); border:1px solid var(--accent);
+  border-radius:8px; color:var(--accent); font-size:1rem; font-weight:600; cursor:pointer;
+  transition:all 0.2s; }
+button:hover { background:rgba(0,255,170,0.25); box-shadow:0 0 15px rgba(0,255,170,0.2); }
+.error { color:var(--danger); font-size:0.85rem; margin-bottom:1rem; display:none; }
+.error.visible { display:block; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>ToxiBot</h1>
+  <div class="error" id="error">Invalid password</div>
+  <form method="POST" action="/login" id="form">
+    <label for="password">Dashboard Password</label>
+    <input type="password" id="password" name="password" placeholder="Enter password" autofocus required>
+    <button type="submit">Sign In</button>
+  </form>
+</div>
+<script>
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('error') === '1') document.getElementById('error').classList.add('visible');
+</script>
+</body>
+</html>"""
+
+
+async def handle_login_page(request):
+    if not _auth_enabled():
+        raise web.HTTPFound("/")
+    return web.Response(text=LOGIN_HTML, content_type="text/html")
+
+
+async def handle_login_post(request):
+    if not _auth_enabled():
+        raise web.HTTPFound("/")
+
+    data = await request.post()
+    password = data.get("password", "")
+
+    if _check_password(password):
+        token = _create_session()
+        resp = web.HTTPFound("/")
+        resp.set_cookie("toxibot_session", token, max_age=SESSION_MAX_AGE,
+                        httponly=True, samesite="Lax", secure=request.secure)
+        return resp
+
+    raise web.HTTPFound("/login?error=1")
+
+
+async def handle_logout(request):
+    token = _get_session_token(request)
+    _sessions.pop(token, None)
+    resp = web.HTTPFound("/login")
+    resp.del_cookie("toxibot_session")
+    return resp
+
+
+async def api_health(request):
+    """Unauthenticated health check for Railway."""
+    return web.json_response({"status": "ok"})
 
 
 # --- Database helpers ---
@@ -258,7 +420,6 @@ async def ws_handler(request):
     try:
         async for msg in ws:
             if msg.type == aiohttp.WSMsgType.TEXT:
-                # Handle client messages (e.g., subscribe to specific channels)
                 try:
                     data = json.loads(msg.data)
                     if data.get("action") == "ping":
@@ -316,14 +477,12 @@ async def _periodic_push(app: web.Application):
         try:
             redis_conn = app.get("redis")
 
-            # Get current status
             status = {}
             if redis_conn:
                 raw = await redis_conn.get("bot:status")
                 if raw:
                     status = json.loads(raw)
 
-            # Get market health
             health = {}
             if redis_conn:
                 raw = await redis_conn.get("market:health")
@@ -354,6 +513,11 @@ async def on_startup(app: web.Application):
         logger.warning("Redis connection failed: %s — running without real-time data", e)
         app["redis"] = None
 
+    if _auth_enabled():
+        logger.info("Dashboard auth ENABLED — password required")
+    else:
+        logger.warning("Dashboard auth DISABLED — set DASHBOARD_PASSWORD to enable")
+
     app["bg_tasks"] = []
     app["bg_tasks"].append(asyncio.create_task(_redis_broadcaster(app)))
     app["bg_tasks"].append(asyncio.create_task(_periodic_push(app)))
@@ -368,9 +532,15 @@ async def on_cleanup(app: web.Application):
 
 
 def create_app() -> web.Application:
-    app = web.Application()
+    app = web.Application(middlewares=[auth_middleware])
 
-    # API routes
+    # Auth routes (public)
+    app.router.add_get("/login", handle_login_page)
+    app.router.add_post("/login", handle_login_post)
+    app.router.add_get("/logout", handle_logout)
+    app.router.add_get("/api/health", api_health)
+
+    # Dashboard routes (auth required)
     app.router.add_get("/", handle_index)
     app.router.add_get("/api/status", api_status)
     app.router.add_get("/api/market-health", api_market_health)
