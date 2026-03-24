@@ -103,6 +103,10 @@ async def pumpportal_listener(redis_conn: aioredis.Redis | None):
                     }))
                     logger.info("Subscribed: subscribeAccountTrade for %d wallets", len(whale_wallets))
 
+                # Subscribe to token trades (for real-time price/volume on held tokens)
+                await ws.send(json.dumps({"method": "subscribeTokenTrade"}))
+                logger.info("Subscribed: subscribeTokenTrade")
+
                 async for raw_msg in ws:
                     try:
                         data = json.loads(raw_msg)

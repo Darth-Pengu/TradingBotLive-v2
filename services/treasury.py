@@ -110,6 +110,11 @@ async def _execute_sweep(session: aiohttp.ClientSession, amount_sol: float) -> s
         lamports=amount_lamports,
     ))
 
+    # Add compute budget instruction for priority fee (sweep_priority_fee = 0.000005 SOL)
+    from solders.compute_budget import set_compute_unit_price
+    priority_microlamports = int(TREASURY_RULES["sweep_priority_fee"] * LAMPORTS_PER_SOL * 1_000)  # convert to microlamports
+    compute_ix = set_compute_unit_price(priority_microlamports)
+
     # Get latest blockhash
     bh_payload = {
         "jsonrpc": "2.0",
@@ -125,7 +130,7 @@ async def _execute_sweep(session: aiohttp.ClientSession, amount_sol: float) -> s
     blockhash = Hash.from_string(blockhash_str)
 
     tx = Transaction.new_signed_with_payer(
-        [ix],
+        [compute_ix, ix],
         payer=trading_keypair.pubkey(),
         signing_keypairs=[trading_keypair],
         recent_blockhash=blockhash,

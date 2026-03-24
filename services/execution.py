@@ -160,6 +160,8 @@ async def _execute_pumpportal(
     slippage_pct: int,
     priority_fee_sol: float,
     pool: str = "auto",
+    use_jito: bool = True,
+    skip_preflight: bool = False,
 ) -> str:
     """Execute trade via PumpPortal Local API. Returns tx signature."""
 
@@ -175,8 +177,8 @@ async def _execute_pumpportal(
     }
 
     if TEST_MODE:
-        logger.info("TEST_MODE PumpPortal %s: %s %.4f SOL (slippage=%d%%, fee=%.6f SOL, pool=%s)",
-                     action, mint, amount_sol, slippage_pct, priority_fee_sol, pool)
+        logger.info("TEST_MODE PumpPortal %s: %s %.4f SOL (slippage=%d%%, fee=%.6f SOL, pool=%s, jito=%s)",
+                     action, mint, amount_sol, slippage_pct, priority_fee_sol, pool, use_jito)
         return "TEST_MODE_SIMULATED_TX"
 
     async with session.post(PUMPPORTAL_TRADE_URL, json=payload, timeout=aiohttp.ClientTimeout(total=30)) as resp:
@@ -193,8 +195,18 @@ async def _execute_pumpportal(
     tx = VersionedTransaction.from_bytes(tx_bytes)
     tx.sign([keypair])
 
-    # Send via Helius RPC
-    signature = await _send_transaction(session, bytes(tx))
+    # Send via Jito bundle for MEV protection (Jupiter has built-in MEV — no Jito needed)
+    signed_bytes = bytes(tx)
+    if use_jito:
+        try:
+            bundle_id = await _send_jito_bundle(session, signed_bytes, tip_tier="normal")
+            logger.info("PumpPortal trade sent via Jito bundle: %s", bundle_id)
+            return bundle_id
+        except ExecutionError as e:
+            logger.warning("Jito bundle failed, falling back to direct send: %s", e)
+
+    # Fallback: send directly via Helius RPC
+    signature = await _send_transaction(session, signed_bytes, skip_preflight=skip_preflight)
     return signature
 
 
@@ -207,6 +219,7 @@ async def _execute_jupiter(
     output_mint: str,
     amount_lamports: int,
     slippage_bps: int,
+    skip_preflight: bool = False,
 ) -> str:
     """Execute swap via Jupiter Ultra API. Returns tx signature."""
 
@@ -253,7 +266,8 @@ async def _execute_jupiter(
     keypair = Keypair.from_base58_string(TRADING_WALLET_PRIVATE_KEY)
     tx.sign([keypair])
 
-    signature = await _send_transaction(session, bytes(tx))
+    # Jupiter Ultra has built-in MEV protection — no Jito wrap needed
+    signature = await _send_transaction(session, bytes(tx), skip_preflight=skip_preflight)
     return signature
 
 
@@ -328,6 +342,9 @@ async def execute_trade(
     last_error = ""
 
     for attempt in range(1, RETRY_CONFIG["max_retries"] + 1):
+        # Preflight on attempt 1, skip on retries 2+ (AGENT_CONTEXT Section 5)
+        skip_preflight = attempt > 1
+
         try:
             if api == ExecutionAPI.PUMPPORTAL:
                 slippage = PUMPPORTAL_SLIPPAGE.get(slippage_tier, 15)
@@ -335,21 +352,24 @@ async def execute_trade(
                 priority_fee = PRIORITY_FEE_TIERS[fee_idx] if RETRY_CONFIG["escalate_fee"] else PRIORITY_FEE_TIERS[0]
 
                 signature = await _execute_pumpportal_with_session(
-                    action, token.mint, amount_sol, slippage, priority_fee, token.pool
+                    action, token.mint, amount_sol, slippage, priority_fee, token.pool,
+                    use_jito=use_jito, skip_preflight=skip_preflight,
                 )
             else:
                 slippage_bps = _get_jupiter_slippage(token.liquidity_usd)
                 if action == "buy":
                     amount_lamports = int(amount_sol * LAMPORTS_PER_SOL)
                     signature = await _execute_jupiter_with_session(
-                        SOL_MINT, token.mint, amount_lamports, slippage_bps
+                        SOL_MINT, token.mint, amount_lamports, slippage_bps,
+                        skip_preflight=skip_preflight,
                     )
                 else:
                     # For sells, amount_sol represents the token amount to sell
                     # Caller should pass token amount in lamports-equivalent
                     amount_lamports = int(amount_sol * LAMPORTS_PER_SOL)
                     signature = await _execute_jupiter_with_session(
-                        token.mint, SOL_MINT, amount_lamports, slippage_bps
+                        token.mint, SOL_MINT, amount_lamports, slippage_bps,
+                        skip_preflight=skip_preflight,
                     )
 
             return ExecutionResult(
@@ -380,14 +400,18 @@ async def execute_trade(
     )
 
 
-async def _execute_pumpportal_with_session(action, mint, amount_sol, slippage, priority_fee, pool):
+async def _execute_pumpportal_with_session(action, mint, amount_sol, slippage, priority_fee, pool,
+                                           use_jito=True, skip_preflight=False):
     async with aiohttp.ClientSession() as session:
-        return await _execute_pumpportal(session, action, mint, amount_sol, slippage, priority_fee, pool)
+        return await _execute_pumpportal(session, action, mint, amount_sol, slippage, priority_fee, pool,
+                                         use_jito=use_jito, skip_preflight=skip_preflight)
 
 
-async def _execute_jupiter_with_session(input_mint, output_mint, amount_lamports, slippage_bps):
+async def _execute_jupiter_with_session(input_mint, output_mint, amount_lamports, slippage_bps,
+                                        skip_preflight=False):
     async with aiohttp.ClientSession() as session:
-        return await _execute_jupiter(session, input_mint, output_mint, amount_lamports, slippage_bps)
+        return await _execute_jupiter(session, input_mint, output_mint, amount_lamports, slippage_bps,
+                                      skip_preflight=skip_preflight)
 
 
 # ---------------------------------------------------------------------------

@@ -197,7 +197,15 @@ async def run_governance_task(task_type: str, context_data: dict, session: aioht
                      task_type, token_usage.input_tokens, token_usage.output_tokens)
 
         await write_governance_output(task_type, output, context_data)
-        await send_discord(session, f"Governance: {task_type} complete — check governance_notes.md")
+
+        if task_type == "wallet_rescore":
+            await send_discord(
+                session,
+                "Whale wallet rescore complete. Review data/whale_wallets_pending.json "
+                "and rename to whale_wallets.json to activate. Changes NOT yet live."
+            )
+        else:
+            await send_discord(session, f"Governance: {task_type} complete — check governance_notes.md")
 
     except Exception as e:
         logger.error("Governance task %s failed: %s", task_type, e)
