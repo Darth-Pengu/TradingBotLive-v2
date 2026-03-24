@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ToxiBot — Performance & ML</title>
+    <style>
+        :root {
+            --bg-dark: #0a0a1a;
+            --bg-card: rgba(15, 15, 35, 0.85);
+            --border-glow: rgba(0, 255, 170, 0.15);
+            --accent: #00ffaa;
+            --accent-dim: #00cc88;
+            --danger: #ff4466;
+            --warning: #ffaa00;
+            --text: #e0e0e0;
+            --text-dim: #888;
+            --profit: #00ffaa;
+            --loss: #ff4466;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', 'Inter', system-ui, sans-serif;
+            background: var(--bg-dark);
+            color: var(--text);
+            min-height: 100vh;
+            background-image:
+                radial-gradient(ellipse at 20% 50%, rgba(0, 255, 170, 0.03) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 20%, rgba(0, 100, 255, 0.03) 0%, transparent 50%);
+        }
+
+        nav {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 1rem 2rem;
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border-glow);
+            backdrop-filter: blur(10px);
+        }
+
+        nav .logo { font-size: 1.4rem; font-weight: 700; color: var(--accent); letter-spacing: 1px; }
+        nav .nav-links { display: flex; gap: 1.5rem; }
+        nav .nav-links a {
+            color: var(--text-dim); text-decoration: none; font-size: 0.9rem;
+            padding: 0.4rem 0.8rem; border-radius: 6px; transition: all 0.2s;
+        }
+        nav .nav-links a:hover, nav .nav-links a.active { color: var(--accent); background: rgba(0, 255, 170, 0.1); }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 1.2rem;
+            padding: 1.5rem 2rem;
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        .grid-full { grid-column: 1 / -1; }
+        .grid-half { grid-column: span 2; }
+
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-glow);
+            border-radius: 12px;
+            padding: 1.2rem 1.5rem;
+            backdrop-filter: blur(10px);
+        }
+
+        .card:hover { border-color: rgba(0, 255, 170, 0.3); }
+        .card h3 {
+            font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px;
+            color: var(--text-dim); margin-bottom: 0.8rem;
+        }
+        .card .value { font-size: 2rem; font-weight: 700; color: var(--accent); }
+        .card .sub { font-size: 0.85rem; color: var(--text-dim); margin-top: 0.3rem; }
+
+        .stat-row {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 0.6rem 0; border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .stat-row:last-child { border-bottom: none; }
+        .stat-label { color: var(--text-dim); font-size: 0.85rem; }
+        .stat-value { font-weight: 600; }
+
+        .pnl-positive { color: var(--profit); }
+        .pnl-negative { color: var(--loss); }
+
+        /* Drawdown chart (simple CSS bars) */
+        .bar-chart { display: flex; align-items: flex-end; gap: 3px; height: 120px; margin-top: 0.5rem; }
+        .bar {
+            flex: 1; background: var(--accent); border-radius: 2px 2px 0 0; min-width: 4px;
+            transition: height 0.3s; position: relative;
+        }
+        .bar.negative { background: var(--danger); }
+        .bar:hover { opacity: 0.8; }
+
+        /* ML confidence distribution */
+        .ml-dist { display: flex; gap: 2px; height: 60px; align-items: flex-end; margin-top: 0.5rem; }
+        .ml-bar {
+            flex: 1; border-radius: 2px 2px 0 0; min-width: 6px;
+            background: linear-gradient(to top, var(--accent-dim), var(--accent));
+        }
+
+        /* Governance notes */
+        .notes-panel {
+            max-height: 400px;
+            overflow-y: auto;
+            font-size: 0.85rem;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            padding: 0.5rem;
+            background: rgba(0,0,0,0.3);
+            border-radius: 8px;
+        }
+
+        .notes-panel h2 { font-size: 1rem; color: var(--accent); margin: 1rem 0 0.5rem; }
+
+        /* Alert banner */
+        .alert-banner {
+            background: rgba(255, 170, 0, 0.15);
+            border: 1px solid var(--warning);
+            border-radius: 8px;
+            padding: 0.8rem 1.2rem;
+            color: var(--warning);
+            font-size: 0.9rem;
+            display: none;
+        }
+
+        .alert-banner.visible { display: block; }
+
+        @media (max-width: 768px) {
+            nav { flex-direction: column; gap: 0.5rem; }
+            .grid { padding: 1rem; }
+            .grid-half { grid-column: span 1; }
+        }
+    </style>
+</head>
+<body>
+    <nav>
+        <div class="logo">ToxiBot</div>
+        <div class="nav-links">
+            <a href="/dashboard/dashboard.html">Overview</a>
+            <a href="/dashboard/dashboard-analytics.html" class="active">Analytics</a>
+            <a href="/dashboard/dashboard-wallet.html">Trade Feed</a>
+        </div>
+    </nav>
+
+    <div class="grid">
+        <!-- Pending review alert -->
+        <div class="card grid-full">
+            <div class="alert-banner" id="pendingAlert">
+                Whale wallet rescore pending review — check data/whale_wallets_pending.json and rename to activate.
+            </div>
+        </div>
+
+        <!-- Per-personality Sharpe & Stats -->
+        <div class="card">
+            <h3>Speed Demon Performance</h3>
+            <div id="sdStats">
+                <div class="stat-row"><span class="stat-label">Total P/L</span><span class="stat-value pnl-positive" id="sdPnl">--</span></div>
+                <div class="stat-row"><span class="stat-label">Win Rate</span><span class="stat-value" id="sdWin">--</span></div>
+                <div class="stat-row"><span class="stat-label">Total Trades</span><span class="stat-value" id="sdTotal">--</span></div>
+                <div class="stat-row"><span class="stat-label">Best Trade</span><span class="stat-value pnl-positive" id="sdBest">--</span></div>
+                <div class="stat-row"><span class="stat-label">Worst Trade</span><span class="stat-value pnl-negative" id="sdWorst">--</span></div>
+                <div class="stat-row"><span class="stat-label">Avg P/L %</span><span class="stat-value" id="sdAvg">--</span></div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>Analyst Performance</h3>
+            <div id="anStats">
+                <div class="stat-row"><span class="stat-label">Total P/L</span><span class="stat-value pnl-positive" id="anPnl">--</span></div>
+                <div class="stat-row"><span class="stat-label">Win Rate</span><span class="stat-value" id="anWin">--</span></div>
+                <div class="stat-row"><span class="stat-label">Total Trades</span><span class="stat-value" id="anTotal">--</span></div>
+                <div class="stat-row"><span class="stat-label">Best Trade</span><span class="stat-value pnl-positive" id="anBest">--</span></div>
+                <div class="stat-row"><span class="stat-label">Worst Trade</span><span class="stat-value pnl-negative" id="anWorst">--</span></div>
+                <div class="stat-row"><span class="stat-label">Avg P/L %</span><span class="stat-value" id="anAvg">--</span></div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>Whale Tracker Performance</h3>
+            <div id="wtStats">
+                <div class="stat-row"><span class="stat-label">Total P/L</span><span class="stat-value pnl-positive" id="wtPnl">--</span></div>
+                <div class="stat-row"><span class="stat-label">Win Rate</span><span class="stat-value" id="wtWin">--</span></div>
+                <div class="stat-row"><span class="stat-label">Total Trades</span><span class="stat-value" id="wtTotal">--</span></div>
+                <div class="stat-row"><span class="stat-label">Best Trade</span><span class="stat-value pnl-positive" id="wtBest">--</span></div>
+                <div class="stat-row"><span class="stat-label">Worst Trade</span><span class="stat-value pnl-negative" id="wtWorst">--</span></div>
+                <div class="stat-row"><span class="stat-label">Avg P/L %</span><span class="stat-value" id="wtAvg">--</span></div>
+            </div>
+        </div>
+
+        <!-- Portfolio History Chart -->
+        <div class="card grid-full">
+            <h3>Portfolio Value (24h)</h3>
+            <div class="bar-chart" id="portfolioChart"></div>
+            <div class="sub" style="margin-top:0.5rem;">Each bar = 5-min snapshot</div>
+        </div>
+
+        <!-- ML Confidence Distribution -->
+        <div class="card">
+            <h3>ML Score Distribution (Last 50 Trades)</h3>
+            <div class="ml-dist" id="mlDist"></div>
+            <div class="sub">Bins: 0-10, 10-20, ..., 90-100</div>
+        </div>
+
+        <!-- Max Drawdown -->
+        <div class="card">
+            <h3>Max Drawdown</h3>
+            <div class="value" id="maxDrawdown">--%</div>
+            <div class="sub">Peak to trough</div>
+            <div style="margin-top:0.8rem;">
+                <div class="stat-row"><span class="stat-label">Current Drawdown</span><span class="stat-value" id="currentDrawdown">--%</span></div>
+                <div class="stat-row"><span class="stat-label">Peak Balance</span><span class="stat-value" id="peakBalance">-- SOL</span></div>
+            </div>
+        </div>
+
+        <!-- Governance Notes -->
+        <div class="card grid-full">
+            <h3>Governance Notes (Latest)</h3>
+            <div class="notes-panel" id="governanceNotes">Loading...</div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+
+        async function fetchJSON(path) {
+            try {
+                const resp = await fetch(API_BASE + path);
+                return await resp.json();
+            } catch (e) {
+                return null;
+            }
+        }
+
+        function setPnl(id, val) {
+            const el = document.getElementById(id);
+            const v = val || 0;
+            el.textContent = (v >= 0 ? '+' : '') + v.toFixed(4) + ' SOL';
+            el.className = 'stat-value ' + (v >= 0 ? 'pnl-positive' : 'pnl-negative');
+        }
+
+        function updatePersonality(prefix, data) {
+            if (!data) return;
+            setPnl(prefix + 'Pnl', data.total_pnl_sol);
+            document.getElementById(prefix + 'Win').textContent = (data.win_rate || 0) + '%';
+            document.getElementById(prefix + 'Total').textContent = data.total_trades || 0;
+            setPnl(prefix + 'Best', data.best_trade_sol);
+            setPnl(prefix + 'Worst', data.worst_trade_sol);
+            document.getElementById(prefix + 'Avg').textContent = (data.avg_pnl_pct || 0).toFixed(1) + '%';
+        }
+
+        function renderPortfolioChart(snapshots) {
+            const chart = document.getElementById('portfolioChart');
+            if (!snapshots || snapshots.length === 0) {
+                chart.innerHTML = '<div style="color:var(--text-dim);padding:2rem;">No portfolio data yet</div>';
+                return;
+            }
+            const values = snapshots.map(s => s.total_balance_sol || 0);
+            const max = Math.max(...values);
+            const min = Math.min(...values);
+            const range = max - min || 1;
+            const baseVal = snapshots[0].total_balance_sol || 0;
+
+            chart.innerHTML = values.map((v, i) => {
+                const pct = ((v - min) / range) * 100;
+                const isNeg = v < baseVal;
+                return '<div class="bar' + (isNeg ? ' negative' : '') + '" style="height:' + Math.max(2, pct) + '%" title="' + v.toFixed(4) + ' SOL"></div>';
+            }).join('');
+        }
+
+        function renderMLDist(trades) {
+            const bins = new Array(10).fill(0);
+            if (trades) {
+                trades.forEach(t => {
+                    const score = t.ml_score || 0;
+                    const bin = Math.min(9, Math.floor(score / 10));
+                    bins[bin]++;
+                });
+            }
+            const max = Math.max(...bins) || 1;
+            const dist = document.getElementById('mlDist');
+            dist.innerHTML = bins.map((count, i) => {
+                const pct = (count / max) * 100;
+                return '<div class="ml-bar" style="height:' + Math.max(2, pct) + '%" title="' + (i*10) + '-' + ((i+1)*10) + ': ' + count + '"></div>';
+            }).join('');
+        }
+
+        function updateDrawdown(snapshots) {
+            if (!snapshots || snapshots.length === 0) return;
+            let peak = 0;
+            let maxDD = 0;
+            snapshots.forEach(s => {
+                const v = s.total_balance_sol || 0;
+                peak = Math.max(peak, v);
+                const dd = peak > 0 ? (peak - v) / peak : 0;
+                maxDD = Math.max(maxDD, dd);
+            });
+            const latest = snapshots[snapshots.length - 1].total_balance_sol || 0;
+            const currentDD = peak > 0 ? (peak - latest) / peak : 0;
+
+            document.getElementById('maxDrawdown').textContent = (maxDD * 100).toFixed(1) + '%';
+            document.getElementById('currentDrawdown').textContent = (currentDD * 100).toFixed(1) + '%';
+            document.getElementById('peakBalance').textContent = peak.toFixed(4) + ' SOL';
+        }
+
+        async function loadAll() {
+            const [stats, history, trades, governance] = await Promise.all([
+                fetchJSON('/api/personality-stats'),
+                fetchJSON('/api/portfolio-history'),
+                fetchJSON('/api/trades?limit=50'),
+                fetchJSON('/api/governance'),
+            ]);
+
+            if (stats) {
+                updatePersonality('sd', stats.speed_demon);
+                updatePersonality('an', stats.analyst);
+                updatePersonality('wt', stats.whale_tracker);
+            }
+
+            renderPortfolioChart(history);
+            renderMLDist(trades);
+            updateDrawdown(history);
+
+            if (governance) {
+                // Show latest section of notes
+                const notes = governance.notes || '';
+                const sections = notes.split('---').filter(s => s.trim());
+                const latest = sections.slice(-3).join('\n---\n');
+                document.getElementById('governanceNotes').textContent = latest || 'No governance notes yet.';
+
+                if (governance.pending_whale_review) {
+                    document.getElementById('pendingAlert').classList.add('visible');
+                }
+            }
+        }
+
+        loadAll();
+        setInterval(loadAll, 30000);
+    </script>
+</body>
+</html>
