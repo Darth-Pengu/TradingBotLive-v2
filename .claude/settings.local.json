@@ -1,0 +1,43 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''services/signal_listener.py''\\).read\\(\\)\\); print\\(''signal_listener.py: OK''\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''services/market_health.py''\\).read\\(\\)\\); print\\(''market_health.py: OK''\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''services/treasury.py''\\).read\\(\\)\\); print\\(''treasury.py: OK''\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''services/execution.py''\\).read\\(\\)\\); print\\(''execution.py: OK''\\)\")",
+      "Bash(where python3:*)",
+      "Bash(where python:*)",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\(''services/signal_listener.py''\\).read\\(\\)\\); print\\(''signal_listener: OK''\\)\")",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\(''services/market_health.py''\\).read\\(\\)\\); print\\(''market_health: OK''\\)\")",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\(''services/treasury.py''\\).read\\(\\)\\); print\\(''treasury: OK''\\)\")",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\(''services/execution.py''\\).read\\(\\)\\); print\\(''execution: OK''\\)\")",
+      "Read(//c/Users/jay_r/AppData/Local/Programs/Python//**)",
+      "Bash(ls /c/Python*)",
+      "Read(//c/Users/jay_r/.pyenv/pyenv-win/**)",
+      "Bash(py --version)",
+      "Bash(py:*)",
+      "Bash(/c/Users/jay_r/AppData/Local/Programs/Python/Python313/python.exe -c \"\nimport ast, sys\nfiles = ['services/signal_listener.py','services/market_health.py','services/treasury.py','services/execution.py']\nfor f in files:\n    try:\n        ast.parse\\(open\\(f\\).read\\(\\)\\)\n        print\\(f'{f}: OK'\\)\n    except SyntaxError as e:\n        print\\(f'{f}: SYNTAX ERROR - {e}'\\)\n        sys.exit\\(1\\)\n\")",
+      "Bash(\"/c/Users/jay_r/AppData/Local/Programs/Python/python.exe\" -c \"import ast; print\\('works'\\)\")",
+      "Bash(cmd.exe /c \"py -c \\\\\"import ast; print\\('OK'\\)\\\\\"\" 2>&1)",
+      "Bash(cmd.exe /c \"py -c \"\"import ast; ast.parse\\(open\\(''services/signal_listener.py''\\).read\\(\\)\\); print\\(''signal_listener: OK''\\)\"\"\")",
+      "Bash(cmd.exe /c \"py -c \"\"import ast; ast.parse\\(open\\(''services/market_health.py''\\).read\\(\\)\\); print\\(''market_health: OK''\\)\"\"\")",
+      "Bash(cmd.exe /c \"py -c \"\"import ast; ast.parse\\(open\\(''services/treasury.py''\\).read\\(\\)\\); print\\(''treasury: OK''\\)\"\"\")",
+      "Bash(cmd.exe /c \"py -c \"\"import ast; ast.parse\\(open\\(''services/execution.py''\\).read\\(\\)\\); print\\(''execution: OK''\\)\"\"\")",
+      "Bash(ls:*)",
+      "Bash(\"/c/Users/jay_r/AppData/Local/Programs/Python/Launcher/py.exe\" -c \"import ast; print\\('works'\\)\" 2>&1)",
+      "Bash(PY=\"/c/Users/jay_r/AppData/Local/Programs/Python/Launcher/py.exe\")",
+      "Bash(\"$PY\" -c \":*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(PY=\"/c/Users/jay_r/AppData/Local/Programs/Python/Launcher/py.exe\" \"$PY\" -m pip install aiohttp aiofiles websockets aiosqlite \"redis[asyncio]\" python-dotenv httpx pydantic numpy pandas)",
+      "Bash(PY=\"/c/Users/jay_r/AppData/Local/Programs/Python/Launcher/py.exe\" \"$PY\" -m ensurepip)",
+      "Bash(PY=\"/c/Users/jay_r/AppData/Local/Programs/Python/Launcher/py.exe\" \"$PY\" -m pip install aiohttp aiofiles websockets aiosqlite \"redis[asyncio]\" python-dotenv httpx pydantic numpy pandas anthropic solders solana base58)",
+      "Bash(timeout 10 \"$PY\" -c \":*)",
+      "Bash(__NEW_LINE_92676ddd767eb985__ echo:*)",
+      "Bash(PY=\"/c/Users/jay_r/AppData/Local/Programs/Python/Launcher/py.exe\" cd /c/Users/jay_r/documents/TradingBotLive-v2 for f in signal_listener market_health treasury execution risk_manager ml_engine signal_aggregator dashboard_api governance bot_core)",
+      "Bash(do \"$PY\" -c \":*)",
+      "Bash(TEST_MODE=true \"$PY\" -c \":*)"
+    ]
+  }
+}
