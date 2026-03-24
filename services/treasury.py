@@ -262,5 +262,9 @@ async def run_treasury_sweep():
     logger.info("Treasury sweep service stopped")
 
 
+async def main():
+    await run_treasury_sweep()
+
+
 if __name__ == "__main__":
-    asyncio.run(run_treasury_sweep())
+    asyncio.run(main())
