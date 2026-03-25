@@ -1,20 +1,21 @@
 """
-ZMN Bot Agent Governance Layer
-================================
-Separate scheduled process calling the Anthropic Claude API for reasoning-level oversight.
-NEVER touches trade execution. Advisory only.
+ZMN Bot Agent Governance Layer v2
+====================================
+Features:
+- Rolling memory (data/governance_memory.json)
+- Anomaly detection (every 30 min)
+- Parameter approval system (pending_parameters.json -> active_parameters.json)
+- Personality weighting by market regime (personality_weights.json)
+- Weekly meta report (GeckoTerminal trending + Nansen + Claude analysis)
+- Self-improving prompts (memory-informed context)
+- Discord two-way commands (via signal_listener.py)
 
-Schedule:
-- wallet_rescore: Weekly (Monday 02:00 UTC)
-- daily_briefing: Daily (06:00 UTC)
-- drawdown_diagnosis: Triggered (via Redis pub/sub on drawdown > 10%)
-- loss_streak_review: Triggered (via Redis on 3+ consecutive losses/personality)
-- monthly_report: Monthly (1st of month 06:00 UTC)
-
-Outputs:
-- whale_wallets_pending.json (requires manual review + rename to activate)
-- governance_notes.md (appended)
-- Discord notifications
+Schedule (all Sydney time):
+- daily_briefing: 7:00 AM Sydney
+- wallet_rescore + personality_weights + meta_report: Monday 6:00-7:00 AM Sydney
+- anomaly_detection: every 30 minutes
+- monthly_report: 1st of month 7:00 AM Sydney
+- drawdown_diagnosis / loss_streak_review: triggered via Redis
 """
 
 import asyncio
@@ -46,9 +47,8 @@ DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 NANSEN_API_KEY = os.getenv("NANSEN_API_KEY", "").strip()
 GOVERNANCE_MODEL = os.getenv("GOVERNANCE_MODEL", "claude-sonnet-4-6")
+TEST_MODE = os.getenv("TEST_MODE", "true").lower() == "true"
 
-# Nansen MCP server config — passed to Anthropic API calls that need Nansen data.
-# Claude will automatically discover and use Nansen MCP tools during reasoning.
 NANSEN_MCP_SERVER = {
     "type": "url",
     "url": "https://mcp.nansen.ai/ra/mcp/",
@@ -56,193 +56,285 @@ NANSEN_MCP_SERVER = {
     "authorization_token": NANSEN_API_KEY,
 } if NANSEN_API_KEY else None
 
-# --- Sydney timezone (auto DST: AEDT UTC+11 / AEST UTC+10) ---
 SYDNEY_TZ = pytz.timezone("Australia/Sydney")
+
+# Data file paths
+DATA_DIR = Path("data")
+MEMORY_FILE = DATA_DIR / "governance_memory.json"
+PENDING_PARAMS_FILE = DATA_DIR / "pending_parameters.json"
+ACTIVE_PARAMS_FILE = DATA_DIR / "active_parameters.json"
+PERSONALITY_WEIGHTS_FILE = DATA_DIR / "personality_weights.json"
+GOVERNANCE_NOTES_FILE = DATA_DIR / "governance_notes.md"
 
 
 def get_sydney_time():
     return datetime.now(pytz.utc).astimezone(SYDNEY_TZ)
 
 
-GOVERNANCE_SCHEDULE = {
-    "wallet_rescore":     "weekly",
-    "daily_briefing":     "daily",
-    "drawdown_diagnosis": "triggered",
-    "loss_streak_review": "triggered",
-    "monthly_report":     "monthly",
-}
+# ═══════════════════════════════════════════════════════════════════════════════
+# FEATURE 1 — ROLLING MEMORY
+# ═══════════════════════════════════════════════════════════════════════════════
 
-SYSTEM_PROMPT = """You are the governance agent for ZMN Bot, a Solana memecoin trading bot.
-Your role is strategic oversight — you analyse performance data, score whale wallets,
+def _load_memory() -> dict:
+    """Load governance memory or create default."""
+    default = {
+        "recommendations": [],
+        "confirmed_strengths": [],
+        "known_weaknesses": [],
+        "prompt_effectiveness": [],
+    }
+    try:
+        if MEMORY_FILE.exists():
+            with open(MEMORY_FILE) as f:
+                data = json.load(f)
+            # Ensure all keys
+            for k, v in default.items():
+                data.setdefault(k, v)
+            return data
+    except Exception as e:
+        logger.warning("Memory load failed: %s", e)
+    return default
+
+
+def _save_memory(memory: dict):
+    """Save governance memory, keeping last 10 recommendations."""
+    memory["recommendations"] = memory.get("recommendations", [])[-10:]
+    try:
+        DATA_DIR.mkdir(exist_ok=True)
+        with open(MEMORY_FILE, "w") as f:
+            json.dump(memory, f, indent=2)
+    except Exception as e:
+        logger.warning("Memory save failed: %s", e)
+
+
+def _record_recommendation(memory: dict, task_type: str, summary: str):
+    """Add a recommendation to memory."""
+    memory["recommendations"].append({
+        "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+        "task": task_type,
+        "summary": summary[:200],
+        "status": "pending",
+        "performance_impact": None,
+    })
+    _save_memory(memory)
+
+
+def _build_memory_context(memory: dict) -> str:
+    """Build memory context string for Claude prompts (Feature 6 — self-improving)."""
+    recent = memory.get("recommendations", [])[-5:]
+    strengths = memory.get("confirmed_strengths", [])[-5:]
+    weaknesses = memory.get("known_weaknesses", [])[-5:]
+    parts = []
+    if strengths:
+        parts.append(f"Confirmed working strategies: {json.dumps(strengths)}")
+    if weaknesses:
+        parts.append(f"Known current weaknesses: {json.dumps(weaknesses)}")
+    if recent:
+        parts.append(f"Recent recommendations: {json.dumps(recent)}")
+    return "\n".join(parts) if parts else "No prior context available."
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# FEATURE 3 — PARAMETER APPROVAL SYSTEM
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _load_json_file(path: Path, default=None):
+    if default is None:
+        default = []
+    try:
+        if path.exists():
+            with open(path) as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return default
+
+
+def _save_json_file(path: Path, data):
+    DATA_DIR.mkdir(exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+def propose_parameter_change(param_name: str, current_val, proposed_val, reason: str):
+    """Write a parameter change proposal to pending_parameters.json."""
+    pending = _load_json_file(PENDING_PARAMS_FILE, [])
+    pending.append({
+        "parameter": param_name,
+        "current_value": current_val,
+        "proposed_value": proposed_val,
+        "reason": reason,
+        "proposed_by": "governance",
+        "date": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M"),
+        "status": "pending",
+    })
+    _save_json_file(PENDING_PARAMS_FILE, pending)
+    logger.info("Parameter proposal: %s %s -> %s", param_name, current_val, proposed_val)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CORE — SYSTEM PROMPT + PROMPT BUILDER
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _build_system_prompt(memory: dict) -> str:
+    """Build system prompt with self-improving context (Feature 6)."""
+    base = """You are the ZMN Bot governance agent, a Solana memecoin trading bot.
+Your role is strategic oversight -- analyse performance, score wallets, detect anomalies,
 and make recommendations. You never make live trading decisions.
-Write clearly and concisely. All output will be reviewed by the bot owner before any
-parameter changes are applied. Flag anything unusual. Be direct about problems."""
+Write clearly and concisely. Flag anything unusual. Be direct about problems."""
+    ctx = _build_memory_context(memory)
+    return f"{base}\n\nHistorical context:\n{ctx}"
 
 
 def build_governance_prompt(task_type: str, context: dict) -> str:
     if task_type == "wallet_rescore":
-        wallet_addrs = context.get("wallet_addresses", [])
-        # Include up to 20 addresses for MCP lookup (avoid overwhelming the prompt)
-        lookup_addrs = wallet_addrs[:20]
+        wallet_addrs = context.get("wallet_addresses", [])[:20]
         return f"""
-Review the following whale wallet list and provide updated scores (0-100) for each wallet.
-Remove wallets that no longer meet minimum thresholds. Suggest new wallets to add.
+Review whale wallet list and provide updated scores (0-100).
+Remove wallets below thresholds. Suggest new wallets to add.
 
-Current wallet list: {json.dumps(context.get('current_wallets', []), indent=2)}
-Performance data (7 days): {json.dumps(context.get('performance_data', {}), indent=2)}
-Vybe top trader data: {json.dumps(context.get('vybe_data', {}), indent=2)}
+Current wallets: {json.dumps(context.get('current_wallets', [])[:20], indent=2)}
+Wallet addresses for lookup: {json.dumps(wallet_addrs, indent=2)}
 
-IMPORTANT — Use your Nansen MCP tools to:
-1. Look up the PnL summary and trading performance for these wallet addresses (check up to 20):
-   {json.dumps(lookup_addrs, indent=2)}
-   For each wallet, get: realized PnL (30d), win rate, total trades, and any smart money labels.
+Use Nansen MCP tools to get PnL summaries and smart money rankings.
+Scoring: win_rate (25%), avg_roi (20%), trade_frequency (15%), realized_pnl (15%), consistency (15%), hold_period (10%).
 
-2. Get the current top smart money holdings on Solana — check if any wallets in our list
-   appear in the smart money rankings.
-
-3. Identify any new high-performing wallets from the smart money data that we should add.
-
-Scoring dimensions: win_rate (25%), avg_roi (20%), trade_frequency (15%),
-realized_pnl (15%), consistency (15%), hold_period (10%).
-Prefer Nansen data over Vybe when both are available — Nansen is more reliable for win_rate and realized_pnl.
-
-Output: Valid JSON array matching this schema:
-[{{"address": "...", "score": 75, "label": "...", "source": "nansen", "win_rate": null, "realized_pnl_30d": null, "last_scored": "{datetime.now(timezone.utc).strftime('%Y-%m-%d')}", "active": true}}]
-Nothing else — just the JSON array.
+Output: Valid JSON array with schema:
+[{{"address":"...","score":75,"label":"...","source":"nansen","win_rate":null,"realized_pnl_30d":null,"last_scored":"{datetime.now(timezone.utc).strftime('%Y-%m-%d')}","active":true}}]
 """
 
     elif task_type == "daily_briefing":
         syd = get_sydney_time()
-        syd_str = syd.strftime("%A %d %B %Y")
-        syd_time = syd.strftime("%H:%M %Z")
-        utc_now = datetime.now(timezone.utc).strftime("%H:%M UTC")
-        tz_name = syd.strftime("%Z")
-        offset = syd.strftime("%z")
-        offset_fmt = f"UTC{offset[:3]}:{offset[3:]}"
-        # Trading windows in Sydney time
-        from services.market_health import get_current_session_sydney
-        session_name, session_quality = get_current_session_sydney()
+        try:
+            from services.market_health import get_current_session_sydney
+            session_name, session_quality = get_current_session_sydney()
+        except Exception:
+            session_name, session_quality = "UNKNOWN", "unknown"
         return f"""
-Write the daily briefing for ZMN Bot.
-Current Sydney time: {syd_time}
-Current UTC time: {utc_now}
-Current timezone: {tz_name} ({offset_fmt})
-Current trading session: {session_name} ({session_quality})
+Write daily briefing for ZMN Bot.
+Sydney time: {syd.strftime('%A %d %B %Y %H:%M %Z')}
+Trading session: {session_name} ({session_quality})
+Mode: {'PAPER TRADING' if context.get('test_mode') else 'LIVE'}
 
-Include in the briefing:
-1. Good morning Jay -- {syd_str}
-2. Yesterday's {'paper trading' if context.get('test_mode') else 'live'} performance
-   (P/L, win rate, best/worst trade per personality)
-3. Current market mode and why it's set that way
-4. Solana DEX volume last 24h vs 7-day average -- is today likely good or bad?
-5. Fear & Greed reading and what it means for today
-6. Key trading windows today in Sydney time:
-   - Asian session: 7:00 AM - 4:00 PM Sydney
-   - EU session opens: ~8:00 PM Sydney
-   - Peak overlap (EU+US): ~12:00 AM - 4:00 AM Sydney
-   - Dead zone (avoid): 4:00 AM - 7:00 AM Sydney
-7. Network conditions: current priority fees, any congestion
-8. Any governance actions needed (pending wallet review etc)
-9. One specific recommendation for today's trading
-10. Smart money snapshot -- use your Nansen MCP tools to check what smart money wallets
-    have been doing on Solana in the last 24 hours.
+Include:
+1. Good morning Jay -- {syd.strftime('%A %d %B %Y')}
+2. Yesterday's performance (P/L, win rate, best/worst per personality)
+3. Market mode and reasoning
+4. Trading windows in Sydney time
+5. Network conditions
+6. Governance actions needed
+7. One specific recommendation
+8. Smart money snapshot (use Nansen MCP tools)
 
-Data: {json.dumps(context, indent=2)}
+Data: {json.dumps(context, indent=2, default=str)[:3000]}
 
 Sign off: 'Good luck today, Jay. -- ZMN Bot Governance'
-Max 500 words. Be direct. No fluff.
+Max 500 words.
 """
 
     elif task_type == "drawdown_diagnosis":
         return f"""
-ZMN Bot has hit a significant drawdown. Analyse the recent trade history and diagnose
-the root cause. Was this a market condition problem, a signal quality problem, a position
-sizing problem, or something else? Be specific about which trades caused the most damage
-and why.
-
-Drawdown details: {json.dumps(context.get('drawdown_info', {}), indent=2)}
-Recent trades (last 48h): {json.dumps(context.get('recent_trades', []), indent=2)}
-Market conditions during drawdown: {json.dumps(context.get('market_conditions', {}), indent=2)}
-Signal sources that triggered losing trades: {json.dumps(context.get('signal_sources', []), indent=2)}
-
-Provide: (1) root cause diagnosis, (2) specific parameter changes to consider,
-(3) whether trading should resume or stay paused. Be direct.
+ZMN Bot hit a significant drawdown. Diagnose root cause.
+Drawdown: {json.dumps(context.get('drawdown_info', {}), indent=2)}
+Recent trades: {json.dumps(context.get('recent_trades', [])[:20], indent=2, default=str)}
+Provide: (1) root cause, (2) parameter changes, (3) resume or pause. Be direct.
 """
 
     elif task_type == "loss_streak_review":
         return f"""
-{context.get('personality', 'Unknown')} has had {context.get('consecutive_losses', 0)} consecutive losses.
-Review the losing trades and determine whether this is:
-a) Bad luck in a volatile market (no action needed - resume at reduced sizing)
-b) A signal quality issue (specific signal sources to stop trusting temporarily)
-c) A parameter issue (specific thresholds to adjust)
-d) A market regime change (the personality's strategy isn't suited to current conditions)
-
-Losing trades: {json.dumps(context.get('losing_trades', []), indent=2)}
-Current parameters: {json.dumps(context.get('parameters', {}), indent=2)}
-
-Provide: diagnosis + specific recommendation. One paragraph max.
+{context.get('personality','Unknown')} has {context.get('consecutive_losses',0)} consecutive losses.
+Losing trades: {json.dumps(context.get('losing_trades', [])[:10], indent=2, default=str)}
+Diagnose: bad luck, signal quality issue, parameter issue, or regime change?
+One paragraph max with specific recommendation.
 """
 
     elif task_type == "monthly_report":
         return f"""
-Write a monthly performance report for ZMN Bot. Include:
-1. Overall P/L and Sharpe ratio
-2. Per-personality breakdown (Speed Demon, Analyst, Whale Tracker)
-3. ML model accuracy trend
-4. Best performing signal sources
-5. Worst performing signal sources (consider dropping)
-6. Treasury sweep summary (total swept to holding wallet)
+Monthly performance report for ZMN Bot:
+1. Overall P/L 2. Per-personality breakdown 3. ML accuracy
+4. Best signal sources 5. Worst signal sources 6. Treasury sweeps
 7. Top 3 recommendations for next month
-
-Data: {json.dumps(context, indent=2)}
+Data: {json.dumps(context, indent=2, default=str)[:3000]}
 """
 
     elif task_type == "smart_money_analysis":
         return f"""
-Analyse smart money activity on Solana this week using your Nansen MCP tools.
-
-Use your Nansen tools to:
-1. Get the top smart money holdings on Solana right now
-2. Check for any significant changes in smart money positioning this week
-
-Questions to answer:
-1. Are any of the top smart money tokens also appearing in our active trading signals?
-2. Are there tokens that smart money holds heavily that we should add to our watchlist?
-3. What patterns do you see — rotation into new sectors, accumulation of specific tokens, or reducing exposure?
-4. Flag any tokens with unusual concentration by smart money wallets.
-
-Our current active signals context: {json.dumps(context.get('active_signals', []), indent=2)}
-
-Be concise. Max 300 words.
+Analyse smart money on Solana this week using Nansen MCP tools.
+1. Top holdings 2. Changes in positioning 3. Emerging narratives
+4. Tokens with unusual smart money concentration
+Max 300 words.
 """
 
-    return "No valid task type provided."
+    elif task_type == "anomaly_diagnosis":
+        return f"""
+Anomaly detected: {context.get('anomaly_description', 'Unknown anomaly')}
+Recent trade data: {json.dumps(context.get('recent_data', [])[:15], indent=2, default=str)}
+Diagnose the likely cause in 2 sentences and suggest one immediate action.
+"""
 
+    elif task_type == "weekly_meta":
+        return f"""
+Here are the top performing Solana tokens this week and what smart money bought:
+Trending pools: {json.dumps(context.get('trending', [])[:10], indent=2, default=str)}
+Nansen data: {json.dumps(context.get('nansen_data', [])[:10], indent=2, default=str)}
+
+What patterns do you see? What signal types preceded the best performers?
+Are there emerging narrative themes? What should ZMN Bot emphasise next week?
+Max 300 words.
+"""
+
+    elif task_type == "personality_weights":
+        return f"""
+Analyse last 30 days of ZMN Bot trades by market condition.
+Trades: {json.dumps(context.get('trades_30d', [])[:50], indent=2, default=str)}
+
+Calculate which personality performs best in each regime:
+- bull_trend, high_volatility, choppy, defensive
+
+Output valid JSON:
+{{"bull_trend":{{"speed_demon":1.0,"analyst":1.0,"whale_tracker":1.0}},"high_volatility":{{"speed_demon":1.0,"analyst":1.0,"whale_tracker":1.0}},"choppy":{{"speed_demon":1.0,"analyst":1.0,"whale_tracker":1.0}},"defensive":{{"speed_demon":1.0,"analyst":1.0,"whale_tracker":1.0}}}}
+Values 0.5-1.5. Nothing else -- just the JSON.
+"""
+
+    return "No valid task type."
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CORE — OUTPUT + DISCORD + RUN TASK
+# ═══════════════════════════════════════════════════════════════════════════════
 
 async def write_governance_output(task_type: str, output: str, context: dict):
     timestamp = datetime.now(timezone.utc).isoformat()
+    DATA_DIR.mkdir(exist_ok=True)
 
     if task_type == "wallet_rescore":
-        # Write to pending file — requires manual review (Section 7)
         try:
             updated_wallets = json.loads(output)
-            with open("data/whale_wallets_pending.json", "w") as f:
-                json.dump(updated_wallets, f, indent=2)
-            logger.info("Whale wallet rescore written to whale_wallets_pending.json")
+            _save_json_file(DATA_DIR / "whale_wallets_pending.json", updated_wallets)
+            logger.info("Wallet rescore -> whale_wallets_pending.json")
         except json.JSONDecodeError:
-            # If Claude didn't return valid JSON, save raw output to notes
-            with open("data/governance_notes.md", "a") as f:
-                f.write(f"\n\n---\n## {task_type} — {timestamp}\n\n**WARNING: Could not parse as JSON. Raw output:**\n\n{output}\n")
-            logger.warning("wallet_rescore output was not valid JSON — saved to notes")
-    else:
-        with open("data/governance_notes.md", "a") as f:
-            f.write(f"\n\n---\n## {task_type} — {timestamp}\n\n{output}\n")
+            with open(GOVERNANCE_NOTES_FILE, "a") as f:
+                f.write(f"\n\n---\n## {task_type} -- {timestamp}\n\nWARNING: not valid JSON.\n\n{output}\n")
 
-    logger.info("Governance output written for %s", task_type)
+    elif task_type == "personality_weights":
+        try:
+            weights = json.loads(output)
+            _save_json_file(PERSONALITY_WEIGHTS_FILE, weights)
+            logger.info("Personality weights updated")
+        except json.JSONDecodeError:
+            with open(GOVERNANCE_NOTES_FILE, "a") as f:
+                f.write(f"\n\n---\n## {task_type} -- {timestamp}\n\n{output}\n")
+    else:
+        with open(GOVERNANCE_NOTES_FILE, "a") as f:
+            f.write(f"\n\n---\n## {task_type} -- {timestamp}\n\n{output}\n")
+
+    logger.info("Governance output written: %s", task_type)
 
 
 async def send_discord(session: aiohttp.ClientSession, message: str):
+    if TEST_MODE:
+        logger.info("Discord [TEST]: %s", message[:200])
+        return
     if not DISCORD_WEBHOOK_URL:
         logger.info("Discord (no webhook): %s", message[:200])
         return
@@ -250,95 +342,237 @@ async def send_discord(session: aiohttp.ClientSession, message: str):
         await session.post(DISCORD_WEBHOOK_URL, json={"content": message[:2000]},
                            timeout=aiohttp.ClientTimeout(total=10))
     except Exception as e:
-        logger.warning("Discord notification failed: %s", e)
+        logger.warning("Discord send failed: %s", e)
 
 
 async def run_governance_task(task_type: str, context_data: dict, session: aiohttp.ClientSession,
                              use_nansen_mcp: bool = False):
-    """Call Claude API with relevant data. Never writes to execution config directly.
-    When use_nansen_mcp=True and NANSEN_API_KEY is set, the Nansen MCP server is attached
-    so Claude can query wallet PnL, smart money holdings, and activity data directly.
-    """
     if not ANTHROPIC_API_KEY:
-        logger.warning("ANTHROPIC_API_KEY not set — skipping governance task: %s", task_type)
-        return
+        logger.warning("ANTHROPIC_API_KEY not set -- skipping: %s", task_type)
+        return None
 
-    logger.info("Running governance task: %s (nansen_mcp=%s)", task_type, use_nansen_mcp)
+    memory = _load_memory()
+    logger.info("Running governance: %s", task_type)
 
     try:
         import anthropic
         client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
 
         user_prompt = build_governance_prompt(task_type, context_data)
+        system_prompt = _build_system_prompt(memory)
 
-        # Build API call kwargs — add MCP server if requested and available
         api_kwargs = {
             "model": GOVERNANCE_MODEL,
             "max_tokens": 4096,
-            "system": SYSTEM_PROMPT,
+            "system": system_prompt,
             "messages": [{"role": "user", "content": user_prompt}],
         }
 
         if use_nansen_mcp and NANSEN_MCP_SERVER:
             api_kwargs["mcp_servers"] = [NANSEN_MCP_SERVER]
-            logger.info("Nansen MCP server attached for %s", task_type)
 
         message = await client.messages.create(**api_kwargs)
-
-        # Extract text from response — MCP calls may produce multiple content blocks
         text_parts = [block.text for block in message.content if hasattr(block, "text")]
         output = "\n".join(text_parts)
-        token_usage = message.usage
 
-        logger.info("Governance %s complete — tokens: input=%d, output=%d",
-                     task_type, token_usage.input_tokens, token_usage.output_tokens)
+        logger.info("Governance %s done -- tokens: in=%d out=%d",
+                     task_type, message.usage.input_tokens, message.usage.output_tokens)
 
         await write_governance_output(task_type, output, context_data)
+        _record_recommendation(memory, task_type, output[:200])
 
+        # Discord notifications
         if task_type == "wallet_rescore":
-            await send_discord(
-                session,
-                "Whale wallet rescore complete. Review data/whale_wallets_pending.json "
-                "and rename to whale_wallets.json to activate. Changes NOT yet live."
-            )
+            await send_discord(session, "[ZMN Bot] Wallet rescore complete. Review whale_wallets_pending.json.")
+        elif task_type == "anomaly_diagnosis":
+            await send_discord(session, f"[ZMN Bot] ANOMALY: {output[:1800]}")
+        elif task_type == "weekly_meta":
+            syd = get_sydney_time()
+            await send_discord(session, f"[ZMN Bot] Weekly Meta -- {syd.strftime('%d %b %Y')}\n{output[:1800]}")
         else:
-            await send_discord(session, f"Governance: {task_type} complete — check governance_notes.md")
+            await send_discord(session, f"[ZMN Bot] {task_type}: check governance_notes.md")
+
+        return output
 
     except Exception as e:
-        logger.error("Governance task %s failed: %s", task_type, e)
-        await send_discord(session, f"Governance ERROR: {task_type} failed — {str(e)[:200]}")
+        logger.error("Governance %s failed: %s", task_type, e)
+        await send_discord(session, f"[ZMN Bot] ERROR: {task_type} failed -- {str(e)[:200]}")
+        return None
 
 
-async def _gather_context(db: aiosqlite.Connection, redis_conn: aioredis.Redis | None, task_type: str) -> dict:
-    """Gather context data for a governance task from DB and Redis."""
-    context = {}
+# ═══════════════════════════════════════════════════════════════════════════════
+# FEATURE 2 — ANOMALY DETECTION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def _anomaly_loop(db: aiosqlite.Connection, redis_conn: aioredis.Redis | None):
+    """Run anomaly checks every 30 minutes."""
+    async with aiohttp.ClientSession() as session:
+        while True:
+            try:
+                await _check_anomalies(db, redis_conn, session)
+            except Exception as e:
+                logger.error("Anomaly check error: %s", e)
+            await asyncio.sleep(1800)  # 30 minutes
+
+
+async def _check_anomalies(db: aiosqlite.Connection, redis_conn, session):
     now = time.time()
+    anomalies = []
 
     try:
-        if task_type == "daily_briefing":
-            # Last 24h trades
+        # 1. Win rate drop >10% in 24h window
+        cursor = await db.execute(
+            "SELECT COUNT(*) as total, SUM(CASE WHEN outcome='profit' THEN 1 ELSE 0 END) as wins "
+            "FROM trades WHERE closed_at > ? AND outcome IS NOT NULL", (now - 86400,))
+        row = await cursor.fetchone()
+        if row and row[0] >= 5:
+            wr_24h = (row[1] or 0) / row[0] * 100
+            cursor2 = await db.execute(
+                "SELECT COUNT(*) as total, SUM(CASE WHEN outcome='profit' THEN 1 ELSE 0 END) as wins "
+                "FROM trades WHERE closed_at > ? AND closed_at <= ? AND outcome IS NOT NULL",
+                (now - 7 * 86400, now - 86400))
+            row2 = await cursor2.fetchone()
+            if row2 and row2[0] >= 10:
+                wr_7d = (row2[1] or 0) / row2[0] * 100
+                if wr_7d - wr_24h > 10:
+                    anomalies.append(f"Win rate dropped from {wr_7d:.1f}% (7d avg) to {wr_24h:.1f}% (24h)")
+
+        # 2. Exit reason spike >3x
+        for reason in ["stop_loss", "emergency_stop", "smart_money_exit_alert"]:
             cursor = await db.execute(
-                "SELECT * FROM trades WHERE created_at > ? ORDER BY created_at DESC",
-                (now - 86400,),
-            )
+                "SELECT COUNT(*) FROM trades WHERE closed_at > ? AND outcome='loss' AND "
+                "features_json LIKE ?", (now - 86400, f"%{reason}%"))
+            row = await cursor.fetchone()
+            count_24h = row[0] if row else 0
+            cursor2 = await db.execute(
+                "SELECT COUNT(*) FROM trades WHERE closed_at > ? AND closed_at <= ? AND "
+                "features_json LIKE ?", (now - 7 * 86400, now - 86400, f"%{reason}%"))
+            row2 = await cursor2.fetchone()
+            avg_daily = ((row2[0] if row2 else 0) / 6) if row2 else 0
+            if avg_daily > 0 and count_24h > avg_daily * 3:
+                anomalies.append(f"Exit reason '{reason}' spiked: {count_24h} today vs {avg_daily:.1f}/day avg")
+
+    except Exception as e:
+        logger.debug("Anomaly SQL error: %s", e)
+
+    # Fire Claude diagnosis for each anomaly
+    for anomaly in anomalies:
+        logger.warning("ANOMALY: %s", anomaly)
+        try:
+            recent_trades = []
+            cursor = await db.execute(
+                "SELECT * FROM trades WHERE closed_at > ? ORDER BY closed_at DESC LIMIT 15",
+                (now - 86400,))
+            rows = await cursor.fetchall()
+            if rows:
+                cols = [d[0] for d in cursor.description]
+                recent_trades = [dict(zip(cols, r)) for r in rows]
+
+            context = {"anomaly_description": anomaly, "recent_data": recent_trades}
+            await run_governance_task("anomaly_diagnosis", context, session)
+        except Exception as e:
+            logger.error("Anomaly diagnosis failed: %s", e)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# FEATURE 4 — PERSONALITY WEIGHTING
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def _calculate_personality_weights(db: aiosqlite.Connection, session: aiohttp.ClientSession):
+    """Analyse trades by market condition, ask Claude for optimal weights."""
+    now = time.time()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM trades WHERE created_at > ? AND outcome IS NOT NULL ORDER BY created_at DESC LIMIT 200",
+            (now - 30 * 86400,))
+        rows = await cursor.fetchall()
+        cols = [d[0] for d in cursor.description]
+        trades = [dict(zip(cols, r)) for r in rows]
+
+        if len(trades) < 10:
+            logger.info("Not enough trades for personality weighting (%d)", len(trades))
+            return
+
+        context = {"trades_30d": trades}
+        output = await run_governance_task("personality_weights", context, session)
+
+        if output:
+            try:
+                weights = json.loads(output)
+                _save_json_file(PERSONALITY_WEIGHTS_FILE, weights)
+                logger.info("Personality weights saved")
+            except json.JSONDecodeError:
+                logger.warning("Personality weights output not valid JSON")
+
+    except Exception as e:
+        logger.error("Personality weighting failed: %s", e)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# FEATURE 5 — WEEKLY META REPORT
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def _weekly_meta_report(session: aiohttp.ClientSession):
+    """Pull trending pools + Nansen data, ask Claude for pattern analysis."""
+    try:
+        # GeckoTerminal trending pools
+        trending = []
+        try:
+            async with session.get(
+                "https://api.geckoterminal.com/api/v2/networks/solana/trending_pools",
+                params={"page": 1},
+                headers={"Accept": "application/json"},
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    for pool in data.get("data", [])[:20]:
+                        attrs = pool.get("attributes", {})
+                        trending.append({
+                            "name": attrs.get("name", ""),
+                            "price_change_24h": attrs.get("price_change_percentage", {}).get("h24"),
+                            "volume_24h": attrs.get("volume_usd", {}).get("h24"),
+                            "reserve_usd": attrs.get("reserve_in_usd"),
+                        })
+        except Exception as e:
+            logger.warning("GeckoTerminal trending fetch failed: %s", e)
+
+        # Nansen data via MCP (Claude will fetch during reasoning)
+        context = {"trending": trending, "nansen_data": []}
+        await run_governance_task("weekly_meta", context, session, use_nansen_mcp=True)
+
+    except Exception as e:
+        logger.error("Weekly meta report failed: %s", e)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CONTEXT GATHERING
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def _gather_context(db: aiosqlite.Connection, redis_conn, task_type: str) -> dict:
+    context = {}
+    now = time.time()
+    try:
+        if task_type == "daily_briefing":
+            cursor = await db.execute(
+                "SELECT * FROM trades WHERE created_at > ? ORDER BY created_at DESC", (now - 86400,))
             rows = await cursor.fetchall()
             cols = [d[0] for d in cursor.description]
             context["trades_24h"] = [dict(zip(cols, r)) for r in rows]
 
-            # Portfolio snapshot
-            cursor = await db.execute(
-                "SELECT * FROM portfolio_snapshots ORDER BY id DESC LIMIT 1"
-            )
+            cursor = await db.execute("SELECT * FROM portfolio_snapshots ORDER BY id DESC LIMIT 1")
             row = await cursor.fetchone()
             if row:
                 cols = [d[0] for d in cursor.description]
                 context["portfolio"] = dict(zip(cols, row))
 
-            # Market health from Redis
             if redis_conn:
-                health = await redis_conn.get("market:health")
-                if health:
-                    context["market_health"] = json.loads(health)
+                try:
+                    health = await redis_conn.get("market:health")
+                    if health:
+                        context["market_health"] = json.loads(health)
+                except Exception:
+                    pass
 
         elif task_type == "wallet_rescore":
             try:
@@ -346,32 +580,21 @@ async def _gather_context(db: aiosqlite.Connection, redis_conn: aioredis.Redis |
                     context["current_wallets"] = json.load(f)
             except (FileNotFoundError, json.JSONDecodeError):
                 context["current_wallets"] = []
-
-            # Nansen data is now fetched by Claude via MCP during the API call.
-            # We pass wallet addresses so the prompt can instruct Claude to look them up.
             context["wallet_addresses"] = [
                 w.get("address", "") if isinstance(w, dict) else str(w)
                 for w in context["current_wallets"] if w
             ]
-            context["performance_data"] = {}
-            context["vybe_data"] = {}
 
         elif task_type == "monthly_report":
-            # Last 30 days of trades
             cursor = await db.execute(
                 "SELECT * FROM trades WHERE created_at > ? ORDER BY created_at DESC",
-                (now - 30 * 86400,),
-            )
+                (now - 30 * 86400,))
             rows = await cursor.fetchall()
             cols = [d[0] for d in cursor.description]
             context["trades_30d"] = [dict(zip(cols, r)) for r in rows]
-
-            # Treasury sweeps
             try:
                 cursor = await db.execute(
-                    "SELECT * FROM treasury_sweeps WHERE timestamp > ? ORDER BY timestamp DESC",
-                    (datetime.fromtimestamp(now - 30 * 86400, tz=timezone.utc).isoformat(),),
-                )
+                    "SELECT * FROM treasury_sweeps ORDER BY id DESC LIMIT 10")
                 rows = await cursor.fetchall()
                 cols = [d[0] for d in cursor.description]
                 context["treasury_sweeps"] = [dict(zip(cols, r)) for r in rows]
@@ -379,17 +602,20 @@ async def _gather_context(db: aiosqlite.Connection, redis_conn: aioredis.Redis |
                 context["treasury_sweeps"] = []
 
     except Exception as e:
-        logger.error("Context gathering failed for %s: %s", task_type, e)
+        logger.error("Context gather failed for %s: %s", task_type, e)
 
     return context
 
 
-# --- Scheduled tasks ---
-async def _scheduled_loop(db: aiosqlite.Connection, redis_conn: aioredis.Redis | None):
-    """Run scheduled governance tasks. All times in Sydney local time (auto DST)."""
+# ═══════════════════════════════════════════════════════════════════════════════
+# SCHEDULED + TRIGGERED LOOPS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def _scheduled_loop(db: aiosqlite.Connection, redis_conn):
+    """Run scheduled tasks. All times in Sydney local time (auto DST)."""
     last_daily = 0.0
     last_weekly = 0.0
-    last_weekly_sm = 0.0
+    last_weekly_meta = 0.0
     last_monthly = 0.0
 
     async with aiohttp.ClientSession() as session:
@@ -397,40 +623,38 @@ async def _scheduled_loop(db: aiosqlite.Connection, redis_conn: aioredis.Redis |
             syd = get_sydney_time()
             now_ts = time.time()
 
-            # Daily briefing at 7:00 AM Sydney
+            # Daily briefing: 7:00 AM Sydney
             if syd.hour == 7 and syd.minute < 2 and now_ts - last_daily > 82800:
                 context = await _gather_context(db, redis_conn, "daily_briefing")
                 context["test_mode"] = TEST_MODE
                 await run_governance_task("daily_briefing", context, session, use_nansen_mcp=True)
-                # Send to Discord with Sydney time header
                 syd_header = syd.strftime("%A %d %B %Y %H:%M %Z")
-                await send_discord(session, f"ZMN Bot Daily Briefing -- {syd_header}")
+                await send_discord(session, f"[ZMN Bot] Daily Briefing -- {syd_header}")
                 last_daily = now_ts
 
-            # Weekly wallet rescore: Monday 6:00 AM Sydney
+            # Monday 6:00 AM Sydney: wallet rescore + personality weights
             if syd.weekday() == 0 and syd.hour == 6 and syd.minute < 2 and now_ts - last_weekly > 604800:
                 context = await _gather_context(db, redis_conn, "wallet_rescore")
                 await run_governance_task("wallet_rescore", context, session, use_nansen_mcp=True)
+                await _calculate_personality_weights(db, session)
                 last_weekly = now_ts
 
-            # Weekly smart money analysis: Monday 6:30 AM Sydney
-            if syd.weekday() == 0 and syd.hour == 6 and 28 <= syd.minute <= 32 and now_ts - last_weekly_sm > 604800:
-                context = {"active_signals": []}
-                await run_governance_task("smart_money_analysis", context, session, use_nansen_mcp=True)
-                last_weekly_sm = now_ts
+            # Monday 6:30 AM Sydney: weekly meta report
+            if syd.weekday() == 0 and syd.hour == 6 and 28 <= syd.minute <= 32 and now_ts - last_weekly_meta > 604800:
+                await _weekly_meta_report(session)
+                last_weekly_meta = now_ts
 
-            # Monthly report: 1st of month, 7:00 AM Sydney
+            # 1st of month, 7:00 AM Sydney
             if syd.day == 1 and syd.hour == 7 and syd.minute < 2 and now_ts - last_monthly > 2592000:
                 context = await _gather_context(db, redis_conn, "monthly_report")
                 await run_governance_task("monthly_report", context, session)
                 last_monthly = now_ts
 
-            await asyncio.sleep(60)  # Check every minute
+            await asyncio.sleep(60)
 
 
-# --- Triggered tasks via Redis ---
 async def _trigger_listener(db: aiosqlite.Connection, redis_conn: aioredis.Redis):
-    """Listen for triggered governance events."""
+    """Listen for triggered governance events via Redis pub/sub."""
     pubsub = redis_conn.pubsub()
     await pubsub.subscribe("drawdown:significant", "streak:loss")
     logger.info("Listening for governance triggers")
@@ -439,10 +663,9 @@ async def _trigger_listener(db: aiosqlite.Connection, redis_conn: aioredis.Redis
         async for message in pubsub.listen():
             if message["type"] != "message":
                 continue
-
-            channel = message["channel"]
             try:
                 data = json.loads(message["data"])
+                channel = message["channel"]
 
                 if channel == "drawdown:significant":
                     context = await _gather_context(db, redis_conn, "drawdown_diagnosis")
@@ -451,12 +674,9 @@ async def _trigger_listener(db: aiosqlite.Connection, redis_conn: aioredis.Redis
 
                 elif channel == "streak:loss":
                     context = data
-                    # Fetch recent losing trades for this personality
                     cursor = await db.execute(
-                        """SELECT * FROM trades WHERE personality = ? AND outcome = 'loss'
-                           ORDER BY created_at DESC LIMIT 10""",
-                        (data.get("personality", ""),),
-                    )
+                        "SELECT * FROM trades WHERE personality = ? AND outcome = 'loss' "
+                        "ORDER BY created_at DESC LIMIT 10", (data.get("personality", ""),))
                     rows = await cursor.fetchall()
                     cols = [d[0] for d in cursor.description]
                     context["losing_trades"] = [dict(zip(cols, r)) for r in rows]
@@ -467,11 +687,131 @@ async def _trigger_listener(db: aiosqlite.Connection, redis_conn: aioredis.Redis
                 logger.error("Trigger handler error: %s", e)
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# FEATURE 7 — DISCORD TWO-WAY COMMANDS (handler called from signal_listener)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def handle_discord_command(command: str, db_path: str = DATABASE_PATH) -> str:
+    """Process a !zmn command from Discord. Returns response string."""
+    parts = command.strip().lower().split()
+    if len(parts) < 2 or parts[0] != "!zmn":
+        return ""
+
+    cmd = parts[1]
+
+    try:
+        db = await aiosqlite.connect(db_path)
+        now = time.time()
+
+        if cmd == "status":
+            cursor = await db.execute("SELECT * FROM portfolio_snapshots ORDER BY id DESC LIMIT 1")
+            row = await cursor.fetchone()
+            if row:
+                cols = [d[0] for d in cursor.description]
+                snap = dict(zip(cols, row))
+                await db.close()
+                return (f"[ZMN Bot] Status: {snap.get('market_mode', 'NORMAL')} mode | "
+                        f"Balance: {snap.get('total_balance_sol', 0):.4f} SOL | "
+                        f"Daily P/L: {snap.get('daily_pnl_sol', 0):.4f} SOL | "
+                        f"Open: {snap.get('open_positions', 0)} positions")
+            await db.close()
+            return "[ZMN Bot] No portfolio data available."
+
+        elif cmd == "today":
+            cursor = await db.execute(
+                "SELECT COUNT(*) as cnt, COALESCE(SUM(pnl_sol),0) as pnl FROM trades WHERE created_at > ?",
+                (now - 86400,))
+            row = await cursor.fetchone()
+            await db.close()
+            return f"[ZMN Bot] Today: {row[0]} trades | P/L: {row[1]:.4f} SOL"
+
+        elif cmd in ("best", "worst"):
+            direction = "DESC" if cmd == "best" else "ASC"
+            label = "Best" if cmd == "best" else "Worst"
+            cursor = await db.execute(
+                f"SELECT mint, personality, pnl_sol, pnl_pct FROM trades WHERE outcome IS NOT NULL "
+                f"ORDER BY pnl_sol {direction} LIMIT 1")
+            row = await cursor.fetchone()
+            await db.close()
+            if row:
+                return f"[ZMN Bot] {label} trade: {row[0][:12]}... ({row[1]}) | P/L: {row[2]:.4f} SOL ({row[3]:.1f}%)"
+            return f"[ZMN Bot] No trades recorded yet."
+
+        elif cmd == "pause" and len(parts) >= 3:
+            personality = parts[2]
+            await db.close()
+            # Publish pause to Redis (bot_core listens)
+            try:
+                conn = aioredis.from_url(REDIS_URL, decode_responses=True)
+                await conn.publish("bot:command", json.dumps({"action": "pause", "personality": personality}))
+                await conn.close()
+                return f"[ZMN Bot] Pause command sent for {personality}."
+            except Exception:
+                return f"[ZMN Bot] Redis unavailable -- cannot send pause command."
+
+        elif cmd == "resume" and len(parts) >= 3:
+            personality = parts[2]
+            await db.close()
+            try:
+                conn = aioredis.from_url(REDIS_URL, decode_responses=True)
+                await conn.publish("bot:command", json.dumps({"action": "resume", "personality": personality}))
+                await conn.close()
+                return f"[ZMN Bot] Resume command sent for {personality}."
+            except Exception:
+                return f"[ZMN Bot] Redis unavailable -- cannot send resume command."
+
+        elif cmd == "meta":
+            await db.close()
+            async with aiohttp.ClientSession() as session:
+                await _weekly_meta_report(session)
+            return "[ZMN Bot] Meta report triggered -- check governance_notes.md."
+
+        elif cmd == "diagnose":
+            context = {}
+            cursor = await db.execute(
+                "SELECT * FROM trades WHERE created_at > ? ORDER BY created_at DESC LIMIT 20",
+                (now - 48 * 3600,))
+            rows = await cursor.fetchall()
+            cols = [d[0] for d in cursor.description]
+            context["recent_trades"] = [dict(zip(cols, r)) for r in rows]
+            context["drawdown_info"] = {"reason": "manual_diagnose_command"}
+            await db.close()
+            async with aiohttp.ClientSession() as session:
+                await run_governance_task("drawdown_diagnosis", context, session)
+            return "[ZMN Bot] Diagnosis triggered -- check governance_notes.md."
+
+        else:
+            await db.close()
+            return (f"[ZMN Bot] Commands: !zmn status | !zmn today | !zmn best | !zmn worst | "
+                    f"!zmn pause <personality> | !zmn resume <personality> | !zmn meta | !zmn diagnose")
+
+    except Exception as e:
+        return f"[ZMN Bot] Error: {str(e)[:100]}"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# MAIN
+# ═══════════════════════════════════════════════════════════════════════════════
+
 async def main():
-    logger.info("Governance service starting")
+    logger.info("Governance v2 starting (TEST_MODE=%s)", TEST_MODE)
 
     if not ANTHROPIC_API_KEY:
-        logger.warning("ANTHROPIC_API_KEY not set — governance tasks will be skipped")
+        logger.warning("ANTHROPIC_API_KEY not set -- governance tasks will be skipped")
+
+    # Ensure data files exist with defaults
+    DATA_DIR.mkdir(exist_ok=True)
+    for path, default in [
+        (MEMORY_FILE, {"recommendations": [], "confirmed_strengths": [], "known_weaknesses": [], "prompt_effectiveness": []}),
+        (PENDING_PARAMS_FILE, []),
+        (ACTIVE_PARAMS_FILE, []),
+        (PERSONALITY_WEIGHTS_FILE, {"bull_trend": {"speed_demon": 1.0, "analyst": 1.0, "whale_tracker": 1.0},
+                                     "high_volatility": {"speed_demon": 1.0, "analyst": 1.0, "whale_tracker": 1.0},
+                                     "choppy": {"speed_demon": 1.0, "analyst": 1.0, "whale_tracker": 1.0},
+                                     "defensive": {"speed_demon": 1.0, "analyst": 1.0, "whale_tracker": 1.0}}),
+    ]:
+        if not path.exists():
+            _save_json_file(path, default)
 
     db = await aiosqlite.connect(DATABASE_PATH)
 
@@ -481,9 +821,12 @@ async def main():
         await redis_conn.ping()
         logger.info("Redis connected")
     except Exception as e:
-        logger.warning("Redis connection failed: %s — triggers disabled", e)
+        logger.warning("Redis connection failed: %s -- triggers disabled", e)
 
-    tasks = [_scheduled_loop(db, redis_conn)]
+    tasks = [
+        _scheduled_loop(db, redis_conn),
+        _anomaly_loop(db, redis_conn),
+    ]
     if redis_conn:
         tasks.append(_trigger_listener(db, redis_conn))
 

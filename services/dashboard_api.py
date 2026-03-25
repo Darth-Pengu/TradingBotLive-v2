@@ -417,6 +417,42 @@ async def api_emergency_stop(request):
     return web.json_response({"error": "Redis not available"}, status=503)
 
 
+async def api_approve_parameter(request):
+    """POST /approve-parameter -- approve a pending parameter change."""
+    try:
+        body = await request.json()
+        param_index = body.get("index", -1)
+
+        pending_path = Path("data/pending_parameters.json")
+        active_path = Path("data/active_parameters.json")
+
+        if not pending_path.exists():
+            return web.json_response({"error": "no pending parameters"}, status=404)
+
+        with open(pending_path) as f:
+            pending = json.load(f)
+        with open(active_path) as f:
+            active = json.load(f) if active_path.exists() else []
+
+        if param_index < 0 or param_index >= len(pending):
+            return web.json_response({"error": "invalid index"}, status=400)
+
+        item = pending.pop(param_index)
+        item["status"] = "approved"
+        item["approved_at"] = datetime.now(timezone.utc).isoformat()
+        active.append(item)
+
+        with open(pending_path, "w") as f:
+            json.dump(pending, f, indent=2)
+        with open(active_path, "w") as f:
+            json.dump(active, f, indent=2)
+
+        logger.info("Parameter approved: %s = %s", item["parameter"], item["proposed_value"])
+        return web.json_response({"status": "approved", "parameter": item})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+
 async def api_sol_price(request):
     try:
         async with aiohttp.ClientSession() as session:
@@ -654,6 +690,7 @@ def create_app() -> web.Application:
     app.router.add_get("/api/governance", api_governance)
     app.router.add_get("/api/portfolio-history", api_portfolio_history)
     app.router.add_post("/api/emergency-stop", api_emergency_stop)
+    app.router.add_post("/api/approve-parameter", api_approve_parameter)
     app.router.add_get("/api/sol-price", api_sol_price)
     app.router.add_post("/api/trigger-health-check", api_trigger_health_check)
     app.router.add_get("/ws", ws_handler)

@@ -43,6 +43,8 @@ RAILWAY_SERVICE_URL = os.getenv("RAILWAY_STATIC_URL", os.getenv("RAILWAY_PUBLIC_
 
 DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN", "")
 DISCORD_NANSEN_CHANNEL_ID = os.getenv("DISCORD_NANSEN_CHANNEL_ID", "")
+DISCORD_OWNER_ID = os.getenv("DISCORD_OWNER_ID", "").strip()
+DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
 DISCORD_POLL_INTERVAL = 15  # seconds
 
 SOLANA_ADDRESS_RE = re.compile(r"[1-9A-HJ-NP-Za-km-z]{32,44}")
@@ -494,6 +496,24 @@ async def discord_nansen_poller(redis_conn: aioredis.Redis | None):
             for msg in messages:
                 msg_id = msg["id"]
                 content = msg.get("content", "")
+
+                # Feature 7: Discord two-way commands from owner
+                if (content.strip().lower().startswith("!zmn") and
+                    DISCORD_OWNER_ID and msg.get("author", {}).get("id") == DISCORD_OWNER_ID):
+                    try:
+                        from services.governance import handle_discord_command
+                        response = await handle_discord_command(content.strip())
+                        if response and DISCORD_WEBHOOK_URL:
+                            async with aiohttp.ClientSession() as cmd_session:
+                                await cmd_session.post(DISCORD_WEBHOOK_URL,
+                                    json={"content": response[:2000]},
+                                    timeout=aiohttp.ClientTimeout(total=10))
+                            logger.info("Discord command: %s -> %s", content.strip(), response[:100])
+                    except Exception as e:
+                        logger.warning("Discord command error: %s", e)
+                    last_message_id = msg_id
+                    continue
+
                 alert_name, config = _parse_discord_alert(content)
 
                 if not alert_name or not config:
