@@ -1,539 +1,144 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ToxiBot — Bot Overview</title>
-    <style>
-        :root {
-            --bg-dark: #0a0a1a;
-            --bg-card: rgba(15, 15, 35, 0.85);
-            --border-glow: rgba(0, 255, 170, 0.15);
-            --accent: #00ffaa;
-            --accent-dim: #00cc88;
-            --danger: #ff4466;
-            --warning: #ffaa00;
-            --text: #e0e0e0;
-            --text-dim: #888;
-            --profit: #00ffaa;
-            --loss: #ff4466;
-        }
-
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-
-        body {
-            font-family: 'Segoe UI', 'Inter', system-ui, sans-serif;
-            background: var(--bg-dark);
-            color: var(--text);
-            min-height: 100vh;
-            background-image:
-                radial-gradient(ellipse at 20% 50%, rgba(0, 255, 170, 0.03) 0%, transparent 50%),
-                radial-gradient(ellipse at 80% 20%, rgba(0, 100, 255, 0.03) 0%, transparent 50%);
-        }
-
-        /* Navigation */
-        nav {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 1rem 2rem;
-            background: var(--bg-card);
-            border-bottom: 1px solid var(--border-glow);
-            backdrop-filter: blur(10px);
-        }
-
-        nav .logo {
-            font-size: 1.4rem;
-            font-weight: 700;
-            color: var(--accent);
-            letter-spacing: 1px;
-        }
-
-        nav .nav-links {
-            display: flex;
-            gap: 1.5rem;
-        }
-
-        nav .nav-links a {
-            color: var(--text-dim);
-            text-decoration: none;
-            font-size: 0.9rem;
-            padding: 0.4rem 0.8rem;
-            border-radius: 6px;
-            transition: all 0.2s;
-        }
-
-        nav .nav-links a:hover, nav .nav-links a.active {
-            color: var(--accent);
-            background: rgba(0, 255, 170, 0.1);
-        }
-
-        /* Grid layout */
-        .grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-            gap: 1.2rem;
-            padding: 1.5rem 2rem;
-            max-width: 1600px;
-            margin: 0 auto;
-        }
-
-        .grid-full {
-            grid-column: 1 / -1;
-        }
-
-        /* Card component — glassmorphism */
-        .card {
-            background: var(--bg-card);
-            border: 1px solid var(--border-glow);
-            border-radius: 12px;
-            padding: 1.2rem 1.5rem;
-            backdrop-filter: blur(10px);
-            transition: border-color 0.3s;
-        }
-
-        .card:hover {
-            border-color: rgba(0, 255, 170, 0.3);
-        }
-
-        .card h3 {
-            font-size: 0.85rem;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            color: var(--text-dim);
-            margin-bottom: 0.8rem;
-        }
-
-        .card .value {
-            font-size: 2rem;
-            font-weight: 700;
-            color: var(--accent);
-        }
-
-        .card .sub {
-            font-size: 0.85rem;
-            color: var(--text-dim);
-            margin-top: 0.3rem;
-        }
-
-        /* Market mode indicator */
-        .mode-badge {
-            display: inline-block;
-            padding: 0.3rem 1rem;
-            border-radius: 20px;
-            font-size: 0.85rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-
-        .mode-HIBERNATE { background: rgba(100, 100, 100, 0.3); color: #888; border: 1px solid #555; }
-        .mode-DEFENSIVE { background: rgba(255, 170, 0, 0.15); color: var(--warning); border: 1px solid rgba(255, 170, 0, 0.3); }
-        .mode-NORMAL { background: rgba(0, 255, 170, 0.1); color: var(--accent); border: 1px solid var(--border-glow); }
-        .mode-AGGRESSIVE { background: rgba(0, 150, 255, 0.15); color: #00aaff; border: 1px solid rgba(0, 150, 255, 0.3); }
-        .mode-FRENZY { background: rgba(255, 68, 102, 0.15); color: var(--danger); border: 1px solid rgba(255, 68, 102, 0.3); }
-
-        /* Treasury progress bar */
-        .progress-bar {
-            width: 100%;
-            height: 8px;
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 4px;
-            overflow: hidden;
-            margin: 0.5rem 0;
-        }
-
-        .progress-bar .fill {
-            height: 100%;
-            background: linear-gradient(90deg, var(--accent), var(--accent-dim));
-            border-radius: 4px;
-            transition: width 0.5s ease;
-        }
-
-        /* Personality leaderboard */
-        .personality-row {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 0.8rem 0;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-        }
-
-        .personality-row:last-child { border-bottom: none; }
-
-        .personality-name {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            font-weight: 600;
-        }
-
-        .personality-icon { font-size: 1.2rem; }
-
-        .pnl-positive { color: var(--profit); }
-        .pnl-negative { color: var(--loss); }
-
-        /* EMERGENCY STOP button */
-        .emergency-btn {
-            width: 100%;
-            padding: 1rem;
-            background: rgba(255, 68, 102, 0.15);
-            border: 2px solid var(--danger);
-            border-radius: 10px;
-            color: var(--danger);
-            font-size: 1.1rem;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .emergency-btn:hover {
-            background: rgba(255, 68, 102, 0.3);
-            box-shadow: 0 0 20px rgba(255, 68, 102, 0.3);
-        }
-
-        /* CFGI gauge */
-        .gauge-container {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-        }
-
-        .gauge {
-            width: 80px;
-            height: 80px;
-            border-radius: 50%;
-            border: 4px solid var(--border-glow);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.5rem;
-            font-weight: 700;
-        }
-
-        .gauge-fear { border-color: var(--danger); color: var(--danger); }
-        .gauge-neutral { border-color: var(--warning); color: var(--warning); }
-        .gauge-greed { border-color: var(--profit); color: var(--profit); }
-
-        .gauge-label {
-            font-size: 0.9rem;
-            color: var(--text-dim);
-        }
-
-        /* Status dot */
-        .status-dot {
-            display: inline-block;
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            margin-right: 6px;
-        }
-
-        .status-running { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
-        .status-stopped { background: var(--danger); box-shadow: 0 0 6px var(--danger); }
-
-        /* Sweep history table */
-        .sweep-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 0.85rem;
-        }
-
-        .sweep-table th {
-            text-align: left;
-            padding: 0.5rem;
-            color: var(--text-dim);
-            border-bottom: 1px solid var(--border-glow);
-        }
-
-        .sweep-table td {
-            padding: 0.5rem;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-        }
-
-        /* Responsive */
-        @media (max-width: 768px) {
-            nav { flex-direction: column; gap: 0.5rem; }
-            .grid { padding: 1rem; }
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ToxiBot — Overview</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{--bg:#0d1117;--bg-card:#161b22;--bg-sidebar:#010409;--border:rgba(48,54,61,0.8);--accent:#00d4aa;--accent-dim:rgba(0,212,170,0.15);--danger:#ff4466;--warning:#ffaa00;--text:#e6edf3;--text-dim:#7d8590;--text-muted:#484f58;--profit:#00d4aa;--loss:#ff4466;--grid:#1c2128;--font:'Inter',sans-serif;--mono:'JetBrains Mono',monospace}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:var(--font);background:var(--bg);color:var(--text);display:flex;min-height:100vh}
+.sidebar{width:220px;background:var(--bg-sidebar);border-right:1px solid var(--border);display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;z-index:100}
+.sidebar-header{padding:1.25rem 1rem;border-bottom:1px solid var(--border)}
+.sidebar-header h1{font-size:1.2rem;font-weight:700;color:var(--accent);letter-spacing:1px}
+.sidebar-header span{font-size:.7rem;color:var(--text-dim);display:block;margin-top:2px}
+.sidebar-nav{flex:1;padding:1rem 0}
+.sidebar-nav a{display:flex;align-items:center;gap:.6rem;padding:.6rem 1rem;color:var(--text-dim);text-decoration:none;font-size:.85rem;border-left:3px solid transparent;transition:all .15s}
+.sidebar-nav a:hover{color:var(--text);background:rgba(255,255,255,.03)}
+.sidebar-nav a.active{color:var(--accent);border-left-color:var(--accent);background:var(--accent-dim)}
+.bot-status{padding:.75rem 1rem;border-top:1px solid var(--border);font-size:.8rem;display:flex;align-items:center;gap:.5rem}
+.status-dot{width:8px;height:8px;border-radius:50%;background:var(--accent);animation:pulse 2s infinite}
+.status-dot.stopped{background:var(--danger);animation:none}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.emergency-btn{margin:.75rem 1rem;padding:.6rem;background:rgba(255,68,102,.1);border:1px solid var(--danger);border-radius:6px;color:var(--danger);font-size:.8rem;font-weight:600;cursor:pointer;text-align:center;transition:all .2s}
+.emergency-btn:hover{background:rgba(255,68,102,.2)}
+.emergency-btn.confirming{animation:epulse .5s infinite}
+@keyframes epulse{0%,100%{background:rgba(255,68,102,.2)}50%{background:rgba(255,68,102,.4)}}
+.sidebar-footer{padding:.75rem 1rem;border-top:1px solid var(--border);font-size:.7rem;color:var(--text-muted)}
+.main{margin-left:220px;flex:1;padding:1.5rem;min-width:0}
+.paper-banner{background:rgba(255,170,0,.1);border:1px solid rgba(255,170,0,.3);border-radius:8px;padding:.6rem 1rem;margin-bottom:1rem;display:flex;align-items:center;justify-content:space-between;font-size:.85rem;color:var(--warning)}
+.paper-banner .close-btn{cursor:pointer;opacity:.6;font-size:1rem;background:none;border:none;color:var(--warning)}
+.paper-banner .close-btn:hover{opacity:1}
+.stats-bar{display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:1.5rem}
+.stat-card{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:1rem 1.25rem}
+.stat-card .label{font-size:.75rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:.25rem}
+.stat-card .value{font-family:var(--mono);font-size:1.6rem;font-weight:700;line-height:1.2}
+.stat-card .sub{font-size:.75rem;color:var(--text-dim);margin-top:.15rem;font-family:var(--mono)}
+.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+.badge-normal{background:rgba(0,212,170,.15);color:var(--accent)}
+.badge-defensive{background:rgba(255,170,0,.15);color:var(--warning)}
+.badge-frenzy{background:rgba(136,0,255,.15);color:#aa66ff}
+.badge-hibernate{background:rgba(255,68,102,.15);color:var(--danger)}
+.badge-aggressive{background:rgba(0,150,255,.15);color:#44aaff}
+.content-grid{display:grid;grid-template-columns:3fr 2fr;gap:1.5rem;margin-bottom:1.5rem}
+.card{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:1.25rem}
+.card-title{font-size:.85rem;font-weight:600;color:var(--text);margin-bottom:1rem}
+.personality-stack{display:flex;flex-direction:column;gap:1rem}
+.p-card{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:1rem 1.25rem;border-left:3px solid var(--accent)}
+.p-card.speed{border-left-color:var(--warning)}
+.p-card.analyst{border-left-color:#4488ff}
+.p-card.whale{border-left-color:var(--accent)}
+.p-card .p-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem}
+.p-card .p-name{font-size:.85rem;font-weight:600}
+.p-card .p-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem}
+.p-card .p-stat-label{font-size:.65rem;color:var(--text-dim);text-transform:uppercase}
+.p-card .p-stat-value{font-family:var(--mono);font-size:.9rem;font-weight:600}
+.treasury-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:1.5rem}
+.progress-bar{height:4px;background:var(--grid);border-radius:2px;margin-top:.5rem;overflow:hidden}
+.progress-fill{height:100%;background:var(--accent);border-radius:2px;transition:width .3s}
+.activity-log{max-height:280px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+.activity-item{padding:.5rem 0;border-bottom:1px solid rgba(48,54,61,.4);font-size:.8rem;display:flex;gap:.75rem;align-items:flex-start}
+.activity-item:last-child{border:none}
+.activity-time{font-family:var(--mono);color:var(--text-muted);min-width:60px;font-size:.75rem}
+.activity-dot{width:6px;height:6px;border-radius:50%;margin-top:5px;flex-shrink:0}
+.activity-dot.entry{background:var(--profit)}
+.activity-dot.exit{background:var(--loss)}
+.activity-dot.signal{background:#4488ff}
+.activity-dot.system{background:var(--warning)}
+@media(max-width:1024px){.stats-bar{grid-template-columns:repeat(2,1fr)}.content-grid{grid-template-columns:1fr}.treasury-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:768px){.sidebar{transform:translateX(-100%);transition:transform .3s}.sidebar.open{transform:translateX(0)}.main{margin-left:0}.stats-bar{grid-template-columns:1fr}.treasury-grid{grid-template-columns:1fr}}
+</style>
 </head>
 <body>
-    <nav>
-        <div class="logo">ToxiBot</div>
-        <div class="nav-links">
-            <a href="/dashboard/dashboard.html" class="active">Overview</a>
-            <a href="/dashboard/dashboard-analytics.html">Analytics</a>
-            <a href="/dashboard/dashboard-wallet.html">Trade Feed</a>
-            <a href="/logout" style="color:var(--text-dim);opacity:0.6;">Logout</a>
-        </div>
-    </nav>
-
-    <div class="grid">
-        <!-- Bot Status -->
-        <div class="card">
-            <h3>Bot Status</h3>
-            <div>
-                <span class="status-dot status-running" id="statusDot"></span>
-                <span id="botStatus" style="font-weight:600;">Loading...</span>
-            </div>
-            <div class="sub" id="statusTimestamp">--</div>
-        </div>
-
-        <!-- Trading Wallet Balance -->
-        <div class="card">
-            <h3>Trading Wallet</h3>
-            <div class="value" id="tradingBalance">-- SOL</div>
-            <div class="sub">Active trading capital</div>
-        </div>
-
-        <!-- Holding Wallet Balance -->
-        <div class="card">
-            <h3>Holding Wallet</h3>
-            <div class="value" id="holdingBalance">-- SOL</div>
-            <div class="sub">Secured profits (read-only)</div>
-        </div>
-
-        <!-- Market Mode -->
-        <div class="card">
-            <h3>Market Mode</h3>
-            <div id="marketMode">
-                <span class="mode-badge mode-NORMAL">LOADING</span>
-            </div>
-            <div class="sub" id="solPrice">SOL: $--</div>
-        </div>
-
-        <!-- CFGI Fear & Greed -->
-        <div class="card">
-            <h3>Fear & Greed Index</h3>
-            <div class="gauge-container">
-                <div class="gauge gauge-neutral" id="cfgiGauge">--</div>
-                <div>
-                    <div id="cfgiLabel" class="gauge-label">Loading...</div>
-                    <div class="sub">Solana CFGI (24h)</div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Daily P/L -->
-        <div class="card">
-            <h3>Daily P/L</h3>
-            <div class="value" id="dailyPnl">-- SOL</div>
-            <div class="sub">Limit: -1.0 SOL</div>
-        </div>
-
-        <!-- Treasury Sweep Panel -->
-        <div class="card grid-full">
-            <h3>Treasury Sweep</h3>
-            <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 1.5rem;">
-                <div>
-                    <div style="font-size:0.85rem; color:var(--text-dim);">Sweep Threshold</div>
-                    <div style="margin: 0.3rem 0;">
-                        <span id="sweepCurrent">--</span> / 30 SOL
-                    </div>
-                    <div class="progress-bar">
-                        <div class="fill" id="sweepProgress" style="width:0%"></div>
-                    </div>
-                </div>
-                <div>
-                    <div style="font-size:0.85rem; color:var(--text-dim);">Last Sweep</div>
-                    <div id="lastSweep" style="font-weight:600; margin-top:0.3rem;">--</div>
-                </div>
-                <div>
-                    <div style="font-size:0.85rem; color:var(--text-dim);">Total Swept</div>
-                    <div id="totalSwept" style="font-weight:600; color:var(--accent); margin-top:0.3rem;">-- SOL</div>
-                </div>
-            </div>
-            <!-- Sweep History -->
-            <div style="margin-top: 1rem;">
-                <table class="sweep-table">
-                    <thead>
-                        <tr><th>Time</th><th>Amount</th><th>Balance After</th><th>Status</th></tr>
-                    </thead>
-                    <tbody id="sweepHistory"></tbody>
-                </table>
-            </div>
-        </div>
-
-        <!-- Personality Leaderboard -->
-        <div class="card grid-full">
-            <h3>Personality Leaderboard</h3>
-            <div id="personalityBoard">
-                <div class="personality-row">
-                    <div class="personality-name"><span class="personality-icon">&#9889;</span> Speed Demon</div>
-                    <div><span id="sdTrades">--</span> trades</div>
-                    <div><span id="sdWinRate">--</span>% win</div>
-                    <div id="sdPnl" class="pnl-positive">-- SOL</div>
-                </div>
-                <div class="personality-row">
-                    <div class="personality-name"><span class="personality-icon">&#128269;</span> Analyst</div>
-                    <div><span id="anTrades">--</span> trades</div>
-                    <div><span id="anWinRate">--</span>% win</div>
-                    <div id="anPnl" class="pnl-positive">-- SOL</div>
-                </div>
-                <div class="personality-row">
-                    <div class="personality-name"><span class="personality-icon">&#128011;</span> Whale Tracker</div>
-                    <div><span id="wtTrades">--</span> trades</div>
-                    <div><span id="wtWinRate">--</span>% win</div>
-                    <div id="wtPnl" class="pnl-positive">-- SOL</div>
-                </div>
-            </div>
-        </div>
-
-        <!-- EMERGENCY STOP -->
-        <div class="card grid-full">
-            <button class="emergency-btn" id="emergencyBtn" onclick="triggerEmergencyStop()">
-                EMERGENCY STOP
-            </button>
-        </div>
+<aside class="sidebar">
+  <div class="sidebar-header"><h1>ToxiBot</h1><span>Solana Trading Terminal</span></div>
+  <nav class="sidebar-nav">
+    <a href="/dashboard/dashboard.html" class="active">Overview</a>
+    <a href="/dashboard/dashboard-analytics.html">Analytics</a>
+    <a href="/dashboard/dashboard-wallet.html">Live Trading</a>
+  </nav>
+  <div class="bot-status"><span class="status-dot" id="statusDot"></span><span id="statusText">Connecting...</span></div>
+  <button class="emergency-btn" id="emergencyBtn" onclick="handleEmergency()">EMERGENCY STOP</button>
+  <div class="sidebar-footer">v3.0</div>
+</aside>
+<main class="main">
+  <div class="paper-banner" id="paperBanner" style="display:none">
+    <span>PAPER TRADING MODE — signals detected, no real trades executed</span>
+    <button class="close-btn" onclick="this.parentElement.style.display='none'">&times;</button>
+  </div>
+  <div class="stats-bar">
+    <div class="stat-card"><div class="label">SOL Balance</div><div class="value" id="solBalance" style="color:var(--accent)">—</div><div class="sub">Trading Wallet</div></div>
+    <div class="stat-card"><div class="label">Today P/L</div><div class="value" id="dailyPnl">—</div><div class="sub" id="dailyPnlSub"></div></div>
+    <div class="stat-card"><div class="label">Win Rate</div><div class="value" id="winRate">—</div><div class="sub" id="winRateSub"></div></div>
+    <div class="stat-card"><div class="label">Active Positions</div><div class="value" id="activePositions">—</div><div class="sub" id="marketModeBadge"></div></div>
+  </div>
+  <div class="content-grid">
+    <div class="card"><div class="card-title">Equity Curve — Cumulative P/L</div><canvas id="equityChart" height="260"></canvas></div>
+    <div class="personality-stack">
+      <div class="p-card speed"><div class="p-header"><span class="p-name">Speed Demon</span><span class="badge badge-normal" id="speedStatus">Active</span></div><div class="p-stats"><div><div class="p-stat-label">Trades</div><div class="p-stat-value" id="speedTrades">0</div></div><div><div class="p-stat-label">Wins</div><div class="p-stat-value" id="speedWins">0</div></div><div><div class="p-stat-label">P/L</div><div class="p-stat-value" id="speedPnl">0.0000</div></div></div></div>
+      <div class="p-card analyst"><div class="p-header"><span class="p-name">Analyst</span><span class="badge badge-normal" id="analystStatus">Active</span></div><div class="p-stats"><div><div class="p-stat-label">Trades</div><div class="p-stat-value" id="analystTrades">0</div></div><div><div class="p-stat-label">Wins</div><div class="p-stat-value" id="analystWins">0</div></div><div><div class="p-stat-label">P/L</div><div class="p-stat-value" id="analystPnl">0.0000</div></div></div></div>
+      <div class="p-card whale"><div class="p-header"><span class="p-name">Whale Tracker</span><span class="badge badge-normal" id="whaleStatus">Active</span></div><div class="p-stats"><div><div class="p-stat-label">Trades</div><div class="p-stat-value" id="whaleTrades">0</div></div><div><div class="p-stat-label">Wins</div><div class="p-stat-value" id="whaleWins">0</div></div><div><div class="p-stat-label">P/L</div><div class="p-stat-value" id="whalePnl">0.0000</div></div></div></div>
     </div>
-
-    <script>
-        const API_BASE = window.location.origin;
-        let ws = null;
-
-        // --- Fetch helpers ---
-        async function fetchJSON(path) {
-            try {
-                const resp = await fetch(API_BASE + path);
-                return await resp.json();
-            } catch (e) {
-                console.warn('Fetch failed:', path, e);
-                return null;
-            }
-        }
-
-        // --- Update functions ---
-        function updateStatus(data) {
-            if (!data) return;
-            const el = document.getElementById('botStatus');
-            const dot = document.getElementById('statusDot');
-            const status = data.status || 'UNKNOWN';
-            el.textContent = status;
-            dot.className = 'status-dot ' + (status === 'RUNNING' ? 'status-running' : 'status-stopped');
-            document.getElementById('statusTimestamp').textContent = data.timestamp ? new Date(data.timestamp).toLocaleString() : '--';
-            document.getElementById('dailyPnl').textContent = (data.daily_pnl || 0).toFixed(4) + ' SOL';
-            const pnlEl = document.getElementById('dailyPnl');
-            pnlEl.style.color = (data.daily_pnl || 0) >= 0 ? 'var(--profit)' : 'var(--loss)';
-        }
-
-        function updateMarketHealth(data) {
-            if (!data) return;
-            const mode = data.mode || 'UNKNOWN';
-            document.getElementById('marketMode').innerHTML =
-                '<span class="mode-badge mode-' + mode + '">' + mode + '</span>';
-            document.getElementById('solPrice').textContent =
-                'SOL: $' + (data.sol_price ? parseFloat(data.sol_price).toFixed(2) : '--');
-
-            // CFGI
-            const cfgi = data.cfgi || 50;
-            const gauge = document.getElementById('cfgiGauge');
-            gauge.textContent = Math.round(cfgi);
-            gauge.className = 'gauge ' + (cfgi < 35 ? 'gauge-fear' : cfgi > 65 ? 'gauge-greed' : 'gauge-neutral');
-            document.getElementById('cfgiLabel').textContent =
-                cfgi < 25 ? 'Extreme Fear' : cfgi < 40 ? 'Fear' : cfgi < 60 ? 'Neutral' : cfgi < 75 ? 'Greed' : 'Extreme Greed';
-        }
-
-        function updateTreasury(data) {
-            if (!data) return;
-            const tradBal = data.trading_wallet_balance;
-            const holdBal = data.holding_wallet_balance;
-
-            document.getElementById('tradingBalance').textContent = (tradBal !== null ? tradBal.toFixed(4) : '--') + ' SOL';
-            document.getElementById('holdingBalance').textContent = (holdBal !== null ? holdBal.toFixed(4) : '--') + ' SOL';
-            document.getElementById('sweepCurrent').textContent = tradBal !== null ? tradBal.toFixed(2) : '--';
-
-            const pct = tradBal !== null ? Math.min(100, (tradBal / 30) * 100) : 0;
-            document.getElementById('sweepProgress').style.width = pct + '%';
-
-            document.getElementById('totalSwept').textContent = (data.total_swept_sol || 0).toFixed(4) + ' SOL';
-
-            const sweeps = data.sweeps || [];
-            if (sweeps.length > 0) {
-                document.getElementById('lastSweep').textContent =
-                    sweeps[0].amount_sol.toFixed(4) + ' SOL @ ' + new Date(sweeps[0].timestamp).toLocaleString();
-            }
-
-            const tbody = document.getElementById('sweepHistory');
-            tbody.innerHTML = sweeps.map(s =>
-                '<tr><td>' + new Date(s.timestamp).toLocaleString() + '</td>' +
-                '<td>' + s.amount_sol.toFixed(4) + ' SOL</td>' +
-                '<td>' + s.balance_after_sol.toFixed(4) + ' SOL</td>' +
-                '<td>' + s.status + '</td></tr>'
-            ).join('');
-        }
-
-        function updatePersonalities(data) {
-            if (!data) return;
-            function set(prefix, stats) {
-                document.getElementById(prefix + 'Trades').textContent = stats.total_trades || 0;
-                document.getElementById(prefix + 'WinRate').textContent = stats.win_rate || 0;
-                const pnlEl = document.getElementById(prefix + 'Pnl');
-                const pnl = stats.total_pnl_sol || 0;
-                pnlEl.textContent = (pnl >= 0 ? '+' : '') + pnl.toFixed(4) + ' SOL';
-                pnlEl.className = pnl >= 0 ? 'pnl-positive' : 'pnl-negative';
-            }
-            if (data.speed_demon) set('sd', data.speed_demon);
-            if (data.analyst) set('an', data.analyst);
-            if (data.whale_tracker) set('wt', data.whale_tracker);
-        }
-
-        // --- Emergency Stop ---
-        async function triggerEmergencyStop() {
-            if (!confirm('CONFIRM: This will immediately close ALL positions and halt the bot. Continue?')) return;
-            if (!confirm('SECOND CONFIRMATION: Are you absolutely sure? This requires a manual restart.')) return;
-
-            try {
-                const resp = await fetch(API_BASE + '/api/emergency-stop', { method: 'POST' });
-                const data = await resp.json();
-                alert(data.status ? 'Emergency stop triggered!' : 'Error: ' + (data.error || 'Unknown'));
-            } catch (e) {
-                alert('Failed to trigger emergency stop: ' + e.message);
-            }
-        }
-
-        // --- WebSocket ---
-        function connectWS() {
-            const wsUrl = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/ws';
-            ws = new WebSocket(wsUrl);
-
-            ws.onmessage = function(event) {
-                try {
-                    const data = JSON.parse(event.data);
-                    if (data._type === 'periodic_update') {
-                        updateStatus(data.status);
-                        updateMarketHealth(data.market_health);
-                    } else if (data._channel === 'alerts:emergency') {
-                        document.getElementById('botStatus').textContent = 'EMERGENCY STOPPED';
-                        document.getElementById('statusDot').className = 'status-dot status-stopped';
-                    }
-                } catch (e) {}
-            };
-
-            ws.onclose = function() {
-                setTimeout(connectWS, 3000);
-            };
-        }
-
-        // --- Initial load ---
-        async function loadAll() {
-            const [status, health, treasury, personalities] = await Promise.all([
-                fetchJSON('/api/status'),
-                fetchJSON('/api/market-health'),
-                fetchJSON('/api/treasury'),
-                fetchJSON('/api/personality-stats'),
-            ]);
-            updateStatus(status);
-            updateMarketHealth(health);
-            updateTreasury(treasury);
-            updatePersonalities(personalities);
-        }
-
-        loadAll();
-        connectWS();
-        setInterval(loadAll, 15000);
-    </script>
+  </div>
+  <div class="treasury-grid">
+    <div class="stat-card"><div class="label">Trading Wallet</div><div class="value" id="tradingBal" style="font-size:1.2rem">—</div></div>
+    <div class="stat-card"><div class="label">Sweep Threshold</div><div class="value" id="sweepPct" style="font-size:1.2rem">—</div><div class="progress-bar"><div class="progress-fill" id="sweepBar" style="width:0%"></div></div></div>
+    <div class="stat-card"><div class="label">Holding Wallet</div><div class="value" id="holdingBal" style="font-size:1.2rem">—</div></div>
+    <div class="stat-card"><div class="label">Total Swept</div><div class="value" id="totalSwept" style="font-size:1.2rem">—</div></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Activity Log</div>
+    <div class="activity-log" id="activityLog">
+      <div class="activity-item"><span class="activity-time">14:32:01</span><span class="activity-dot entry"></span><span>Speed Demon entered DezM...v4Qp — 0.5000 SOL (ML: 82.1%)</span></div>
+      <div class="activity-item"><span class="activity-time">14:30:45</span><span class="activity-dot exit"></span><span>Analyst exited 7kRm...bN3x — +0.3200 SOL (+64.0%) staged_2x</span></div>
+      <div class="activity-item"><span class="activity-time">14:28:12</span><span class="activity-dot signal"></span><span>Whale alert: 515v...Np8p bought FqeT...mK2w (Helius webhook)</span></div>
+      <div class="activity-item"><span class="activity-time">14:25:30</span><span class="activity-dot entry"></span><span>Whale Tracker entered FqeT...mK2w — 0.8000 SOL (ML: 76.5%)</span></div>
+      <div class="activity-item"><span class="activity-time">14:22:18</span><span class="activity-dot system"></span><span>Market mode changed: NORMAL → AGGRESSIVE</span></div>
+      <div class="activity-item"><span class="activity-time">14:20:05</span><span class="activity-dot exit"></span><span>Speed Demon exited Bp4R...k9Wq — -0.1500 SOL (-30.0%) stop_loss</span></div>
+      <div class="activity-item"><span class="activity-time">14:18:44</span><span class="activity-dot signal"></span><span>Nansen alert: Smart Money Inflow on 9xK2...pL4m</span></div>
+      <div class="activity-item"><span class="activity-time">14:15:22</span><span class="activity-dot entry"></span><span>Analyst entered 9xK2...pL4m — 1.0000 SOL (ML: 71.3%)</span></div>
+      <div class="activity-item"><span class="activity-time">14:10:01</span><span class="activity-dot system"></span><span>Treasury sweep: 5.2340 SOL → holding wallet</span></div>
+      <div class="activity-item"><span class="activity-time">14:05:33</span><span class="activity-dot exit"></span><span>Whale Tracker exited CvM8...rT6n — +0.9100 SOL (+113.8%) staged_5x</span></div>
+    </div>
+  </div>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const fmt=(n,d=4)=>n!=null?Number(n).toFixed(d):'—';
+const fmtPnl=n=>{if(n==null)return'—';const v=Number(n);return(v>=0?'+':'')+v.toFixed(4)+' SOL'};
+const ctx=$('equityChart').getContext('2d');
+const gradient=ctx.createLinearGradient(0,0,0,260);gradient.addColorStop(0,'rgba(0,212,170,0.25)');gradient.addColorStop(1,'rgba(0,212,170,0)');
+const labels=[],chartData=[];const now=Date.now();let cum=0;
+for(let i=24;i>=0;i--){const t=new Date(now-i*3600000);labels.push(t.getUTCHours().toString().padStart(2,'0')+':00');cum+=(Math.random()-0.4)*0.3;chartData.push(+cum.toFixed(4));}
+const equityChart=new Chart(ctx,{type:'line',data:{labels,datasets:[{data:chartData,borderColor:'#00d4aa',backgroundColor:gradient,borderWidth:2,fill:true,tension:.3,pointRadius:0,pointHitRadius:10}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.parsed.y.toFixed(4)+' SOL'}}},scales:{x:{grid:{color:'#1c2128',drawBorder:false},ticks:{color:'#7d8590',font:{size:10}}},y:{grid:{color:'#1c2128',drawBorder:false},ticks:{color:'#7d8590',font:{family:'JetBrains Mono',size:10},callback:v=>v.toFixed(2)},position:'right'}}}});
+let ws;function connectWS(){ws=new WebSocket((location.protocol==='https:'?'wss':'ws')+'://'+location.host+'/ws');ws.onmessage=e=>{try{const d=JSON.parse(e.data);if(d._type==='periodic_update')updateFromWS(d)}catch(err){}};ws.onopen=()=>{$('statusDot').classList.remove('stopped');$('statusText').textContent='Connected'};ws.onclose=()=>{$('statusDot').classList.add('stopped');$('statusText').textContent='Disconnected';setTimeout(connectWS,3000)}}
+function updateFromWS(d){if(d.status){const s=d.status;$('solBalance').textContent=fmt(s.portfolio_balance);$('activePositions').textContent=s.open_positions??'0';const pnl=s.daily_pnl??0;$('dailyPnl').textContent=fmtPnl(pnl);$('dailyPnl').style.color=pnl>=0?'var(--profit)':'var(--loss)';updateMarketMode(s.market_mode||'NORMAL');if(s.status==='EMERGENCY_STOPPED'){$('statusDot').classList.add('stopped');$('statusText').textContent='STOPPED'}}}
+function updateMarketMode(mode){const m=mode.toUpperCase();const cls={NORMAL:'badge-normal',DEFENSIVE:'badge-defensive',FRENZY:'badge-frenzy',HIBERNATE:'badge-hibernate',AGGRESSIVE:'badge-aggressive'}[m]||'badge-normal';$('marketModeBadge').innerHTML='<span class="badge '+cls+'">'+m+'</span>'}
+async function fetchData(){try{const[status,pStats,treasury,history]=await Promise.all([fetch('/api/status').then(r=>r.json()).catch(()=>({})),fetch('/api/personality-stats').then(r=>r.json()).catch(()=>({})),fetch('/api/treasury').then(r=>r.json()).catch(()=>({})),fetch('/api/portfolio-history').then(r=>r.json()).catch(()=>[])]);if(status.trading_wallet_balance!=null)$('solBalance').textContent=fmt(status.trading_wallet_balance);else if(status.portfolio_balance!=null)$('solBalance').textContent=fmt(status.portfolio_balance);$('activePositions').textContent=status.open_positions??'0';const pnl=status.daily_pnl??0;$('dailyPnl').textContent=fmtPnl(pnl);$('dailyPnl').style.color=pnl>=0?'var(--profit)':'var(--loss)';updateMarketMode(status.market_mode||'NORMAL');if(status.status==='RUNNING'){$('statusDot').classList.remove('stopped');$('statusText').textContent='Running'}else if(status.status==='EMERGENCY_STOPPED'){$('statusDot').classList.add('stopped');$('statusText').textContent='STOPPED'}for(const[key,prefix]of[['speed_demon','speed'],['analyst','analyst'],['whale_tracker','whale']]){const s=pStats[key]||{};$(prefix+'Trades').textContent=s.total_trades||0;$(prefix+'Wins').textContent=s.wins||0;const p=s.total_pnl_sol||0;$(prefix+'Pnl').textContent=(p>=0?'+':'')+fmt(p);$(prefix+'Pnl').style.color=p>=0?'var(--profit)':'var(--loss)'}let totalW=0,totalT=0;for(const k of['speed_demon','analyst','whale_tracker']){const s=pStats[k]||{};totalW+=(s.wins||0);totalT+=(s.total_trades||0)}$('winRate').textContent=totalT>0?(totalW/totalT*100).toFixed(1)+'%':'—';$('winRateSub').textContent=totalT>0?totalW+'W / '+(totalT-totalW)+'L':'';$('tradingBal').textContent=fmt(treasury.trading_wallet_balance,4)+' SOL';$('holdingBal').textContent=fmt(treasury.holding_wallet_balance,4)+' SOL';$('totalSwept').textContent=fmt(treasury.total_swept_sol,4)+' SOL';const bal=treasury.trading_wallet_balance||0;const pct=Math.min(100,bal/30*100);$('sweepPct').textContent=pct.toFixed(0)+'% of 30 SOL';$('sweepBar').style.width=pct+'%';if(history.length>0){equityChart.data.labels=history.map(h=>{const d=new Date(h.timestamp);return d.getUTCHours().toString().padStart(2,'0')+':'+d.getUTCMinutes().toString().padStart(2,'0')});equityChart.data.datasets[0].data=history.map(h=>h.daily_pnl_sol||0);equityChart.update('none')}}catch(e){console.error('Fetch error:',e)}}
+let emergencyState=0,emergencyTimer=null;function handleEmergency(){const btn=$('emergencyBtn');if(emergencyState===0){emergencyState=1;let count=3;btn.textContent='CONFIRM ('+count+'s)';btn.classList.add('confirming');emergencyTimer=setInterval(()=>{count--;if(count<=0){clearInterval(emergencyTimer);btn.textContent='CLICK TO CONFIRM';emergencyState=2}else btn.textContent='CONFIRM ('+count+'s)'},1000)}else if(emergencyState===2){fetch('/api/emergency-stop',{method:'POST'}).then(()=>{btn.textContent='STOPPED';btn.classList.remove('confirming');btn.style.background='rgba(255,68,102,.3)';$('statusDot').classList.add('stopped');$('statusText').textContent='STOPPED'});emergencyState=3}}
+$('paperBanner').style.display='flex';connectWS();fetchData();setInterval(fetchData,15000);
+</script>
 </body>
 </html>

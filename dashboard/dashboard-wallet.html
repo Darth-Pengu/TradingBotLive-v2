@@ -1,410 +1,175 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ToxiBot — Live Trade Feed</title>
-    <style>
-        :root {
-            --bg-dark: #0a0a1a;
-            --bg-card: rgba(15, 15, 35, 0.85);
-            --border-glow: rgba(0, 255, 170, 0.15);
-            --accent: #00ffaa;
-            --accent-dim: #00cc88;
-            --danger: #ff4466;
-            --warning: #ffaa00;
-            --text: #e0e0e0;
-            --text-dim: #888;
-            --profit: #00ffaa;
-            --loss: #ff4466;
-        }
-
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-
-        body {
-            font-family: 'Segoe UI', 'Inter', system-ui, sans-serif;
-            background: var(--bg-dark);
-            color: var(--text);
-            min-height: 100vh;
-            background-image:
-                radial-gradient(ellipse at 20% 50%, rgba(0, 255, 170, 0.03) 0%, transparent 50%),
-                radial-gradient(ellipse at 80% 20%, rgba(0, 100, 255, 0.03) 0%, transparent 50%);
-        }
-
-        nav {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 1rem 2rem;
-            background: var(--bg-card);
-            border-bottom: 1px solid var(--border-glow);
-            backdrop-filter: blur(10px);
-        }
-
-        nav .logo { font-size: 1.4rem; font-weight: 700; color: var(--accent); letter-spacing: 1px; }
-        nav .nav-links { display: flex; gap: 1.5rem; }
-        nav .nav-links a {
-            color: var(--text-dim); text-decoration: none; font-size: 0.9rem;
-            padding: 0.4rem 0.8rem; border-radius: 6px; transition: all 0.2s;
-        }
-        nav .nav-links a:hover, nav .nav-links a.active { color: var(--accent); background: rgba(0, 255, 170, 0.1); }
-
-        .layout {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 1.2rem;
-            padding: 1.5rem 2rem;
-            max-width: 1600px;
-            margin: 0 auto;
-        }
-
-        .full-width { grid-column: 1 / -1; }
-
-        .card {
-            background: var(--bg-card);
-            border: 1px solid var(--border-glow);
-            border-radius: 12px;
-            padding: 1.2rem 1.5rem;
-            backdrop-filter: blur(10px);
-        }
-
-        .card:hover { border-color: rgba(0, 255, 170, 0.3); }
-        .card h3 {
-            font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px;
-            color: var(--text-dim); margin-bottom: 0.8rem;
-        }
-
-        .pnl-positive { color: var(--profit); }
-        .pnl-negative { color: var(--loss); }
-
-        /* Signal feed */
-        .signal-feed {
-            max-height: 500px;
-            overflow-y: auto;
-        }
-
-        .signal-item {
-            display: grid;
-            grid-template-columns: 80px 1fr auto;
-            gap: 0.5rem;
-            align-items: center;
-            padding: 0.6rem 0.4rem;
-            border-bottom: 1px solid rgba(255,255,255,0.03);
-            font-size: 0.85rem;
-            transition: background 0.2s;
-        }
-
-        .signal-item:hover { background: rgba(0, 255, 170, 0.03); }
-
-        .signal-source {
-            font-size: 0.75rem;
-            padding: 0.2rem 0.5rem;
-            border-radius: 4px;
-            text-align: center;
-            font-weight: 600;
-        }
-
-        .src-pumpportal { background: rgba(255, 100, 50, 0.2); color: #ff8844; }
-        .src-geckoterminal { background: rgba(100, 200, 50, 0.2); color: #88cc44; }
-        .src-dexpaprika { background: rgba(50, 150, 255, 0.2); color: #44aaff; }
-
-        .signal-mint {
-            font-family: monospace;
-            color: var(--accent);
-            font-size: 0.8rem;
-        }
-
-        .signal-time { color: var(--text-dim); font-size: 0.75rem; }
-
-        /* Active positions */
-        .position-card {
-            background: rgba(0, 255, 170, 0.05);
-            border: 1px solid var(--border-glow);
-            border-radius: 8px;
-            padding: 0.8rem 1rem;
-            margin-bottom: 0.5rem;
-        }
-
-        .position-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 0.3rem;
-        }
-
-        .position-personality {
-            font-weight: 600;
-            font-size: 0.85rem;
-        }
-
-        .position-details {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 0.5rem;
-            font-size: 0.8rem;
-        }
-
-        .position-detail-label { color: var(--text-dim); }
-
-        /* Trade log */
-        .trade-log {
-            max-height: 600px;
-            overflow-y: auto;
-        }
-
-        .trade-row {
-            display: grid;
-            grid-template-columns: 60px 80px 1fr 80px 80px 80px;
-            gap: 0.3rem;
-            align-items: center;
-            padding: 0.5rem 0.3rem;
-            border-bottom: 1px solid rgba(255,255,255,0.03);
-            font-size: 0.8rem;
-        }
-
-        .trade-row.header {
-            color: var(--text-dim);
-            font-weight: 600;
-            border-bottom: 1px solid var(--border-glow);
-            position: sticky;
-            top: 0;
-            background: var(--bg-card);
-        }
-
-        .badge {
-            display: inline-block;
-            padding: 0.15rem 0.4rem;
-            border-radius: 4px;
-            font-size: 0.7rem;
-            font-weight: 600;
-        }
-
-        .badge-buy { background: rgba(0, 255, 170, 0.15); color: var(--accent); }
-        .badge-sell { background: rgba(255, 68, 102, 0.15); color: var(--danger); }
-        .badge-sd { background: rgba(255, 200, 0, 0.15); color: #ffcc00; }
-        .badge-an { background: rgba(0, 150, 255, 0.15); color: #44aaff; }
-        .badge-wt { background: rgba(150, 50, 255, 0.15); color: #bb88ff; }
-
-        /* Whale activity panel */
-        .whale-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 0.5rem 0;
-            border-bottom: 1px solid rgba(255,255,255,0.03);
-            font-size: 0.85rem;
-        }
-
-        .whale-address {
-            font-family: monospace;
-            color: var(--accent-dim);
-            font-size: 0.8rem;
-        }
-
-        @media (max-width: 768px) {
-            nav { flex-direction: column; gap: 0.5rem; }
-            .layout { grid-template-columns: 1fr; padding: 1rem; }
-            .trade-row { grid-template-columns: 50px 60px 1fr 60px 60px; }
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ToxiBot — Live Trading</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0d1117;--bg-card:#161b22;--bg-sidebar:#010409;--border:rgba(48,54,61,0.8);--accent:#00d4aa;--accent-dim:rgba(0,212,170,0.15);--danger:#ff4466;--warning:#ffaa00;--text:#e6edf3;--text-dim:#7d8590;--text-muted:#484f58;--profit:#00d4aa;--loss:#ff4466;--grid:#1c2128;--font:'Inter',sans-serif;--mono:'JetBrains Mono',monospace}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:var(--font);background:var(--bg);color:var(--text);display:flex;min-height:100vh}
+.sidebar{width:220px;background:var(--bg-sidebar);border-right:1px solid var(--border);display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;z-index:100}
+.sidebar-header{padding:1.25rem 1rem;border-bottom:1px solid var(--border)}
+.sidebar-header h1{font-size:1.2rem;font-weight:700;color:var(--accent);letter-spacing:1px}
+.sidebar-header span{font-size:.7rem;color:var(--text-dim);display:block;margin-top:2px}
+.sidebar-nav{flex:1;padding:1rem 0}
+.sidebar-nav a{display:flex;align-items:center;gap:.6rem;padding:.6rem 1rem;color:var(--text-dim);text-decoration:none;font-size:.85rem;border-left:3px solid transparent;transition:all .15s}
+.sidebar-nav a:hover{color:var(--text);background:rgba(255,255,255,.03)}
+.sidebar-nav a.active{color:var(--accent);border-left-color:var(--accent);background:var(--accent-dim)}
+.bot-status{padding:.75rem 1rem;border-top:1px solid var(--border);font-size:.8rem;display:flex;align-items:center;gap:.5rem}
+.status-dot{width:8px;height:8px;border-radius:50%;background:var(--accent);animation:pulse 2s infinite}
+.status-dot.stopped{background:var(--danger);animation:none}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.emergency-btn{margin:.75rem 1rem;padding:.6rem;background:rgba(255,68,102,.1);border:1px solid var(--danger);border-radius:6px;color:var(--danger);font-size:.8rem;font-weight:600;cursor:pointer;text-align:center;transition:all .2s}
+.emergency-btn:hover{background:rgba(255,68,102,.2)}
+.sidebar-footer{padding:.75rem 1rem;border-top:1px solid var(--border);font-size:.7rem;color:var(--text-muted)}
+.main{margin-left:220px;flex:1;padding:1.5rem;min-width:0}
+.card{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:1.25rem;margin-bottom:1.5rem}
+.card-title{font-size:.85rem;font-weight:600;color:var(--text);margin-bottom:1rem;display:flex;align-items:center;gap:.5rem}
+.card-title .count{font-family:var(--mono);background:var(--accent-dim);color:var(--accent);padding:1px 6px;border-radius:4px;font-size:.75rem}
+.live-dot{width:6px;height:6px;border-radius:50%;background:var(--accent);animation:pulse 1.5s infinite}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;margin-bottom:1.5rem}
+table{width:100%;border-collapse:collapse;font-size:.8rem}
+th{text-align:left;padding:.6rem .75rem;color:var(--text-dim);font-weight:500;text-transform:uppercase;font-size:.7rem;letter-spacing:.5px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg-card);cursor:pointer}
+th:hover{color:var(--text)}
+td{padding:.5rem .75rem;border-bottom:1px solid rgba(48,54,61,.4);font-family:var(--mono);font-size:.8rem}
+tr:nth-child(even){background:rgba(28,33,40,.5)}
+tr:hover{background:rgba(0,212,170,.03)}
+.badge-pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:.65rem;font-weight:600;letter-spacing:.3px}
+.badge-pump{background:rgba(139,92,246,.2);color:#a78bfa}
+.badge-gecko{background:rgba(0,212,170,.15);color:#00d4aa}
+.badge-helius{background:rgba(255,140,0,.15);color:#ff8c00}
+.badge-nansen{background:rgba(68,136,255,.15);color:#4488ff}
+.badge-discord{background:rgba(88,101,242,.15);color:#7289da}
+.badge-dexpaprika{background:rgba(255,107,107,.15);color:#ff6b6b}
+.badge-buy{background:rgba(0,212,170,.15);color:var(--profit)}
+.badge-sell{background:rgba(255,68,102,.15);color:var(--loss)}
+.badge-cex{background:rgba(255,170,0,.15);color:var(--warning)}
+.exit-badge{display:inline-block;padding:1px 6px;border-radius:4px;font-size:.65rem;font-weight:500}
+.exit-stop{background:rgba(255,68,102,.15);color:var(--loss)}
+.exit-staged{background:rgba(0,212,170,.15);color:var(--profit)}
+.exit-trailing{background:rgba(255,170,0,.15);color:var(--warning)}
+.exit-time{background:rgba(125,133,144,.15);color:var(--text-dim)}
+.exit-emergency{background:rgba(255,68,102,.3);color:var(--loss);animation:pulse .8s infinite}
+.close-btn{padding:2px 10px;border-radius:4px;border:1px solid var(--warning);background:rgba(255,170,0,.1);color:var(--warning);font-size:.7rem;cursor:pointer}
+.close-btn:hover{background:rgba(255,170,0,.2)}
+.ml-bar{height:4px;border-radius:2px;background:var(--grid);width:60px;display:inline-block;vertical-align:middle;margin-left:4px}
+.ml-fill{height:100%;border-radius:2px}
+.feed{max-height:320px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+.feed-item{padding:.5rem 0;border-bottom:1px solid rgba(48,54,61,.3);font-size:.8rem;display:flex;gap:.5rem;align-items:flex-start}
+.feed-item:last-child{border:none}
+.feed-time{font-family:var(--mono);color:var(--text-muted);min-width:55px;font-size:.7rem}
+.feed-text{flex:1;color:var(--text-dim);line-height:1.4}
+.empty-state{text-align:center;padding:2rem;color:var(--text-muted);font-size:.85rem}
+.source-dot{width:6px;height:6px;border-radius:50%;display:inline-block;margin-right:3px}
+.source-dot.fast{background:var(--accent)}
+.source-dot.slow{background:var(--warning)}
+@media(max-width:1024px){.grid-2{grid-template-columns:1fr}}
+@media(max-width:768px){.sidebar{transform:translateX(-100%)}.main{margin-left:0}}
+</style>
 </head>
 <body>
-    <nav>
-        <div class="logo">ToxiBot</div>
-        <div class="nav-links">
-            <a href="/dashboard/dashboard.html">Overview</a>
-            <a href="/dashboard/dashboard-analytics.html">Analytics</a>
-            <a href="/dashboard/dashboard-wallet.html" class="active">Trade Feed</a>
-            <a href="/logout" style="color:var(--text-dim);opacity:0.6;">Logout</a>
-        </div>
-    </nav>
+<aside class="sidebar">
+  <div class="sidebar-header"><h1>ToxiBot</h1><span>Solana Trading Terminal</span></div>
+  <nav class="sidebar-nav">
+    <a href="/dashboard/dashboard.html">Overview</a>
+    <a href="/dashboard/dashboard-analytics.html">Analytics</a>
+    <a href="/dashboard/dashboard-wallet.html" class="active">Live Trading</a>
+  </nav>
+  <div class="bot-status"><span class="status-dot" id="statusDot"></span><span id="statusText">Connecting...</span></div>
+  <button class="emergency-btn" onclick="fetch('/api/emergency-stop',{method:'POST'})">EMERGENCY STOP</button>
+  <div class="sidebar-footer">v3.0</div>
+</aside>
+<main class="main">
+  <!-- Active Positions -->
+  <div class="card">
+    <div class="card-title">Active Positions <span class="count" id="posCount">3</span></div>
+    <div style="overflow-x:auto">
+    <table>
+      <thead><tr><th>Personality</th><th>Token</th><th>Entry Price</th><th>Current</th><th>Size</th><th>Unreal. P/L</th><th>P/L %</th><th>Time Held</th><th>Action</th></tr></thead>
+      <tbody id="positionsTable">
+        <tr><td style="color:#ffaa00">Speed Demon</td><td>DezM...v4Qp</td><td>$0.00004212</td><td>$0.00005890</td><td>0.5000 SOL</td><td style="color:var(--profit)">+0.1993</td><td style="color:var(--profit)">+39.8%</td><td>12m</td><td><button class="close-btn">Close</button></td></tr>
+        <tr><td style="color:#4488ff">Analyst</td><td>9xK2...pL4m</td><td>$0.00002100</td><td>$0.00002415</td><td>1.0000 SOL</td><td style="color:var(--profit)">+0.1500</td><td style="color:var(--profit)">+15.0%</td><td>28m</td><td><button class="close-btn">Close</button></td></tr>
+        <tr><td style="color:var(--accent)">Whale Tracker</td><td>FqeT...mK2w</td><td>$0.00003450</td><td>$0.00003105</td><td>0.8000 SOL</td><td style="color:var(--loss)">-0.0800</td><td style="color:var(--loss)">-10.0%</td><td>7m</td><td><button class="close-btn">Close</button></td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
 
-    <div class="layout">
-        <!-- Incoming Signal Feed -->
-        <div class="card">
-            <h3>Incoming Signals (Pre-ML Gate)</h3>
-            <div class="signal-feed" id="signalFeed">
-                <div style="color:var(--text-dim); padding:1rem; text-align:center;">
-                    Waiting for signals...
-                </div>
-            </div>
-        </div>
-
-        <!-- Active Positions -->
-        <div class="card">
-            <h3>Active Positions</h3>
-            <div id="activePositions">
-                <div style="color:var(--text-dim); padding:1rem; text-align:center;">
-                    No active positions
-                </div>
-            </div>
-        </div>
-
-        <!-- Recent Closed Trades -->
-        <div class="card full-width">
-            <h3>Recent Closed Trades (Last 50)</h3>
-            <div class="trade-log" id="tradeLog">
-                <div class="trade-row header">
-                    <div>Action</div>
-                    <div>Bot</div>
-                    <div>Token</div>
-                    <div>Size</div>
-                    <div>P/L</div>
-                    <div>Time</div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Whale Wallet Activity -->
-        <div class="card full-width">
-            <h3>Whale Wallet Activity</h3>
-            <div id="whaleActivity">
-                <div style="color:var(--text-dim); padding:1rem; text-align:center;">
-                    No whale activity detected yet
-                </div>
-            </div>
-        </div>
+  <div class="grid-2">
+    <!-- Signal Feed -->
+    <div class="card">
+      <div class="card-title"><span class="live-dot"></span> Signal Feed</div>
+      <div class="feed" id="signalFeed">
+        <div class="feed-item"><span class="feed-time">14:32:01</span><span class="badge-pill badge-pump">PumpPortal</span><span class="feed-text">DezM...v4Qp new_token <span class="ml-bar"><span class="ml-fill" style="width:82%;background:var(--accent)"></span></span> 82.1</span></div>
+        <div class="feed-item"><span class="feed-time">14:31:45</span><span class="badge-pill badge-helius">Helius</span><span class="feed-text">FqeT...mK2w whale_trade <span class="ml-bar"><span class="ml-fill" style="width:76%;background:var(--accent)"></span></span> 76.5</span></div>
+        <div class="feed-item"><span class="feed-time">14:30:20</span><span class="badge-pill badge-gecko">Gecko</span><span class="feed-text">9xK2...pL4m new_pool <span class="ml-bar"><span class="ml-fill" style="width:71%;background:var(--accent)"></span></span> 71.3</span></div>
+        <div class="feed-item"><span class="feed-time">14:28:55</span><span class="badge-pill badge-nansen">Nansen</span><span class="feed-text">Bp4R...k9Wq analyst <span class="ml-bar"><span class="ml-fill" style="width:68%;background:var(--warning)"></span></span> 68.4</span></div>
+        <div class="feed-item"><span class="feed-time">14:27:10</span><span class="badge-pill badge-discord">Discord</span><span class="feed-text">Smart Money Inflow on CvM8...rT6n <span class="ml-bar"><span class="ml-fill" style="width:55%;background:var(--warning)"></span></span> 55.0</span></div>
+        <div class="feed-item"><span class="feed-time">14:25:30</span><span class="badge-pill badge-pump">PumpPortal</span><span class="feed-text">Xn4v...q2Rt migration <span class="ml-bar"><span class="ml-fill" style="width:88%;background:var(--accent)"></span></span> 88.2</span></div>
+        <div class="feed-item"><span class="feed-time">14:23:15</span><span class="badge-pill badge-dexpaprika">DexPaprika</span><span class="feed-text">Qm8k...fJ5p sse_event <span class="ml-bar"><span class="ml-fill" style="width:45%;background:var(--loss)"></span></span> 45.1</span></div>
+        <div class="feed-item"><span class="feed-time">14:20:00</span><span class="badge-pill badge-helius">Helius</span><span class="feed-text">L5qR...mN2v whale_trade <span class="ml-bar"><span class="ml-fill" style="width:79%;background:var(--accent)"></span></span> 79.4</span></div>
+      </div>
     </div>
 
-    <script>
-        const API_BASE = window.location.origin;
-        let ws = null;
-        const MAX_SIGNALS = 100;
-        let signalBuffer = [];
+    <!-- Closed Trades -->
+    <div class="card">
+      <div class="card-title">Closed Trades <span style="color:var(--text-muted);font-weight:400;font-size:.75rem">Last 50</span></div>
+      <div class="feed" style="max-height:360px">
+      <table>
+        <thead><tr><th>Time</th><th>Personality</th><th>Token</th><th>P/L</th><th>P/L %</th><th>Duration</th><th>Exit Reason</th></tr></thead>
+        <tbody id="closedTable">
+          <tr><td>14:30</td><td>analyst</td><td>7kRm...bN3x</td><td style="color:var(--profit)">+0.3200</td><td style="color:var(--profit)">+64.0%</td><td>1h 12m</td><td><span class="exit-badge exit-staged">staged_2x</span></td></tr>
+          <tr><td>14:20</td><td>speed_demon</td><td>Bp4R...k9Wq</td><td style="color:var(--loss)">-0.1500</td><td style="color:var(--loss)">-30.0%</td><td>5m</td><td><span class="exit-badge exit-stop">stop_loss</span></td></tr>
+          <tr><td>14:05</td><td>whale_tracker</td><td>CvM8...rT6n</td><td style="color:var(--profit)">+0.9100</td><td style="color:var(--profit)">+113.8%</td><td>47m</td><td><span class="exit-badge exit-staged">staged_5x</span></td></tr>
+          <tr><td>13:45</td><td>speed_demon</td><td>Wr3n...bH9x</td><td style="color:var(--loss)">-0.5000</td><td style="color:var(--loss)">-50.0%</td><td>2m</td><td><span class="exit-badge exit-stop">stop_loss</span></td></tr>
+          <tr><td>13:30</td><td>analyst</td><td>Xn4v...q2Rt</td><td style="color:var(--profit)">+0.2200</td><td style="color:var(--profit)">+22.0%</td><td>30m</td><td><span class="exit-badge exit-trailing">trailing_stop</span></td></tr>
+          <tr><td>13:15</td><td>speed_demon</td><td>Qm8k...fJ5p</td><td style="color:var(--profit)">+0.1800</td><td style="color:var(--profit)">+36.0%</td><td>4m</td><td><span class="exit-badge exit-staged">staged_2x</span></td></tr>
+          <tr><td>13:00</td><td>whale_tracker</td><td>L5qR...mN2v</td><td style="color:var(--loss)">-0.3500</td><td style="color:var(--loss)">-35.0%</td><td>2h 5m</td><td><span class="exit-badge exit-time">max_hold_time</span></td></tr>
+          <tr><td>12:42</td><td>speed_demon</td><td>Hk9d...w4Rm</td><td style="color:var(--profit)">+0.4500</td><td style="color:var(--profit)">+90.0%</td><td>3m</td><td><span class="exit-badge exit-staged">staged_3x</span></td></tr>
+          <tr><td>12:20</td><td>analyst</td><td>Vm2x...pK8q</td><td style="color:var(--loss)">-0.3000</td><td style="color:var(--loss)">-30.0%</td><td>30m</td><td><span class="exit-badge exit-time">time_exit</span></td></tr>
+          <tr><td>12:05</td><td>speed_demon</td><td>Nf4p...rL9x</td><td style="color:var(--profit)">+0.0800</td><td style="color:var(--profit)">+16.0%</td><td>5m</td><td><span class="exit-badge exit-trailing">trailing_stop</span></td></tr>
+        </tbody>
+      </table>
+      </div>
+    </div>
+  </div>
 
-        async function fetchJSON(path) {
-            try {
-                const resp = await fetch(API_BASE + path);
-                return await resp.json();
-            } catch (e) { return null; }
-        }
+  <div class="grid-2">
+    <!-- Whale Activity -->
+    <div class="card">
+      <div class="card-title">Whale Activity</div>
+      <div class="feed" id="whaleFeed">
+        <div class="feed-item"><span class="feed-time">14:31:45</span><span class="source-dot fast" title="webhook"></span><span class="badge-pill badge-buy">BUY</span><span class="feed-text">515v...Np8p bought FqeT...mK2w — 2.5000 SOL</span></div>
+        <div class="feed-item"><span class="feed-time">14:28:30</span><span class="source-dot fast" title="webhook"></span><span class="badge-pill badge-sell">SELL</span><span class="feed-text">J2qg...Wp4g sold DezM...v4Qp — 1.2000 SOL</span></div>
+        <div class="feed-item"><span class="feed-time">14:22:10</span><span class="source-dot slow" title="poll"></span><span class="badge-pill badge-buy">BUY</span><span class="feed-text">M1Aq...Cdy2 bought 9xK2...pL4m — 5.0000 SOL</span></div>
+        <div class="feed-item"><span class="feed-time">14:15:05</span><span class="source-dot fast" title="webhook"></span><span class="badge-pill badge-cex">CEX</span><span class="feed-text">Gk8v...nR2p sent CvM8...rT6n to Binance — 10,000 tokens</span></div>
+        <div class="feed-item"><span class="feed-time">14:10:20</span><span class="source-dot slow" title="poll"></span><span class="badge-pill badge-buy">BUY</span><span class="feed-text">Pr5w...kM9x bought Xn4v...q2Rt — 3.0000 SOL</span></div>
+      </div>
+    </div>
 
-        function shortMint(mint) {
-            if (!mint || mint.length < 12) return mint || '--';
-            return mint.slice(0, 6) + '...' + mint.slice(-4);
-        }
-
-        function timeAgo(ts) {
-            if (!ts) return '--';
-            const diff = (Date.now() / 1000) - ts;
-            if (diff < 60) return Math.round(diff) + 's ago';
-            if (diff < 3600) return Math.round(diff / 60) + 'm ago';
-            return Math.round(diff / 3600) + 'h ago';
-        }
-
-        function personalityBadge(p) {
-            const map = {
-                speed_demon: ['SD', 'badge-sd'],
-                analyst: ['AN', 'badge-an'],
-                whale_tracker: ['WT', 'badge-wt'],
-            };
-            const [label, cls] = map[p] || [p, ''];
-            return '<span class="badge ' + cls + '">' + label + '</span>';
-        }
-
-        function sourceClass(src) {
-            const map = { pumpportal: 'src-pumpportal', geckoterminal: 'src-geckoterminal', dexpaprika: 'src-dexpaprika' };
-            return map[src] || '';
-        }
-
-        // --- Signal Feed ---
-        function addSignal(signal) {
-            signalBuffer.unshift(signal);
-            if (signalBuffer.length > MAX_SIGNALS) signalBuffer.pop();
-            renderSignals();
-        }
-
-        function renderSignals() {
-            const el = document.getElementById('signalFeed');
-            if (signalBuffer.length === 0) return;
-            el.innerHTML = signalBuffer.map(s =>
-                '<div class="signal-item">' +
-                '<div class="signal-source ' + sourceClass(s.source) + '">' + (s.source || '--') + '</div>' +
-                '<div><span class="signal-mint">' + shortMint(s.mint) + '</span> <span style="color:var(--text-dim);font-size:0.75rem;">' + (s.signal_type || '') + '</span></div>' +
-                '<div class="signal-time">' + (s.timestamp ? new Date(s.timestamp).toLocaleTimeString() : '--') + '</div>' +
-                '</div>'
-            ).join('');
-        }
-
-        // --- Active Positions ---
-        function renderPositions(trades) {
-            const el = document.getElementById('activePositions');
-            if (!trades || trades.length === 0) {
-                el.innerHTML = '<div style="color:var(--text-dim);padding:1rem;text-align:center;">No active positions</div>';
-                return;
-            }
-            el.innerHTML = trades.map(t =>
-                '<div class="position-card">' +
-                '<div class="position-header">' +
-                '<div class="position-personality">' + personalityBadge(t.personality) + ' ' + shortMint(t.mint) + '</div>' +
-                '<div style="font-size:0.8rem;color:var(--text-dim);">' + timeAgo(t.created_at) + '</div>' +
-                '</div>' +
-                '<div class="position-details">' +
-                '<div><span class="position-detail-label">Size:</span> ' + (t.amount_sol || 0).toFixed(4) + ' SOL</div>' +
-                '<div><span class="position-detail-label">Entry:</span> $' + (t.entry_price || 0).toFixed(8) + '</div>' +
-                '<div><span class="position-detail-label">ML:</span> ' + (t.ml_score || 0).toFixed(1) + '</div>' +
-                '</div></div>'
-            ).join('');
-        }
-
-        // --- Trade Log ---
-        function renderTrades(trades) {
-            const log = document.getElementById('tradeLog');
-            const header = '<div class="trade-row header"><div>Action</div><div>Bot</div><div>Token</div><div>Size</div><div>P/L</div><div>Time</div></div>';
-
-            if (!trades || trades.length === 0) {
-                log.innerHTML = header + '<div style="color:var(--text-dim);padding:1rem;text-align:center;">No trades yet</div>';
-                return;
-            }
-
-            const rows = trades.filter(t => t.closed_at).map(t => {
-                const pnl = t.pnl_sol || 0;
-                const pnlClass = pnl >= 0 ? 'pnl-positive' : 'pnl-negative';
-                return '<div class="trade-row">' +
-                    '<div><span class="badge badge-' + (t.action || 'buy') + '">' + (t.action || '--').toUpperCase() + '</span></div>' +
-                    '<div>' + personalityBadge(t.personality) + '</div>' +
-                    '<div class="signal-mint">' + shortMint(t.mint) + '</div>' +
-                    '<div>' + (t.amount_sol || 0).toFixed(3) + '</div>' +
-                    '<div class="' + pnlClass + '">' + (pnl >= 0 ? '+' : '') + pnl.toFixed(4) + '</div>' +
-                    '<div class="signal-time">' + timeAgo(t.closed_at) + '</div>' +
-                    '</div>';
-            }).join('');
-
-            log.innerHTML = header + (rows || '<div style="color:var(--text-dim);padding:1rem;text-align:center;">No closed trades yet</div>');
-        }
-
-        // --- WebSocket ---
-        function connectWS() {
-            const wsUrl = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/ws';
-            ws = new WebSocket(wsUrl);
-
-            ws.onmessage = function(event) {
-                try {
-                    const data = JSON.parse(event.data);
-                    // Handle incoming signals for the live feed
-                    if (data._type === 'periodic_update' && data.status && data.status.positions) {
-                        // Could update positions in real-time
-                    }
-                } catch (e) {}
-            };
-
-            ws.onclose = function() { setTimeout(connectWS, 3000); };
-        }
-
-        // --- Load data ---
-        async function loadAll() {
-            const [active, trades] = await Promise.all([
-                fetchJSON('/api/trades/active'),
-                fetchJSON('/api/trades?limit=50'),
-            ]);
-
-            renderPositions(active);
-            renderTrades(trades);
-        }
-
-        loadAll();
-        connectWS();
-        setInterval(loadAll, 10000);
-    </script>
+    <!-- Nansen Alerts -->
+    <div class="card">
+      <div class="card-title">Nansen Alerts</div>
+      <div class="feed" id="nansenFeed">
+        <div class="feed-item"><span class="feed-time">14:28:12</span><span class="badge-pill" style="background:rgba(0,212,170,.15);color:var(--accent)">Whale Entry</span><span class="feed-text">FqeT...mK2w — Smart money wallet accumulating</span></div>
+        <div class="feed-item"><span class="feed-time">14:18:44</span><span class="badge-pill" style="background:rgba(68,136,255,.15);color:#4488ff">Smart Money Inflow</span><span class="feed-text">9xK2...pL4m — 3 smart wallets entered in 15min</span></div>
+        <div class="feed-item"><span class="feed-time">14:08:30</span><span class="badge-pill" style="background:rgba(255,68,102,.15);color:var(--loss)">Smart Money Sell</span><span class="feed-text">Bp4R...k9Wq — Exit alert triggered</span></div>
+        <div class="feed-item"><span class="feed-time">13:55:00</span><span class="badge-pill" style="background:rgba(255,170,0,.15);color:var(--warning)">Netflow Spike</span><span class="feed-text">Position limits boosted 1.2x for 2h</span></div>
+      </div>
+    </div>
+  </div>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+// WS
+let ws;function connectWS(){ws=new WebSocket((location.protocol==='https:'?'wss':'ws')+'://'+location.host+'/ws');ws.onmessage=e=>{try{const d=JSON.parse(e.data);if(d._type==='periodic_update'&&d.status){$('posCount').textContent=d.status.open_positions||'0'}}catch(err){}};ws.onopen=()=>{$('statusDot').classList.remove('stopped');$('statusText').textContent='Connected'};ws.onclose=()=>{$('statusDot').classList.add('stopped');$('statusText').textContent='Disconnected';setTimeout(connectWS,3000)}}
+// Fetch
+async function fetchLive(){try{const[active,closed]=await Promise.all([fetch('/api/trades/active').then(r=>r.json()).catch(()=>[]),fetch('/api/trades?limit=50').then(r=>r.json()).catch(()=>[])]);$('posCount').textContent=active.length;if(active.length===0)$('positionsTable').innerHTML='<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:1.5rem">No active positions</td></tr>'}catch(e){console.error(e)}}
+// Sort
+document.querySelectorAll('th').forEach(th=>{th.addEventListener('click',function(){const table=this.closest('table');const tbody=table.querySelector('tbody');const rows=[...tbody.querySelectorAll('tr')];const idx=[...this.parentElement.children].indexOf(this);const asc=this.dataset.sort!=='asc';this.dataset.sort=asc?'asc':'desc';rows.sort((a,b)=>{const at=a.children[idx]?.textContent||'';const bt=b.children[idx]?.textContent||'';const an=parseFloat(at.replace(/[^0-9.-]/g,''));const bn=parseFloat(bt.replace(/[^0-9.-]/g,''));if(!isNaN(an)&&!isNaN(bn))return asc?an-bn:bn-an;return asc?at.localeCompare(bt):bt.localeCompare(at)});rows.forEach(r=>tbody.appendChild(r))})});
+connectWS();fetchLive();setInterval(fetchLive,10000);
+</script>
 </body>
 </html>

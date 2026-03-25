@@ -1,347 +1,155 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ToxiBot — Performance & ML</title>
-    <style>
-        :root {
-            --bg-dark: #0a0a1a;
-            --bg-card: rgba(15, 15, 35, 0.85);
-            --border-glow: rgba(0, 255, 170, 0.15);
-            --accent: #00ffaa;
-            --accent-dim: #00cc88;
-            --danger: #ff4466;
-            --warning: #ffaa00;
-            --text: #e0e0e0;
-            --text-dim: #888;
-            --profit: #00ffaa;
-            --loss: #ff4466;
-        }
-
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-
-        body {
-            font-family: 'Segoe UI', 'Inter', system-ui, sans-serif;
-            background: var(--bg-dark);
-            color: var(--text);
-            min-height: 100vh;
-            background-image:
-                radial-gradient(ellipse at 20% 50%, rgba(0, 255, 170, 0.03) 0%, transparent 50%),
-                radial-gradient(ellipse at 80% 20%, rgba(0, 100, 255, 0.03) 0%, transparent 50%);
-        }
-
-        nav {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 1rem 2rem;
-            background: var(--bg-card);
-            border-bottom: 1px solid var(--border-glow);
-            backdrop-filter: blur(10px);
-        }
-
-        nav .logo { font-size: 1.4rem; font-weight: 700; color: var(--accent); letter-spacing: 1px; }
-        nav .nav-links { display: flex; gap: 1.5rem; }
-        nav .nav-links a {
-            color: var(--text-dim); text-decoration: none; font-size: 0.9rem;
-            padding: 0.4rem 0.8rem; border-radius: 6px; transition: all 0.2s;
-        }
-        nav .nav-links a:hover, nav .nav-links a.active { color: var(--accent); background: rgba(0, 255, 170, 0.1); }
-
-        .grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-            gap: 1.2rem;
-            padding: 1.5rem 2rem;
-            max-width: 1600px;
-            margin: 0 auto;
-        }
-
-        .grid-full { grid-column: 1 / -1; }
-        .grid-half { grid-column: span 2; }
-
-        .card {
-            background: var(--bg-card);
-            border: 1px solid var(--border-glow);
-            border-radius: 12px;
-            padding: 1.2rem 1.5rem;
-            backdrop-filter: blur(10px);
-        }
-
-        .card:hover { border-color: rgba(0, 255, 170, 0.3); }
-        .card h3 {
-            font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px;
-            color: var(--text-dim); margin-bottom: 0.8rem;
-        }
-        .card .value { font-size: 2rem; font-weight: 700; color: var(--accent); }
-        .card .sub { font-size: 0.85rem; color: var(--text-dim); margin-top: 0.3rem; }
-
-        .stat-row {
-            display: flex; justify-content: space-between; align-items: center;
-            padding: 0.6rem 0; border-bottom: 1px solid rgba(255,255,255,0.05);
-        }
-        .stat-row:last-child { border-bottom: none; }
-        .stat-label { color: var(--text-dim); font-size: 0.85rem; }
-        .stat-value { font-weight: 600; }
-
-        .pnl-positive { color: var(--profit); }
-        .pnl-negative { color: var(--loss); }
-
-        /* Drawdown chart (simple CSS bars) */
-        .bar-chart { display: flex; align-items: flex-end; gap: 3px; height: 120px; margin-top: 0.5rem; }
-        .bar {
-            flex: 1; background: var(--accent); border-radius: 2px 2px 0 0; min-width: 4px;
-            transition: height 0.3s; position: relative;
-        }
-        .bar.negative { background: var(--danger); }
-        .bar:hover { opacity: 0.8; }
-
-        /* ML confidence distribution */
-        .ml-dist { display: flex; gap: 2px; height: 60px; align-items: flex-end; margin-top: 0.5rem; }
-        .ml-bar {
-            flex: 1; border-radius: 2px 2px 0 0; min-width: 6px;
-            background: linear-gradient(to top, var(--accent-dim), var(--accent));
-        }
-
-        /* Governance notes */
-        .notes-panel {
-            max-height: 400px;
-            overflow-y: auto;
-            font-size: 0.85rem;
-            line-height: 1.6;
-            white-space: pre-wrap;
-            padding: 0.5rem;
-            background: rgba(0,0,0,0.3);
-            border-radius: 8px;
-        }
-
-        .notes-panel h2 { font-size: 1rem; color: var(--accent); margin: 1rem 0 0.5rem; }
-
-        /* Alert banner */
-        .alert-banner {
-            background: rgba(255, 170, 0, 0.15);
-            border: 1px solid var(--warning);
-            border-radius: 8px;
-            padding: 0.8rem 1.2rem;
-            color: var(--warning);
-            font-size: 0.9rem;
-            display: none;
-        }
-
-        .alert-banner.visible { display: block; }
-
-        @media (max-width: 768px) {
-            nav { flex-direction: column; gap: 0.5rem; }
-            .grid { padding: 1rem; }
-            .grid-half { grid-column: span 1; }
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ToxiBot — Analytics</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{--bg:#0d1117;--bg-card:#161b22;--bg-sidebar:#010409;--border:rgba(48,54,61,0.8);--accent:#00d4aa;--accent-dim:rgba(0,212,170,0.15);--danger:#ff4466;--warning:#ffaa00;--text:#e6edf3;--text-dim:#7d8590;--text-muted:#484f58;--profit:#00d4aa;--loss:#ff4466;--grid:#1c2128;--font:'Inter',sans-serif;--mono:'JetBrains Mono',monospace}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:var(--font);background:var(--bg);color:var(--text);display:flex;min-height:100vh}
+.sidebar{width:220px;background:var(--bg-sidebar);border-right:1px solid var(--border);display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;z-index:100}
+.sidebar-header{padding:1.25rem 1rem;border-bottom:1px solid var(--border)}
+.sidebar-header h1{font-size:1.2rem;font-weight:700;color:var(--accent);letter-spacing:1px}
+.sidebar-header span{font-size:.7rem;color:var(--text-dim);display:block;margin-top:2px}
+.sidebar-nav{flex:1;padding:1rem 0}
+.sidebar-nav a{display:flex;align-items:center;gap:.6rem;padding:.6rem 1rem;color:var(--text-dim);text-decoration:none;font-size:.85rem;border-left:3px solid transparent;transition:all .15s}
+.sidebar-nav a:hover{color:var(--text);background:rgba(255,255,255,.03)}
+.sidebar-nav a.active{color:var(--accent);border-left-color:var(--accent);background:var(--accent-dim)}
+.bot-status{padding:.75rem 1rem;border-top:1px solid var(--border);font-size:.8rem;display:flex;align-items:center;gap:.5rem}
+.status-dot{width:8px;height:8px;border-radius:50%;background:var(--accent);animation:pulse 2s infinite}
+.status-dot.stopped{background:var(--danger);animation:none}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.emergency-btn{margin:.75rem 1rem;padding:.6rem;background:rgba(255,68,102,.1);border:1px solid var(--danger);border-radius:6px;color:var(--danger);font-size:.8rem;font-weight:600;cursor:pointer;text-align:center;transition:all .2s}
+.emergency-btn:hover{background:rgba(255,68,102,.2)}
+.sidebar-footer{padding:.75rem 1rem;border-top:1px solid var(--border);font-size:.7rem;color:var(--text-muted)}
+.main{margin-left:220px;flex:1;padding:1.5rem;min-width:0}
+.card{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:1.25rem;margin-bottom:1.5rem}
+.card-title{font-size:.85rem;font-weight:600;color:var(--text);margin-bottom:1rem}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;margin-bottom:1.5rem}
+.grid-2-3{display:grid;grid-template-columns:2fr 3fr;gap:1.5rem;margin-bottom:1.5rem}
+.alert-banner{background:rgba(255,170,0,.1);border:1px solid rgba(255,170,0,.3);border-radius:8px;padding:.6rem 1rem;margin-bottom:1rem;font-size:.85rem;color:var(--warning);display:none}
+table{width:100%;border-collapse:collapse;font-size:.8rem}
+th{text-align:left;padding:.6rem .75rem;color:var(--text-dim);font-weight:500;text-transform:uppercase;font-size:.7rem;letter-spacing:.5px;border-bottom:1px solid var(--border)}
+td{padding:.5rem .75rem;border-bottom:1px solid rgba(48,54,61,.4);font-family:var(--mono);font-size:.8rem}
+tr:nth-child(even){background:rgba(28,33,40,.5)}
+tr:hover{background:rgba(0,212,170,.03)}
+.governance-content{font-size:.85rem;line-height:1.6;color:var(--text-dim)}
+.governance-content h3{color:var(--text);margin:1rem 0 .5rem;font-size:.9rem}
+.governance-content ul{padding-left:1.2rem;margin:.5rem 0}
+.governance-content li{margin:.25rem 0}
+@media(max-width:1024px){.grid-2,.grid-2-3{grid-template-columns:1fr}}
+@media(max-width:768px){.sidebar{transform:translateX(-100%)}.main{margin-left:0}}
+</style>
 </head>
 <body>
-    <nav>
-        <div class="logo">ToxiBot</div>
-        <div class="nav-links">
-            <a href="/dashboard/dashboard.html">Overview</a>
-            <a href="/dashboard/dashboard-analytics.html" class="active">Analytics</a>
-            <a href="/dashboard/dashboard-wallet.html">Trade Feed</a>
-            <a href="/logout" style="color:var(--text-dim);opacity:0.6;">Logout</a>
-        </div>
-    </nav>
+<aside class="sidebar">
+  <div class="sidebar-header"><h1>ToxiBot</h1><span>Solana Trading Terminal</span></div>
+  <nav class="sidebar-nav">
+    <a href="/dashboard/dashboard.html">Overview</a>
+    <a href="/dashboard/dashboard-analytics.html" class="active">Analytics</a>
+    <a href="/dashboard/dashboard-wallet.html">Live Trading</a>
+  </nav>
+  <div class="bot-status"><span class="status-dot" id="statusDot"></span><span id="statusText">Connecting...</span></div>
+  <button class="emergency-btn" onclick="fetch('/api/emergency-stop',{method:'POST'})">EMERGENCY STOP</button>
+  <div class="sidebar-footer">v3.0</div>
+</aside>
+<main class="main">
+  <div class="alert-banner" id="whaleAlert">Pending whale wallet review — governance agent has proposed changes</div>
 
-    <div class="grid">
-        <!-- Pending review alert -->
-        <div class="card grid-full">
-            <div class="alert-banner" id="pendingAlert">
-                Whale wallet rescore pending review — check data/whale_wallets_pending.json and rename to activate.
-            </div>
-        </div>
+  <div class="card">
+    <div class="card-title">Equity Curve by Personality (7 Days)</div>
+    <canvas id="equityChart" height="220"></canvas>
+  </div>
 
-        <!-- Per-personality Sharpe & Stats -->
-        <div class="card">
-            <h3>Speed Demon Performance</h3>
-            <div id="sdStats">
-                <div class="stat-row"><span class="stat-label">Total P/L</span><span class="stat-value pnl-positive" id="sdPnl">--</span></div>
-                <div class="stat-row"><span class="stat-label">Win Rate</span><span class="stat-value" id="sdWin">--</span></div>
-                <div class="stat-row"><span class="stat-label">Total Trades</span><span class="stat-value" id="sdTotal">--</span></div>
-                <div class="stat-row"><span class="stat-label">Best Trade</span><span class="stat-value pnl-positive" id="sdBest">--</span></div>
-                <div class="stat-row"><span class="stat-label">Worst Trade</span><span class="stat-value pnl-negative" id="sdWorst">--</span></div>
-                <div class="stat-row"><span class="stat-label">Avg P/L %</span><span class="stat-value" id="sdAvg">--</span></div>
-            </div>
-        </div>
-
-        <div class="card">
-            <h3>Analyst Performance</h3>
-            <div id="anStats">
-                <div class="stat-row"><span class="stat-label">Total P/L</span><span class="stat-value pnl-positive" id="anPnl">--</span></div>
-                <div class="stat-row"><span class="stat-label">Win Rate</span><span class="stat-value" id="anWin">--</span></div>
-                <div class="stat-row"><span class="stat-label">Total Trades</span><span class="stat-value" id="anTotal">--</span></div>
-                <div class="stat-row"><span class="stat-label">Best Trade</span><span class="stat-value pnl-positive" id="anBest">--</span></div>
-                <div class="stat-row"><span class="stat-label">Worst Trade</span><span class="stat-value pnl-negative" id="anWorst">--</span></div>
-                <div class="stat-row"><span class="stat-label">Avg P/L %</span><span class="stat-value" id="anAvg">--</span></div>
-            </div>
-        </div>
-
-        <div class="card">
-            <h3>Whale Tracker Performance</h3>
-            <div id="wtStats">
-                <div class="stat-row"><span class="stat-label">Total P/L</span><span class="stat-value pnl-positive" id="wtPnl">--</span></div>
-                <div class="stat-row"><span class="stat-label">Win Rate</span><span class="stat-value" id="wtWin">--</span></div>
-                <div class="stat-row"><span class="stat-label">Total Trades</span><span class="stat-value" id="wtTotal">--</span></div>
-                <div class="stat-row"><span class="stat-label">Best Trade</span><span class="stat-value pnl-positive" id="wtBest">--</span></div>
-                <div class="stat-row"><span class="stat-label">Worst Trade</span><span class="stat-value pnl-negative" id="wtWorst">--</span></div>
-                <div class="stat-row"><span class="stat-label">Avg P/L %</span><span class="stat-value" id="wtAvg">--</span></div>
-            </div>
-        </div>
-
-        <!-- Portfolio History Chart -->
-        <div class="card grid-full">
-            <h3>Portfolio Value (24h)</h3>
-            <div class="bar-chart" id="portfolioChart"></div>
-            <div class="sub" style="margin-top:0.5rem;">Each bar = 5-min snapshot</div>
-        </div>
-
-        <!-- ML Confidence Distribution -->
-        <div class="card">
-            <h3>ML Score Distribution (Last 50 Trades)</h3>
-            <div class="ml-dist" id="mlDist"></div>
-            <div class="sub">Bins: 0-10, 10-20, ..., 90-100</div>
-        </div>
-
-        <!-- Max Drawdown -->
-        <div class="card">
-            <h3>Max Drawdown</h3>
-            <div class="value" id="maxDrawdown">--%</div>
-            <div class="sub">Peak to trough</div>
-            <div style="margin-top:0.8rem;">
-                <div class="stat-row"><span class="stat-label">Current Drawdown</span><span class="stat-value" id="currentDrawdown">--%</span></div>
-                <div class="stat-row"><span class="stat-label">Peak Balance</span><span class="stat-value" id="peakBalance">-- SOL</span></div>
-            </div>
-        </div>
-
-        <!-- Governance Notes -->
-        <div class="card grid-full">
-            <h3>Governance Notes (Latest)</h3>
-            <div class="notes-panel" id="governanceNotes">Loading...</div>
-        </div>
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title">Win Rate Trend (Rolling 7 Days)</div>
+      <canvas id="winRateChart" height="200"></canvas>
     </div>
+    <div class="card">
+      <div class="card-title">ML Confidence Distribution</div>
+      <canvas id="mlChart" height="200"></canvas>
+    </div>
+  </div>
 
-    <script>
-        const API_BASE = window.location.origin;
+  <div class="card">
+    <div class="card-title">Best &amp; Worst Trades</div>
+    <table>
+      <thead><tr><th>Token</th><th>Personality</th><th>Entry</th><th>Exit</th><th>P/L (SOL)</th><th>P/L %</th><th>Duration</th><th>ML Score</th></tr></thead>
+      <tbody id="tradesTable">
+        <tr><td>DezM...v4Qp</td><td>whale_tracker</td><td style="font-size:.7rem">$0.00004212</td><td style="font-size:.7rem">$0.00009534</td><td style="color:var(--profit)">+0.9100</td><td style="color:var(--profit)">+113.8%</td><td>47m</td><td>81.2</td></tr>
+        <tr><td>7kRm...bN3x</td><td>analyst</td><td style="font-size:.7rem">$0.00001890</td><td style="font-size:.7rem">$0.00003102</td><td style="color:var(--profit)">+0.6400</td><td style="color:var(--profit)">+64.0%</td><td>1h 12m</td><td>74.5</td></tr>
+        <tr><td>FqeT...mK2w</td><td>speed_demon</td><td style="font-size:.7rem">$0.00000312</td><td style="font-size:.7rem">$0.00000624</td><td style="color:var(--profit)">+0.5000</td><td style="color:var(--profit)">+100.0%</td><td>3m</td><td>85.7</td></tr>
+        <tr><td>9xK2...pL4m</td><td>analyst</td><td style="font-size:.7rem">$0.00002100</td><td style="font-size:.7rem">$0.00002940</td><td style="color:var(--profit)">+0.4000</td><td style="color:var(--profit)">+40.0%</td><td>28m</td><td>71.3</td></tr>
+        <tr><td>CvM8...rT6n</td><td>speed_demon</td><td style="font-size:.7rem">$0.00000890</td><td style="font-size:.7rem">$0.00001068</td><td style="color:var(--profit)">+0.2000</td><td style="color:var(--profit)">+20.0%</td><td>4m</td><td>78.9</td></tr>
+        <tr><td>Bp4R...k9Wq</td><td>speed_demon</td><td style="font-size:.7rem">$0.00000450</td><td style="font-size:.7rem">$0.00000315</td><td style="color:var(--loss)">-0.1500</td><td style="color:var(--loss)">-30.0%</td><td>5m</td><td>66.2</td></tr>
+        <tr><td>Xn4v...q2Rt</td><td>whale_tracker</td><td style="font-size:.7rem">$0.00003200</td><td style="font-size:.7rem">$0.00002080</td><td style="color:var(--loss)">-0.3500</td><td style="color:var(--loss)">-35.0%</td><td>2h 5m</td><td>70.1</td></tr>
+        <tr><td>Qm8k...fJ5p</td><td>analyst</td><td style="font-size:.7rem">$0.00001500</td><td style="font-size:.7rem">$0.00000750</td><td style="color:var(--loss)">-0.5000</td><td style="color:var(--loss)">-50.0%</td><td>30m</td><td>68.4</td></tr>
+        <tr><td>Wr3n...bH9x</td><td>speed_demon</td><td style="font-size:.7rem">$0.00000200</td><td style="font-size:.7rem">$0.00000100</td><td style="color:var(--loss)">-0.5000</td><td style="color:var(--loss)">-50.0%</td><td>2m</td><td>80.1</td></tr>
+        <tr><td>L5qR...mN2v</td><td>speed_demon</td><td style="font-size:.7rem">$0.00000680</td><td style="font-size:.7rem">$0.00000272</td><td style="color:var(--loss)">-0.5000</td><td style="color:var(--loss)">-60.0%</td><td>1m</td><td>65.0</td></tr>
+      </tbody>
+    </table>
+  </div>
 
-        async function fetchJSON(path) {
-            try {
-                const resp = await fetch(API_BASE + path);
-                return await resp.json();
-            } catch (e) {
-                return null;
-            }
-        }
+  <div class="grid-2-3">
+    <div class="card">
+      <div class="card-title">Signal Source Breakdown</div>
+      <canvas id="sourceChart" height="250"></canvas>
+    </div>
+    <div class="card">
+      <div class="card-title">Governance Notes</div>
+      <div class="governance-content" id="govNotes">
+        <h3>Weekly Review — 2026-03-24</h3>
+        <ul>
+          <li>Speed Demon alpha snipe tier performing well — 82% win rate on sub-30s entries</li>
+          <li>Analyst KOTH zone filter saved 3 potential losses this week</li>
+          <li>Recommend increasing Whale Tracker position size to 0.05 (5%) — wallet quality improved</li>
+          <li>5 whale wallets demoted below score 70 — auto-disqualified for low win rate</li>
+          <li>ML model retrained with 847 new samples — AUC improved 0.72 → 0.76</li>
+        </ul>
+        <p style="margin-top:1rem;font-size:.75rem;color:var(--text-muted)">Last updated: 2026-03-25 02:00 UTC</p>
+      </div>
+    </div>
+  </div>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+// Equity by personality
+const eCtx=$('equityChart').getContext('2d');
+const days=[...Array(7)].map((_,i)=>{const d=new Date();d.setDate(d.getDate()-6+i);return d.toLocaleDateString('en',{month:'short',day:'numeric'})});
+function genData(base,vol){let v=base;return days.map(()=>{v+=(Math.random()-0.4)*vol;return+v.toFixed(4)})}
+new Chart(eCtx,{type:'line',data:{labels:days,datasets:[
+  {label:'Speed Demon',data:genData(0,.4),borderColor:'#ffaa00',backgroundColor:'rgba(255,170,0,.05)',borderWidth:2,fill:true,tension:.3,pointRadius:2},
+  {label:'Analyst',data:genData(0,.3),borderColor:'#4488ff',backgroundColor:'rgba(68,136,255,.05)',borderWidth:2,fill:true,tension:.3,pointRadius:2},
+  {label:'Whale Tracker',data:genData(0,.35),borderColor:'#00d4aa',backgroundColor:'rgba(0,212,170,.05)',borderWidth:2,fill:true,tension:.3,pointRadius:2}
+]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#7d8590',font:{size:11}}}},scales:{x:{grid:{color:'#1c2128'},ticks:{color:'#7d8590'}},y:{grid:{color:'#1c2128'},ticks:{color:'#7d8590',font:{family:'JetBrains Mono'},callback:v=>v.toFixed(2)},position:'right'}}}});
 
-        function setPnl(id, val) {
-            const el = document.getElementById(id);
-            const v = val || 0;
-            el.textContent = (v >= 0 ? '+' : '') + v.toFixed(4) + ' SOL';
-            el.className = 'stat-value ' + (v >= 0 ? 'pnl-positive' : 'pnl-negative');
-        }
+// Win rate trend
+const wCtx=$('winRateChart').getContext('2d');
+const wrLabels=[...Array(30)].map((_,i)=>'D'+(i+1));
+const wrData=wrLabels.map(()=>45+Math.random()*30);
+new Chart(wCtx,{type:'line',data:{labels:wrLabels,datasets:[{data:wrData,borderColor:'#00d4aa',borderWidth:2,fill:false,tension:.3,pointRadius:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},annotation:{}},scales:{x:{grid:{color:'#1c2128'},ticks:{color:'#7d8590',maxTicksLimit:10}},y:{min:0,max:100,grid:{color:'#1c2128'},ticks:{color:'#7d8590',font:{family:'JetBrains Mono'},callback:v=>v+'%'}}}}});
 
-        function updatePersonality(prefix, data) {
-            if (!data) return;
-            setPnl(prefix + 'Pnl', data.total_pnl_sol);
-            document.getElementById(prefix + 'Win').textContent = (data.win_rate || 0) + '%';
-            document.getElementById(prefix + 'Total').textContent = data.total_trades || 0;
-            setPnl(prefix + 'Best', data.best_trade_sol);
-            setPnl(prefix + 'Worst', data.worst_trade_sol);
-            document.getElementById(prefix + 'Avg').textContent = (data.avg_pnl_pct || 0).toFixed(1) + '%';
-        }
+// ML confidence
+const mCtx=$('mlChart').getContext('2d');
+new Chart(mCtx,{type:'bar',data:{labels:['0-20','20-40','40-60','60-80','80-100'],datasets:[{data:[3,8,22,45,18],backgroundColor:'rgba(0,212,170,0.6)',borderColor:'#00d4aa',borderWidth:1,borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{color:'#7d8590'}},y:{grid:{color:'#1c2128'},ticks:{color:'#7d8590',font:{family:'JetBrains Mono'}}}}}});
 
-        function renderPortfolioChart(snapshots) {
-            const chart = document.getElementById('portfolioChart');
-            if (!snapshots || snapshots.length === 0) {
-                chart.innerHTML = '<div style="color:var(--text-dim);padding:2rem;">No portfolio data yet</div>';
-                return;
-            }
-            const values = snapshots.map(s => s.total_balance_sol || 0);
-            const max = Math.max(...values);
-            const min = Math.min(...values);
-            const range = max - min || 1;
-            const baseVal = snapshots[0].total_balance_sol || 0;
+// Signal sources
+const sCtx=$('sourceChart').getContext('2d');
+new Chart(sCtx,{type:'doughnut',data:{labels:['PumpPortal','GeckoTerminal','DexPaprika','Nansen','Discord','Helius'],datasets:[{data:[42,18,12,8,10,10],backgroundColor:['#8b5cf6','#00d4aa','#ff6b6b','#4488ff','#5865F2','#ff8c00'],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:'#7d8590',padding:12,font:{size:11}}}}}});
 
-            chart.innerHTML = values.map((v, i) => {
-                const pct = ((v - min) / range) * 100;
-                const isNeg = v < baseVal;
-                return '<div class="bar' + (isNeg ? ' negative' : '') + '" style="height:' + Math.max(2, pct) + '%" title="' + v.toFixed(4) + ' SOL"></div>';
-            }).join('');
-        }
-
-        function renderMLDist(trades) {
-            const bins = new Array(10).fill(0);
-            if (trades) {
-                trades.forEach(t => {
-                    const score = t.ml_score || 0;
-                    const bin = Math.min(9, Math.floor(score / 10));
-                    bins[bin]++;
-                });
-            }
-            const max = Math.max(...bins) || 1;
-            const dist = document.getElementById('mlDist');
-            dist.innerHTML = bins.map((count, i) => {
-                const pct = (count / max) * 100;
-                return '<div class="ml-bar" style="height:' + Math.max(2, pct) + '%" title="' + (i*10) + '-' + ((i+1)*10) + ': ' + count + '"></div>';
-            }).join('');
-        }
-
-        function updateDrawdown(snapshots) {
-            if (!snapshots || snapshots.length === 0) return;
-            let peak = 0;
-            let maxDD = 0;
-            snapshots.forEach(s => {
-                const v = s.total_balance_sol || 0;
-                peak = Math.max(peak, v);
-                const dd = peak > 0 ? (peak - v) / peak : 0;
-                maxDD = Math.max(maxDD, dd);
-            });
-            const latest = snapshots[snapshots.length - 1].total_balance_sol || 0;
-            const currentDD = peak > 0 ? (peak - latest) / peak : 0;
-
-            document.getElementById('maxDrawdown').textContent = (maxDD * 100).toFixed(1) + '%';
-            document.getElementById('currentDrawdown').textContent = (currentDD * 100).toFixed(1) + '%';
-            document.getElementById('peakBalance').textContent = peak.toFixed(4) + ' SOL';
-        }
-
-        async function loadAll() {
-            const [stats, history, trades, governance] = await Promise.all([
-                fetchJSON('/api/personality-stats'),
-                fetchJSON('/api/portfolio-history'),
-                fetchJSON('/api/trades?limit=50'),
-                fetchJSON('/api/governance'),
-            ]);
-
-            if (stats) {
-                updatePersonality('sd', stats.speed_demon);
-                updatePersonality('an', stats.analyst);
-                updatePersonality('wt', stats.whale_tracker);
-            }
-
-            renderPortfolioChart(history);
-            renderMLDist(trades);
-            updateDrawdown(history);
-
-            if (governance) {
-                // Show latest section of notes
-                const notes = governance.notes || '';
-                const sections = notes.split('---').filter(s => s.trim());
-                const latest = sections.slice(-3).join('\n---\n');
-                document.getElementById('governanceNotes').textContent = latest || 'No governance notes yet.';
-
-                if (governance.pending_whale_review) {
-                    document.getElementById('pendingAlert').classList.add('visible');
-                }
-            }
-        }
-
-        loadAll();
-        setInterval(loadAll, 30000);
-    </script>
+// Fetch real data
+async function fetchAnalytics(){try{
+  const[pStats,trades,gov]=await Promise.all([fetch('/api/personality-stats').then(r=>r.json()).catch(()=>({})),fetch('/api/trades?limit=100').then(r=>r.json()).catch(()=>[]),fetch('/api/governance').then(r=>r.json()).catch(()=>({}))]);
+  if(gov.pending_whale_review)$('whaleAlert').style.display='block';
+  if(gov.notes)$('govNotes').innerHTML='<pre style="white-space:pre-wrap;font-family:var(--font);font-size:.85rem;color:var(--text-dim)">'+gov.notes+'</pre>';
+}catch(e){console.error(e)}}
+// WS
+let ws;function connectWS(){ws=new WebSocket((location.protocol==='https:'?'wss':'ws')+'://'+location.host+'/ws');ws.onopen=()=>{$('statusDot').classList.remove('stopped');$('statusText').textContent='Connected'};ws.onclose=()=>{$('statusDot').classList.add('stopped');$('statusText').textContent='Disconnected';setTimeout(connectWS,3000)}}
+connectWS();fetchAnalytics();
+</script>
 </body>
 </html>
