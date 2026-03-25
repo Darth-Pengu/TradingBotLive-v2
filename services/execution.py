@@ -1,5 +1,5 @@
 """
-ToxiBot Execution Layer
+ZMN Bot Execution Layer
 ========================
 Two execution paths — no Telegram dependency anywhere:
   1. PumpPortal Local API (bonding curve tokens) — POST https://pumpportal.fun/api/trade-local

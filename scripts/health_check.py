@@ -1,5 +1,5 @@
 """
-ToxiBot Health Check — tests every API and integration.
+ZMN Bot Health Check — tests every API and integration.
 
 Usage:
     python scripts/health_check.py
@@ -376,7 +376,7 @@ async def test_discord_webhook(session: aiohttp.ClientSession, name: str, url: s
         return
     try:
         status, body, ms = await http_post(session, url,
-            json_body={"content": "ToxiBot health check - ignore"})
+            json_body={"content": "ZMN Bot health check - ignore"})
         if status == 204:
             record("DISCORD", name, PASS, "sent")
         elif status in (200, 201):
@@ -452,7 +452,7 @@ def test_files():
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 async def main():
-    print("\nRunning ToxiBot health checks...\n")
+    print("\nRunning ZMN Bot health checks...\n")
 
     async with aiohttp.ClientSession() as session:
         # BLOCKCHAIN — run concurrently

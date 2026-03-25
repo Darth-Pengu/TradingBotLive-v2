@@ -1,5 +1,5 @@
 """
-ToxiBot v3.0 — Main Launcher
+ZMN Bot v3.0 — Main Launcher
 ==============================
 Starts all services concurrently in a single process.
 Used by Railway as the single entrypoint.
@@ -38,6 +38,9 @@ async def run_service(name: str, module_path: str, critical: bool = False):
             import importlib
             mod = importlib.import_module(module_path)
             await mod.main()
+            # Service exited cleanly — still delay before restart to prevent tight loops
+            logger.warning("Service %s exited cleanly — restarting in 10s", name)
+            await asyncio.sleep(10)
         except asyncio.CancelledError:
             logger.info("Service %s cancelled", name)
             break
@@ -53,7 +56,7 @@ async def run_service(name: str, module_path: str, critical: bool = False):
 async def main():
     test_mode = os.getenv("TEST_MODE", "true").lower() == "true"
     logger.info("=" * 60)
-    logger.info("ToxiBot v3.0 starting")
+    logger.info("ZMN Bot v3.0 starting")
     logger.info("TEST_MODE=%s", test_mode)
     logger.info("=" * 60)
 

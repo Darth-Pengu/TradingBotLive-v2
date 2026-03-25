@@ -1,5 +1,5 @@
 """
-ToxiBot Signal Listener Service
+ZMN Bot Signal Listener Service
 ================================
 Connects to signal sources and pushes raw signals to Redis:
   1. PumpPortal WebSocket (primary) — subscribeNewToken, subscribeAccountTrade,

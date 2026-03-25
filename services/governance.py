@@ -1,5 +1,5 @@
 """
-ToxiBot Agent Governance Layer
+ZMN Bot Agent Governance Layer
 ================================
 Separate scheduled process calling the Anthropic Claude API for reasoning-level oversight.
 NEVER touches trade execution. Advisory only.
@@ -63,7 +63,7 @@ GOVERNANCE_SCHEDULE = {
     "monthly_report":     "monthly",
 }
 
-SYSTEM_PROMPT = """You are the governance agent for ToxiBot, a Solana memecoin trading bot.
+SYSTEM_PROMPT = """You are the governance agent for ZMN Bot, a Solana memecoin trading bot.
 Your role is strategic oversight — you analyse performance data, score whale wallets,
 and make recommendations. You never make live trading decisions.
 Write clearly and concisely. All output will be reviewed by the bot owner before any
@@ -104,7 +104,7 @@ Nothing else — just the JSON array.
 
     elif task_type == "daily_briefing":
         return f"""
-Write a concise daily briefing for the ToxiBot owner. Cover:
+Write a concise daily briefing for the ZMN Bot owner. Cover:
 1. Yesterday's performance (P/L, win rate, best/worst trade per personality)
 2. Current market condition and whether the HIBERNATE/DEFENSIVE/NORMAL/AGGRESSIVE/FRENZY
    mode seems correct given what you see in the data
@@ -121,7 +121,7 @@ Be direct. No fluff. Max 400 words.
 
     elif task_type == "drawdown_diagnosis":
         return f"""
-ToxiBot has hit a significant drawdown. Analyse the recent trade history and diagnose
+ZMN Bot has hit a significant drawdown. Analyse the recent trade history and diagnose
 the root cause. Was this a market condition problem, a signal quality problem, a position
 sizing problem, or something else? Be specific about which trades caused the most damage
 and why.
@@ -152,7 +152,7 @@ Provide: diagnosis + specific recommendation. One paragraph max.
 
     elif task_type == "monthly_report":
         return f"""
-Write a monthly performance report for ToxiBot. Include:
+Write a monthly performance report for ZMN Bot. Include:
 1. Overall P/L and Sharpe ratio
 2. Per-personality breakdown (Speed Demon, Analyst, Whale Tracker)
 3. ML model accuracy trend

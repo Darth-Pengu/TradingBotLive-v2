@@ -1,5 +1,5 @@
 """
-ToxiBot Bot Core — Personality Coordinator
+ZMN Bot Core — Personality Coordinator
 =============================================
 Central trading engine that:
 - Manages three concurrent personalities (Speed Demon, Analyst, Whale Tracker)

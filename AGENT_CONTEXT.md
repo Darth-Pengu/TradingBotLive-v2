@@ -1,4 +1,4 @@
-# ToxiBot — Agent Context Document
+# ZMN Bot — Agent Context Document
 **Version:** 3.0  
 **Last Updated:** March 2026  
 **Changes from v2.0:**
@@ -13,7 +13,7 @@
 
 ## 1. Project Overview
 
-ToxiBot is a **Solana memecoin trading bot** with three concurrent AI personalities, ML scoring, real-time market health detection, an agent governance layer, and a web dashboard. It executes trades directly on-chain via two clean REST APIs (no Telegram dependency), validates tokens through Rugcheck, and monitors the market via multiple on-chain and off-chain data feeds.
+ZMN Bot is a **Solana memecoin trading bot** with three concurrent AI personalities, ML scoring, real-time market health detection, an agent governance layer, and a web dashboard. It executes trades directly on-chain via two clean REST APIs (no Telegram dependency), validates tokens through Rugcheck, and monitors the market via multiple on-chain and off-chain data feeds.
 
 **Deployment:** Railway.app  
 **Language:** Python 3.11+ (async/await throughout — no sync/blocking calls anywhere)  
@@ -826,7 +826,6 @@ TREASURY_MIN_TRANSFER_SOL=1.0      # Minimum single transfer amount
 
 # === DATA APIS ===
 BITQUERY_API_KEY=                  # bitquery.io
-RUGCHECK_API_KEY=                  # rugcheck.xyz (free)
 VYBE_API_KEY=                      # vybenetwork.xyz (free tier)
 NANSEN_API_KEY=                    # nansen.ai Pro $49/mo (optional)
 

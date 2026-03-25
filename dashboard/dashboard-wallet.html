@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ToxiBot - Wallet</title>
+<title>ZMN Bot - Wallet</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
@@ -55,7 +55,7 @@ tr:nth-child(even){background:rgba(0,212,170,.015)}tr:hover{background:rgba(0,21
 </head>
 <body>
 <aside class="sb">
-  <div class="sb-h"><h1>ToxiBot</h1><small>Solana Terminal</small></div>
+  <div class="sb-h"><h1>ZMN Bot</h1><small>Solana Terminal</small></div>
   <div class="sb-s">Navigation</div>
   <nav class="sb-n"><a href="/dashboard/dashboard.html">Home</a><a href="/dashboard/dashboard-analytics.html">Status</a><a href="/dashboard/dashboard-wallet.html" class="on">Wallet</a></nav>
   <div class="sb-s">System</div>
@@ -161,7 +161,7 @@ document.querySelectorAll('th').forEach(th=>{th.addEventListener('click',functio
 // Filters
 document.querySelectorAll('#filters .fil').forEach(b=>{b.addEventListener('click',function(){document.querySelectorAll('#filters .fil').forEach(x=>x.classList.remove('on'));this.classList.add('on');const f=this.dataset.f;document.querySelectorAll('#histTbl tr').forEach(r=>{if(f==='all'){r.style.display=''}else if(f==='win'||f==='loss'){r.style.display=r.textContent.toLowerCase().includes(f)?'':'none'}else{r.style.display=r.textContent.toLowerCase().includes(f)?'':'none'}})})});
 // CSV
-function csvExport(){const rows=[['Time','Token','Personality','Entry','Exit','PL_SOL','PL_Pct','Hold','Size','Reason','Result']];document.querySelectorAll('#histTbl tr').forEach(r=>{const cells=[...r.querySelectorAll('td')].map(c=>c.textContent.trim());rows.push(cells)});const csv=rows.map(r=>r.join(',')).join('\n');const a=document.createElement('a');a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);a.download='toxibot_trades.csv';a.click()}
+function csvExport(){const rows=[['Time','Token','Personality','Entry','Exit','PL_SOL','PL_Pct','Hold','Size','Reason','Result']];document.querySelectorAll('#histTbl tr').forEach(r=>{const cells=[...r.querySelectorAll('td')].map(c=>c.textContent.trim());rows.push(cells)});const csv=rows.map(r=>r.join(',')).join('\n');const a=document.createElement('a');a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);a.download='zmn_trades.csv';a.click()}
 // WS
 let ws;function conn(){ws=new WebSocket((location.protocol==='https:'?'wss':'ws')+'://'+location.host+'/ws');ws.onopen=()=>{$('wsDot').classList.remove('off');$('wsText').textContent='Connected'};ws.onclose=()=>{$('wsDot').classList.add('off');$('wsText').textContent='Offline';setTimeout(conn,3000)};ws.onmessage=e=>{try{const d=JSON.parse(e.data);if(d._type==='periodic_update'){const s=d.status||{};$('posC').textContent=s.open_positions||'0'}}catch(x){}}}
 async function load(){try{const[ps]=await Promise.all([fetch('/api/personality-stats').then(r=>r.json()).catch(()=>({}))]);let tw=0,tt=0;for(const k of['speed_demon','analyst','whale_tracker']){const s=ps[k]||{};tw+=s.wins||0;tt+=s.total_trades||0}$('kWr').textContent=tt>0?(tw/tt*100).toFixed(1)+'%':'--'}catch(e){}}

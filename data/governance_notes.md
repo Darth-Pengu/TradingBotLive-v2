@@ -1,4 +1,4 @@
-# ToxiBot Governance Notes
+# ZMN Bot Governance Notes
 
 Entries are appended by the governance agent (services/governance.py).
 Each entry includes a task type, timestamp, and Claude API output.

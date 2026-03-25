@@ -1,4 +1,4 @@
-# ToxiBot v3.0 — Solana Memecoin Trading Bot
+# ZMN Bot v3.0 — Solana Memecoin Trading Bot
 
 Autonomous Solana memecoin trading bot with three concurrent AI personalities, ML scoring, market health detection, agent governance, and a real-time web dashboard.
 

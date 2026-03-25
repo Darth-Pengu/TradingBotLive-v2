@@ -1,5 +1,5 @@
 """
-ToxiBot Risk Manager
+ZMN Bot Risk Manager
 =====================
 Quarter-Kelly position sizing with drawdown scaling, time-of-day multipliers,
 streak multipliers, and hard portfolio limits.

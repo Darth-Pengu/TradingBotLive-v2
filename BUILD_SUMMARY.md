@@ -1,4 +1,4 @@
-# ToxiBot v3.0 — Build Summary
+# ZMN Bot v3.0 — Build Summary
 
 ## Files Created
 

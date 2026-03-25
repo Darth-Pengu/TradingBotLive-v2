@@ -1,5 +1,5 @@
 """
-ToxiBot ML Scoring Engine
+ZMN Bot ML Scoring Engine
 ===========================
 CatBoost + LightGBM ensemble with auto_class_weights="Balanced".
 - Retrain weekly on 7-day sliding window

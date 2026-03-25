@@ -1,5 +1,5 @@
 """
-ToxiBot Dashboard API — WebSocket Server
+ZMN Bot Dashboard API — WebSocket Server
 ==========================================
 Serves the HTML dashboard and provides real-time data via WebSocket + REST API.
 Feeds live data to dashboard pages:
@@ -135,7 +135,7 @@ LOGIN_HTML = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ToxiBot — Login</title>
+<title>ZMN Bot — Login</title>
 <style>
 :root { --bg: #0a0a1a; --card: rgba(15,15,35,0.85); --accent: #00ffaa; --danger: #ff4466; --text: #e0e0e0; --dim: #888; }
 * { margin:0; padding:0; box-sizing:border-box; }
@@ -161,7 +161,7 @@ button:hover { background:rgba(0,255,170,0.25); box-shadow:0 0 15px rgba(0,255,1
 </head>
 <body>
 <div class="card">
-  <h1>ToxiBot</h1>
+  <h1>ZMN Bot</h1>
   <div class="error" id="error">Invalid password</div>
   <form method="POST" action="/login" id="form">
     <label for="password">Dashboard Password</label>

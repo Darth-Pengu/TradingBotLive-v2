@@ -1,1 +1,1 @@
-# ToxiBot services package
+# ZMN Bot services package

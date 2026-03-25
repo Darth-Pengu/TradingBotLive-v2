@@ -1,5 +1,5 @@
 """
-ToxiBot Signal Aggregator
+ZMN Bot Signal Aggregator
 ===========================
 Layer 3 of the signal stack:
 - Deduplicates by token address within 60-second window

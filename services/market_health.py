@@ -1,5 +1,5 @@
 """
-ToxiBot Market Health Detection Service
+ZMN Bot Market Health Detection Service
 =========================================
 - Daily 00:00 UTC: query DefiLlama, CFGI, Jupiter price → composite sentiment + market mode
 - Intraday every 5 min: rug cascade detection, SOL price shock, network congestion

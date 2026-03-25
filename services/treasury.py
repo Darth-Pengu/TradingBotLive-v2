@@ -1,5 +1,5 @@
 """
-ToxiBot Treasury Sweep Service
+ZMN Bot Treasury Sweep Service
 ================================
 Automatically transfers excess SOL from trading wallet to holding wallet.
 - Polls Helius getBalance every 5 minutes

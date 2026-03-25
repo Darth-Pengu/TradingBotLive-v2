@@ -1,4 +1,4 @@
-# ToxiBot v3.0 — Code Review Against AGENT_CONTEXT.md
+# ZMN Bot v3.0 — Code Review Against AGENT_CONTEXT.md
 
 **Reviewed:** 2026-03-24
 **Files reviewed:** All 11 Python services + 3 dashboard HTML pages
