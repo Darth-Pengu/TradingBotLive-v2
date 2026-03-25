@@ -35,7 +35,8 @@ logger = logging.getLogger("bot_core")
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 TEST_MODE = os.getenv("TEST_MODE", "true").lower() == "true"
-DATABASE_PATH = os.getenv("DATABASE_PATH", "toxibot.db")
+_db_url = os.getenv("DATABASE_URL", "toxibot.db")
+DATABASE_PATH = _db_url.replace("sqlite:///", "") if _db_url.startswith("sqlite") else _db_url
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
 STARTING_CAPITAL_SOL = float(os.getenv("STARTING_CAPITAL_SOL", "20"))
 HELIUS_RPC_URL = os.getenv("HELIUS_RPC_URL", "")

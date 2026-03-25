@@ -17,7 +17,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DATABASE_PATH = os.getenv("DATABASE_PATH", "toxibot.db")
+_db_url = os.getenv("DATABASE_URL", "toxibot.db")
+DATABASE_PATH = _db_url.replace("sqlite:///", "") if _db_url.startswith("sqlite") else _db_url
 
 
 def main():

@@ -32,7 +32,8 @@ logging.basicConfig(
 logger = logging.getLogger("risk_manager")
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
-DATABASE_PATH = os.getenv("DATABASE_PATH", "toxibot.db")
+_db_url = os.getenv("DATABASE_URL", "toxibot.db")
+DATABASE_PATH = _db_url.replace("sqlite:///", "") if _db_url.startswith("sqlite") else _db_url
 STARTING_CAPITAL_SOL = float(os.getenv("STARTING_CAPITAL_SOL", "20"))
 
 # --- Quarter-Kelly parameters (Section 4) ---

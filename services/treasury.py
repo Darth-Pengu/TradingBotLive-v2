@@ -40,7 +40,8 @@ TRADING_WALLET_ADDRESS = os.getenv("TRADING_WALLET_ADDRESS", "")
 HOLDING_WALLET_ADDRESS = os.getenv("HOLDING_WALLET_ADDRESS", "")
 DISCORD_WEBHOOK_TREASURY = os.getenv("DISCORD_WEBHOOK_TREASURY", "")
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
-DATABASE_PATH = os.getenv("DATABASE_PATH", "toxibot.db")
+_db_url = os.getenv("DATABASE_URL", "toxibot.db")
+DATABASE_PATH = _db_url.replace("sqlite:///", "") if _db_url.startswith("sqlite") else _db_url
 
 # Hard-coded treasury rules — never make these configurable at runtime
 TREASURY_RULES = {

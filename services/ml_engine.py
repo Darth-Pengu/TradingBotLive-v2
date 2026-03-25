@@ -35,7 +35,8 @@ logger = logging.getLogger("ml_engine")
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 TEST_MODE = os.getenv("TEST_MODE", "true").lower() == "true"
-DATABASE_PATH = os.getenv("DATABASE_PATH", "toxibot.db")
+_db_url = os.getenv("DATABASE_URL", "toxibot.db")
+DATABASE_PATH = _db_url.replace("sqlite:///", "") if _db_url.startswith("sqlite") else _db_url
 
 MODEL_DIR = Path("data/models")
 MODEL_DIR.mkdir(parents=True, exist_ok=True)

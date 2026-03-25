@@ -210,10 +210,10 @@ async def _publish_market_state(redis_conn: aioredis.Redis | None, state: dict):
     logger.info("Market mode: %s | Sentiment: %s | SOL: $%s",
                 state["mode"], state["sentiment_score"], state.get("sol_price", "?"))
 
-    if TEST_MODE or not redis_conn:
+    if not redis_conn:
         return
 
-    # Publish mode change
+    # Publish mode change (even in TEST_MODE — bot_core needs market mode for paper trading)
     await redis_conn.publish("market:mode", json.dumps(state))
     # Cache with 5-min TTL
     await redis_conn.set("market:health", json.dumps(state), ex=300)
@@ -223,7 +223,7 @@ async def _publish_market_state(redis_conn: aioredis.Redis | None, state: dict):
 
 async def _publish_emergency(redis_conn: aioredis.Redis | None, reason: str):
     logger.critical("EMERGENCY: %s", reason)
-    if TEST_MODE or not redis_conn:
+    if not redis_conn:
         return
     await redis_conn.publish("alerts:emergency", json.dumps({
         "reason": reason,
@@ -303,7 +303,7 @@ async def daily_health_check(redis_conn: aioredis.Redis | None):
                     "sydney_time": syd.strftime("%H:%M %Z"),
                     "sydney_hour": syd.hour,
                 }
-                if redis_conn and not TEST_MODE:
+                if redis_conn:
                     await redis_conn.set("market:session", json.dumps(session_data), ex=300)
 
                 # --- Intraday emergency checks ---
@@ -340,7 +340,7 @@ async def rug_cascade_monitor(redis_conn: aioredis.Redis | None):
         await asyncio.sleep(300)  # Check every 5 minutes
         # Rug cascade detection will be enhanced when signal_aggregator tracks token prices
         # For now, this is a placeholder that monitors the health state
-        if redis_conn and not TEST_MODE:
+        if redis_conn:
             try:
                 health = await redis_conn.get("market:health")
                 if health:
@@ -357,16 +357,13 @@ async def main():
     logger.info("Market Health service starting (TEST_MODE=%s)", TEST_MODE)
 
     redis_conn = None
-    if not TEST_MODE:
-        try:
-            redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True)
-            await redis_conn.ping()
-            logger.info("Redis connected: %s", REDIS_URL)
-        except Exception as e:
-            logger.error("Redis connection failed: %s", e)
-            redis_conn = None
-    else:
-        logger.info("TEST_MODE — Redis publishing disabled")
+    try:
+        redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True)
+        await redis_conn.ping()
+        logger.info("Redis connected: %s", REDIS_URL)
+    except Exception as e:
+        logger.warning("Redis connection failed: %s -- market health will log only", e)
+        redis_conn = None
 
     await asyncio.gather(
         daily_health_check(redis_conn),
