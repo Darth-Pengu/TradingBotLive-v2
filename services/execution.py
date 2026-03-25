@@ -323,11 +323,15 @@ async def _send_transaction(session: aiohttp.ClientSession, tx_bytes: bytes, ski
         }],
     }
     last_error = ""
+    helius_api_key = os.getenv("HELIUS_API_KEY", "").strip()
     for rpc_url in (HELIUS_STAKED_URL, HELIUS_GATEKEEPER_URL):
         if not rpc_url:
             continue
         try:
-            async with session.post(rpc_url, json=payload, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+            # Named/staked RPCs use Bearer auth — strip ?api-key= from URL if present
+            url = rpc_url.split("?")[0] if "?api-key=" in rpc_url and rpc_url == HELIUS_STAKED_URL else rpc_url
+            headers = {"Authorization": f"Bearer {helius_api_key}"} if helius_api_key and rpc_url == HELIUS_STAKED_URL else {}
+            async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as resp:
                 result = await resp.json()
                 if "error" in result:
                     last_error = f"sendTransaction error: {result['error']}"

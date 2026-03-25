@@ -114,10 +114,10 @@ async def test_helius_staked(session):
     if not HELIUS_STAKED_URL:
         record("BLOCKCHAIN", "Helius Staked", SKIP, "not configured"); return
     try:
-        headers = {}
-        if HELIUS_API_KEY:
-            headers["Authorization"] = f"Bearer {HELIUS_API_KEY}"
-        slot, ms = await rpc_getslot(session, HELIUS_STAKED_URL, headers=headers)
+        # Named RPCs use Bearer auth, strip ?api-key= if present in URL
+        url = HELIUS_STAKED_URL.split("?")[0] if "?api-key=" in HELIUS_STAKED_URL else HELIUS_STAKED_URL
+        headers = {"Authorization": f"Bearer {HELIUS_API_KEY}"} if HELIUS_API_KEY else {}
+        slot, ms = await rpc_getslot(session, url, headers=headers)
         record("BLOCKCHAIN", "Helius Staked", PASS if ms <= 500 else WARN, f"{ms}ms (slot: {slot})")
     except Exception as e:
         record("BLOCKCHAIN", "Helius Staked", FAIL, str(e)[:80])

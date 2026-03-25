@@ -402,6 +402,24 @@ async def api_governance(request):
     return web.json_response({"notes": content, "pending_whale_review": pending_exists})
 
 
+async def api_ml_status(request):
+    """ML model status from model_meta.json."""
+    meta_path = Path("data/models/model_meta.json")
+    result = {"trained": False, "sample_count": 0, "last_train_time": None, "accuracy_last_100": 0}
+    if meta_path.exists():
+        try:
+            with open(meta_path) as f:
+                data = json.load(f)
+            result["trained"] = True
+            result["sample_count"] = data.get("sample_count", data.get("training_samples", 0))
+            result["last_train_time"] = data.get("last_trained", data.get("trained_at", None))
+            result["accuracy_last_100"] = data.get("accuracy", data.get("accuracy_last_100", 0))
+            result["features"] = data.get("feature_importance", data.get("features", {}))
+        except Exception:
+            pass
+    return web.json_response(result)
+
+
 async def api_portfolio_history(request):
     snapshots = await _query_db("SELECT * FROM portfolio_snapshots ORDER BY id DESC LIMIT 288")
     return web.json_response(list(reversed(snapshots)))
@@ -746,6 +764,7 @@ def create_app() -> web.Application:
     app.router.add_get("/api/treasury", api_treasury)
     app.router.add_get("/api/governance", api_governance)
     app.router.add_get("/api/portfolio-history", api_portfolio_history)
+    app.router.add_get("/api/ml-status", api_ml_status)
     app.router.add_get("/api/paper-stats", api_paper_stats)
     app.router.add_post("/api/emergency-stop", api_emergency_stop)
     app.router.add_post("/api/approve-parameter", api_approve_parameter)

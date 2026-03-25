@@ -215,17 +215,11 @@ kbd{background:var(--bg-elevated);border:1px solid var(--border-active);border-r
     </div>
     <div class="card">
       <div class="card-title">ML Model Status <span class="mi" data-tip="CatBoost + LightGBM ensemble. Retrains weekly with new trade data.">i</span></div>
-      <div class="info-row"><span class="info-label">Trained</span><span><span class="pill pill-green">YES</span></span></div>
-      <div class="info-row"><span class="info-label">Last Trained</span><span class="info-val">2026-03-25 02:00 UTC</span></div>
-      <div class="info-row"><span class="info-label">Samples</span><span class="info-val">847</span></div>
-      <div class="info-row"><span class="info-label">Accuracy (last 100)</span><span class="info-val">72.3%</span></div>
-      <div style="margin-top:12px">
-        <div class="feat-bar"><span class="feat-label">liquidity_vel</span><div class="feat-track"><div class="feat-fill" style="width:90%"></div></div><span class="feat-pct">18%</span></div>
-        <div class="feat-bar"><span class="feat-label">buy_sell_ratio</span><div class="feat-track"><div class="feat-fill" style="width:75%"></div></div><span class="feat-pct">15%</span></div>
-        <div class="feat-bar"><span class="feat-label">holder_conc</span><div class="feat-track"><div class="feat-fill" style="width:60%"></div></div><span class="feat-pct">12%</span></div>
-        <div class="feat-bar"><span class="feat-label">volume_accel</span><div class="feat-track"><div class="feat-fill" style="width:55%"></div></div><span class="feat-pct">11%</span></div>
-        <div class="feat-bar"><span class="feat-label">creator_rugs</span><div class="feat-track"><div class="feat-fill" style="width:45%"></div></div><span class="feat-pct">9%</span></div>
-      </div>
+      <div class="info-row"><span class="info-label">Trained</span><span id="mlTrained"><span class="pill pill-muted">--</span></span></div>
+      <div class="info-row"><span class="info-label">Last Trained</span><span class="info-val" id="mlLastTrain">--</span></div>
+      <div class="info-row"><span class="info-label">Samples</span><span class="info-val" id="mlSamples">--</span></div>
+      <div class="info-row"><span class="info-label">Accuracy (last 100)</span><span class="info-val" id="mlAccuracy">--</span></div>
+      <div style="margin-top:12px" id="mlFeatures"><div style="font-size:11px;color:var(--text-muted)">No feature data</div></div>
     </div>
   </div>
 
@@ -237,17 +231,15 @@ kbd{background:var(--bg-elevated);border:1px solid var(--border-active);border-r
       <div class="info-row"><span class="info-label">Next Briefing</span><span class="info-val">Tomorrow 07:00 AEDT</span></div>
       <div class="info-row"><span class="info-label">Pending Review</span><span id="govPend"><span class="pill pill-green">NONE</span></span></div>
       <div style="margin-top:10px;font-size:11px;color:var(--text-muted);font-weight:500;text-transform:uppercase;letter-spacing:.06em">Notes Preview</div>
-      <div class="gov-notes" id="govNotes">Speed Demon alpha snipe: 82% win rate. Recommend increasing Whale Tracker to 0.05. 5 wallets demoted. ML AUC 0.72 -> 0.76.</div>
+      <div class="gov-notes" id="govNotes">No governance notes yet</div>
     </div>
     <div class="card">
       <div class="card-title">Treasury Sweep History</div>
       <table><thead><tr><th>Time</th><th>Amount</th><th>Status</th></tr></thead>
-      <tbody>
-        <tr><td>Mar 25 14:10</td><td>5.2340 SOL</td><td><span class="pill pill-green">OK</span></td></tr>
-        <tr><td>Mar 24 09:45</td><td>3.8100 SOL</td><td><span class="pill pill-green">OK</span></td></tr>
-        <tr><td>Mar 23 16:20</td><td>6.1200 SOL</td><td><span class="pill pill-green">OK</span></td></tr>
+      <tbody id="sweepTbl">
+        <tr><td colspan="3" style="text-align:center;color:var(--text-muted);padding:12px">No sweeps yet</td></tr>
       </tbody></table>
-      <div style="margin-top:8px;font-size:12px;color:var(--text-muted)">Total swept: <span style="font-family:var(--font-mono);color:var(--accent-teal)">15.1640 SOL</span></div>
+      <div style="margin-top:8px;font-size:12px;color:var(--text-muted)">Total swept: <span style="font-family:var(--font-mono);color:var(--accent-teal)" id="totSwept">0.0000 SOL</span></div>
     </div>
   </div>
 
@@ -281,7 +273,20 @@ function toggleCheck(id){const el=$(id);const key='cl_'+id;const done=localStora
 ['clReview','clEstop'].forEach(id=>{if(localStorage.getItem('cl_'+id)==='1'){const el=$(id);el.querySelector('i').className='bi bi-check-circle-fill';el.querySelector('i').style.color='var(--green)'}});
 // WS
 let ws;function conn(){ws=new WebSocket((location.protocol==='https:'?'wss':'ws')+'://'+location.host+'/ws');ws.onopen=()=>{ws.send(JSON.stringify({token:TOKEN}))};ws.onclose=()=>setTimeout(conn,3000);ws.onmessage=e=>{try{const d=JSON.parse(e.data);if(d._type==='health_check_line'){$('hcOut').style.display='block';$('hcOut').textContent+=d.line+'\n';$('hcOut').scrollTop=$('hcOut').scrollHeight}if(d._type==='health_check_done'){$('hcBtn').textContent='Run Full Health Check';$('hcBtn').style.opacity='1'}}catch(x){}}}
-conn();loadGov();loadRedis();
+// Load ML status
+async function loadML(){try{const r=await aFetch('/api/ml-status');const d=await r.json();
+$('mlTrained').innerHTML=d.trained?'<span class="pill pill-green">YES</span>':'<span class="pill pill-red">NO</span>';
+$('mlLastTrain').textContent=d.last_train_time||'Never';
+$('mlSamples').textContent=d.sample_count||'0';
+$('mlAccuracy').textContent=d.accuracy_last_100?d.accuracy_last_100+'%':'--';
+if(d.features&&typeof d.features==='object'){const entries=Object.entries(d.features).sort((a,b)=>b[1]-a[1]).slice(0,5);const max=entries[0]?entries[0][1]:1;$('mlFeatures').innerHTML=entries.map(([k,v])=>'<div class="feat-bar"><span class="feat-label">'+k+'</span><div class="feat-track"><div class="feat-fill" style="width:'+Math.round(v/max*100)+'%"></div></div><span class="feat-pct">'+(v*100).toFixed(0)+'%</span></div>').join('')}
+}catch(e){}}
+// Load treasury sweeps
+async function loadTreasury(){try{const r=await aFetch('/api/treasury');const d=await r.json();
+$('totSwept').textContent=(d.total_swept_sol||0).toFixed(4)+' SOL';
+if(d.sweeps&&d.sweeps.length>0){$('sweepTbl').innerHTML=d.sweeps.map(s=>{const t=s.timestamp?new Date(s.timestamp).toLocaleDateString('en',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}):'--';return '<tr><td>'+t+'</td><td>'+(s.amount_sol||0).toFixed(4)+' SOL</td><td><span class="pill pill-green">'+(s.status||'OK')+'</span></td></tr>'}).join('')}
+}catch(e){}}
+conn();loadGov();loadRedis();loadML();loadTreasury();
 // Keyboard shortcuts + command palette
 function go(u){window.location.href=u}
 function openCmd(){$('cmdBg').classList.add('on');$('cmdIn').value='';$('cmdIn').focus();filterCmd('')}
