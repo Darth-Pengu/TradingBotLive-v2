@@ -221,7 +221,7 @@ async def _fetch_creator_history(session: aiohttp.ClientSession, mint: str, redi
     creator = ""
     if VYBE_API_KEY:
         try:
-            url = f"https://api.vybenetwork.com/token/{mint}"
+            url = f"https://api.vybenetwork.xyz/token/{mint}"
             headers = {"Authorization": f"Bearer {VYBE_API_KEY}"}
             async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                 if resp.status == 200:

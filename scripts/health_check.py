@@ -299,7 +299,7 @@ async def test_vybe(session):
         record("DATA FEEDS", "Vybe Network", SKIP, "VYBE_API_KEY not set"); return
     try:
         status, body, ms = await http_get(session,
-            "https://api.vybenetwork.com/v4/wallets/top-traders",
+            "https://api.vybenetwork.xyz/v4/wallets/top-traders",
             headers={"X-API-Key": VYBE_API_KEY}, params={"limit": 1})
         record("DATA FEEDS", "Vybe Network", PASS if status == 200 else FAIL, f"HTTP {status} ({ms}ms)")
     except Exception as e:
