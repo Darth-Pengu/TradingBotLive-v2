@@ -199,9 +199,11 @@ class BotCore:
         return prices.get(mint, 0.0)
 
     async def _get_token_prices_batch(self, mints: list[str]) -> dict[str, float]:
-        """Batch-fetch token prices via Jupiter. Returns {mint: price}."""
+        """Batch-fetch token prices. Jupiter primary (with auth), Binance fallback for SOL."""
         if not mints:
             return {}
+        result = {m: 0.0 for m in mints}
+        # Primary: Jupiter V3
         try:
             ids = ",".join(set(mints))
             headers = {"x-api-key": JUPITER_API_KEY} if JUPITER_API_KEY else {}
@@ -214,14 +216,28 @@ class BotCore:
                 ) as resp:
                     if resp.status == 200:
                         data = await resp.json()
-                        result = {}
                         for mint in mints:
                             p = data.get("data", {}).get(mint, {}).get("usdPrice") or data.get("data", {}).get(mint, {}).get("price")
                             result[mint] = float(p) if p else 0.0
                         return result
         except Exception:
             pass
-        return {m: 0.0 for m in mints}
+        # Fallback: Binance for SOL (no auth needed)
+        sol_mint = "So11111111111111111111111111111111111111112"
+        if sol_mint in result:
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(
+                        "https://api.binance.com/api/v3/ticker/price",
+                        params={"symbol": "SOLUSDT"},
+                        timeout=aiohttp.ClientTimeout(total=10),
+                    ) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            result[sol_mint] = float(data.get("price", 0))
+            except Exception:
+                pass
+        return result
 
     # --- EMERGENCY STOP ---
     async def emergency_stop(self, reason: str):

@@ -508,14 +508,34 @@ async def api_approve_parameter(request):
 
 
 async def api_sol_price(request):
+    """SOL price — Binance primary (no auth), Jupiter V3 fallback."""
+    # Binance — no auth needed
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get("https://price.jup.ag/v6/price?ids=SOL",
+            async with session.get("https://api.binance.com/api/v3/ticker/price",
+                                   params={"symbol": "SOLUSDT"},
                                    timeout=aiohttp.ClientTimeout(total=5)) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    sol = data.get("data", {}).get("SOL", {})
-                    return web.json_response({"price": sol.get("price", 0)})
+                    price = float(data.get("price", 0))
+                    if price > 0:
+                        return web.json_response({"price": price})
+    except Exception:
+        pass
+    # Jupiter V3 fallback
+    try:
+        jup_key = os.getenv("JUPITER_API_KEY", "").strip()
+        headers = {"x-api-key": jup_key} if jup_key else {}
+        async with aiohttp.ClientSession() as session:
+            async with session.get("https://api.jup.ag/price/v3",
+                                   params={"ids": "So11111111111111111111111111111111111111112"},
+                                   headers=headers,
+                                   timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    sol = data.get("data", {}).get("So11111111111111111111111111111111111111112", {})
+                    price = sol.get("usdPrice") or sol.get("price", 0)
+                    return web.json_response({"price": float(price) if price else 0})
     except Exception:
         pass
     return web.json_response({"price": 0})

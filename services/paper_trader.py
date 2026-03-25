@@ -97,17 +97,20 @@ async def _init_paper_table(db: aiosqlite.Connection):
 
 
 async def _get_token_price(mint: str) -> float:
-    """Get current token price via Jupiter."""
+    """Get current token price via Jupiter V3 (with auth) or Binance fallback."""
+    jup_key = os.getenv("JUPITER_API_KEY", "").strip()
     try:
+        headers = {"x-api-key": jup_key} if jup_key else {}
         async with aiohttp.ClientSession() as session:
             async with session.get(
-                "https://api.jup.ag/price/v2",
+                "https://api.jup.ag/price/v3",
                 params={"ids": mint},
+                headers=headers,
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    price = data.get("data", {}).get(mint, {}).get("price")
+                    price = data.get("data", {}).get(mint, {}).get("usdPrice") or data.get("data", {}).get(mint, {}).get("price")
                     if price:
                         return float(price)
     except Exception:
