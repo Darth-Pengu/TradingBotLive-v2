@@ -3,91 +3,147 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ZMN Bot - Wallet</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<title>ZMN Bot — Wallet</title>
+<link href="https://api.fontshare.com/v2/css?f=satoshi@900,700,500,400,300&display=swap" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.2/font/bootstrap-icons.css" rel="stylesheet">
 <style>
-:root{--bg:#0b0e13;--card:rgba(13,17,23,.85);--card-s:#161b22;--sb:#060809;--border:rgba(0,212,180,.08);--bh:rgba(0,212,180,.18);--a:#00d4aa;--r:#ff4466;--w:#ffaa00;--t:#e6edf3;--td:#7d8590;--tm:#484f58;--p:#00d4aa;--l:#ff4466;--g:#131920;--f:'Inter',sans-serif;--m:'JetBrains Mono',monospace}
-*{margin:0;padding:0;box-sizing:border-box}body{font-family:var(--f);background:var(--bg);color:var(--t);display:flex;min-height:100vh;background-image:radial-gradient(ellipse at 10% 10%,rgba(0,188,212,.06) 0%,transparent 55%),radial-gradient(ellipse at 90% 85%,rgba(0,212,170,.03) 0%,transparent 50%)}
-.sb{width:220px;background:var(--sb);border-right:1px solid var(--border);display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;z-index:100}
-.sb-h{padding:1.4rem 1.2rem 1rem;border-bottom:1px solid var(--border)}.sb-h h1{font-size:1.3rem;font-weight:700;color:var(--a);letter-spacing:2px;text-shadow:0 0 20px rgba(0,212,170,.3)}.sb-h small{font-size:.6rem;color:var(--tm);display:block;margin-top:3px;text-transform:uppercase;letter-spacing:1.5px}
-.sb-s{padding:.4rem 1.2rem;font-size:.55rem;color:var(--tm);text-transform:uppercase;letter-spacing:2px;margin-top:.6rem}
-.sb-n{padding:.3rem 0}.sb-n a{display:flex;align-items:center;gap:.6rem;padding:.55rem 1.2rem;color:var(--td);text-decoration:none;font-size:.82rem;font-weight:500;border-left:2px solid transparent;transition:.15s}.sb-n a:hover{color:var(--t);background:rgba(0,212,170,.04)}.sb-n a.on{color:var(--a);border-left-color:var(--a);background:linear-gradient(90deg,rgba(0,212,170,.08),transparent)}
-.sb-st{padding:.6rem 1.2rem;border-top:1px solid var(--border);font-size:.75rem;display:flex;align-items:center;gap:.4rem}
-.dot{width:7px;height:7px;border-radius:50%;background:var(--a);box-shadow:0 0 8px var(--a);animation:pu 2s infinite}.dot.off{background:var(--r);box-shadow:0 0 8px var(--r);animation:none}@keyframes pu{0%,100%{opacity:1}50%{opacity:.3}}
-.sb-e{margin:.4rem 1rem .6rem;padding:.5rem;background:rgba(255,68,102,.06);border:1px solid rgba(255,68,102,.2);border-radius:6px;color:var(--r);font-size:.72rem;font-weight:600;cursor:pointer;text-align:center}.sb-e:hover{background:rgba(255,68,102,.12)}
-.sb-ft{padding:.6rem 1.2rem;border-top:1px solid var(--border);font-size:.6rem;color:var(--tm);letter-spacing:1px;margin-top:auto}
-.mn{margin-left:220px;flex:1;padding:1.5rem 2rem;min-width:0}
-.ct{font-size:.75rem;font-weight:600;color:var(--td);margin-bottom:.8rem;text-transform:uppercase;letter-spacing:.5px;display:flex;align-items:center;gap:.5rem}
-.card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:1.2rem;backdrop-filter:blur(10px);margin-bottom:1.5rem;transition:.2s}.card:hover{border-color:var(--bh)}
-/* KPI */
-.kpi{display:grid;grid-template-columns:repeat(7,1fr);gap:.8rem;margin-bottom:1.5rem}
-.kc{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:.7rem .9rem}
-.kc .lb{font-size:.55rem;color:var(--tm);text-transform:uppercase;letter-spacing:.5px;margin-bottom:.2rem}
-.kc .vl{font-family:var(--m);font-size:1rem;font-weight:700}
+:root{--bg-base:#080b0f;--bg-surface:#0d1117;--bg-elevated:#161b22;--bg-card:#1a1f2e;--bg-hover:#1f2535;--border:rgba(255,255,255,0.06);--border-active:rgba(255,255,255,0.12);--text-primary:#e6edf3;--text-secondary:#8b949e;--text-muted:#484f58;--accent-teal:#00d4aa;--accent-teal-dim:rgba(0,212,170,0.12);--accent-purple:#a78bfa;--accent-purple-dim:rgba(167,139,250,0.12);--accent-amber:#f59e0b;--accent-amber-dim:rgba(245,158,11,0.12);--green:#3fb950;--green-dim:rgba(63,185,80,0.12);--red:#f85149;--red-dim:rgba(248,81,73,0.12);--blue:#58a6ff;--blue-dim:rgba(88,166,255,0.12);--shadow-sm:0 1px 3px rgba(0,0,0,0.4);--shadow-md:0 4px 16px rgba(0,0,0,0.5);--radius-sm:6px;--radius-md:10px;--radius-lg:14px;--font:'Satoshi',-apple-system,sans-serif;--font-mono:'SF Mono','Fira Code',monospace}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg-base);color:var(--text-primary);font-family:var(--font);font-size:14px;display:flex;min-height:100vh}
+.sb{width:240px;background:var(--bg-surface);border-right:1px solid var(--border);position:sticky;top:0;height:100vh;display:flex;flex-direction:column;flex-shrink:0;overflow-y:auto}
+.sb-logo{display:flex;align-items:center;gap:10px;padding:20px 20px 4px}
+.sb-logo .mark{width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,#00d4aa,#a78bfa);display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-size:15px;flex-shrink:0}
+.sb-logo .name{font-size:18px;font-weight:700}
+.sb-logo-sub{padding:0 20px 16px;font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.1em}
+.sb-div{height:1px;background:var(--border);margin:0 16px}
+.sb-section{padding:16px 20px 6px;font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.12em}
+.sb-nav{padding:0 8px}
+.sb-nav a{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:var(--radius-sm);color:var(--text-secondary);text-decoration:none;font-size:14px;font-weight:500;transition:.15s;border-left:2px solid transparent;margin-bottom:2px}
+.sb-nav a:hover{background:var(--bg-hover)}
+.sb-nav a.on{background:var(--accent-teal-dim);color:var(--accent-teal);border-left-color:var(--accent-teal)}
+.sb-nav a i{font-size:16px;width:18px;text-align:center}
+.sb-bottom{margin-top:auto;padding:12px 20px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.sb-time{font-size:12px;font-family:var(--font-mono);color:var(--text-muted)}
+.sb-user{display:flex;align-items:center;gap:8px}
+.sb-avatar{width:28px;height:28px;border-radius:50%;background:var(--accent-teal-dim);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:var(--accent-teal)}
+.sb-logout{color:var(--text-muted);cursor:pointer;font-size:16px;transition:.15s}.sb-logout:hover{color:var(--red)}
+.sb-ver{font-size:10px;color:var(--text-muted);padding:0 20px 12px}
+.main{flex:1;padding:24px;min-width:0}
+/* Stats strip */
+.stats-strip{display:flex;gap:0;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--bg-card);margin-bottom:20px;overflow:hidden}
+.stat-item{flex:1;padding:14px 16px;border-right:1px solid var(--border);text-align:center}
+.stat-item:last-child{border:none}
+.stat-label{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:4px}
+.stat-val{font-size:16px;font-weight:700;font-family:var(--font-mono)}
+/* Tabs */
+.tabs{display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:20px}
+.tab{padding:10px 20px;font-size:13px;font-weight:500;color:var(--text-secondary);cursor:pointer;border-bottom:2px solid transparent;transition:.15s}
+.tab:hover{color:var(--text-primary)}
+.tab.on{color:var(--accent-teal);border-bottom-color:var(--accent-teal)}
+.tab-panel{display:none}.tab-panel.on{display:block}
+/* Cards */
+.card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:20px;box-shadow:var(--shadow-sm);margin-bottom:16px}
+.card-title{font-size:14px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between}
 /* Tables */
-table{width:100%;border-collapse:collapse;font-size:.72rem}
-th{text-align:left;padding:.45rem .6rem;color:var(--tm);font-weight:500;text-transform:uppercase;font-size:.58rem;letter-spacing:.5px;border-bottom:1px solid var(--border);cursor:pointer;position:sticky;top:0;background:var(--card-s);transition:.1s;white-space:nowrap}
-th:hover{color:var(--a)}td{padding:.4rem .6rem;border-bottom:1px solid rgba(0,212,170,.04);font-family:var(--m);font-size:.72rem}
-tr:nth-child(even){background:rgba(0,212,170,.015)}tr:hover{background:rgba(0,212,170,.03)}
-.win{color:var(--p)}.loss{color:var(--l)}
-.tbl-wrap{max-height:350px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:rgba(0,212,170,.08) transparent}
-.badge{display:inline-block;padding:1px 6px;border-radius:3px;font-size:.55rem;font-weight:600;text-transform:uppercase;letter-spacing:.3px}
-.b-w{background:rgba(0,212,170,.12);color:var(--p)}.b-l{background:rgba(255,68,102,.12);color:var(--l)}.b-n{background:rgba(0,212,170,.12);color:var(--a)}.b-d{background:rgba(255,170,0,.12);color:var(--w)}.b-g{background:rgba(125,133,144,.12);color:var(--td)}
-.close-btn{padding:2px 8px;border-radius:3px;border:1px solid rgba(255,170,0,.2);background:rgba(255,170,0,.06);color:var(--w);font-size:.6rem;cursor:pointer;transition:.15s}.close-btn:hover{background:rgba(255,170,0,.15)}
-.csv-btn{padding:.4rem 1rem;background:rgba(0,212,170,.1);border:1px solid rgba(0,212,170,.2);border-radius:6px;color:var(--a);font-size:.7rem;cursor:pointer;float:right}.csv-btn:hover{background:rgba(0,212,170,.2)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:8px 10px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);font-weight:500;border-bottom:1px solid var(--border);cursor:pointer;transition:.15s;position:sticky;top:0;background:var(--bg-card)}
+th:hover{color:var(--accent-teal)}
+td{padding:7px 10px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:12px}
+tr:hover td{background:var(--bg-hover)}
+.tbl-wrap{max-height:400px;overflow-y:auto}
+.tbl-wrap::-webkit-scrollbar{width:4px}.tbl-wrap::-webkit-scrollbar-thumb{background:var(--border-active);border-radius:2px}
+/* Pills */
+.pill{display:inline-flex;align-items:center;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:600}
+.pill-green{background:var(--green-dim);color:var(--green)}
+.pill-red{background:var(--red-dim);color:var(--red)}
+.pill-amber{background:var(--accent-amber-dim);color:var(--accent-amber)}
+.pill-teal{background:var(--accent-teal-dim);color:var(--accent-teal)}
+.pill-purple{background:var(--accent-purple-dim);color:var(--accent-purple)}
+.pill-muted{background:rgba(255,255,255,.04);color:var(--text-muted)}
+.pill-blue{background:var(--blue-dim);color:var(--blue)}
+/* Btns */
+.btn-sm{padding:4px 12px;border-radius:var(--radius-sm);font-size:11px;font-weight:500;cursor:pointer;border:1px solid var(--border);background:var(--bg-elevated);color:var(--text-secondary);font-family:var(--font);transition:.15s}
+.btn-sm:hover{border-color:var(--border-active);color:var(--text-primary)}
+.btn-export{float:right;padding:5px 14px;border-radius:var(--radius-sm);background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-secondary);font-size:11px;cursor:pointer;font-family:var(--font);transition:.15s}
+.btn-export:hover{color:var(--accent-teal);border-color:var(--accent-teal-dim)}
 /* Filters */
-.filters{display:flex;gap:.5rem;margin-bottom:.6rem;flex-wrap:wrap}
-.fil{padding:3px 10px;border-radius:4px;font-size:.62rem;cursor:pointer;border:1px solid var(--border);color:var(--td);background:transparent;transition:.15s}.fil:hover,.fil.on{border-color:var(--a);color:var(--a);background:rgba(0,212,170,.06)}
-/* Grids */
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;margin-bottom:1.5rem}
-.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-bottom:1.5rem}
-/* Source pill */
-.src{display:inline-block;padding:1px 6px;border-radius:8px;font-size:.55rem;font-weight:600;margin-right:3px}
-.src-pp{background:rgba(139,92,246,.15);color:#a78bfa}.src-gc{background:rgba(0,212,170,.12);color:var(--a)}.src-hl{background:rgba(255,140,0,.12);color:#ff8c00}.src-ns{background:rgba(68,136,255,.12);color:#4488ff}.src-dc{background:rgba(88,101,242,.12);color:#7289da}
-.feed{max-height:300px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:rgba(0,212,170,.08) transparent}
-.fi{padding:.35rem 0;border-bottom:1px solid rgba(0,212,170,.03);font-size:.72rem;display:flex;gap:.4rem;align-items:center}.fi:hover{background:rgba(0,212,170,.02)}
-.ft{font-family:var(--m);color:var(--tm);min-width:42px;font-size:.6rem}
-.ml-bar{height:3px;width:40px;background:rgba(255,255,255,.05);border-radius:2px;display:inline-block;overflow:hidden;vertical-align:middle}.ml-fill{height:100%;border-radius:2px}
-@media(max-width:1280px){.kpi{grid-template-columns:repeat(4,1fr)}.grid2,.grid3{grid-template-columns:1fr}}
-@media(max-width:768px){.sb{display:none}.mn{margin-left:0;padding:1rem}.kpi{grid-template-columns:repeat(2,1fr)}}
+.filters{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
+.fil{padding:4px 12px;border-radius:20px;font-size:11px;cursor:pointer;border:1px solid var(--border);color:var(--text-muted);background:transparent;font-family:var(--font);transition:.15s}
+.fil:hover,.fil.on{border-color:var(--accent-teal);color:var(--accent-teal);background:var(--accent-teal-dim)}
+/* Signal/Whale feeds */
+.feed{max-height:340px;overflow-y:auto}
+.feed::-webkit-scrollbar{width:4px}.feed::-webkit-scrollbar-thumb{background:var(--border-active);border-radius:2px}
+.feed-row{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);font-size:12px}
+.feed-row:last-child{border:none}
+.feed-row:hover{background:var(--bg-hover);margin:0 -8px;padding:7px 8px;border-radius:var(--radius-sm)}
+.feed-time{font-family:var(--font-mono);color:var(--text-muted);font-size:10px;min-width:40px}
+.ml-bar{height:4px;width:48px;background:var(--bg-elevated);border-radius:2px;overflow:hidden;flex-shrink:0}
+.ml-fill{height:100%;border-radius:2px}
+.src-pill{padding:1px 6px;border-radius:10px;font-size:9px;font-weight:600;flex-shrink:0}
+.row-win td{background:rgba(63,185,80,.03)}.row-loss td{background:rgba(248,81,73,.03)}
+/* Whale timeline */
+.wh-item{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)}
+.wh-item:last-child{border:none}
+.wh-time{font-family:var(--font-mono);font-size:11px;color:var(--text-muted);min-width:42px;padding-top:2px}
+.wh-card{flex:1;background:var(--bg-elevated);border-radius:var(--radius-sm);padding:10px 14px;font-size:12px}
+.wh-wallet{font-family:var(--font-mono);color:var(--text-secondary);cursor:pointer}
+.wh-wallet:hover{color:var(--accent-teal)}
+.empty{text-align:center;padding:40px;color:var(--text-muted)}
+.empty i{font-size:32px;display:block;margin-bottom:8px;opacity:.3}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:1200px){.stats-strip{flex-wrap:wrap}.stat-item{min-width:33%}.grid2{grid-template-columns:1fr}}
+@media(max-width:768px){.sb{display:none}.main{padding:16px}.stats-strip{flex-direction:column}.stat-item{border-right:none;border-bottom:1px solid var(--border)}}
 </style>
 </head>
 <body>
-<aside class="sb">
-  <div class="sb-h"><h1>ZMN Bot</h1><small>Solana Terminal</small></div>
-  <div class="sb-s">Navigation</div>
-  <nav class="sb-n"><a href="/dashboard/dashboard.html">Home</a><a href="/dashboard/dashboard-analytics.html">Status</a><a href="/dashboard/dashboard-wallet.html" class="on">Wallet</a></nav>
-  <div class="sb-s">System</div>
-  <div class="sb-st"><span class="dot" id="wsDot"></span><span id="wsText">Connecting</span></div>
-  <button class="sb-e" onclick="aFetch('/api/emergency-stop',{method:'POST'})">ZMN STOP</button>
-  <div style="padding:.4rem 1.2rem"><button class="sb-e" style="background:none;border-color:var(--tm);color:var(--td);font-size:.65rem" onclick="logout()">Logout</button></div>
-  <div class="sb-ft">v3.0</div>
-</aside>
-<main class="mn">
-  <div class="kpi">
-    <div class="kc"><div class="lb">All-Time P/L</div><div class="vl win" id="kAll">+0.0000</div></div>
-    <div class="kc"><div class="lb">This Month</div><div class="vl win" id="kMo">+0.0000</div></div>
-    <div class="kc"><div class="lb">Today</div><div class="vl" id="kDay">--</div></div>
-    <div class="kc"><div class="lb">Win Rate</div><div class="vl" id="kWr">--%</div></div>
-    <div class="kc"><div class="lb">Best Trade</div><div class="vl win" id="kBest">--</div></div>
-    <div class="kc"><div class="lb">Worst Trade</div><div class="vl loss" id="kWorst">--</div></div>
-    <div class="kc"><div class="lb">Avg Hold</div><div class="vl" id="kHold">--</div></div>
+<nav class="sb">
+  <div class="sb-logo"><div class="mark">Z</div><span class="name">ZMN</span></div>
+  <div class="sb-logo-sub">Bot</div>
+  <div class="sb-div"></div>
+  <div class="sb-section">Navigation</div>
+  <div class="sb-nav">
+    <a href="/dashboard/dashboard.html"><i class="bi bi-grid-1x2-fill"></i> Overview</a>
+    <a href="/dashboard/dashboard-analytics.html"><i class="bi bi-activity"></i> Status</a>
+    <a href="/dashboard/dashboard-wallet.html" class="on"><i class="bi bi-wallet2"></i> Wallet</a>
+  </div>
+  <div class="sb-bottom"><div class="sb-time" id="sydClock">--</div><div class="sb-user"><div class="sb-avatar">JR</div><i class="bi bi-box-arrow-right sb-logout" onclick="logout()"></i></div></div>
+  <div class="sb-ver">v3.0.0</div>
+</nav>
+<main class="main">
+  <!-- Stats strip -->
+  <div class="stats-strip">
+    <div class="stat-item"><div class="stat-label">All-Time P/L</div><div class="stat-val" style="color:var(--green)" id="kAll">+0.0000</div></div>
+    <div class="stat-item"><div class="stat-label">Month P/L</div><div class="stat-val" style="color:var(--green)" id="kMo">+0.0000</div></div>
+    <div class="stat-item"><div class="stat-label">Today P/L</div><div class="stat-val" id="kDay">--</div></div>
+    <div class="stat-item"><div class="stat-label">Win Rate</div><div class="stat-val" id="kWr">--%</div></div>
+    <div class="stat-item"><div class="stat-label">Best Trade</div><div class="stat-val" style="color:var(--green)" id="kBest">--</div></div>
+    <div class="stat-item"><div class="stat-label">Avg Hold</div><div class="stat-val" id="kHold">--</div></div>
   </div>
 
-  <div class="card">
-    <div class="ct">Active Positions <span class="badge b-n" id="posC">0</span></div>
-    <div class="tbl-wrap"><table><thead><tr><th>Token</th><th>Personality</th><th>Entry</th><th>Current</th><th>Unreal P/L</th><th>%</th><th>Size</th><th>Hold</th><th></th></tr></thead>
+  <!-- Tabs -->
+  <div class="tabs">
+    <div class="tab on" data-tab="positions">Active Positions (<span id="posC">0</span>)</div>
+    <div class="tab" data-tab="history">Trade History</div>
+    <div class="tab" data-tab="signals">Signal Feed</div>
+    <div class="tab" data-tab="whales">Whale Activity</div>
+  </div>
+
+  <!-- Tab 1: Active Positions -->
+  <div class="tab-panel on" id="tab-positions">
+    <div class="tbl-wrap">
+    <table><thead><tr><th>Token</th><th>Bot</th><th>Entry</th><th>Current</th><th>P/L SOL</th><th>P/L %</th><th>Size</th><th>Hold</th><th></th></tr></thead>
     <tbody id="posTbl">
-      <tr style="background:rgba(0,212,170,.02)"><td>DezM...v4Qp</td><td style="color:#a855f7">speed_demon</td><td>$0.0000421</td><td>$0.0000589</td><td class="win">+0.1993</td><td class="win">+39.8%</td><td>0.5000</td><td>12m</td><td><button class="close-btn">Exit</button></td></tr>
-      <tr style="background:rgba(0,212,170,.02)"><td>9xK2...pL4m</td><td style="color:var(--a)">analyst</td><td>$0.0000210</td><td>$0.0000241</td><td class="win">+0.1500</td><td class="win">+15.0%</td><td>1.0000</td><td>28m</td><td><button class="close-btn">Exit</button></td></tr>
-      <tr style="background:rgba(255,68,102,.02)"><td>FqeT...mK2w</td><td style="color:var(--w)">whale_tracker</td><td>$0.0000345</td><td>$0.0000310</td><td class="loss">-0.0800</td><td class="loss">-10.0%</td><td>0.8000</td><td>7m</td><td><button class="close-btn">Exit</button></td></tr>
-    </tbody></table></div>
+      <tr class="row-win"><td>DezM...v4Qp</td><td><span class="pill pill-teal" style="font-size:9px"><i class="bi bi-lightning-charge-fill"></i></span></td><td>$0.0000421</td><td>$0.0000589</td><td style="color:var(--green);font-weight:600">+0.1993</td><td><span class="pill pill-green">+39.8%</span></td><td>0.5000</td><td>12m</td><td><button class="btn-sm">Exit</button></td></tr>
+      <tr class="row-win"><td>9xK2...pL4m</td><td><span class="pill pill-purple" style="font-size:9px"><i class="bi bi-search"></i></span></td><td>$0.0000210</td><td>$0.0000241</td><td style="color:var(--green);font-weight:600">+0.1500</td><td><span class="pill pill-green">+15.0%</span></td><td>1.0000</td><td>28m</td><td><button class="btn-sm">Exit</button></td></tr>
+      <tr class="row-loss"><td>FqeT...mK2w</td><td><span class="pill pill-amber" style="font-size:9px"><i class="bi bi-water"></i></span></td><td>$0.0000345</td><td>$0.0000310</td><td style="color:var(--red);font-weight:600">-0.0800</td><td><span class="pill pill-red">-10.0%</span></td><td>0.8000</td><td>7m</td><td><button class="btn-sm">Exit</button></td></tr>
+    </tbody></table>
+    </div>
   </div>
 
-  <div class="card">
-    <div class="ct">Trade History <button class="csv-btn" onclick="csvExport()">Export CSV</button></div>
-    <div class="filters" id="filters">
+  <!-- Tab 2: Trade History -->
+  <div class="tab-panel" id="tab-history">
+    <div class="card-title"><span>Trade History</span><button class="btn-export" onclick="csvExport()"><i class="bi bi-download"></i> Export CSV</button></div>
+    <div class="filters">
       <button class="fil on" data-f="all">All</button>
       <button class="fil" data-f="speed_demon">Speed Demon</button>
       <button class="fil" data-f="analyst">Analyst</button>
@@ -95,82 +151,74 @@ tr:nth-child(even){background:rgba(0,212,170,.015)}tr:hover{background:rgba(0,21
       <button class="fil" data-f="win">Wins</button>
       <button class="fil" data-f="loss">Losses</button>
     </div>
-    <div class="tbl-wrap" style="max-height:400px"><table><thead><tr><th>Time</th><th>Token</th><th>Personality</th><th>Entry</th><th>Exit</th><th>P/L</th><th>%</th><th>Hold</th><th>Size</th><th>Reason</th><th>Result</th></tr></thead>
+    <div class="tbl-wrap">
+    <table><thead><tr><th>Time</th><th>Token</th><th>Bot</th><th>Entry</th><th>Exit</th><th>P/L SOL</th><th>P/L %</th><th>Hold</th><th>Size</th><th>Reason</th></tr></thead>
     <tbody id="histTbl">
-      <tr><td>14:30</td><td>7kRm...bN3x</td><td>analyst</td><td>$0.0000189</td><td>$0.0000310</td><td class="win">+0.6400</td><td class="win">+64.0%</td><td>1h 12m</td><td>1.0000</td><td><span class="badge b-w">TP2</span></td><td><span class="badge b-w">WIN</span></td></tr>
-      <tr><td>14:20</td><td>Bp4R...k9Wq</td><td>speed_demon</td><td>$0.0000045</td><td>$0.0000031</td><td class="loss">-0.1500</td><td class="loss">-30.0%</td><td>5m</td><td>0.5000</td><td><span class="badge b-l">STOP</span></td><td><span class="badge b-l">LOSS</span></td></tr>
-      <tr><td>14:05</td><td>CvM8...rT6n</td><td>whale_tracker</td><td>$0.0000089</td><td>$0.0000445</td><td class="win">+0.9100</td><td class="win">+113.8%</td><td>47m</td><td>0.8000</td><td><span class="badge b-w">TP3</span></td><td><span class="badge b-w">WIN</span></td></tr>
-      <tr><td>13:45</td><td>Wr3n...bH9x</td><td>speed_demon</td><td>$0.0000020</td><td>$0.0000010</td><td class="loss">-0.5000</td><td class="loss">-50.0%</td><td>2m</td><td>0.5000</td><td><span class="badge b-l">STOP</span></td><td><span class="badge b-l">LOSS</span></td></tr>
-      <tr><td>13:30</td><td>Xn4v...q2Rt</td><td>analyst</td><td>$0.0000320</td><td>$0.0000390</td><td class="win">+0.2200</td><td class="win">+22.0%</td><td>30m</td><td>1.0000</td><td><span class="badge b-d">TRAILING</span></td><td><span class="badge b-w">WIN</span></td></tr>
-      <tr><td>13:15</td><td>Qm8k...fJ5p</td><td>speed_demon</td><td>$0.0000068</td><td>$0.0000092</td><td class="win">+0.1800</td><td class="win">+36.0%</td><td>4m</td><td>0.5000</td><td><span class="badge b-w">TP1</span></td><td><span class="badge b-w">WIN</span></td></tr>
-      <tr><td>13:00</td><td>L5qR...mN2v</td><td>whale_tracker</td><td>$0.0000150</td><td>$0.0000097</td><td class="loss">-0.3500</td><td class="loss">-35.0%</td><td>2h 5m</td><td>0.8000</td><td><span class="badge b-g">TIME</span></td><td><span class="badge b-l">LOSS</span></td></tr>
-      <tr><td>12:42</td><td>Hk9d...w4Rm</td><td>speed_demon</td><td>$0.0000012</td><td>$0.0000036</td><td class="win">+0.4500</td><td class="win">+90.0%</td><td>3m</td><td>0.5000</td><td><span class="badge b-w">TP2</span></td><td><span class="badge b-w">WIN</span></td></tr>
-      <tr><td>12:20</td><td>Vm2x...pK8q</td><td>analyst</td><td>$0.0000210</td><td>$0.0000147</td><td class="loss">-0.3000</td><td class="loss">-30.0%</td><td>30m</td><td>1.0000</td><td><span class="badge b-l">STOP</span></td><td><span class="badge b-l">LOSS</span></td></tr>
-      <tr><td>12:05</td><td>Nf4p...rL9x</td><td>speed_demon</td><td>$0.0000034</td><td>$0.0000039</td><td class="win">+0.0800</td><td class="win">+16.0%</td><td>5m</td><td>0.5000</td><td><span class="badge b-d">TRAILING</span></td><td><span class="badge b-w">WIN</span></td></tr>
-    </tbody></table></div>
-  </div>
-
-  <div class="grid2">
-    <div class="card">
-      <div class="ct">Win Rate by Personality</div>
-      <canvas id="wrChart" height="160"></canvas>
-    </div>
-    <div class="card">
-      <div class="ct">Avg Win vs Avg Loss</div>
-      <canvas id="wlChart" height="160"></canvas>
+      <tr><td>14:30</td><td>7kRm...bN3x</td><td><span class="pill pill-purple" style="font-size:9px"><i class="bi bi-search"></i></span></td><td>$0.0000189</td><td>$0.0000310</td><td style="color:var(--green);font-weight:600">+0.6400</td><td><span class="pill pill-green">+64%</span></td><td>1h 12m</td><td>1.00</td><td><span class="pill pill-green">TP2</span></td></tr>
+      <tr><td>14:20</td><td>Bp4R...k9Wq</td><td><span class="pill pill-teal" style="font-size:9px"><i class="bi bi-lightning-charge-fill"></i></span></td><td>$0.0000045</td><td>$0.0000031</td><td style="color:var(--red);font-weight:600">-0.1500</td><td><span class="pill pill-red">-30%</span></td><td>5m</td><td>0.50</td><td><span class="pill pill-red">STOP</span></td></tr>
+      <tr><td>14:05</td><td>CvM8...rT6n</td><td><span class="pill pill-amber" style="font-size:9px"><i class="bi bi-water"></i></span></td><td>$0.0000089</td><td>$0.0000445</td><td style="color:var(--green);font-weight:600">+0.9100</td><td><span class="pill pill-green">+114%</span></td><td>47m</td><td>0.80</td><td><span class="pill pill-green">TP3</span></td></tr>
+      <tr><td>13:45</td><td>Wr3n...bH9x</td><td><span class="pill pill-teal" style="font-size:9px"><i class="bi bi-lightning-charge-fill"></i></span></td><td>$0.0000020</td><td>$0.0000010</td><td style="color:var(--red);font-weight:600">-0.5000</td><td><span class="pill pill-red">-50%</span></td><td>2m</td><td>0.50</td><td><span class="pill pill-red">STOP</span></td></tr>
+      <tr><td>13:30</td><td>Xn4v...q2Rt</td><td><span class="pill pill-purple" style="font-size:9px"><i class="bi bi-search"></i></span></td><td>$0.0000320</td><td>$0.0000390</td><td style="color:var(--green);font-weight:600">+0.2200</td><td><span class="pill pill-green">+22%</span></td><td>30m</td><td>1.00</td><td><span class="pill pill-amber">TRAIL</span></td></tr>
+      <tr><td>13:15</td><td>Qm8k...fJ5p</td><td><span class="pill pill-teal" style="font-size:9px"><i class="bi bi-lightning-charge-fill"></i></span></td><td>$0.0000068</td><td>$0.0000092</td><td style="color:var(--green);font-weight:600">+0.1800</td><td><span class="pill pill-green">+36%</span></td><td>4m</td><td>0.50</td><td><span class="pill pill-green">TP1</span></td></tr>
+      <tr><td>13:00</td><td>L5qR...mN2v</td><td><span class="pill pill-amber" style="font-size:9px"><i class="bi bi-water"></i></span></td><td>$0.0000150</td><td>$0.0000097</td><td style="color:var(--red);font-weight:600">-0.3500</td><td><span class="pill pill-red">-35%</span></td><td>2h 5m</td><td>0.80</td><td><span class="pill pill-amber">TIME</span></td></tr>
+      <tr><td>12:42</td><td>Hk9d...w4Rm</td><td><span class="pill pill-teal" style="font-size:9px"><i class="bi bi-lightning-charge-fill"></i></span></td><td>$0.0000012</td><td>$0.0000036</td><td style="color:var(--green);font-weight:600">+0.4500</td><td><span class="pill pill-green">+90%</span></td><td>3m</td><td>0.50</td><td><span class="pill pill-green">TP2</span></td></tr>
+    </tbody></table>
     </div>
   </div>
 
-  <div class="grid2">
-    <div class="card">
-      <div class="ct">Whale Wallet Activity</div>
-      <div class="tbl-wrap" style="max-height:250px"><table><thead><tr><th>Wallet</th><th>Label</th><th>Token</th><th>Amount</th><th>Time</th><th>Followed</th></tr></thead>
-      <tbody>
-        <tr><td>515v...Np8p</td><td style="font-family:var(--f);font-size:.65rem">Smart Trader</td><td>FqeT...mK2w</td><td>2.50 SOL</td><td>14:31</td><td><span class="badge b-w">YES</span></td></tr>
-        <tr><td>J2qg...Wp4g</td><td style="font-family:var(--f);font-size:.65rem">Fund</td><td>DezM...v4Qp</td><td>1.20 SOL</td><td>14:28</td><td><span class="badge b-g">NO</span></td></tr>
-        <tr><td>M1Aq...Cdy2</td><td style="font-family:var(--f);font-size:.65rem">30D Smart</td><td>9xK2...pL4m</td><td>5.00 SOL</td><td>14:22</td><td><span class="badge b-w">YES</span></td></tr>
-        <tr><td>Gk8v...nR2p</td><td style="font-family:var(--f);font-size:.65rem">Top Trader</td><td>CvM8...rT6n</td><td>3.00 SOL</td><td>14:15</td><td><span class="badge b-g">NO</span></td></tr>
-      </tbody></table></div>
+  <!-- Tab 3: Signal Feed -->
+  <div class="tab-panel" id="tab-signals">
+    <div class="grid2">
+      <div class="card"><div class="card-title">Pre-ML Gate (All Incoming)</div>
+      <div class="feed">
+        <div class="feed-row"><span class="feed-time">14:32</span><span class="src-pill" style="background:var(--accent-teal-dim);color:var(--accent-teal)">PP</span><span style="flex:1">DezM...v4Qp</span><div class="ml-bar"><div class="ml-fill" style="width:82%;background:var(--green)"></div></div><span style="font-family:var(--font-mono);font-size:11px;color:var(--green);width:28px;text-align:right">82</span></div>
+        <div class="feed-row"><span class="feed-time">14:31</span><span class="src-pill" style="background:var(--accent-amber-dim);color:var(--accent-amber)">HL</span><span style="flex:1">FqeT...mK2w</span><div class="ml-bar"><div class="ml-fill" style="width:76%;background:var(--green)"></div></div><span style="font-family:var(--font-mono);font-size:11px;color:var(--green);width:28px;text-align:right">76</span></div>
+        <div class="feed-row"><span class="feed-time">14:28</span><span class="src-pill" style="background:var(--blue-dim);color:var(--blue)">GK</span><span style="flex:1">Kx4m...rN2v</span><div class="ml-bar"><div class="ml-fill" style="width:42%;background:var(--red)"></div></div><span style="font-family:var(--font-mono);font-size:11px;color:var(--red);width:28px;text-align:right">42</span></div>
+        <div class="feed-row"><span class="feed-time">14:25</span><span class="src-pill" style="background:var(--accent-teal-dim);color:var(--accent-teal)">PP</span><span style="flex:1">Vm3n...qK8x</span><div class="ml-bar"><div class="ml-fill" style="width:55%;background:var(--accent-amber)"></div></div><span style="font-family:var(--font-mono);font-size:11px;color:var(--accent-amber);width:28px;text-align:right">55</span></div>
+        <div class="feed-row"><span class="feed-time">14:23</span><span class="src-pill" style="background:var(--accent-teal-dim);color:var(--accent-teal)">PP</span><span style="flex:1">Rk2p...fM4x</span><div class="ml-bar"><div class="ml-fill" style="width:35%;background:var(--red)"></div></div><span style="font-family:var(--font-mono);font-size:11px;color:var(--red);width:28px;text-align:right">35</span></div>
+      </div></div>
+      <div class="card"><div class="card-title">Post-ML Gate (Passed)</div>
+      <div class="feed">
+        <div class="feed-row"><span class="feed-time">14:32</span><span class="src-pill" style="background:var(--accent-teal-dim);color:var(--accent-teal)">PP</span><span style="flex:1">DezM...v4Qp</span><span class="pill pill-green" style="margin-left:auto">ENTERED</span></div>
+        <div class="feed-row"><span class="feed-time">14:31</span><span class="src-pill" style="background:var(--accent-amber-dim);color:var(--accent-amber)">HL</span><span style="flex:1">FqeT...mK2w</span><span class="pill pill-green" style="margin-left:auto">ENTERED</span></div>
+        <div class="feed-row"><span class="feed-time">14:28</span><span class="src-pill" style="background:var(--blue-dim);color:var(--blue)">GK</span><span style="flex:1">Kx4m...rN2v</span><span class="pill pill-red" style="margin-left:auto">ML_REJECT</span></div>
+        <div class="feed-row"><span class="feed-time">14:25</span><span class="src-pill" style="background:var(--accent-teal-dim);color:var(--accent-teal)">PP</span><span style="flex:1">Vm3n...qK8x</span><span class="pill pill-amber" style="margin-left:auto">LOW_LIQ</span></div>
+        <div class="feed-row"><span class="feed-time">14:23</span><span class="src-pill" style="background:var(--accent-teal-dim);color:var(--accent-teal)">PP</span><span style="flex:1">Rk2p...fM4x</span><span class="pill pill-muted" style="margin-left:auto">BUNDLE</span></div>
+      </div></div>
     </div>
+  </div>
+
+  <!-- Tab 4: Whale Activity -->
+  <div class="tab-panel" id="tab-whales">
     <div class="card">
-      <div class="ct">Signal Feed</div>
-      <div class="filters" id="sigFilters">
-        <button class="fil on" data-f="all">All</button>
-        <button class="fil" data-f="entered">Entered</button>
-        <button class="fil" data-f="rejected">Rejected</button>
-      </div>
-      <div class="feed" id="sigFeed">
-        <div class="fi"><span class="ft">14:32</span><span class="src src-pp">PP</span><span>DezM...v4Qp</span><span class="ml-bar"><span class="ml-fill" style="width:82%;background:var(--a)"></span></span><span style="font-family:var(--m);font-size:.6rem;color:var(--td)">82</span><span class="badge b-w" style="margin-left:auto">ENTERED</span></div>
-        <div class="fi"><span class="ft">14:31</span><span class="src src-hl">HL</span><span>FqeT...mK2w</span><span class="ml-bar"><span class="ml-fill" style="width:76%;background:var(--a)"></span></span><span style="font-family:var(--m);font-size:.6rem;color:var(--td)">76</span><span class="badge b-w" style="margin-left:auto">ENTERED</span></div>
-        <div class="fi"><span class="ft">14:30</span><span class="src src-gc">GK</span><span>9xK2...pL4m</span><span class="ml-bar"><span class="ml-fill" style="width:71%;background:var(--a)"></span></span><span style="font-family:var(--m);font-size:.6rem;color:var(--td)">71</span><span class="badge b-w" style="margin-left:auto">ENTERED</span></div>
-        <div class="fi"><span class="ft">14:28</span><span class="src src-pp">PP</span><span>Kx4m...rN2v</span><span class="ml-bar"><span class="ml-fill" style="width:42%;background:var(--l)"></span></span><span style="font-family:var(--m);font-size:.6rem;color:var(--td)">42</span><span class="badge b-l" style="margin-left:auto">ML_REJECT</span></div>
-        <div class="fi"><span class="ft">14:25</span><span class="src src-ns">NS</span><span>Bp4R...k9Wq</span><span class="ml-bar"><span class="ml-fill" style="width:68%;background:var(--w)"></span></span><span style="font-family:var(--m);font-size:.6rem;color:var(--td)">68</span><span class="badge b-w" style="margin-left:auto">ENTERED</span></div>
-        <div class="fi"><span class="ft">14:23</span><span class="src src-pp">PP</span><span>Vm3n...qK8x</span><span class="ml-bar"><span class="ml-fill" style="width:55%;background:var(--w)"></span></span><span style="font-family:var(--m);font-size:.6rem;color:var(--td)">55</span><span class="badge b-d" style="margin-left:auto">LOW_LIQ</span></div>
-        <div class="fi"><span class="ft">14:20</span><span class="src src-dc">DC</span><span>CvM8...rT6n</span><span class="ml-bar"><span class="ml-fill" style="width:88%;background:var(--a)"></span></span><span style="font-family:var(--m);font-size:.6rem;color:var(--td)">88</span><span class="badge b-w" style="margin-left:auto">ENTERED</span></div>
-        <div class="fi"><span class="ft">14:18</span><span class="src src-pp">PP</span><span>Rk2p...fM4x</span><span class="ml-bar"><span class="ml-fill" style="width:35%;background:var(--l)"></span></span><span style="font-family:var(--m);font-size:.6rem;color:var(--td)">35</span><span class="badge b-l" style="margin-left:auto">BUNDLE</span></div>
-      </div>
+    <div class="feed">
+      <div class="wh-item"><span class="wh-time">14:31</span><div class="wh-card"><span class="wh-wallet">515v...Np8p</span> <span class="pill pill-purple" style="font-size:9px">Smart Trader</span><br><span style="color:var(--green)">BUY</span> FqeT...mK2w &mdash; 2.50 SOL <span class="pill pill-teal" style="font-size:9px;margin-left:6px">Followed</span></div></div>
+      <div class="wh-item"><span class="wh-time">14:28</span><div class="wh-card"><span class="wh-wallet">J2qg...Wp4g</span> <span class="pill pill-purple" style="font-size:9px">Fund</span><br><span style="color:var(--red)">SELL</span> DezM...v4Qp &mdash; 1.20 SOL <span class="pill pill-muted" style="font-size:9px;margin-left:6px">Passed</span></div></div>
+      <div class="wh-item"><span class="wh-time">14:22</span><div class="wh-card"><span class="wh-wallet">M1Aq...Cdy2</span> <span class="pill pill-purple" style="font-size:9px">30D Smart</span><br><span style="color:var(--green)">BUY</span> 9xK2...pL4m &mdash; 5.00 SOL <span class="pill pill-teal" style="font-size:9px;margin-left:6px">Followed</span></div></div>
+      <div class="wh-item"><span class="wh-time">14:15</span><div class="wh-card"><span class="wh-wallet">Gk8v...nR2p</span> <span class="pill pill-amber" style="font-size:9px">Top Trader</span><br><span style="color:var(--accent-amber)">CEX Transfer</span> CvM8...rT6n &rarr; Binance <span class="pill pill-muted" style="font-size:9px;margin-left:6px">Passed</span></div></div>
+    </div>
     </div>
   </div>
 </main>
 <script>
 const TOKEN=sessionStorage.getItem('zmn_token');
 if(!TOKEN)window.location.href='/login.html';
-function authHdr(){return{'Authorization':'Bearer '+TOKEN}}
-function aFetch(u,o={}){o.headers={...(o.headers||{}),...authHdr()};return fetch(u,o).then(r=>{if(r.status===401){sessionStorage.removeItem('zmn_token');window.location.href='/login.html'}return r})}
+function aFetch(u,o={}){o.headers={...(o.headers||{}),Authorization:'Bearer '+TOKEN};return fetch(u,o).then(r=>{if(r.status===401){sessionStorage.removeItem('zmn_token');window.location.href='/login.html'}return r})}
 function logout(){sessionStorage.removeItem('zmn_token');window.location.href='/login.html'}
 const $=id=>document.getElementById(id);
-// Charts
-new Chart($('wrChart').getContext('2d'),{type:'bar',data:{labels:['Speed Demon','Analyst','Whale Tracker'],datasets:[{data:[67,72,60],backgroundColor:['rgba(168,85,247,.5)','rgba(0,212,170,.5)','rgba(255,170,0,.5)'],borderColor:['#a855f7','#00d4aa','#ffaa00'],borderWidth:1,borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{min:0,max:100,grid:{color:'rgba(0,212,170,.04)'},ticks:{color:'#484f58',font:{family:'JetBrains Mono'},callback:v=>v+'%'}},x:{grid:{display:false},ticks:{color:'#7d8590',font:{size:10}}}}}});
-new Chart($('wlChart').getContext('2d'),{type:'bar',data:{labels:['Speed Demon','Analyst','Whale Tracker'],datasets:[{label:'Avg Win',data:[0.35,0.42,0.56],backgroundColor:'rgba(0,212,170,.5)',borderColor:'#00d4aa',borderWidth:1,borderRadius:4},{label:'Avg Loss',data:[0.25,0.22,0.32],backgroundColor:'rgba(255,68,102,.5)',borderColor:'#ff4466',borderWidth:1,borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#7d8590',font:{size:10}}}},scales:{y:{grid:{color:'rgba(0,212,170,.04)'},ticks:{color:'#484f58',font:{family:'JetBrains Mono'},callback:v=>v.toFixed(2)+' SOL'}},x:{grid:{display:false},ticks:{color:'#7d8590',font:{size:10}}}}}});
-// Sort
-document.querySelectorAll('th').forEach(th=>{th.addEventListener('click',function(){const tbl=this.closest('table'),tb=tbl.querySelector('tbody'),rows=[...tb.querySelectorAll('tr')],i=[...this.parentElement.children].indexOf(this),asc=this.dataset.s!=='a';this.dataset.s=asc?'a':'d';rows.sort((a,b)=>{const at=a.children[i]?.textContent||'',bt=b.children[i]?.textContent||'',an=parseFloat(at.replace(/[^0-9.-]/g,'')),bn=parseFloat(bt.replace(/[^0-9.-]/g,''));if(!isNaN(an)&&!isNaN(bn))return asc?an-bn:bn-an;return asc?at.localeCompare(bt):bt.localeCompare(at)});rows.forEach(r=>tb.appendChild(r))})});
+function updateClock(){const s=new Date().toLocaleString('en-AU',{timeZone:'Australia/Sydney',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false,timeZoneName:'short'});$('sydClock').textContent=s}
+setInterval(updateClock,1000);updateClock();
+// Tabs
+document.querySelectorAll('.tab').forEach(t=>{t.addEventListener('click',function(){document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));document.querySelectorAll('.tab-panel').forEach(x=>x.classList.remove('on'));this.classList.add('on');$('tab-'+this.dataset.tab).classList.add('on')})});
 // Filters
-document.querySelectorAll('#filters .fil').forEach(b=>{b.addEventListener('click',function(){document.querySelectorAll('#filters .fil').forEach(x=>x.classList.remove('on'));this.classList.add('on');const f=this.dataset.f;document.querySelectorAll('#histTbl tr').forEach(r=>{if(f==='all'){r.style.display=''}else if(f==='win'||f==='loss'){r.style.display=r.textContent.toLowerCase().includes(f)?'':'none'}else{r.style.display=r.textContent.toLowerCase().includes(f)?'':'none'}})})});
+document.querySelectorAll('.filters .fil').forEach(b=>{b.addEventListener('click',function(){document.querySelectorAll('.filters .fil').forEach(x=>x.classList.remove('on'));this.classList.add('on');const f=this.dataset.f;document.querySelectorAll('#histTbl tr').forEach(r=>{if(f==='all')r.style.display='';else r.style.display=r.textContent.toLowerCase().includes(f)?'':'none'})})});
+// Sort
+document.querySelectorAll('th').forEach(th=>{th.addEventListener('click',function(){const tbl=this.closest('table'),tb=tbl.querySelector('tbody');if(!tb)return;const rows=[...tb.querySelectorAll('tr')],i=[...this.parentElement.children].indexOf(this),asc=this.dataset.s!=='a';this.dataset.s=asc?'a':'d';rows.sort((a,b)=>{const at=a.children[i]?.textContent||'',bt=b.children[i]?.textContent||'',an=parseFloat(at.replace(/[^0-9.-]/g,'')),bn=parseFloat(bt.replace(/[^0-9.-]/g,''));if(!isNaN(an)&&!isNaN(bn))return asc?an-bn:bn-an;return asc?at.localeCompare(bt):bt.localeCompare(at)});rows.forEach(r=>tb.appendChild(r))})});
 // CSV
-function csvExport(){const rows=[['Time','Token','Personality','Entry','Exit','PL_SOL','PL_Pct','Hold','Size','Reason','Result']];document.querySelectorAll('#histTbl tr').forEach(r=>{const cells=[...r.querySelectorAll('td')].map(c=>c.textContent.trim());rows.push(cells)});const csv=rows.map(r=>r.join(',')).join('\n');const a=document.createElement('a');a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);a.download='zmn_trades.csv';a.click()}
+function csvExport(){const rows=[['Time','Token','Bot','Entry','Exit','PL_SOL','PL_Pct','Hold','Size','Reason']];document.querySelectorAll('#histTbl tr').forEach(r=>{rows.push([...r.querySelectorAll('td')].map(c=>c.textContent.trim()))});const a=document.createElement('a');a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(rows.map(r=>r.join(',')).join('\n'));a.download='zmn_trades.csv';a.click()}
 // WS
-let ws;function conn(){ws=new WebSocket((location.protocol==='https:'?'wss':'ws')+'://'+location.host+'/ws');ws.onopen=()=>{ws.send(JSON.stringify({token:TOKEN}));$('wsDot').classList.remove('off');$('wsText').textContent='Connected'};ws.onclose=()=>{$('wsDot').classList.add('off');$('wsText').textContent='Offline';setTimeout(conn,3000)};ws.onmessage=e=>{try{const d=JSON.parse(e.data);if(d._type==='periodic_update'){const s=d.status||{};$('posC').textContent=s.open_positions||'0'}}catch(x){}}}
-async function load(){try{const[ps]=await Promise.all([aFetch('/api/personality-stats').then(r=>r.json()).catch(()=>({}))]);let tw=0,tt=0;for(const k of['speed_demon','analyst','whale_tracker']){const s=ps[k]||{};tw+=s.wins||0;tt+=s.total_trades||0}$('kWr').textContent=tt>0?(tw/tt*100).toFixed(1)+'%':'--'}catch(e){}}
+let ws;function conn(){ws=new WebSocket((location.protocol==='https:'?'wss':'ws')+'://'+location.host+'/ws');ws.onopen=()=>{ws.send(JSON.stringify({token:TOKEN}))};ws.onclose=()=>setTimeout(conn,3000);ws.onmessage=e=>{try{const d=JSON.parse(e.data);if(d._type==='periodic_update'){$('posC').textContent=(d.status||{}).open_positions||'0'}}catch(x){}}}
+async function load(){try{const ps=await aFetch('/api/personality-stats').then(r=>r.json()).catch(()=>({}));let tw=0,tt=0;for(const k of['speed_demon','analyst','whale_tracker']){const s=ps[k]||{};tw+=s.wins||0;tt+=s.total_trades||0}$('kWr').textContent=tt>0?(tw/tt*100).toFixed(1)+'%':'--'}catch(e){}}
 conn();load();
 </script>
 </body>

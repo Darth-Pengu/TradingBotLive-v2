@@ -3,231 +3,213 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ZMN Bot - Status</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<title>ZMN Bot — Status</title>
+<link href="https://api.fontshare.com/v2/css?f=satoshi@900,700,500,400,300&display=swap" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.2/font/bootstrap-icons.css" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
-:root{--bg:#0b0e13;--card:rgba(13,17,23,.85);--card-s:#161b22;--sb:#060809;--border:rgba(0,212,180,.08);--bh:rgba(0,212,180,.18);--a:#00d4aa;--r:#ff4466;--w:#ffaa00;--t:#e6edf3;--td:#7d8590;--tm:#484f58;--p:#00d4aa;--l:#ff4466;--g:#131920;--f:'Inter',sans-serif;--m:'JetBrains Mono',monospace}
-*{margin:0;padding:0;box-sizing:border-box}body{font-family:var(--f);background:var(--bg);color:var(--t);display:flex;min-height:100vh;background-image:radial-gradient(ellipse at 10% 10%,rgba(0,188,212,.06) 0%,transparent 55%),radial-gradient(ellipse at 90% 85%,rgba(0,212,170,.03) 0%,transparent 50%)}
-.sb{width:220px;background:var(--sb);border-right:1px solid var(--border);display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;z-index:100}
-.sb-h{padding:1.4rem 1.2rem 1rem;border-bottom:1px solid var(--border)}.sb-h h1{font-size:1.3rem;font-weight:700;color:var(--a);letter-spacing:2px;text-shadow:0 0 20px rgba(0,212,170,.3)}.sb-h small{font-size:.6rem;color:var(--tm);display:block;margin-top:3px;text-transform:uppercase;letter-spacing:1.5px}
-.sb-s{padding:.4rem 1.2rem;font-size:.55rem;color:var(--tm);text-transform:uppercase;letter-spacing:2px;margin-top:.6rem}
-.sb-n{padding:.3rem 0}.sb-n a{display:flex;align-items:center;gap:.6rem;padding:.55rem 1.2rem;color:var(--td);text-decoration:none;font-size:.82rem;font-weight:500;border-left:2px solid transparent;transition:.15s}.sb-n a:hover{color:var(--t);background:rgba(0,212,170,.04)}.sb-n a.on{color:var(--a);border-left-color:var(--a);background:linear-gradient(90deg,rgba(0,212,170,.08),transparent)}
-.sb-st{padding:.6rem 1.2rem;border-top:1px solid var(--border);font-size:.75rem;display:flex;align-items:center;gap:.4rem}
-.dot{width:7px;height:7px;border-radius:50%;background:var(--a);box-shadow:0 0 8px var(--a);animation:pu 2s infinite}.dot.off{background:var(--r);box-shadow:0 0 8px var(--r);animation:none}@keyframes pu{0%,100%{opacity:1}50%{opacity:.3}}
-.sb-e{margin:.4rem 1rem .6rem;padding:.5rem;background:rgba(255,68,102,.06);border:1px solid rgba(255,68,102,.2);border-radius:6px;color:var(--r);font-size:.72rem;font-weight:600;cursor:pointer;text-align:center}.sb-e:hover{background:rgba(255,68,102,.12)}
-.sb-ft{padding:.6rem 1.2rem;border-top:1px solid var(--border);font-size:.6rem;color:var(--tm);letter-spacing:1px;margin-top:auto}
-.mn{margin-left:220px;flex:1;padding:1.5rem 2rem;min-width:0}
-.ct{font-size:.75rem;font-weight:600;color:var(--td);margin-bottom:.8rem;text-transform:uppercase;letter-spacing:.5px}
-.card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:1.2rem;backdrop-filter:blur(10px);margin-bottom:1.5rem;transition:.2s}.card:hover{border-color:var(--bh)}
-.status-banner{padding:.8rem 1.2rem;border-radius:8px;font-size:.85rem;font-weight:600;margin-bottom:1.5rem;text-align:center;letter-spacing:.5px;display:flex;align-items:center;justify-content:center;gap:.5rem}
-.sb-ok{background:rgba(0,212,170,.1);border:1px solid rgba(0,212,170,.25);color:var(--a)}
-.sb-warn{background:rgba(255,170,0,.1);border:1px solid rgba(255,170,0,.25);color:var(--w)}
-.sb-crit{background:rgba(255,68,102,.1);border:1px solid rgba(255,68,102,.25);color:var(--r)}
-.top-bar{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}
-.refresh-btn{padding:.4rem 1rem;background:rgba(0,212,170,.08);border:1px solid rgba(0,212,170,.2);border-radius:6px;color:var(--a);font-size:.72rem;font-weight:500;cursor:pointer;transition:.15s;letter-spacing:.3px}.refresh-btn:hover{background:rgba(0,212,170,.15)}
-.last-updated{font-size:.65rem;color:var(--tm);font-family:var(--m)}
-.api-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:.8rem;margin-bottom:1.5rem}
-.api-card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:.8rem 1rem;display:flex;align-items:center;gap:.6rem;transition:.2s;position:relative}.api-card:hover{border-color:var(--bh)}
-.api-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}.api-ok{background:var(--a);box-shadow:0 0 6px var(--a)}.api-warn{background:var(--w);box-shadow:0 0 6px var(--w)}.api-down{background:var(--r);box-shadow:0 0 6px var(--r)}
-.api-info{flex:1;min-width:0}.api-name{font-size:.75rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.api-detail{font-size:.58rem;color:var(--tm);font-family:var(--m);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.api-ms{font-family:var(--m);font-size:.68rem;color:var(--td);text-align:right;white-space:nowrap}
-.down-label{position:absolute;top:4px;right:6px;font-size:.5rem;color:var(--r);font-weight:700;letter-spacing:.3px}
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;margin-bottom:1.5rem}
-table{width:100%;border-collapse:collapse;font-size:.72rem}th{text-align:left;padding:.4rem .6rem;color:var(--tm);font-weight:500;text-transform:uppercase;font-size:.58rem;letter-spacing:.5px;border-bottom:1px solid var(--border)}td{padding:.4rem .6rem;border-bottom:1px solid rgba(0,212,170,.04);font-family:var(--m);font-size:.72rem}tr:nth-child(even){background:rgba(0,212,170,.015)}
-.hc-btn{display:inline-block;padding:.6rem 1.5rem;background:rgba(0,212,170,.1);border:1px solid rgba(0,212,170,.25);border-radius:8px;color:var(--a);font-size:.82rem;font-weight:600;cursor:pointer;transition:.2s;letter-spacing:.5px}.hc-btn:hover{background:rgba(0,212,170,.2);box-shadow:0 0 15px rgba(0,212,170,.1)}
-.hc-output{background:#0a0c10;border:1px solid var(--border);border-radius:6px;padding:.8rem;font-family:var(--m);font-size:.7rem;max-height:300px;overflow-y:auto;white-space:pre-wrap;display:none;margin-top:.8rem;line-height:1.5}
-.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:.6rem;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
-.b-n{background:rgba(0,212,170,.12);color:var(--a)}.b-d{background:rgba(255,170,0,.12);color:var(--w)}.b-h{background:rgba(255,68,102,.12);color:var(--r)}
-.gov-notes{font-size:.78rem;color:var(--td);line-height:1.6;max-height:150px;overflow-y:auto}
-.chart-wrap{position:relative;width:100%}
-@media(max-width:1280px){.api-grid{grid-template-columns:repeat(auto-fill,minmax(180px,1fr))}.grid2{grid-template-columns:1fr}}
-@media(max-width:768px){.sb{display:none}.mn{margin-left:0;padding:1rem}}
+:root{--bg-base:#080b0f;--bg-surface:#0d1117;--bg-elevated:#161b22;--bg-card:#1a1f2e;--bg-hover:#1f2535;--border:rgba(255,255,255,0.06);--border-active:rgba(255,255,255,0.12);--text-primary:#e6edf3;--text-secondary:#8b949e;--text-muted:#484f58;--accent-teal:#00d4aa;--accent-teal-dim:rgba(0,212,170,0.12);--accent-purple:#a78bfa;--accent-purple-dim:rgba(167,139,250,0.12);--accent-amber:#f59e0b;--accent-amber-dim:rgba(245,158,11,0.12);--green:#3fb950;--green-dim:rgba(63,185,80,0.12);--red:#f85149;--red-dim:rgba(248,81,73,0.12);--blue:#58a6ff;--blue-dim:rgba(88,166,255,0.12);--shadow-sm:0 1px 3px rgba(0,0,0,0.4);--shadow-md:0 4px 16px rgba(0,0,0,0.5);--radius-sm:6px;--radius-md:10px;--radius-lg:14px;--font:'Satoshi',-apple-system,sans-serif;--font-mono:'SF Mono','Fira Code',monospace}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg-base);color:var(--text-primary);font-family:var(--font);font-size:14px;display:flex;min-height:100vh}
+.sb{width:240px;background:var(--bg-surface);border-right:1px solid var(--border);position:sticky;top:0;height:100vh;display:flex;flex-direction:column;flex-shrink:0;overflow-y:auto}
+.sb-logo{display:flex;align-items:center;gap:10px;padding:20px 20px 4px}
+.sb-logo .mark{width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,#00d4aa,#a78bfa);display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-size:15px;flex-shrink:0}
+.sb-logo .name{font-size:18px;font-weight:700}
+.sb-logo-sub{padding:0 20px 16px;font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.1em}
+.sb-div{height:1px;background:var(--border);margin:0 16px}
+.sb-section{padding:16px 20px 6px;font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.12em}
+.sb-nav{padding:0 8px}
+.sb-nav a{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:var(--radius-sm);color:var(--text-secondary);text-decoration:none;font-size:14px;font-weight:500;transition:.15s;border-left:2px solid transparent;margin-bottom:2px}
+.sb-nav a:hover{background:var(--bg-hover)}
+.sb-nav a.on{background:var(--accent-teal-dim);color:var(--accent-teal);border-left-color:var(--accent-teal)}
+.sb-nav a i{font-size:16px;width:18px;text-align:center}
+.sb-bottom{margin-top:auto;padding:12px 20px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.sb-time{font-size:12px;font-family:var(--font-mono);color:var(--text-muted)}
+.sb-user{display:flex;align-items:center;gap:8px}
+.sb-avatar{width:28px;height:28px;border-radius:50%;background:var(--accent-teal-dim);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:var(--accent-teal)}
+.sb-logout{color:var(--text-muted);cursor:pointer;font-size:16px;transition:.15s}.sb-logout:hover{color:var(--red)}
+.sb-ver{font-size:10px;color:var(--text-muted);padding:0 20px 12px}
+.main{flex:1;padding:24px;min-width:0}
+/* Status banner */
+.status-bar{display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-radius:var(--radius-md);margin-bottom:20px;font-size:13px;font-weight:600}
+.status-bar.ok{background:var(--green-dim);color:var(--green);border-left:3px solid var(--green)}
+.status-bar.warn{background:var(--accent-amber-dim);color:var(--accent-amber);border-left:3px solid var(--accent-amber)}
+.status-bar.crit{background:var(--red-dim);color:var(--red);border-left:3px solid var(--red)}
+.hc-btn{padding:6px 16px;border-radius:var(--radius-sm);background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-secondary);font-size:12px;font-weight:500;cursor:pointer;font-family:var(--font);transition:.15s}
+.hc-btn:hover{border-color:var(--border-active);color:var(--text-primary)}
+/* Section headers */
+.sec-h{display:flex;align-items:center;gap:12px;margin:20px 0 10px;font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--text-muted)}
+.sec-h::after{content:'';flex:1;height:1px;background:var(--border)}
+/* Service cards */
+.svc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;margin-bottom:8px}
+.svc{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 16px;display:flex;align-items:center;gap:10px;transition:.15s;box-shadow:var(--shadow-sm)}
+.svc:hover{border-color:var(--border-active)}
+.svc-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.svc-dot.ok{background:var(--green);box-shadow:0 0 6px var(--green)}
+.svc-dot.warn{background:var(--accent-amber);box-shadow:0 0 6px var(--accent-amber)}
+.svc-dot.down{background:var(--red);box-shadow:0 0 6px var(--red)}
+.svc-dot.live{background:var(--accent-teal);box-shadow:0 0 6px var(--accent-teal);animation:dot-pulse 2s infinite}
+@keyframes dot-pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.svc-info{flex:1;min-width:0}
+.svc-name{font-size:13px;font-weight:600}
+.svc-detail{font-size:11px;font-family:var(--font-mono);color:var(--text-muted);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.svc-ms{font-size:12px;font-family:var(--font-mono);color:var(--text-secondary);text-align:right;white-space:nowrap}
+.svc-status{font-size:10px;text-transform:uppercase;font-weight:600;text-align:right}
+/* Cards */
+.card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:20px;box-shadow:var(--shadow-sm);transition:.15s;margin-bottom:16px}
+.card:hover{border-color:var(--border-active)}
+.card-title{font-size:14px;font-weight:600;margin-bottom:14px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+/* Tables */
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:6px 10px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);font-weight:500;border-bottom:1px solid var(--border)}
+td{padding:6px 10px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:12px}
+tr:nth-child(even) td{background:var(--bg-elevated)}
+.pill{display:inline-flex;align-items:center;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:600}
+.pill-green{background:var(--green-dim);color:var(--green)}
+.pill-red{background:var(--red-dim);color:var(--red)}
+.pill-amber{background:var(--accent-amber-dim);color:var(--accent-amber)}
+.pill-teal{background:var(--accent-teal-dim);color:var(--accent-teal)}
+.pill-muted{background:rgba(255,255,255,.04);color:var(--text-muted)}
+/* Row items */
+.info-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px}
+.info-row:last-child{border:none}
+.info-label{color:var(--text-muted)}
+.info-val{font-family:var(--font-mono);font-weight:500}
+/* Feature bars */
+.feat-bar{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:12px}
+.feat-label{width:110px;color:var(--text-secondary);font-size:11px;text-align:right}
+.feat-track{flex:1;height:6px;background:var(--bg-elevated);border-radius:3px;overflow:hidden}
+.feat-fill{height:100%;background:var(--accent-teal);border-radius:3px}
+.feat-pct{font-family:var(--font-mono);color:var(--text-muted);font-size:11px;width:36px}
+/* HC output */
+.hc-output{background:var(--bg-base);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;font-family:var(--font-mono);font-size:12px;max-height:300px;overflow-y:auto;white-space:pre-wrap;display:none;margin-top:12px;line-height:1.6}
+.hc-output::-webkit-scrollbar{width:4px}.hc-output::-webkit-scrollbar-thumb{background:var(--border-active);border-radius:2px}
+.gov-notes{font-size:12px;color:var(--text-secondary);line-height:1.6;max-height:100px;overflow-y:auto;font-family:var(--font-mono)}
+@media(max-width:1200px){.svc-grid{grid-template-columns:repeat(auto-fill,minmax(200px,1fr))}.grid2{grid-template-columns:1fr}}
+@media(max-width:768px){.sb{display:none}.main{padding:16px}}
 </style>
 </head>
 <body>
-<aside class="sb">
-  <div class="sb-h"><h1>ZMN Bot</h1><small>Solana Terminal</small></div>
-  <div class="sb-s">Navigation</div>
-  <nav class="sb-n"><a href="/dashboard/dashboard.html">Home</a><a href="/dashboard/dashboard-analytics.html" class="on">Status</a><a href="/dashboard/dashboard-wallet.html">Wallet</a></nav>
-  <div class="sb-s">System</div>
-  <div class="sb-st"><span class="dot" id="wsDot"></span><span id="wsText">Connecting</span></div>
-  <button class="sb-e" onclick="aFetch('/api/emergency-stop',{method:'POST'})">ZMN STOP</button>
-  <div style="padding:.4rem 1.2rem"><button class="sb-e" style="background:none;border-color:var(--tm);color:var(--td);font-size:.65rem" onclick="logout()">Logout</button></div>
-  <div class="sb-ft">v3.0</div>
-</aside>
-<main class="mn">
-  <div class="top-bar">
-    <div class="status-banner sb-ok" id="statusBanner">ALL SYSTEMS OPERATIONAL</div>
-    <div style="display:flex;align-items:center;gap:1rem">
-      <span class="last-updated" id="lastUpdated">--</span>
-      <button class="refresh-btn" id="refreshBtn" onclick="refreshStatus()">Refresh Status</button>
-    </div>
+<nav class="sb">
+  <div class="sb-logo"><div class="mark">Z</div><span class="name">ZMN</span></div>
+  <div class="sb-logo-sub">Bot</div>
+  <div class="sb-div"></div>
+  <div class="sb-section">Navigation</div>
+  <div class="sb-nav">
+    <a href="/dashboard/dashboard.html"><i class="bi bi-grid-1x2-fill"></i> Overview</a>
+    <a href="/dashboard/dashboard-analytics.html" class="on"><i class="bi bi-activity"></i> Status</a>
+    <a href="/dashboard/dashboard-wallet.html"><i class="bi bi-wallet2"></i> Wallet</a>
+  </div>
+  <div class="sb-bottom"><div class="sb-time" id="sydClock">--</div><div class="sb-user"><div class="sb-avatar">JR</div><i class="bi bi-box-arrow-right sb-logout" onclick="logout()"></i></div></div>
+  <div class="sb-ver">v3.0.0</div>
+</nav>
+<main class="main">
+  <div class="status-bar ok" id="statusBar"><span>&#9679; ALL SYSTEMS OPERATIONAL</span><button class="hc-btn" onclick="runHC()">Run Health Check</button></div>
+
+  <div class="sec-h">Execution</div>
+  <div class="svc-grid">
+    <div class="svc"><div class="svc-dot live"></div><div class="svc-info"><div class="svc-name">PumpPortal WebSocket</div><div class="svc-detail">~12 msg/min</div></div><div><div class="svc-ms">live</div><div class="svc-status" style="color:var(--accent-teal)">LIVE</div></div></div>
+    <div class="svc"><div class="svc-dot ok"></div><div class="svc-info"><div class="svc-name">Jupiter Ultra API</div><div class="svc-detail">swap/v1/quote</div></div><div><div class="svc-ms">170ms</div><div class="svc-status" style="color:var(--green)">CONNECTED</div></div></div>
+    <div class="svc"><div class="svc-dot ok"></div><div class="svc-info"><div class="svc-name">Jito Bundles</div><div class="svc-detail">sendBundle</div></div><div><div class="svc-ms">89ms</div><div class="svc-status" style="color:var(--green)">CONNECTED</div></div></div>
   </div>
 
-  <div class="ct">Execution</div>
-  <div class="api-grid" id="execGrid">
-    <div class="api-card" data-svc="pumpportal_ws"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">PumpPortal WebSocket</div><div class="api-detail">~12 msg/min</div></div><div class="api-ms">live</div></div>
-    <div class="api-card" data-svc="jupiter"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">Jupiter Ultra API</div><div class="api-detail">swap/v1/quote</div></div><div class="api-ms">170ms</div></div>
-    <div class="api-card" data-svc="jito"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">Jito Bundles</div><div class="api-detail">sendBundle</div></div><div class="api-ms">89ms</div></div>
+  <div class="sec-h">Blockchain</div>
+  <div class="svc-grid">
+    <div class="svc"><div class="svc-dot ok"></div><div class="svc-info"><div class="svc-name">Helius RPC</div><div class="svc-detail">slot: 408726024</div></div><div><div class="svc-ms">213ms</div><div class="svc-status" style="color:var(--green)">CONNECTED</div></div></div>
+    <div class="svc"><div class="svc-dot warn"></div><div class="svc-info"><div class="svc-name">Helius Staked</div><div class="svc-detail">endpoint unreachable</div></div><div><div class="svc-ms">--</div><div class="svc-status" style="color:var(--accent-amber)">DEGRADED</div></div></div>
+    <div class="svc"><div class="svc-dot ok"></div><div class="svc-info"><div class="svc-name">Helius Parse TX</div><div class="svc-detail">v0/transactions</div></div><div><div class="svc-ms">377ms</div><div class="svc-status" style="color:var(--green)">CONNECTED</div></div></div>
+    <div class="svc"><div class="svc-dot ok"></div><div class="svc-info"><div class="svc-name">Helius Gatekeeper</div><div class="svc-detail">fallback RPC</div></div><div><div class="svc-ms">473ms</div><div class="svc-status" style="color:var(--green)">CONNECTED</div></div></div>
   </div>
 
-  <div class="ct">Blockchain</div>
-  <div class="api-grid" id="blockGrid">
-    <div class="api-card" data-svc="helius_rpc"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">Helius RPC</div><div class="api-detail">slot: 312847291</div></div><div class="api-ms">213ms</div></div>
-    <div class="api-card" data-svc="helius_staked"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">Helius Staked</div><div class="api-detail">named RPC (bearer auth)</div></div><div class="api-ms">--</div></div>
-    <div class="api-card" data-svc="helius_parse"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">Helius Parse TX</div><div class="api-detail">v0/transactions</div></div><div class="api-ms">807ms</div></div>
-    <div class="api-card" data-svc="helius_gk"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">Helius Gatekeeper</div><div class="api-detail">fallback RPC</div></div><div class="api-ms">427ms</div></div>
+  <div class="sec-h">Data Feeds</div>
+  <div class="svc-grid">
+    <div class="svc"><div class="svc-dot ok"></div><div class="svc-info"><div class="svc-name">GeckoTerminal</div><div class="svc-detail">new_pools</div></div><div class="svc-ms">67ms</div></div>
+    <div class="svc"><div class="svc-dot ok"></div><div class="svc-info"><div class="svc-name">DexPaprika SSE</div><div class="svc-detail">streaming</div></div><div class="svc-ms">live</div></div>
+    <div class="svc"><div class="svc-dot ok"></div><div class="svc-info"><div class="svc-name">DefiLlama</div><div class="svc-detail">dex volume</div></div><div class="svc-ms">92ms</div></div>
+    <div class="svc"><div class="svc-dot ok"></div><div class="svc-info"><div class="svc-name">Rugcheck</div><div class="svc-detail">v1/report (no auth)</div></div><div class="svc-ms">788ms</div></div>
+    <div class="svc"><div class="svc-dot ok"></div><div class="svc-info"><div class="svc-name">Vybe Network</div><div class="svc-detail">top-traders</div></div><div class="svc-ms">245ms</div></div>
+    <div class="svc"><div class="svc-dot ok"></div><div class="svc-info"><div class="svc-name">Nansen API</div><div class="svc-detail">token-screener</div></div><div class="svc-ms">798ms</div></div>
   </div>
 
-  <div class="ct">Data Feeds</div>
-  <div class="api-grid" id="dataGrid">
-    <div class="api-card" data-svc="gecko"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">GeckoTerminal</div><div class="api-detail">new_pools</div></div><div class="api-ms">67ms</div></div>
-    <div class="api-card" data-svc="dexpaprika"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">DexPaprika SSE</div><div class="api-detail">streaming</div></div><div class="api-ms">live</div></div>
-    <div class="api-card" data-svc="defillama"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">DefiLlama</div><div class="api-detail">dex volume</div></div><div class="api-ms">92ms</div></div>
-    <div class="api-card" data-svc="cfgi"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">CFGI Fear/Greed</div><div class="api-detail">value: 65</div></div><div class="api-ms">2.4s</div></div>
-    <div class="api-card" data-svc="rugcheck"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">Rugcheck</div><div class="api-detail">v1/report</div></div><div class="api-ms">788ms</div></div>
-    <div class="api-card" data-svc="vybe"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">Vybe Network</div><div class="api-detail">top-traders</div></div><div class="api-ms">245ms</div></div>
-    <div class="api-card" data-svc="nansen"><div class="api-dot api-warn"></div><div class="api-info"><div class="api-name">Nansen API</div><div class="api-detail">Pro subscription required</div></div><div class="api-ms">--</div></div>
-  </div>
-
-  <div class="ct">Infrastructure</div>
-  <div class="api-grid" id="infraGrid">
-    <div class="api-card" data-svc="redis"><div class="api-dot api-warn" id="redisDot"></div><div class="api-info"><div class="api-name">Redis</div><div class="api-detail" id="redisDetail">checking...</div></div><div class="api-ms" id="redisMs">--</div></div>
-    <div class="api-card" data-svc="anthropic"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">Anthropic API</div><div class="api-detail">governance agent</div></div><div class="api-ms">1.2s</div></div>
-    <div class="api-card" data-svc="discord_wh"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">Discord Webhooks</div><div class="api-detail">alerts + treasury</div></div><div class="api-ms">sent</div></div>
-    <div class="api-card" data-svc="discord_bot"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">Discord Bot</div><div class="api-detail">ZMN Listener</div></div><div class="api-ms">ok</div></div>
+  <div class="sec-h">Infrastructure</div>
+  <div class="svc-grid">
+    <div class="svc"><div class="svc-dot warn" id="redisDot"></div><div class="svc-info"><div class="svc-name">Redis</div><div class="svc-detail" id="redisDetail">checking...</div></div><div class="svc-ms" id="redisMs">--</div></div>
+    <div class="svc"><div class="svc-dot ok"></div><div class="svc-info"><div class="svc-name">Anthropic API</div><div class="svc-detail">claude-sonnet-4-6</div></div><div class="svc-ms">1.2s</div></div>
+    <div class="svc"><div class="svc-dot ok"></div><div class="svc-info"><div class="svc-name">Discord Webhooks</div><div class="svc-detail">alerts + treasury</div></div><div class="svc-ms">ok</div></div>
+    <div class="svc"><div class="svc-dot ok"></div><div class="svc-info"><div class="svc-name">Discord Bot</div><div class="svc-detail">ZMN Listener</div></div><div class="svc-ms">ok</div></div>
   </div>
 
   <div class="grid2">
     <div class="card">
-      <div class="ct">Market Conditions</div>
-      <table>
-        <tr><td>Mode</td><td><span class="badge b-n" id="mMode">NORMAL</span></td></tr>
-        <tr><td>Solana DEX Vol 24h</td><td id="mVol">$2.1B</td></tr>
-        <tr><td>Fear &amp; Greed</td><td id="mFgi" style="font-family:var(--m)">65 (Greed)</td></tr>
-        <tr><td>Priority Fee Est.</td><td id="mFee" style="font-family:var(--m)">~150,000 uLamports</td></tr>
-        <tr><td>Rugs Last Hour</td><td id="mRugs" style="font-family:var(--m)">2</td></tr>
-      </table>
+      <div class="card-title">Market Conditions</div>
+      <div style="text-align:center;padding:8px 0"><span class="pill pill-teal" style="font-size:14px;padding:6px 20px" id="mMode">NORMAL</span></div>
+      <div class="info-row"><span class="info-label">Solana DEX Vol 24h</span><span class="info-val">$2.1B</span></div>
+      <div class="info-row"><span class="info-label">Fear &amp; Greed</span><span class="info-val">65 - Greed</span></div>
+      <div class="info-row"><span class="info-label">Priority Fee</span><span class="info-val">~150K uLamports</span></div>
+      <div class="info-row"><span class="info-label">Rugs Last Hour</span><span class="info-val">2</span></div>
+      <div class="info-row"><span class="info-label">Session</span><span class="info-val" id="mSess">Asian (moderate)</span></div>
     </div>
     <div class="card">
-      <div class="ct">ML Model Status</div>
-      <table>
-        <tr><td>Trained</td><td><span class="badge b-n">YES</span></td></tr>
-        <tr><td>Last Trained</td><td style="font-family:var(--m)">2026-03-25 02:00 UTC</td></tr>
-        <tr><td>Training Samples</td><td style="font-family:var(--m)">847</td></tr>
-        <tr><td>Accuracy (last 100)</td><td style="font-family:var(--m)">72.3%</td></tr>
-      </table>
-      <div class="chart-wrap" style="height:100px;margin-top:.8rem"><canvas id="featChart"></canvas></div>
+      <div class="card-title">ML Model Status</div>
+      <div class="info-row"><span class="info-label">Trained</span><span><span class="pill pill-green">YES</span></span></div>
+      <div class="info-row"><span class="info-label">Last Trained</span><span class="info-val">2026-03-25 02:00 UTC</span></div>
+      <div class="info-row"><span class="info-label">Samples</span><span class="info-val">847</span></div>
+      <div class="info-row"><span class="info-label">Accuracy (last 100)</span><span class="info-val">72.3%</span></div>
+      <div style="margin-top:12px">
+        <div class="feat-bar"><span class="feat-label">liquidity_vel</span><div class="feat-track"><div class="feat-fill" style="width:90%"></div></div><span class="feat-pct">18%</span></div>
+        <div class="feat-bar"><span class="feat-label">buy_sell_ratio</span><div class="feat-track"><div class="feat-fill" style="width:75%"></div></div><span class="feat-pct">15%</span></div>
+        <div class="feat-bar"><span class="feat-label">holder_conc</span><div class="feat-track"><div class="feat-fill" style="width:60%"></div></div><span class="feat-pct">12%</span></div>
+        <div class="feat-bar"><span class="feat-label">volume_accel</span><div class="feat-track"><div class="feat-fill" style="width:55%"></div></div><span class="feat-pct">11%</span></div>
+        <div class="feat-bar"><span class="feat-label">creator_rugs</span><div class="feat-track"><div class="feat-fill" style="width:45%"></div></div><span class="feat-pct">9%</span></div>
+      </div>
     </div>
   </div>
 
   <div class="grid2">
     <div class="card">
-      <div class="ct">Governance Status</div>
-      <table>
-        <tr><td>Last Briefing</td><td style="font-family:var(--m)">2026-03-25 06:00 UTC</td></tr>
-        <tr><td>Last Rescore</td><td style="font-family:var(--m)">2026-03-24 02:00 UTC</td></tr>
-        <tr><td>Next Briefing</td><td style="font-family:var(--m)">2026-03-26 06:00 UTC</td></tr>
-        <tr><td>Pending Review</td><td id="govPend"><span class="badge b-n">NONE</span></td></tr>
-      </table>
-      <div class="ct" style="margin-top:.8rem">Notes Preview</div>
-      <div class="gov-notes" id="govNotes">Speed Demon alpha snipe tier: 82% win rate. Recommend increasing Whale Tracker to 0.05. 5 wallets demoted. ML AUC improved 0.72 to 0.76.</div>
+      <div class="card-title">Governance Status</div>
+      <div class="info-row"><span class="info-label">Last Briefing</span><span class="info-val">Today 07:00 AEDT</span></div>
+      <div class="info-row"><span class="info-label">Last Rescore</span><span class="info-val">Mon 06:00 AEDT</span></div>
+      <div class="info-row"><span class="info-label">Next Briefing</span><span class="info-val">Tomorrow 07:00 AEDT</span></div>
+      <div class="info-row"><span class="info-label">Pending Review</span><span id="govPend"><span class="pill pill-green">NONE</span></span></div>
+      <div style="margin-top:10px;font-size:11px;color:var(--text-muted);font-weight:500;text-transform:uppercase;letter-spacing:.06em">Notes Preview</div>
+      <div class="gov-notes" id="govNotes">Speed Demon alpha snipe: 82% win rate. Recommend increasing Whale Tracker to 0.05. 5 wallets demoted. ML AUC 0.72 -> 0.76.</div>
     </div>
     <div class="card">
-      <div class="ct">Treasury Sweep History</div>
+      <div class="card-title">Treasury Sweep History</div>
       <table><thead><tr><th>Time</th><th>Amount</th><th>Status</th></tr></thead>
-      <tbody id="sweepTbl">
-        <tr><td>Mar 25 14:10</td><td style="font-family:var(--m)">5.2340 SOL</td><td><span class="badge b-n">OK</span></td></tr>
-        <tr><td>Mar 24 09:45</td><td style="font-family:var(--m)">3.8100 SOL</td><td><span class="badge b-n">OK</span></td></tr>
-        <tr><td>Mar 23 16:20</td><td style="font-family:var(--m)">6.1200 SOL</td><td><span class="badge b-n">OK</span></td></tr>
+      <tbody>
+        <tr><td>Mar 25 14:10</td><td>5.2340 SOL</td><td><span class="pill pill-green">OK</span></td></tr>
+        <tr><td>Mar 24 09:45</td><td>3.8100 SOL</td><td><span class="pill pill-green">OK</span></td></tr>
+        <tr><td>Mar 23 16:20</td><td>6.1200 SOL</td><td><span class="pill pill-green">OK</span></td></tr>
       </tbody></table>
-      <div style="margin-top:.5rem;font-size:.7rem;color:var(--td)">Total swept: <span style="font-family:var(--m);color:var(--a)" id="totSwept">15.1640 SOL</span></div>
+      <div style="margin-top:8px;font-size:12px;color:var(--text-muted)">Total swept: <span style="font-family:var(--font-mono);color:var(--accent-teal)">15.1640 SOL</span></div>
     </div>
   </div>
 
   <div class="card">
-    <div class="ct">Health Check</div>
-    <button class="hc-btn" id="hcBtn" onclick="runHC()">RUN HEALTH CHECK</button>
+    <div class="card-title">Health Check</div>
+    <button class="hc-btn" id="hcBtn" onclick="runHC()" style="margin-bottom:8px">Run Full Health Check</button>
     <div class="hc-output" id="hcOut"></div>
   </div>
 </main>
 <script>
 const TOKEN=sessionStorage.getItem('zmn_token');
 if(!TOKEN)window.location.href='/login.html';
-function authHdr(){return{'Authorization':'Bearer '+TOKEN}}
-function aFetch(u,o={}){o.headers={...(o.headers||{}),...authHdr()};return fetch(u,o).then(r=>{if(r.status===401){sessionStorage.removeItem('zmn_token');window.location.href='/login.html'}return r})}
+function aFetch(u,o={}){o.headers={...(o.headers||{}),Authorization:'Bearer '+TOKEN};return fetch(u,o).then(r=>{if(r.status===401){sessionStorage.removeItem('zmn_token');window.location.href='/login.html'}return r})}
 function logout(){sessionStorage.removeItem('zmn_token');window.location.href='/login.html'}
 const $=id=>document.getElementById(id);
-
-// Feature importance chart — wrapped in div with explicit height
-new Chart($('featChart').getContext('2d'),{
-  type:'bar',
-  data:{labels:['liquidity_vel','buy_sell_ratio','holder_conc','volume_accel','creator_rugs'],
-    datasets:[{data:[0.18,0.15,0.12,0.11,0.09],backgroundColor:'rgba(0,212,170,.5)',borderColor:'rgba(0,212,170,.8)',borderWidth:1,borderRadius:3}]},
-  options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,
-    plugins:{legend:{display:false}},
-    scales:{x:{grid:{color:'rgba(0,212,170,.04)'},ticks:{color:'#484f58',font:{family:'JetBrains Mono',size:9}}},
-            y:{grid:{display:false},ticks:{color:'#7d8590',font:{size:9}}}}}
-});
-
-// Status banner logic
-function updateBanner(){
-  const dots=document.querySelectorAll('.api-dot');
-  let hasDown=false,hasWarn=false;
-  dots.forEach(d=>{if(d.classList.contains('api-down'))hasDown=true;if(d.classList.contains('api-warn'))hasWarn=true});
-  const b=$('statusBanner');
-  if(hasDown){b.className='status-banner sb-crit';b.textContent='CRITICAL - SERVICE DOWN'}
-  else if(hasWarn){b.className='status-banner sb-warn';b.textContent='DEGRADED - SOME WARNINGS'}
-  else{b.className='status-banner sb-ok';b.textContent='ALL SYSTEMS OPERATIONAL'}
-}
-
-// Last updated
-function setUpdated(){
-  const now=new Date();
-  $('lastUpdated').textContent='Updated: '+now.toLocaleTimeString();
-}
-
-// Refresh status — re-check Redis via API and update cards
-async function refreshStatus(){
-  const btn=$('refreshBtn');btn.textContent='Checking...';btn.style.opacity='.6';
-  // Check Redis via status endpoint
-  try{
-    const r=await aFetch('/api/status');const d=await r.json();
-    const rDot=$('redisDot'),rDet=$('redisDetail'),rMs=$('redisMs');
-    if(d._redis_connected){
-      rDot.className='api-dot api-ok';rDet.textContent='connected';rMs.textContent=d._redis_ping_ms?d._redis_ping_ms+'ms':'ok';
-    }else{
-      const err=d._redis_error||'connection failed';
-      rDot.className='api-dot api-warn';rDet.textContent=err.substring(0,40);rMs.textContent='--';
-    }
-  }catch(e){
-    $('redisDot').className='api-dot api-down';$('redisDetail').textContent='API unreachable';
-  }
-  updateBanner();setUpdated();
-  btn.textContent='Refresh Status';btn.style.opacity='1';
-}
-
-// Health check
-async function runHC(){
-  const b=$('hcBtn'),o=$('hcOut');b.textContent='RUNNING...';b.style.opacity='.6';o.style.display='block';o.textContent='Starting health check...\n';
-  try{const r=await aFetch('/api/trigger-health-check',{method:'POST'});const d=await r.json();if(d.output)o.textContent=d.output}catch(e){o.textContent='Error: '+e.message}
-  b.textContent='RUN HEALTH CHECK';b.style.opacity='1';
-}
-
+function updateClock(){const s=new Date().toLocaleString('en-AU',{timeZone:'Australia/Sydney',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false,timeZoneName:'short'});$('sydClock').textContent=s}
+setInterval(updateClock,1000);updateClock();
+async function runHC(){const b=$('hcBtn'),o=$('hcOut');b.textContent='Running...';b.style.opacity='.6';o.style.display='block';o.textContent='Starting health check...\n';
+try{const r=await aFetch('/api/trigger-health-check',{method:'POST'});const d=await r.json();if(d.output)o.textContent=d.output}catch(e){o.textContent='Error: '+e.message}
+b.textContent='Run Full Health Check';b.style.opacity='1'}
+async function loadGov(){try{const r=await aFetch('/api/governance');const d=await r.json();if(d.pending_whale_review)$('govPend').innerHTML='<span class="pill pill-amber">PENDING REVIEW</span>';if(d.notes)$('govNotes').textContent=d.notes.slice(-300)}catch(e){}}
+async function loadRedis(){try{const r=await aFetch('/api/status');const d=await r.json();if(d._redis_connected){$('redisDot').className='svc-dot ok';$('redisDetail').textContent='connected';$('redisMs').textContent=(d._redis_ping_ms||0)+'ms'}else{$('redisDot').className='svc-dot warn';$('redisDetail').textContent=(d._redis_error||'not connected').substring(0,40)}}catch(e){}}
 // WS
-let ws;function conn(){ws=new WebSocket((location.protocol==='https:'?'wss':'ws')+'://'+location.host+'/ws');
-ws.onopen=()=>{ws.send(JSON.stringify({token:TOKEN}));$('wsDot').classList.remove('off');$('wsText').textContent='Connected'};
-ws.onclose=()=>{$('wsDot').classList.add('off');$('wsText').textContent='Offline';setTimeout(conn,3000)};
-ws.onmessage=e=>{try{const d=JSON.parse(e.data);
-if(d._type==='health_check_line'){const o=$('hcOut');o.style.display='block';o.textContent+=d.line+'\n';o.scrollTop=o.scrollHeight}
-if(d._type==='health_check_done'){$('hcBtn').textContent='RUN HEALTH CHECK';$('hcBtn').style.opacity='1'}
-}catch(x){}}}
-
-// Governance
-async function loadGov(){try{const r=await aFetch('/api/governance');const d=await r.json();if(d.pending_whale_review)$('govPend').innerHTML='<span class="badge b-d">PENDING REVIEW</span>';if(d.notes)$('govNotes').textContent=d.notes.slice(-300)}catch(e){}}
-
-conn();loadGov();refreshStatus();updateBanner();setUpdated();
+let ws;function conn(){ws=new WebSocket((location.protocol==='https:'?'wss':'ws')+'://'+location.host+'/ws');ws.onopen=()=>{ws.send(JSON.stringify({token:TOKEN}))};ws.onclose=()=>setTimeout(conn,3000);ws.onmessage=e=>{try{const d=JSON.parse(e.data);if(d._type==='health_check_line'){$('hcOut').style.display='block';$('hcOut').textContent+=d.line+'\n';$('hcOut').scrollTop=$('hcOut').scrollHeight}if(d._type==='health_check_done'){$('hcBtn').textContent='Run Full Health Check';$('hcBtn').style.opacity='1'}}catch(x){}}}
+conn();loadGov();loadRedis();
 </script>
 </body>
 </html>

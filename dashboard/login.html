@@ -3,73 +3,57 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ZMN Bot - Login</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<title>ZMN Bot — Login</title>
+<link href="https://api.fontshare.com/v2/css?f=satoshi@900,700,500,400,300&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#0b0e13;--card:rgba(13,17,23,.9);--border:rgba(0,212,180,.12);--a:#00d4aa;--r:#ff4466;--t:#e6edf3;--td:#7d8590;--tm:#484f58;--f:'Inter',sans-serif;--m:'JetBrains Mono',monospace}
+:root{--bg-base:#080b0f;--bg-surface:#0d1117;--bg-elevated:#161b22;--bg-card:#1a1f2e;--bg-hover:#1f2535;--border:rgba(255,255,255,0.06);--border-active:rgba(255,255,255,0.12);--text-primary:#e6edf3;--text-secondary:#8b949e;--text-muted:#484f58;--accent-teal:#00d4aa;--accent-teal-dim:rgba(0,212,170,0.12);--red:#f85149;--red-dim:rgba(248,81,73,0.12);--shadow-md:0 4px 16px rgba(0,0,0,0.5);--radius-md:10px;--radius-lg:14px;--font:'Satoshi',-apple-system,sans-serif;--font-mono:'SF Mono','Fira Code',monospace}
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:var(--f);background:var(--bg);color:var(--t);min-height:100vh;display:flex;align-items:center;justify-content:center;background-image:radial-gradient(ellipse at 20% 30%,rgba(0,188,212,.06) 0%,transparent 55%),radial-gradient(ellipse at 80% 70%,rgba(0,212,170,.04) 0%,transparent 50%)}
-.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:2.5rem;width:380px;backdrop-filter:blur(20px);transition:transform .3s}
-.card.shake{animation:shake .4s ease-in-out}
+body{background:var(--bg-base);color:var(--text-primary);font-family:var(--font);font-size:14px;min-height:100vh;display:flex;align-items:center;justify-content:center}
+.card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:2.5rem;width:360px;box-shadow:var(--shadow-md)}
+.card.shake{animation:shake .4s ease}
 @keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}
-.logo{text-align:center;margin-bottom:.3rem}
-.logo h1{font-size:1.8rem;font-weight:700;color:var(--a);letter-spacing:3px;text-shadow:0 0 25px rgba(0,212,170,.3)}
-.logo small{display:block;font-size:.65rem;color:var(--tm);text-transform:uppercase;letter-spacing:2px;margin-top:4px}
-.error{color:var(--r);font-size:.78rem;text-align:center;margin:1rem 0;min-height:1.2rem;opacity:0;transition:opacity .2s}
-.error.show{opacity:1}
-label{display:block;font-size:.75rem;color:var(--td);margin-bottom:.4rem;text-transform:uppercase;letter-spacing:.5px}
-input[type=password]{width:100%;padding:.75rem 1rem;background:rgba(255,255,255,.03);border:1px solid rgba(0,212,170,.1);border-radius:8px;color:var(--t);font-size:.95rem;font-family:var(--m);outline:none;transition:border-color .2s}
-input[type=password]:focus{border-color:var(--a);box-shadow:0 0 12px rgba(0,212,170,.1)}
-button{width:100%;padding:.8rem;background:rgba(0,212,170,.1);border:1px solid rgba(0,212,170,.25);border-radius:8px;color:var(--a);font-size:.9rem;font-weight:600;cursor:pointer;transition:all .2s;margin-top:1.2rem;letter-spacing:.5px}
-button:hover{background:rgba(0,212,170,.18);box-shadow:0 0 20px rgba(0,212,170,.15)}
+.logo{display:flex;align-items:center;gap:.75rem;margin-bottom:.25rem}
+.logo-mark{width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,#00d4aa,#a78bfa);display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-size:16px}
+.logo-text{font-size:18px;font-weight:700}
+.logo-sub{font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:2rem}
+.err{color:var(--red);font-size:13px;text-align:center;min-height:1.4rem;margin-bottom:.75rem;opacity:0;transition:opacity .2s}
+.err.on{opacity:1}
+label{display:block;font-size:12px;color:var(--text-secondary);margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em;font-weight:500}
+input{width:100%;padding:10px 14px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius-md);color:var(--text-primary);font-size:14px;font-family:var(--font-mono);outline:none;transition:border-color .15s}
+input:focus{border-color:var(--accent-teal)}
+button{width:100%;padding:12px;background:var(--accent-teal);border:none;border-radius:var(--radius-md);color:#080b0f;font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer;margin-top:1.25rem;transition:all .15s}
+button:hover{opacity:.9;box-shadow:0 0 20px rgba(0,212,170,.2)}
+button:active{transform:translateY(1px) scale(.98)}
 button:disabled{opacity:.5;cursor:not-allowed}
+.footer{text-align:center;margin-top:1.5rem;font-size:11px;color:var(--text-muted)}
 </style>
 </head>
 <body>
 <div class="card" id="card">
-  <div class="logo">
-    <h1>ZMN Bot</h1>
-    <small>Secure Trading Terminal</small>
-  </div>
-  <div class="error" id="error">Invalid credentials</div>
-  <form id="form" onsubmit="return doLogin(event)">
-    <label for="pw">Password</label>
-    <input type="password" id="pw" placeholder="Enter dashboard password" autofocus required>
+  <div class="logo"><div class="logo-mark">Z</div><span class="logo-text">ZMN Bot</span></div>
+  <div class="logo-sub">Secure Trading Terminal</div>
+  <div class="err" id="err">Invalid credentials</div>
+  <form onsubmit="return login(event)">
+    <label>Password</label>
+    <input type="password" id="pw" placeholder="Enter password" autofocus required>
     <button type="submit" id="btn">Sign In</button>
   </form>
+  <div class="footer">ZMN Bot v3.0.0 &bull; Solana Memecoin Trading</div>
 </div>
 <script>
-async function doLogin(e){
+async function login(e){
   e.preventDefault();
-  const btn=document.getElementById('btn');
-  const err=document.getElementById('error');
-  const card=document.getElementById('card');
-  const pw=document.getElementById('pw').value;
-  btn.disabled=true;btn.textContent='Authenticating...';
-  err.classList.remove('show');
+  const btn=document.getElementById('btn'),err=document.getElementById('err'),card=document.getElementById('card'),pw=document.getElementById('pw').value;
+  btn.disabled=true;btn.textContent='Authenticating...';err.classList.remove('on');
   try{
     const r=await fetch('/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pw})});
     const d=await r.json();
-    if(r.ok&&d.token){
-      sessionStorage.setItem('zmn_token',d.token);
-      window.location.href='/dashboard/dashboard.html';
-    }else{
-      err.textContent=d.error||'Invalid credentials';
-      err.classList.add('show');
-      card.classList.remove('shake');void card.offsetWidth;card.classList.add('shake');
-      document.getElementById('pw').value='';
-    }
-  }catch(ex){
-    err.textContent='Connection error';err.classList.add('show');
-  }
+    if(r.ok&&d.token){sessionStorage.setItem('zmn_token',d.token);document.body.style.opacity='0';document.body.style.transition='opacity .3s';setTimeout(()=>window.location.href='/dashboard/dashboard.html',300);return}
+    err.textContent=d.error||'Invalid credentials';err.classList.add('on');card.classList.remove('shake');void card.offsetWidth;card.classList.add('shake');document.getElementById('pw').value='';
+  }catch(x){err.textContent='Connection error';err.classList.add('on')}
   btn.disabled=false;btn.textContent='Sign In';
 }
-// If already logged in, redirect
-if(sessionStorage.getItem('zmn_token')){
-  fetch('/auth/verify',{headers:{'Authorization':'Bearer '+sessionStorage.getItem('zmn_token')}})
-    .then(r=>{if(r.ok)window.location.href='/dashboard/dashboard.html'})
-    .catch(()=>{});
-}
+if(sessionStorage.getItem('zmn_token')){fetch('/auth/verify',{headers:{'Authorization':'Bearer '+sessionStorage.getItem('zmn_token')}}).then(r=>{if(r.ok)window.location.href='/dashboard/dashboard.html'}).catch(()=>{})}
 </script>
 </body>
 </html>
