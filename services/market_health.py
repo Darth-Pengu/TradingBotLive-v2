@@ -46,9 +46,9 @@ MARKET_MODES = [
 ]
 
 # --- API URLs ---
-DEFILLAMA_URL = "https://api.llama.fi/overview/dexs?chain=solana"
+DEFILLAMA_URL = "https://api.llama.fi/overview/dexs/Solana"
 CFGI_URL = "https://cfgi.io/api/solana-fear-greed-index/1d"
-JUPITER_PRICE_URL = "https://api.jup.ag/price/v2"
+JUPITER_PRICE_URL = "https://api.jup.ag/price/v3"
 SOL_MINT = "So11111111111111111111111111111111111111112"
 
 # --- Sydney timezone (auto DST: AEDT UTC+11 / AEST UTC+10) ---
@@ -118,7 +118,7 @@ async def _fetch_sol_price(session: aiohttp.ClientSession) -> float | None:
     data = await _fetch_json(session, JUPITER_PRICE_URL, params={"ids": SOL_MINT})
     if data and "data" in data:
         sol_data = data["data"].get(SOL_MINT, {})
-        price = sol_data.get("price")
+        price = sol_data.get("usdPrice") or sol_data.get("price")
         if price:
             return float(price)
     return None

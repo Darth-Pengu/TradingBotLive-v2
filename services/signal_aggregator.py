@@ -79,9 +79,11 @@ ANALYST_FILTERS = {
 # risks[]: [{name, level, description, score, value}, ...]
 RUGCHECK_REPORT_URL = "https://api.rugcheck.xyz/v1/tokens/{mint}/report"
 
-# Score thresholds — Rugcheck score is 0-100 where HIGHER = MORE RISK
-# (opposite of a "safety score")
-RUGCHECK_REJECT_SCORE = 50  # Reject tokens with risk score >= 50
+# Rugcheck score is unbounded integer — higher = more risk
+# Real world scores: safe tokens ~100-500, risky tokens 1000+, rugs 5000+
+# Primary gate: has_danger level check (already implemented in _apply_hard_filters)
+# Secondary gate: reject extreme scores only
+RUGCHECK_REJECT_SCORE = 2000  # Reject tokens with raw risk score >= 2000
 
 # --- ML thresholds (Section 12) ---
 ML_THRESHOLDS = {
@@ -219,7 +221,7 @@ async def _fetch_creator_history(session: aiohttp.ClientSession, mint: str, redi
     creator = ""
     if VYBE_API_KEY:
         try:
-            url = f"https://api.vybenetwork.xyz/token/{mint}"
+            url = f"https://api.vybenetwork.com/token/{mint}"
             headers = {"Authorization": f"Bearer {VYBE_API_KEY}"}
             async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                 if resp.status == 200:

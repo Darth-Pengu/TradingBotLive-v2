@@ -32,8 +32,8 @@ def fetch_vybe_wallets() -> list[dict]:
         print("[vybe] VYBE_API_KEY not set — skipping")
         return []
 
-    url = "https://api.vybenetwork.xyz/v4/wallets/top-traders"
-    headers = {"X-API-KEY": VYBE_API_KEY}
+    url = "https://api.vybenetwork.com/v4/wallets/top-traders"
+    headers = {"X-API-Key": VYBE_API_KEY}
     params = {"resolution": "30d", "limit": 100, "sortByDesc": "realizedPnlUsd"}
 
     try:

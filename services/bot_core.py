@@ -205,7 +205,7 @@ class BotCore:
             ids = ",".join(set(mints))
             async with aiohttp.ClientSession() as session:
                 async with session.get(
-                    "https://api.jup.ag/price/v2",
+                    "https://api.jup.ag/price/v3",
                     params={"ids": ids},
                     timeout=aiohttp.ClientTimeout(total=10),
                 ) as resp:
@@ -213,7 +213,7 @@ class BotCore:
                         data = await resp.json()
                         result = {}
                         for mint in mints:
-                            p = data.get("data", {}).get(mint, {}).get("price")
+                            p = data.get("data", {}).get(mint, {}).get("usdPrice") or data.get("data", {}).get(mint, {}).get("price")
                             result[mint] = float(p) if p else 0.0
                         return result
         except Exception:

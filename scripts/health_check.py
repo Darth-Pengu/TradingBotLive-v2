@@ -231,7 +231,7 @@ async def test_jupiter(session):
             "amount": 100000000,
             "slippageBps": 50,
         }
-        status, body, ms = await http_get(session, "https://lite-api.jup.ag/swap/v1/quote", params=params)
+        status, body, ms = await http_get(session, "https://api.jup.ag/swap/v1/quote", params=params)
         if status == 200 and isinstance(body, dict) and "outAmount" in body:
             record("EXECUTION", "Jupiter Ultra", PASS, f"{ms}ms")
         else:
@@ -263,7 +263,7 @@ async def test_dexpaprika(session):
 async def test_defillama(session):
     try:
         status, body, ms = await http_get(session,
-            "https://api.llama.fi/overview/dexs", params={"chain": "solana"})
+            "https://api.llama.fi/overview/dexs/Solana")
         record("DATA FEEDS", "DefiLlama", PASS if status == 200 else FAIL, f"{ms}ms")
     except Exception as e:
         record("DATA FEEDS", "DefiLlama", FAIL, str(e)[:80])
@@ -299,8 +299,8 @@ async def test_vybe(session):
         record("DATA FEEDS", "Vybe Network", SKIP, "VYBE_API_KEY not set"); return
     try:
         status, body, ms = await http_get(session,
-            "https://api.vybenetwork.xyz/v4/wallets/top-traders",
-            headers={"X-API-KEY": VYBE_API_KEY}, params={"limit": 1})
+            "https://api.vybenetwork.com/v4/wallets/top-traders",
+            headers={"X-API-Key": VYBE_API_KEY}, params={"limit": 1})
         record("DATA FEEDS", "Vybe Network", PASS if status == 200 else FAIL, f"HTTP {status} ({ms}ms)")
     except Exception as e:
         record("DATA FEEDS", "Vybe Network", FAIL, str(e)[:80])

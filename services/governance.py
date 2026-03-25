@@ -521,7 +521,7 @@ async def _weekly_meta_report(session: aiohttp.ClientSession):
         try:
             async with session.get(
                 "https://api.geckoterminal.com/api/v2/networks/solana/trending_pools",
-                params={"page": 1},
+                params={"duration": "24h", "page": 1},
                 headers={"Accept": "application/json"},
                 timeout=aiohttp.ClientTimeout(total=15),
             ) as resp:

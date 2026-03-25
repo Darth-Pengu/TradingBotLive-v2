@@ -80,7 +80,7 @@ DISCORD_ALERT_MAP = {
 
 PUMPPORTAL_WS_URL = "wss://pumpportal.fun/api/data"
 GECKO_NEW_POOLS_URL = "https://api.geckoterminal.com/api/v2/networks/solana/new_pools"
-DEXPAPRIKA_SSE_URL = "https://api.dexpaprika.com/v1/solana/events/stream"
+DEXPAPRIKA_SSE_URL = "https://streaming.dexpaprika.com/stream"
 
 # Reconnect config: exponential backoff 1s base, x2 each attempt, 60s max
 BACKOFF_BASE = 1.0
@@ -176,7 +176,7 @@ async def _register_helius_webhook(redis_conn: aioredis.Redis | None):
         return
 
     webhook_url = f"https://{RAILWAY_SERVICE_URL}/helius-webhook" if not RAILWAY_SERVICE_URL.startswith("http") else f"{RAILWAY_SERVICE_URL}/helius-webhook"
-    api_url = f"https://api.helius.xyz/v0/webhooks?api-key={HELIUS_API_KEY}"
+    api_url = f"https://api-mainnet.helius-rpc.com/v0/webhooks?api-key={HELIUS_API_KEY}"
 
     # Check if we already have a webhook registered
     existing_webhook_id = None
@@ -190,7 +190,7 @@ async def _register_helius_webhook(redis_conn: aioredis.Redis | None):
         async with aiohttp.ClientSession() as session:
             # If we have an existing webhook, update it instead of creating a new one
             if existing_webhook_id:
-                update_url = f"https://api.helius.xyz/v0/webhooks/{existing_webhook_id}?api-key={HELIUS_API_KEY}"
+                update_url = f"https://api-mainnet.helius-rpc.com/v0/webhooks/{existing_webhook_id}?api-key={HELIUS_API_KEY}"
                 payload = {
                     "webhookURL": webhook_url,
                     "transactionTypes": ["SWAP"],
@@ -382,7 +382,9 @@ async def gecko_poller(redis_conn: aioredis.Redis | None):
 
 
 # ---------------------------------------------------------------------------
-# 3. DexPaprika SSE Stream (tertiary)
+# 3. DexPaprika SSE Stream (tertiary — price monitoring for existing tokens)
+# Note: DexPaprika streams price updates, not new token creation events.
+# Useful for monitoring price changes on tokens we're already watching.
 # ---------------------------------------------------------------------------
 async def dexpaprika_listener(redis_conn: aioredis.Redis | None):
     backoff = BACKOFF_BASE
@@ -392,6 +394,7 @@ async def dexpaprika_listener(redis_conn: aioredis.Redis | None):
             async with aiohttp.ClientSession() as session:
                 async with session.get(
                     DEXPAPRIKA_SSE_URL,
+                    params={"method": "t_p", "chain": "solana"},
                     headers={"Accept": "text/event-stream"},
                     timeout=aiohttp.ClientTimeout(total=0, sock_read=300),
                 ) as resp:
@@ -407,7 +410,6 @@ async def dexpaprika_listener(redis_conn: aioredis.Redis | None):
                         buffer += chunk.decode("utf-8", errors="replace")
                         while "\n\n" in buffer:
                             event_str, buffer = buffer.split("\n\n", 1)
-                            # Parse SSE format
                             data_line = ""
                             for line in event_str.split("\n"):
                                 if line.startswith("data:"):
@@ -421,11 +423,16 @@ async def dexpaprika_listener(redis_conn: aioredis.Redis | None):
                             except json.JSONDecodeError:
                                 continue
 
-                            mint = data.get("token_address") or data.get("mint") or data.get("address", "")
+                            # DexPaprika uses single-char fields: a=address, p=price, t=timestamp, c=chain
+                            mint = data.get("a", "")
                             if not mint:
                                 continue
 
-                            signal = _build_signal(mint, "dexpaprika", "sse_event", data, 0.0)
+                            signal = _build_signal(mint, "dexpaprika", "sse_event", {
+                                "price_usd": data.get("p"),
+                                "timestamp": data.get("t"),
+                                "chain": data.get("c"),
+                            }, 0.0)
                             await _push_signal(redis_conn, signal)
 
         except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as e:
