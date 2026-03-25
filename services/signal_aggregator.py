@@ -92,6 +92,15 @@ ML_THRESHOLDS = {
     "whale_tracker": 70,
 }
 
+# --- Market mode encoding for ML features (defined locally to avoid circular import) ---
+MARKET_MODE_ENCODING = {
+    "HIBERNATE": 0,
+    "DEFENSIVE": 1,
+    "NORMAL": 2,
+    "AGGRESSIVE": 3,
+    "FRENZY": 4,
+}
+
 
 async def _fetch_rugcheck(session: aiohttp.ClientSession, mint: str) -> dict:
     """
