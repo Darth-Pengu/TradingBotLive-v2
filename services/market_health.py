@@ -32,6 +32,7 @@ logger = logging.getLogger("market_health")
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 TEST_MODE = os.getenv("TEST_MODE", "true").lower() == "true"
+JUPITER_API_KEY = os.getenv("JUPITER_API_KEY", "").strip()
 HELIUS_RPC_URL = os.getenv("HELIUS_RPC_URL", "")
 HELIUS_GATEKEEPER_URL = os.getenv("HELIUS_GATEKEEPER_URL", "")
 
@@ -115,7 +116,18 @@ async def _fetch_json(session: aiohttp.ClientSession, url: str, params: dict | N
 
 
 async def _fetch_sol_price(session: aiohttp.ClientSession) -> float | None:
-    data = await _fetch_json(session, JUPITER_PRICE_URL, params={"ids": SOL_MINT})
+    headers = {"x-api-key": JUPITER_API_KEY} if JUPITER_API_KEY else {}
+    try:
+        async with session.get(JUPITER_PRICE_URL, params={"ids": SOL_MINT}, headers=headers,
+                               timeout=aiohttp.ClientTimeout(total=15)) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+            else:
+                logger.warning("Jupiter price HTTP %d", resp.status)
+                data = None
+    except Exception as e:
+        logger.warning("Jupiter price error: %s", e)
+        data = None
     if data and "data" in data:
         sol_data = data["data"].get(SOL_MINT, {})
         price = sol_data.get("usdPrice") or sol_data.get("price")

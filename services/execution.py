@@ -3,7 +3,7 @@ ZMN Bot Execution Layer
 ========================
 Two execution paths — no Telegram dependency anywhere:
   1. PumpPortal Local API (bonding curve tokens) — POST https://pumpportal.fun/api/trade-local
-  2. Jupiter Ultra API (graduated/AMM tokens) — https://lite-api.jup.ag/swap/v1/
+  2. Jupiter Swap API (graduated/AMM tokens) — https://api.jup.ag/swap/v1/
 
 Features:
 - choose_execution_api() routing

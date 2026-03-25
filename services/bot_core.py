@@ -41,6 +41,7 @@ DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
 STARTING_CAPITAL_SOL = float(os.getenv("STARTING_CAPITAL_SOL", "20"))
 HELIUS_RPC_URL = os.getenv("HELIUS_RPC_URL", "")
 TRADING_WALLET_ADDRESS = os.getenv("TRADING_WALLET_ADDRESS", "")
+JUPITER_API_KEY = os.getenv("JUPITER_API_KEY", "").strip()
 
 # Import sibling modules
 from services.execution import execute_trade, Token, ExecutionResult
@@ -203,10 +204,12 @@ class BotCore:
             return {}
         try:
             ids = ",".join(set(mints))
+            headers = {"x-api-key": JUPITER_API_KEY} if JUPITER_API_KEY else {}
             async with aiohttp.ClientSession() as session:
                 async with session.get(
                     "https://api.jup.ag/price/v3",
                     params={"ids": ids},
+                    headers=headers,
                     timeout=aiohttp.ClientTimeout(total=10),
                 ) as resp:
                     if resp.status == 200:
