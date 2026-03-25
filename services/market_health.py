@@ -116,23 +116,36 @@ async def _fetch_json(session: aiohttp.ClientSession, url: str, params: dict | N
 
 
 async def _fetch_sol_price(session: aiohttp.ClientSession) -> float | None:
+    # Primary: Jupiter Price V3 (requires x-api-key)
     headers = {"x-api-key": JUPITER_API_KEY} if JUPITER_API_KEY else {}
     try:
         async with session.get(JUPITER_PRICE_URL, params={"ids": SOL_MINT}, headers=headers,
-                               timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                               timeout=aiohttp.ClientTimeout(total=10)) as resp:
             if resp.status == 200:
                 data = await resp.json()
+                sol_data = data.get("data", {}).get(SOL_MINT, {})
+                price = sol_data.get("usdPrice") or sol_data.get("price")
+                if price:
+                    return float(price)
             else:
                 logger.warning("Jupiter price HTTP %d", resp.status)
-                data = None
     except Exception as e:
         logger.warning("Jupiter price error: %s", e)
-        data = None
-    if data and "data" in data:
-        sol_data = data["data"].get(SOL_MINT, {})
-        price = sol_data.get("usdPrice") or sol_data.get("price")
-        if price:
-            return float(price)
+
+    # Fallback: Binance (no auth required)
+    try:
+        async with session.get("https://api.binance.com/api/v3/ticker/price",
+                               params={"symbol": "SOLUSDT"},
+                               timeout=aiohttp.ClientTimeout(total=10)) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                price = float(data.get("price", 0))
+                if price > 0:
+                    logger.info("SOL price from Binance fallback: $%.2f", price)
+                    return price
+    except Exception as e:
+        logger.warning("Binance price fallback error: %s", e)
+
     return None
 
 
