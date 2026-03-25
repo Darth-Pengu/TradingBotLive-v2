@@ -86,6 +86,7 @@ tr:nth-child(even){background:rgba(0,212,170,.015)}tr:hover{background:rgba(0,21
   <div class="sb-bal"><span>Trading Wallet</span><span class="v" id="sbBal">--</span></div>
   <div class="sb-mode"><span class="badge b-n" id="sbMode">NORMAL</span></div>
   <div class="sb-fgi">Fear &amp; Greed: <span class="fv" id="sbFgi" style="color:var(--a)">--</span></div>
+  <div class="sb-fgi" id="sbSession" style="margin-top:2px">Session: <span class="fv" id="sbSessName">--</span></div>
   <div class="sb-s">System</div>
   <div class="sb-st"><span class="dot" id="wsDot"></span><span id="wsText">Connecting</span></div>
   <button class="sb-e" id="eBtn" onclick="eStop()">ZMN STOP</button>
@@ -194,6 +195,8 @@ const mc={NORMAL:'b-n',DEFENSIVE:'b-d',FRENZY:'b-f',HIBERNATE:'b-h',AGGRESSIVE:'
 $('sbMode').className='badge '+mc;$('sbMode').textContent=mode;
 // FGI
 const fgi=h.cfgi||h.fear_greed;if(fgi!=null){$('sbFgi').textContent=fgi;$('sbFgi').style.color=fgi>60?'var(--p)':fgi<40?'var(--l)':'var(--w)'}
+// Session display
+const sess=d.session||h.session;if(sess){const sn=$('sbSessName');const labels={ASIAN:'Asian',EU_OPEN:'EU Open',EU_US_OVERLAP:'EU+US Peak',US_ONLY:'US Session',TRANSITION:'Transition',DEAD_ZONE:'Dead Zone'};const colors={ASIAN:'#4488ff',EU_OPEN:'var(--a)',EU_US_OVERLAP:'var(--p)',US_ONLY:'var(--a)',TRANSITION:'var(--w)',DEAD_ZONE:'var(--tm)'};const nm=typeof sess==='string'?sess:sess.session||'--';sn.textContent=labels[nm]||nm;sn.style.color=colors[nm]||'var(--td)'}
 // Status dot
 if(s.status==='EMERGENCY_STOPPED'){$('wsDot').classList.add('off');$('wsText').textContent='STOPPED'}
 }

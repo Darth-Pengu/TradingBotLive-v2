@@ -1,10 +1,12 @@
 """
 ZMN Bot Market Health Detection Service
 =========================================
-- Daily 00:00 UTC: query DefiLlama, CFGI, Jupiter price → composite sentiment + market mode
+- Daily 7:00 AM Sydney: comprehensive market health check
 - Intraday every 5 min: rug cascade detection, SOL price shock, network congestion
 - Publishes mode to Redis pub/sub "market:mode" and caches to "market:health" (5-min TTL)
-- Emergency events → "alerts:emergency" Redis channel
+- Trading session tracker: broadcasts current session to Redis "market:session"
+- Emergency events -> "alerts:emergency" Redis channel
+- All scheduled tasks use Australia/Sydney timezone (auto DST via pytz)
 """
 
 import asyncio
@@ -15,6 +17,7 @@ import time
 from datetime import datetime, timezone
 
 import aiohttp
+import pytz
 import redis.asyncio as aioredis
 from dotenv import load_dotenv
 
@@ -47,6 +50,39 @@ DEFILLAMA_URL = "https://api.llama.fi/overview/dexs?chain=solana"
 CFGI_URL = "https://cfgi.io/api/solana-fear-greed-index/1d"
 JUPITER_PRICE_URL = "https://api.jup.ag/price/v2"
 SOL_MINT = "So11111111111111111111111111111111111111112"
+
+# --- Sydney timezone (auto DST: AEDT UTC+11 / AEST UTC+10) ---
+SYDNEY_TZ = pytz.timezone("Australia/Sydney")
+
+
+def get_sydney_time():
+    """Get current time in Sydney (handles DST automatically)."""
+    return datetime.now(pytz.utc).astimezone(SYDNEY_TZ)
+
+
+def sydney_to_utc(hour, minute=0):
+    """Convert a Sydney local time to UTC for scheduling."""
+    sydney_now = get_sydney_time()
+    naive = sydney_now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    sydney_target = SYDNEY_TZ.localize(naive.replace(tzinfo=None))
+    return sydney_target.astimezone(pytz.utc)
+
+
+def get_current_session_sydney() -> tuple[str, str]:
+    """Return (session_name, quality) based on current Sydney time."""
+    h = get_sydney_time().hour
+    if 7 <= h < 16:
+        return "ASIAN", "moderate"
+    elif 16 <= h < 20:
+        return "TRANSITION", "low"
+    elif 20 <= h < 24:
+        return "EU_OPEN", "good"
+    elif 0 <= h < 4:
+        return "EU_US_OVERLAP", "peak"
+    elif 4 <= h < 7:
+        return "US_ONLY", "good"
+    else:
+        return "DEAD_ZONE", "avoid"
 
 # --- Rug cascade thresholds ---
 RUG_ALERT_THRESHOLD = 5
@@ -257,6 +293,18 @@ async def daily_health_check(redis_conn: aioredis.Redis | None):
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
                 await _publish_market_state(redis_conn, state)
+
+                # --- Broadcast current trading session (Sydney time) ---
+                session_name, session_quality = get_current_session_sydney()
+                syd = get_sydney_time()
+                session_data = {
+                    "session": session_name,
+                    "quality": session_quality,
+                    "sydney_time": syd.strftime("%H:%M %Z"),
+                    "sydney_hour": syd.hour,
+                }
+                if redis_conn and not TEST_MODE:
+                    await redis_conn.set("market:session", json.dumps(session_data), ex=300)
 
                 # --- Intraday emergency checks ---
 

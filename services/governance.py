@@ -27,6 +27,7 @@ from pathlib import Path
 
 import aiohttp
 import aiosqlite
+import pytz
 import redis.asyncio as aioredis
 from dotenv import load_dotenv
 
@@ -54,6 +55,14 @@ NANSEN_MCP_SERVER = {
     "name": "nansen-mcp",
     "authorization_token": NANSEN_API_KEY,
 } if NANSEN_API_KEY else None
+
+# --- Sydney timezone (auto DST: AEDT UTC+11 / AEST UTC+10) ---
+SYDNEY_TZ = pytz.timezone("Australia/Sydney")
+
+
+def get_sydney_time():
+    return datetime.now(pytz.utc).astimezone(SYDNEY_TZ)
+
 
 GOVERNANCE_SCHEDULE = {
     "wallet_rescore":     "weekly",
@@ -103,20 +112,45 @@ Nothing else — just the JSON array.
 """
 
     elif task_type == "daily_briefing":
+        syd = get_sydney_time()
+        syd_str = syd.strftime("%A %d %B %Y")
+        syd_time = syd.strftime("%H:%M %Z")
+        utc_now = datetime.now(timezone.utc).strftime("%H:%M UTC")
+        tz_name = syd.strftime("%Z")
+        offset = syd.strftime("%z")
+        offset_fmt = f"UTC{offset[:3]}:{offset[3:]}"
+        # Trading windows in Sydney time
+        from services.market_health import get_current_session_sydney
+        session_name, session_quality = get_current_session_sydney()
         return f"""
-Write a concise daily briefing for the ZMN Bot owner. Cover:
-1. Yesterday's performance (P/L, win rate, best/worst trade per personality)
-2. Current market condition and whether the HIBERNATE/DEFENSIVE/NORMAL/AGGRESSIVE/FRENZY
-   mode seems correct given what you see in the data
-3. Any anomalies or concerns worth flagging
-4. One specific recommendation if something looks off
-5. Smart money snapshot — use your Nansen MCP tools to check what smart money wallets
-   have been doing on Solana in the last 24 hours. Are they accumulating, distributing,
-   or rotating? This adds important context to the market condition assessment.
+Write the daily briefing for ZMN Bot.
+Current Sydney time: {syd_time}
+Current UTC time: {utc_now}
+Current timezone: {tz_name} ({offset_fmt})
+Current trading session: {session_name} ({session_quality})
+
+Include in the briefing:
+1. Good morning Jay -- {syd_str}
+2. Yesterday's {'paper trading' if context.get('test_mode') else 'live'} performance
+   (P/L, win rate, best/worst trade per personality)
+3. Current market mode and why it's set that way
+4. Solana DEX volume last 24h vs 7-day average -- is today likely good or bad?
+5. Fear & Greed reading and what it means for today
+6. Key trading windows today in Sydney time:
+   - Asian session: 7:00 AM - 4:00 PM Sydney
+   - EU session opens: ~8:00 PM Sydney
+   - Peak overlap (EU+US): ~12:00 AM - 4:00 AM Sydney
+   - Dead zone (avoid): 4:00 AM - 7:00 AM Sydney
+7. Network conditions: current priority fees, any congestion
+8. Any governance actions needed (pending wallet review etc)
+9. One specific recommendation for today's trading
+10. Smart money snapshot -- use your Nansen MCP tools to check what smart money wallets
+    have been doing on Solana in the last 24 hours.
 
 Data: {json.dumps(context, indent=2)}
 
-Be direct. No fluff. Max 400 words.
+Sign off: 'Good luck today, Jay. -- ZMN Bot Governance'
+Max 500 words. Be direct. No fluff.
 """
 
     elif task_type == "drawdown_diagnosis":
@@ -352,7 +386,7 @@ async def _gather_context(db: aiosqlite.Connection, redis_conn: aioredis.Redis |
 
 # --- Scheduled tasks ---
 async def _scheduled_loop(db: aiosqlite.Connection, redis_conn: aioredis.Redis | None):
-    """Run scheduled governance tasks."""
+    """Run scheduled governance tasks. All times in Sydney local time (auto DST)."""
     last_daily = 0.0
     last_weekly = 0.0
     last_weekly_sm = 0.0
@@ -360,29 +394,33 @@ async def _scheduled_loop(db: aiosqlite.Connection, redis_conn: aioredis.Redis |
 
     async with aiohttp.ClientSession() as session:
         while True:
-            now = datetime.now(timezone.utc)
+            syd = get_sydney_time()
             now_ts = time.time()
 
-            # Daily briefing at 06:00 UTC — uses Nansen MCP for smart money snapshot
-            if now.hour == 6 and now_ts - last_daily > 82800:
+            # Daily briefing at 7:00 AM Sydney
+            if syd.hour == 7 and syd.minute < 2 and now_ts - last_daily > 82800:
                 context = await _gather_context(db, redis_conn, "daily_briefing")
+                context["test_mode"] = TEST_MODE
                 await run_governance_task("daily_briefing", context, session, use_nansen_mcp=True)
+                # Send to Discord with Sydney time header
+                syd_header = syd.strftime("%A %d %B %Y %H:%M %Z")
+                await send_discord(session, f"ZMN Bot Daily Briefing -- {syd_header}")
                 last_daily = now_ts
 
-            # Weekly wallet rescore on Monday at 02:00 UTC — uses Nansen MCP for PnL data
-            if now.weekday() == 0 and now.hour == 2 and now_ts - last_weekly > 604800:
+            # Weekly wallet rescore: Monday 6:00 AM Sydney
+            if syd.weekday() == 0 and syd.hour == 6 and syd.minute < 2 and now_ts - last_weekly > 604800:
                 context = await _gather_context(db, redis_conn, "wallet_rescore")
                 await run_governance_task("wallet_rescore", context, session, use_nansen_mcp=True)
                 last_weekly = now_ts
 
-            # Weekly smart money analysis — Monday 03:00 UTC — uses Nansen MCP directly
-            if now.weekday() == 0 and now.hour == 3 and now_ts - last_weekly_sm > 604800:
+            # Weekly smart money analysis: Monday 6:30 AM Sydney
+            if syd.weekday() == 0 and syd.hour == 6 and 28 <= syd.minute <= 32 and now_ts - last_weekly_sm > 604800:
                 context = {"active_signals": []}
                 await run_governance_task("smart_money_analysis", context, session, use_nansen_mcp=True)
                 last_weekly_sm = now_ts
 
-            # Monthly report on 1st at 06:00 UTC
-            if now.day == 1 and now.hour == 6 and now_ts - last_monthly > 2592000:
+            # Monthly report: 1st of month, 7:00 AM Sydney
+            if syd.day == 1 and syd.hour == 7 and syd.minute < 2 and now_ts - last_monthly > 2592000:
                 context = await _gather_context(db, redis_conn, "monthly_report")
                 await run_governance_task("monthly_report", context, session)
                 last_monthly = now_ts
