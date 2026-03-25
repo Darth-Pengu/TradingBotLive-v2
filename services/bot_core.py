@@ -498,6 +498,37 @@ class BotCore:
             except Exception as e:
                 logger.error("Emergency listener error: %s", e)
 
+    # --- Smart money exit check subscriber ---
+    async def _exit_check_listener(self):
+        """Subscribe to alerts:exit_check — force-exit any position holding the flagged token."""
+        if not self.redis:
+            return
+
+        pubsub = self.redis.pubsub()
+        await pubsub.subscribe("alerts:exit_check")
+        logger.info("Listening for smart money exit alerts on alerts:exit_check")
+
+        async for message in pubsub.listen():
+            if message["type"] != "message":
+                continue
+            try:
+                data = json.loads(message["data"])
+                mint = data.get("mint", "")
+                reason = data.get("reason", "smart_money_exit_alert")
+                if not mint:
+                    continue
+
+                # Check all three personalities for this token
+                for key, pos in list(self.positions.items()):
+                    if pos.mint == mint:
+                        logger.warning(
+                            "FORCED EXIT: %s %s — reason=%s (smart money selling)",
+                            pos.personality, mint[:12], reason,
+                        )
+                        await self._close_position(pos, reason)
+            except Exception as e:
+                logger.error("Exit check listener error: %s", e)
+
     # --- Whale exit monitor ---
     async def _whale_exit_monitor(self):
         """Monitor for whale sells on tokens we hold (Whale Tracker exit signal)."""
@@ -604,6 +635,7 @@ async def main():
         bot._consume_signals(),
         bot._check_exits(),
         bot._emergency_listener(),
+        bot._exit_check_listener(),
         bot._whale_exit_monitor(),
         bot._daily_reset(),
         bot._status_publisher(),

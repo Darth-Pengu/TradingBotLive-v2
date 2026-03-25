@@ -1,11 +1,13 @@
 """
 ToxiBot Signal Listener Service
 ================================
-Connects to three signal sources and pushes raw signals to Redis:
+Connects to signal sources and pushes raw signals to Redis:
   1. PumpPortal WebSocket (primary) — subscribeNewToken, subscribeAccountTrade,
      subscribeMigration, subscribeTokenTrade
   2. GeckoTerminal polling (backup) — /networks/solana/new_pools every 60s
   3. DexPaprika SSE stream (tertiary) — /v1/solana/events/stream
+  4. Discord Nansen alerts — polls channel every 15s for whale/smart money signals
+  5. Nansen Token Screener — polls every 10 minutes
 
 All signals → Redis LPUSH "signals:raw" as JSON.
 TEST_MODE=true: log signals, do NOT push to Redis.
@@ -15,6 +17,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
 from datetime import datetime, timezone
 
@@ -34,6 +37,41 @@ logger = logging.getLogger("signal_listener")
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 TEST_MODE = os.getenv("TEST_MODE", "true").lower() == "true"
+
+DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN", "")
+DISCORD_NANSEN_CHANNEL_ID = os.getenv("DISCORD_NANSEN_CHANNEL_ID", "")
+DISCORD_POLL_INTERVAL = 15  # seconds
+
+SOLANA_ADDRESS_RE = re.compile(r"[1-9A-HJ-NP-Za-km-z]{32,44}")
+
+DISCORD_ALERT_MAP = {
+    "ToxiBot Whale Entry": {
+        "signal_type": "whale_entry",
+        "route": "whale_tracker",
+        "confidence_boost": 30,
+    },
+    "ToxiBot Smart Money Inflow": {
+        "signal_type": "smart_money_inflow",
+        "route": "analyst",
+        "confidence_boost": 25,
+    },
+    "ToxiBot Smart Money Sell": {
+        "signal_type": "smart_money_exit",
+        "publish_channel": "alerts:exit_check",
+        "urgency": "high",
+    },
+    "ToxiBot Fund Activity": {
+        "signal_type": "fund_activity",
+        "route": "whale_tracker",
+        "confidence_boost": 20,
+    },
+    "ToxiBot Netflow Spike": {
+        "signal_type": "netflow_spike",
+        "redis_boost_key": "market:netflow_boost",
+        "boost_ttl": 7200,
+        "position_limit_multiplier": 1.2,
+    },
+}
 
 PUMPPORTAL_WS_URL = "wss://pumpportal.fun/api/data"
 GECKO_NEW_POOLS_URL = "https://api.geckoterminal.com/api/v2/networks/solana/new_pools"
@@ -330,6 +368,189 @@ async def dexpaprika_listener(redis_conn: aioredis.Redis | None):
 
 
 # ---------------------------------------------------------------------------
+# 4. Discord Nansen Alert Poller (polls every 15 seconds)
+# ---------------------------------------------------------------------------
+
+def _parse_discord_alert(content: str) -> tuple[str | None, dict | None]:
+    """Match message content to a known Nansen alert type.
+    Returns (alert_name, config) or (None, None) if no match.
+    """
+    for alert_name, config in DISCORD_ALERT_MAP.items():
+        if alert_name in content:
+            return alert_name, config
+    return None, None
+
+
+async def discord_nansen_poller(redis_conn: aioredis.Redis | None):
+    """Poll a Discord channel for Nansen alert messages every 15 seconds."""
+    if not DISCORD_BOT_TOKEN or not DISCORD_NANSEN_CHANNEL_ID:
+        logger.info("DISCORD_BOT_TOKEN or DISCORD_NANSEN_CHANNEL_ID not set — Discord poller disabled")
+        return
+
+    url = f"https://discord.com/api/v10/channels/{DISCORD_NANSEN_CHANNEL_ID}/messages"
+    headers = {"Authorization": f"Bot {DISCORD_BOT_TOKEN}"}
+
+    # Seed last_message_id from Redis if available
+    last_message_id: str | None = None
+    if redis_conn:
+        try:
+            last_message_id = await redis_conn.get("discord:last_message_id")
+        except Exception:
+            pass
+
+    while True:
+        try:
+            params = {"limit": 10}
+            if last_message_id:
+                params["after"] = last_message_id
+
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    url, headers=headers, params=params,
+                    timeout=aiohttp.ClientTimeout(total=10),
+                ) as resp:
+                    if resp.status != 200:
+                        logger.warning("Discord API HTTP %d", resp.status)
+                        await asyncio.sleep(DISCORD_POLL_INTERVAL)
+                        continue
+
+                    messages = await resp.json()
+
+            if not messages:
+                await asyncio.sleep(DISCORD_POLL_INTERVAL)
+                continue
+
+            # Discord returns newest first — process oldest first
+            messages.sort(key=lambda m: m["id"])
+
+            for msg in messages:
+                msg_id = msg["id"]
+                content = msg.get("content", "")
+                alert_name, config = _parse_discord_alert(content)
+
+                if not alert_name or not config:
+                    last_message_id = msg_id
+                    continue
+
+                signal_type = config["signal_type"]
+                token_address = None
+                addr_match = SOLANA_ADDRESS_RE.search(content)
+                if addr_match:
+                    token_address = addr_match.group(0)
+
+                logger.info(
+                    "Discord alert: %s | signal=%s | token=%s | msg_id=%s",
+                    alert_name, signal_type, token_address or "none", msg_id,
+                )
+
+                # --- Netflow Spike: set Redis boost key, no token needed ---
+                if signal_type == "netflow_spike":
+                    if not TEST_MODE and redis_conn:
+                        await redis_conn.set(
+                            config["redis_boost_key"],
+                            json.dumps({
+                                "multiplier": config["position_limit_multiplier"],
+                                "set_at": datetime.now(timezone.utc).isoformat(),
+                            }),
+                            ex=config["boost_ttl"],
+                        )
+                        logger.info("Netflow boost set: %.1fx for %ds", config["position_limit_multiplier"], config["boost_ttl"])
+                    last_message_id = msg_id
+                    continue
+
+                # --- Smart Money Exit: publish to exit_check channel ---
+                if signal_type == "smart_money_exit":
+                    if token_address:
+                        exit_payload = json.dumps({
+                            "mint": token_address,
+                            "reason": "smart_money_exit_alert",
+                            "urgency": config.get("urgency", "normal"),
+                            "source": "nansen_discord",
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        })
+                        if not TEST_MODE and redis_conn:
+                            await redis_conn.publish(config["publish_channel"], exit_payload)
+                            logger.info("Published exit check for %s", token_address[:12])
+                        else:
+                            logger.info("TEST_MODE — would publish exit check for %s", token_address[:12] if token_address else "unknown")
+                    last_message_id = msg_id
+                    continue
+
+                # --- Whale Entry / Smart Money Inflow / Fund Activity: push to signals:raw ---
+                if token_address and signal_type in ("whale_entry", "smart_money_inflow", "fund_activity"):
+                    signal = _build_signal(token_address, "nansen_discord", signal_type, {
+                        "alert_name": alert_name,
+                        "confidence_boost": config.get("confidence_boost", 0),
+                        "route": config.get("route", ""),
+                        "raw_content": content[:500],
+                    })
+                    if not TEST_MODE:
+                        await _push_signal(redis_conn, signal)
+                    else:
+                        logger.info("TEST_MODE — would push signal: %s %s", signal_type, token_address[:12])
+
+                last_message_id = msg_id
+
+            # Persist last processed message ID in Redis
+            if last_message_id and redis_conn:
+                try:
+                    await redis_conn.set("discord:last_message_id", last_message_id)
+                except Exception:
+                    pass
+
+        except Exception as e:
+            logger.warning("Discord poller error: %s", e)
+
+        await asyncio.sleep(DISCORD_POLL_INTERVAL)
+
+
+# ---------------------------------------------------------------------------
+# 5. Nansen Token Screener (Analyst signal source — polls every 10 minutes)
+# ---------------------------------------------------------------------------
+NANSEN_API_KEY = os.getenv("NANSEN_API_KEY", "")
+NANSEN_SCREENER_SEEN: set[str] = set()
+
+
+async def nansen_screener_poller(redis_conn: aioredis.Redis | None):
+    """Poll Nansen token screener for new high-cap Solana tokens every 10 min."""
+    if not NANSEN_API_KEY:
+        logger.info("NANSEN_API_KEY not set — screener disabled")
+        return
+
+    while True:
+        try:
+            from services.nansen_client import screen_new_tokens
+            async with aiohttp.ClientSession() as session:
+                tokens = await screen_new_tokens(session, redis_conn)
+                for token in tokens:
+                    mint = token.get("token_address", token.get("address", ""))
+                    if not mint or mint in NANSEN_SCREENER_SEEN:
+                        continue
+                    NANSEN_SCREENER_SEEN.add(mint)
+
+                    signal = _build_signal(mint, "nansen_screener", "analyst", {
+                        "name": token.get("name", ""),
+                        "symbol": token.get("symbol", ""),
+                        "market_cap_usd": token.get("market_cap_usd", 0),
+                        "smart_money_signal": True,
+                    }, 0.0)
+                    await _push_signal(redis_conn, signal)
+
+                if tokens:
+                    logger.info("Nansen screener: %d new tokens found, %d after dedup",
+                                len(tokens), len([t for t in tokens if t.get("token_address", t.get("address", "")) not in NANSEN_SCREENER_SEEN]))
+
+                # Trim seen set
+                if len(NANSEN_SCREENER_SEEN) > 2000:
+                    NANSEN_SCREENER_SEEN.clear()
+
+        except Exception as e:
+            logger.warning("Nansen screener error: %s", e)
+
+        await asyncio.sleep(600)  # 10 minutes
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 async def main():
@@ -349,6 +570,8 @@ async def main():
         pumpportal_listener(redis_conn),
         gecko_poller(redis_conn),
         dexpaprika_listener(redis_conn),
+        nansen_screener_poller(redis_conn),
+        discord_nansen_poller(redis_conn),
     )
 
 
