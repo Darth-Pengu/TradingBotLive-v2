@@ -10,7 +10,7 @@ Connects to signal sources and pushes raw signals to Redis:
   5. Nansen Token Screener — polls every 10 minutes
 
 All signals → Redis LPUSH "signals:raw" as JSON.
-TEST_MODE=true: log signals, do NOT push to Redis.
+Signals always flow to Redis (even in TEST_MODE) for paper trading.
 """
 
 import asyncio
@@ -141,11 +141,10 @@ def _build_signal(mint: str, source: str, signal_type: str, raw_data: dict, age_
 
 async def _push_signal(redis_conn: aioredis.Redis | None, signal: dict):
     logger.info("Signal [%s/%s]: %s", signal["source"], signal["signal_type"], signal["mint"])
-    if TEST_MODE:
-        logger.debug("TEST_MODE — not pushing to Redis: %s", json.dumps(signal)[:200])
-        return
     if redis_conn:
         await redis_conn.lpush("signals:raw", json.dumps(signal))
+    else:
+        logger.debug("No Redis — signal not queued: %s", json.dumps(signal)[:200])
 
 
 # ---------------------------------------------------------------------------
@@ -540,7 +539,7 @@ async def discord_nansen_poller(redis_conn: aioredis.Redis | None):
 
                 # --- Netflow Spike: set Redis boost key, no token needed ---
                 if signal_type == "netflow_spike":
-                    if not TEST_MODE and redis_conn:
+                    if redis_conn:
                         await redis_conn.set(
                             config["redis_boost_key"],
                             json.dumps({
@@ -563,11 +562,11 @@ async def discord_nansen_poller(redis_conn: aioredis.Redis | None):
                             "source": "nansen_discord",
                             "timestamp": datetime.now(timezone.utc).isoformat(),
                         })
-                        if not TEST_MODE and redis_conn:
+                        if redis_conn:
                             await redis_conn.publish(config["publish_channel"], exit_payload)
                             logger.info("Published exit check for %s", token_address[:12])
                         else:
-                            logger.info("TEST_MODE — would publish exit check for %s", token_address[:12] if token_address else "unknown")
+                            logger.info("No Redis — exit check not published for %s", token_address[:12] if token_address else "unknown")
                     last_message_id = msg_id
                     continue
 
@@ -579,10 +578,7 @@ async def discord_nansen_poller(redis_conn: aioredis.Redis | None):
                         "route": config.get("route", ""),
                         "raw_content": content[:500],
                     })
-                    if not TEST_MODE:
-                        await _push_signal(redis_conn, signal)
-                    else:
-                        logger.info("TEST_MODE — would push signal: %s %s", signal_type, token_address[:12])
+                    await _push_signal(redis_conn, signal)
 
                 last_message_id = msg_id
 
@@ -783,15 +779,15 @@ async def nansen_screener_poller(redis_conn: aioredis.Redis | None):
 async def main():
     logger.info("Signal Listener starting (TEST_MODE=%s)", TEST_MODE)
 
+    # Connect Redis always — signals must flow for paper trading too
     redis_conn = None
-    if not TEST_MODE:
-        try:
-            redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True)
-            await redis_conn.ping()
-            logger.info("Redis connected: %s", REDIS_URL)
-        except Exception as e:
-            logger.error("Redis connection failed: %s — signals will be logged only", e)
-            redis_conn = None
+    try:
+        redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True)
+        await redis_conn.ping()
+        logger.info("Redis connected: %s", REDIS_URL)
+    except Exception as e:
+        logger.warning("Redis connection failed: %s — signals will be logged only", e)
+        redis_conn = None
 
     # Register Helius webhook for real-time whale monitoring (non-blocking)
     await _register_helius_webhook(redis_conn)
