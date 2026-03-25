@@ -1,11 +1,17 @@
 # ZMN Bot — Agent Context Document
-**Version:** 3.0  
-**Last Updated:** March 2026  
-**Changes from v2.0:**
-- Execution layer completely replaced: ToxiBot/Telethon → PumpPortal Local API + Jupiter Ultra API
-- Agent governance layer added (Section 10) — separate scheduled process running Claude API
-- Treasury sweep service added (Section 11) — auto-transfers excess SOL to holding wallet
-- Env vars, Procfile, requirements updated throughout
+**Version:** 3.1
+**Last Updated:** March 2026
+**Changes from v3.0:**
+- Jupiter migrated from lite-api.jup.ag to api.jup.ag with V3 price API
+- Rugcheck score threshold corrected (unbounded integer, not 0-100)
+- DexPaprika SSE migrated to streaming.dexpaprika.com
+- Vybe domain changed from .xyz to .com
+- Helius webhook URL migrated to api-mainnet.helius-rpc.com
+- Governance agent v2: memory, anomaly detection, parameter approval, two-way Discord
+- Dashboard v4: commercial-grade terminal with JWT auth, command palette, keyboard shortcuts
+- Paper trading infrastructure with full simulation
+- Sydney timezone scheduling for all governance tasks
+- All API URLs verified and corrected (see Section 21)
 
 **Purpose:** Complete context for an autonomous coding agent. Read this entire file before writing a single line of code. Do not rely on memory of previous versions — this document supersedes all prior versions.
 
@@ -336,17 +342,23 @@ PUMPPORTAL_SLIPPAGE = {
 
 ---
 
-### Secondary: Jupiter Ultra API (graduated/AMM tokens)
+### Secondary: Jupiter Swap API (graduated/AMM tokens)
 
 Used by: Analyst (primarily), Whale Tracker (primarily), Speed Demon (post-graduation Tier 3 entries when pool is deep enough).
 
 ```
-Endpoint: https://lite-api.jup.ag/swap/v1/
+Quote: GET https://api.jup.ag/swap/v1/quote
+Swap:  POST https://api.jup.ag/swap/v1/swap
+Price: GET https://api.jup.ag/price/v3?ids=<mints>  (price field: "usdPrice")
+Auth:  x-api-key header with JUPITER_API_KEY env var (free at portal.jup.ag)
 Fee: 0% protocol fee — only Solana network fees
-Custody: Full non-custodial — you sign all transactions
 MEV protection: ShadowLane private transaction routing built in
-Key advantage: Best routing across all Raydium/Orca/PumpSwap/Meteora pools
+DEPRECATED: lite-api.jup.ag — do not use in new code
 Does NOT handle: pump.fun bonding curve tokens — use PumpPortal for those
+
+Sell note: _get_token_balance() fetches actual token balance via Helius RPC
+getTokenAccountsByOwner before executing sell. amount_sol on sells represents
+SOL value of position, not the token amount passed to Jupiter.
 ```
 
 **Implementation pattern:**
@@ -368,8 +380,9 @@ async def execute_jupiter_ultra(
             "slippageBps": slippage_bps,
             "onlyDirectRoutes": False,
         }
+        headers = {"x-api-key": JUPITER_API_KEY} if JUPITER_API_KEY else {}
         async with session.get(
-            "https://lite-api.jup.ag/swap/v1/quote", params=params
+            "https://api.jup.ag/swap/v1/quote", params=params, headers=headers
         ) as resp:
             quote = await resp.json()
 
@@ -378,11 +391,10 @@ async def execute_jupiter_ultra(
             "quoteResponse": quote,
             "userPublicKey": TRADING_WALLET_PUBLIC_KEY,
             "wrapAndUnwrapSol": True,
-            "computeUnitPriceMicroLamports": await get_dynamic_priority_fee(),
+            "prioritizationFeeLamports": await get_dynamic_priority_fee(),
         }
         async with session.post(
-            "https://lite-api.jup.ag/swap/v1/swap",
-            json=swap_payload
+            "https://api.jup.ag/swap/v1/swap", json=swap_payload, headers=headers
         ) as resp:
             swap_data = await resp.json()
 
@@ -411,11 +423,14 @@ JUPITER_SLIPPAGE_BPS = {
 ### Routing decision: which API to use
 
 ```python
+PUMPPORTAL_POOLS = {"pump", "pump-amm", "launchlab", "bonk"}
+JUPITER_POOLS = {"raydium", "raydium-cpmm", "orca", "meteora", "pumpswap"}
+
 def choose_execution_api(token: Token) -> str:
-    if token.pool in ("pump", "pump-amm") and token.bonding_curve_progress < 1.0:
+    if token.pool in PUMPPORTAL_POOLS and token.bonding_curve_progress < 1.0:
         return "pumpportal"   # Still on bonding curve — must use PumpPortal
-    elif token.pool in ("raydium", "raydium-cpmm", "orca", "meteora", "pumpswap"):
-        return "jupiter"      # Graduated to AMM pool — use Jupiter Ultra
+    elif token.pool in JUPITER_POOLS:
+        return "jupiter"      # Graduated to AMM pool — use Jupiter
     else:
         return "pumpportal"   # Default to PumpPortal with pool="auto"
 ```
@@ -768,11 +783,16 @@ if helius_priority_fee["veryHigh"] > 50_000_000:  # 50M microlamports
 
 ### Market health data sources
 
-- DefiLlama: `GET https://api.llama.fi/overview/dexs?chain=solana`
-- CFGI: `GET https://cfgi.io/api/solana-fear-greed-index/1d`
-- SOL price: Jupiter Price API (free)
+- DefiLlama: `GET https://api.llama.fi/overview/dexs/Solana` (chain is PATH param, not query)
+- CFGI: `GET https://cfgi.io/api/solana-fear-greed-index/1d` (no public docs, falls back to 50.0)
+- SOL price: `GET https://api.jup.ag/price/v3?ids=So11...112` (field: `usdPrice`)
 - Network fees: Helius `getPriorityFeeEstimate`
 - Token launch rate: Count PumpPortal `subscribeNewToken` events per window
+
+### Known limitations
+- Pump.fun volume estimated as 15% of total Solana DEX volume (no direct API)
+- Graduation rate defaults to 1.0% baseline (refined as signal_listener counts migrations)
+- CFGI API has no public documentation — falls back to neutral 50.0 if unavailable
 
 ---
 
@@ -782,7 +802,7 @@ if helius_priority_fee["veryHigh"] > 50_000_000:  # 50M microlamports
 | API | Cost | Primary use |
 |-----|------|-------------|
 | Helius | $49/mo | RPC, webhooks, priority fee estimation, staked tx landing |
-| BitQuery | Free tier | DEX analytics, volume, holder data, creator history |
+| Vybe Network | Free | Labeled wallets, creator history, top traders |
 | PumpPortal | Free data / 0.5% trades | WebSocket signals + trade execution |
 | Jupiter | Free | Ultra swap API + price data |
 | Rugcheck | Free | Token safety scoring |
@@ -825,9 +845,10 @@ TREASURY_TARGET_SOL=25.0           # Leave this much after sweep
 TREASURY_MIN_TRANSFER_SOL=1.0      # Minimum single transfer amount
 
 # === DATA APIS ===
-BITQUERY_API_KEY=                  # bitquery.io
-VYBE_API_KEY=                      # vybenetwork.xyz (free tier)
-NANSEN_API_KEY=                    # nansen.ai Pro $49/mo (optional)
+JUPITER_API_KEY=                   # Free at https://portal.jup.ag
+VYBE_API_KEY=                      # vybenetwork.com (free tier)
+NANSEN_API_KEY=                    # nansen.ai (auth header: "apikey" lowercase)
+DISCORD_OWNER_ID=                  # Your Discord user ID for !zmn commands
 
 # === GOVERNANCE ===
 ANTHROPIC_API_KEY=                 # From console.anthropic.com — for governance agent
@@ -1135,3 +1156,87 @@ python-jose[cryptography]>=3.3.0
 # REMOVED from v2.0:
 # telethon — no longer needed
 ```
+
+---
+
+## 21. Verified API Reference (March 2026)
+
+**Before fixing any API integration, check this section first. Do not rely on training data for API details -- they change.**
+
+### PumpPortal
+- Local API: POST https://pumpportal.fun/api/trade-local (no auth)
+- WebSocket: wss://pumpportal.fun/api/data
+- Pool values: pump, pump-amm, launchlab, raydium-cpmm, bonk, auto
+- denominatedInSol: STRING "true"/"false" not boolean
+- Fee: 0.5% (Local API), 1% (Lightning API)
+
+### Jupiter
+- Quote: GET https://api.jup.ag/swap/v1/quote
+- Swap: POST https://api.jup.ag/swap/v1/swap
+- Price: GET https://api.jup.ag/price/v3?ids=<mints>
+- Auth: x-api-key header (free key at portal.jup.ag)
+- Price field: "usdPrice" (not "price")
+- Swap payload: "prioritizationFeeLamports" (not computeUnitPriceMicroLamports)
+- lite-api.jup.ag: DEPRECATED -- do not use in new code
+
+### Helius
+- RPC: https://mainnet.helius-rpc.com/?api-key=KEY
+- Enhanced API: https://api-mainnet.helius-rpc.com
+- Staked RPC: HELIUS_STAKED_URL env var, auth: Authorization Bearer header
+- Parse TX: POST https://api-mainnet.helius-rpc.com/v0/transactions?api-key=KEY
+- Parse History: GET https://api-mainnet.helius-rpc.com/v0/addresses/{address}/transactions?api-key=KEY
+- Webhooks: POST https://api-mainnet.helius-rpc.com/v0/webhooks?api-key=KEY
+- Auth: ?api-key= query param on ALL endpoints except Staked RPC (Bearer)
+
+### Nansen
+- Base: https://api.nansen.ai/api/v1
+- Auth: "apikey" header (lowercase)
+- token-screener: uses "timeframe" field (not "date")
+- Valid timeframes: 5m, 10m, 1h, 6h, 24h, 7d, 30d
+
+### Vybe Network
+- Base: https://api.vybenetwork.com (NOT .xyz)
+- Auth: X-API-Key header
+
+### GeckoTerminal
+- Base: https://api.geckoterminal.com/api/v2
+- New pools: GET /networks/solana/new_pools
+- Trending: GET /networks/solana/trending_pools?duration=24h (param is "duration" not "timeframe")
+- No auth required, 30 req/min
+
+### DexPaprika
+- SSE: https://streaming.dexpaprika.com/stream?method=t_p&chain=solana
+- SSE fields: a=address, p=price, t=timestamp, c=chain
+- No auth required
+
+### DefiLlama
+- Solana DEX volume: GET https://api.llama.fi/overview/dexs/Solana (chain is PATH param)
+- Volume field: "total24h"
+
+### Rugcheck
+- Report: GET https://api.rugcheck.xyz/v1/tokens/{mint}/report (no auth)
+- Score: UNBOUNDED INTEGER (not 0-100). Higher = more risky.
+- Reject threshold: score >= 2000 OR has_danger/critical in risks[]
+- Real examples: safe ~100-500, risky ~1000-3000, rugs 5000+, TRUMP scored 18,715
+
+### Jito
+- Bundles: POST https://mainnet.block-engine.jito.wtf/api/v1/bundles
+- Tip floor: GET https://bundles.jito.wtf/api/v1/bundles/tip_floor
+- Max tip: 0.1 SOL (100M lamports) hard cap
+
+---
+
+## 22. Governance Agent v2 Features
+
+1. **Rolling memory** (data/governance_memory.json): last 10 recommendations, confirmed strengths, known weaknesses
+2. **Anomaly detection** (every 30 min): win rate drops, exit reason spikes, signal source degradation
+3. **Parameter approval system**: pending_parameters.json -> active_parameters.json via POST /api/approve-parameter
+4. **Personality weighting** by market regime (personality_weights.json): bull_trend, high_volatility, choppy, defensive
+5. **Weekly meta report**: GeckoTerminal trending + Nansen MCP + Claude pattern analysis
+6. **Self-improving prompts**: memory context injected into every Claude call
+7. **Discord two-way commands**: !zmn status/today/best/worst/pause/resume/meta/diagnose
+   - Handler: governance.py handle_discord_command() called from signal_listener.py
+   - Requires DISCORD_OWNER_ID env var
+
+All scheduled tasks use Australia/Sydney timezone (auto DST via pytz).
+Daily briefing: 7:00 AM Sydney. Wallet rescore: Monday 6:00 AM Sydney.
