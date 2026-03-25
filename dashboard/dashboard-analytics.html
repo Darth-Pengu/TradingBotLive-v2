@@ -52,7 +52,8 @@ table{width:100%;border-collapse:collapse;font-size:.72rem}th{text-align:left;pa
   <nav class="sb-n"><a href="/dashboard/dashboard.html">Home</a><a href="/dashboard/dashboard-analytics.html" class="on">Status</a><a href="/dashboard/dashboard-wallet.html">Wallet</a></nav>
   <div class="sb-s">System</div>
   <div class="sb-st"><span class="dot" id="wsDot"></span><span id="wsText">Connecting</span></div>
-  <button class="sb-e" onclick="fetch('/api/emergency-stop',{method:'POST'})">EMERGENCY STOP</button>
+  <button class="sb-e" onclick="aFetch('/api/emergency-stop',{method:'POST'})">ZMN STOP</button>
+  <div style="padding:.4rem 1.2rem"><button class="sb-e" style="background:none;border-color:var(--tm);color:var(--td);font-size:.65rem" onclick="logout()">Logout</button></div>
   <div class="sb-ft">v3.0</div>
 </aside>
 <main class="mn">
@@ -152,6 +153,11 @@ table{width:100%;border-collapse:collapse;font-size:.72rem}th{text-align:left;pa
   </div>
 </main>
 <script>
+const TOKEN=sessionStorage.getItem('zmn_token');
+if(!TOKEN)window.location.href='/login.html';
+function authHdr(){return{'Authorization':'Bearer '+TOKEN}}
+function aFetch(u,o={}){o.headers={...(o.headers||{}),...authHdr()};return fetch(u,o).then(r=>{if(r.status===401){sessionStorage.removeItem('zmn_token');window.location.href='/login.html'}return r})}
+function logout(){sessionStorage.removeItem('zmn_token');window.location.href='/login.html'}
 const $=id=>document.getElementById(id);
 
 // Feature importance chart — wrapped in div with explicit height
@@ -187,7 +193,7 @@ async function refreshStatus(){
   const btn=$('refreshBtn');btn.textContent='Checking...';btn.style.opacity='.6';
   // Check Redis via status endpoint
   try{
-    const r=await fetch('/api/status');const d=await r.json();
+    const r=await aFetch('/api/status');const d=await r.json();
     const rDot=$('redisDot'),rDet=$('redisDetail'),rMs=$('redisMs');
     if(d._redis_connected){
       rDot.className='api-dot api-ok';rDet.textContent='connected';rMs.textContent=d._redis_ping_ms?d._redis_ping_ms+'ms':'ok';
@@ -205,13 +211,13 @@ async function refreshStatus(){
 // Health check
 async function runHC(){
   const b=$('hcBtn'),o=$('hcOut');b.textContent='RUNNING...';b.style.opacity='.6';o.style.display='block';o.textContent='Starting health check...\n';
-  try{const r=await fetch('/api/trigger-health-check',{method:'POST'});const d=await r.json();if(d.output)o.textContent=d.output}catch(e){o.textContent='Error: '+e.message}
+  try{const r=await aFetch('/api/trigger-health-check',{method:'POST'});const d=await r.json();if(d.output)o.textContent=d.output}catch(e){o.textContent='Error: '+e.message}
   b.textContent='RUN HEALTH CHECK';b.style.opacity='1';
 }
 
 // WS
 let ws;function conn(){ws=new WebSocket((location.protocol==='https:'?'wss':'ws')+'://'+location.host+'/ws');
-ws.onopen=()=>{$('wsDot').classList.remove('off');$('wsText').textContent='Connected'};
+ws.onopen=()=>{ws.send(JSON.stringify({token:TOKEN}));$('wsDot').classList.remove('off');$('wsText').textContent='Connected'};
 ws.onclose=()=>{$('wsDot').classList.add('off');$('wsText').textContent='Offline';setTimeout(conn,3000)};
 ws.onmessage=e=>{try{const d=JSON.parse(e.data);
 if(d._type==='health_check_line'){const o=$('hcOut');o.style.display='block';o.textContent+=d.line+'\n';o.scrollTop=o.scrollHeight}
@@ -219,7 +225,7 @@ if(d._type==='health_check_done'){$('hcBtn').textContent='RUN HEALTH CHECK';$('h
 }catch(x){}}}
 
 // Governance
-async function loadGov(){try{const r=await fetch('/api/governance');const d=await r.json();if(d.pending_whale_review)$('govPend').innerHTML='<span class="badge b-d">PENDING REVIEW</span>';if(d.notes)$('govNotes').textContent=d.notes.slice(-300)}catch(e){}}
+async function loadGov(){try{const r=await aFetch('/api/governance');const d=await r.json();if(d.pending_whale_review)$('govPend').innerHTML='<span class="badge b-d">PENDING REVIEW</span>';if(d.notes)$('govNotes').textContent=d.notes.slice(-300)}catch(e){}}
 
 conn();loadGov();refreshStatus();updateBanner();setUpdated();
 </script>

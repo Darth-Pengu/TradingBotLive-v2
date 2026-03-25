@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ZMN Bot - Login</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0b0e13;--card:rgba(13,17,23,.9);--border:rgba(0,212,180,.12);--a:#00d4aa;--r:#ff4466;--t:#e6edf3;--td:#7d8590;--tm:#484f58;--f:'Inter',sans-serif;--m:'JetBrains Mono',monospace}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:var(--f);background:var(--bg);color:var(--t);min-height:100vh;display:flex;align-items:center;justify-content:center;background-image:radial-gradient(ellipse at 20% 30%,rgba(0,188,212,.06) 0%,transparent 55%),radial-gradient(ellipse at 80% 70%,rgba(0,212,170,.04) 0%,transparent 50%)}
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:2.5rem;width:380px;backdrop-filter:blur(20px);transition:transform .3s}
+.card.shake{animation:shake .4s ease-in-out}
+@keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}
+.logo{text-align:center;margin-bottom:.3rem}
+.logo h1{font-size:1.8rem;font-weight:700;color:var(--a);letter-spacing:3px;text-shadow:0 0 25px rgba(0,212,170,.3)}
+.logo small{display:block;font-size:.65rem;color:var(--tm);text-transform:uppercase;letter-spacing:2px;margin-top:4px}
+.error{color:var(--r);font-size:.78rem;text-align:center;margin:1rem 0;min-height:1.2rem;opacity:0;transition:opacity .2s}
+.error.show{opacity:1}
+label{display:block;font-size:.75rem;color:var(--td);margin-bottom:.4rem;text-transform:uppercase;letter-spacing:.5px}
+input[type=password]{width:100%;padding:.75rem 1rem;background:rgba(255,255,255,.03);border:1px solid rgba(0,212,170,.1);border-radius:8px;color:var(--t);font-size:.95rem;font-family:var(--m);outline:none;transition:border-color .2s}
+input[type=password]:focus{border-color:var(--a);box-shadow:0 0 12px rgba(0,212,170,.1)}
+button{width:100%;padding:.8rem;background:rgba(0,212,170,.1);border:1px solid rgba(0,212,170,.25);border-radius:8px;color:var(--a);font-size:.9rem;font-weight:600;cursor:pointer;transition:all .2s;margin-top:1.2rem;letter-spacing:.5px}
+button:hover{background:rgba(0,212,170,.18);box-shadow:0 0 20px rgba(0,212,170,.15)}
+button:disabled{opacity:.5;cursor:not-allowed}
+</style>
+</head>
+<body>
+<div class="card" id="card">
+  <div class="logo">
+    <h1>ZMN Bot</h1>
+    <small>Secure Trading Terminal</small>
+  </div>
+  <div class="error" id="error">Invalid credentials</div>
+  <form id="form" onsubmit="return doLogin(event)">
+    <label for="pw">Password</label>
+    <input type="password" id="pw" placeholder="Enter dashboard password" autofocus required>
+    <button type="submit" id="btn">Sign In</button>
+  </form>
+</div>
+<script>
+async function doLogin(e){
+  e.preventDefault();
+  const btn=document.getElementById('btn');
+  const err=document.getElementById('error');
+  const card=document.getElementById('card');
+  const pw=document.getElementById('pw').value;
+  btn.disabled=true;btn.textContent='Authenticating...';
+  err.classList.remove('show');
+  try{
+    const r=await fetch('/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pw})});
+    const d=await r.json();
+    if(r.ok&&d.token){
+      sessionStorage.setItem('zmn_token',d.token);
+      window.location.href='/dashboard/dashboard.html';
+    }else{
+      err.textContent=d.error||'Invalid credentials';
+      err.classList.add('show');
+      card.classList.remove('shake');void card.offsetWidth;card.classList.add('shake');
+      document.getElementById('pw').value='';
+    }
+  }catch(ex){
+    err.textContent='Connection error';err.classList.add('show');
+  }
+  btn.disabled=false;btn.textContent='Sign In';
+}
+// If already logged in, redirect
+if(sessionStorage.getItem('zmn_token')){
+  fetch('/auth/verify',{headers:{'Authorization':'Bearer '+sessionStorage.getItem('zmn_token')}})
+    .then(r=>{if(r.ok)window.location.href='/dashboard/dashboard.html'})
+    .catch(()=>{});
+}
+</script>
+</body>
+</html>

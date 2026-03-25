@@ -88,7 +88,8 @@ tr:nth-child(even){background:rgba(0,212,170,.015)}tr:hover{background:rgba(0,21
   <div class="sb-fgi">Fear &amp; Greed: <span class="fv" id="sbFgi" style="color:var(--a)">--</span></div>
   <div class="sb-s">System</div>
   <div class="sb-st"><span class="dot" id="wsDot"></span><span id="wsText">Connecting</span></div>
-  <button class="sb-e" id="eBtn" onclick="eStop()">EMERGENCY STOP</button>
+  <button class="sb-e" id="eBtn" onclick="eStop()">ZMN STOP</button>
+  <div style="padding:.4rem 1.2rem"><button class="sb-e" style="background:none;border-color:var(--tm);color:var(--td);font-size:.65rem" onclick="logout()">Logout</button></div>
   <div class="sb-ft">v3.0</div>
 </aside>
 <main class="mn">
@@ -145,6 +146,12 @@ tr:nth-child(even){background:rgba(0,212,170,.015)}tr:hover{background:rgba(0,21
   </div>
 </main>
 <script>
+// Auth guard
+const TOKEN=sessionStorage.getItem('zmn_token');
+if(!TOKEN){window.location.href='/login.html';}
+function authHdr(){return{'Authorization':'Bearer '+TOKEN}}
+function aFetch(u,o={}){o.headers={...(o.headers||{}),...authHdr()};return fetch(u,o).then(r=>{if(r.status===401){sessionStorage.removeItem('zmn_token');window.location.href='/login.html'}return r})}
+function logout(){sessionStorage.removeItem('zmn_token');window.location.href='/login.html'}
 const $=id=>document.getElementById(id),F=(n,d=4)=>n!=null?Number(n).toFixed(d):'--',
 PNL=n=>{if(n==null)return'--';const v=+n;return(v>=0?'+':'')+v.toFixed(4)+' SOL'};
 let solUsd=0,solPrev=0;
@@ -165,7 +172,7 @@ const eqChart=new Chart(cx,{type:'line',data:{labels:days,datasets:[
 // WS
 let ws,eSt=0,eTm;
 function conn(){ws=new WebSocket((location.protocol==='https:'?'wss':'ws')+'://'+location.host+'/ws');
-ws.onopen=()=>{$('wsDot').classList.remove('off');$('wsDot2').classList.remove('off');$('wsText').textContent='Connected';$('wsLbl').textContent='Live'};
+ws.onopen=()=>{ws.send(JSON.stringify({token:TOKEN}));$('wsDot').classList.remove('off');$('wsDot2').classList.remove('off');$('wsText').textContent='Connected';$('wsLbl').textContent='Live'};
 ws.onclose=()=>{$('wsDot').classList.add('off');$('wsDot2').classList.add('off');$('wsText').textContent='Offline';$('wsLbl').textContent='Reconnecting...';setTimeout(conn,3000)};
 ws.onmessage=e=>{try{const d=JSON.parse(e.data);if(d._type==='periodic_update')upd(d)}catch(x){}}}
 function upd(d){
@@ -192,7 +199,7 @@ if(s.status==='EMERGENCY_STOPPED'){$('wsDot').classList.add('off');$('wsText').t
 }
 // REST
 async function load(){try{
-const[st,ps,tr]=await Promise.all([fetch('/api/status').then(r=>r.json()).catch(()=>({})),fetch('/api/personality-stats').then(r=>r.json()).catch(()=>({})),fetch('/api/treasury').then(r=>r.json()).catch(()=>({}))]);
+const[st,ps,tr]=await Promise.all([aFetch('/api/status').then(r=>r.json()).catch(()=>({})),aFetch('/api/personality-stats').then(r=>r.json()).catch(()=>({})),aFetch('/api/treasury').then(r=>r.json()).catch(()=>({}))]);
 if(st.trading_wallet_balance!=null){$('sbBal').textContent=F(st.trading_wallet_balance)+' SOL';$('trBal').textContent=F(st.trading_wallet_balance)+' SOL'}
 if(st.holding_wallet_balance!=null)$('trHold').textContent=F(st.holding_wallet_balance)+' SOL';
 $('trSwept').textContent=F(tr.total_swept_sol)+' SOL';
@@ -204,7 +211,7 @@ tw+=s.wins||0;tt+=s.total_trades||0}
 $('kWr').textContent=tt>0?(tw/tt*100).toFixed(1)+'%':'--';$('kWrSub').textContent=tt>0?tw+'W / '+(tt-tw)+'L':'';
 $('kTrades').textContent=tt;
 }catch(e){}}
-function eStop(){const b=$('eBtn');if(eSt===0){eSt=1;let c=3;b.textContent='CONFIRM ('+c+')';b.classList.add('cfm');eTm=setInterval(()=>{c--;if(c<=0){clearInterval(eTm);b.textContent='CLICK NOW';eSt=2}else b.textContent='CONFIRM ('+c+')'},1000)}else if(eSt===2){fetch('/api/emergency-stop',{method:'POST'});b.textContent='STOPPED';b.classList.remove('cfm');eSt=3}}
+function eStop(){const b=$('eBtn');if(eSt===0){eSt=1;let c=3;b.textContent='CONFIRM ('+c+')';b.classList.add('cfm');eTm=setInterval(()=>{c--;if(c<=0){clearInterval(eTm);b.textContent='CLICK NOW';eSt=2}else b.textContent='CONFIRM ('+c+')'},1000)}else if(eSt===2){aFetch('/api/emergency-stop',{method:'POST'});b.textContent='STOPPED';b.classList.remove('cfm');eSt=3}}
 conn();load();setInterval(load,15000);
 </script>
 </body>

@@ -60,7 +60,8 @@ tr:nth-child(even){background:rgba(0,212,170,.015)}tr:hover{background:rgba(0,21
   <nav class="sb-n"><a href="/dashboard/dashboard.html">Home</a><a href="/dashboard/dashboard-analytics.html">Status</a><a href="/dashboard/dashboard-wallet.html" class="on">Wallet</a></nav>
   <div class="sb-s">System</div>
   <div class="sb-st"><span class="dot" id="wsDot"></span><span id="wsText">Connecting</span></div>
-  <button class="sb-e" onclick="fetch('/api/emergency-stop',{method:'POST'})">EMERGENCY STOP</button>
+  <button class="sb-e" onclick="aFetch('/api/emergency-stop',{method:'POST'})">ZMN STOP</button>
+  <div style="padding:.4rem 1.2rem"><button class="sb-e" style="background:none;border-color:var(--tm);color:var(--td);font-size:.65rem" onclick="logout()">Logout</button></div>
   <div class="sb-ft">v3.0</div>
 </aside>
 <main class="mn">
@@ -152,6 +153,11 @@ tr:nth-child(even){background:rgba(0,212,170,.015)}tr:hover{background:rgba(0,21
   </div>
 </main>
 <script>
+const TOKEN=sessionStorage.getItem('zmn_token');
+if(!TOKEN)window.location.href='/login.html';
+function authHdr(){return{'Authorization':'Bearer '+TOKEN}}
+function aFetch(u,o={}){o.headers={...(o.headers||{}),...authHdr()};return fetch(u,o).then(r=>{if(r.status===401){sessionStorage.removeItem('zmn_token');window.location.href='/login.html'}return r})}
+function logout(){sessionStorage.removeItem('zmn_token');window.location.href='/login.html'}
 const $=id=>document.getElementById(id);
 // Charts
 new Chart($('wrChart').getContext('2d'),{type:'bar',data:{labels:['Speed Demon','Analyst','Whale Tracker'],datasets:[{data:[67,72,60],backgroundColor:['rgba(168,85,247,.5)','rgba(0,212,170,.5)','rgba(255,170,0,.5)'],borderColor:['#a855f7','#00d4aa','#ffaa00'],borderWidth:1,borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{min:0,max:100,grid:{color:'rgba(0,212,170,.04)'},ticks:{color:'#484f58',font:{family:'JetBrains Mono'},callback:v=>v+'%'}},x:{grid:{display:false},ticks:{color:'#7d8590',font:{size:10}}}}}});
@@ -163,8 +169,8 @@ document.querySelectorAll('#filters .fil').forEach(b=>{b.addEventListener('click
 // CSV
 function csvExport(){const rows=[['Time','Token','Personality','Entry','Exit','PL_SOL','PL_Pct','Hold','Size','Reason','Result']];document.querySelectorAll('#histTbl tr').forEach(r=>{const cells=[...r.querySelectorAll('td')].map(c=>c.textContent.trim());rows.push(cells)});const csv=rows.map(r=>r.join(',')).join('\n');const a=document.createElement('a');a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);a.download='zmn_trades.csv';a.click()}
 // WS
-let ws;function conn(){ws=new WebSocket((location.protocol==='https:'?'wss':'ws')+'://'+location.host+'/ws');ws.onopen=()=>{$('wsDot').classList.remove('off');$('wsText').textContent='Connected'};ws.onclose=()=>{$('wsDot').classList.add('off');$('wsText').textContent='Offline';setTimeout(conn,3000)};ws.onmessage=e=>{try{const d=JSON.parse(e.data);if(d._type==='periodic_update'){const s=d.status||{};$('posC').textContent=s.open_positions||'0'}}catch(x){}}}
-async function load(){try{const[ps]=await Promise.all([fetch('/api/personality-stats').then(r=>r.json()).catch(()=>({}))]);let tw=0,tt=0;for(const k of['speed_demon','analyst','whale_tracker']){const s=ps[k]||{};tw+=s.wins||0;tt+=s.total_trades||0}$('kWr').textContent=tt>0?(tw/tt*100).toFixed(1)+'%':'--'}catch(e){}}
+let ws;function conn(){ws=new WebSocket((location.protocol==='https:'?'wss':'ws')+'://'+location.host+'/ws');ws.onopen=()=>{ws.send(JSON.stringify({token:TOKEN}));$('wsDot').classList.remove('off');$('wsText').textContent='Connected'};ws.onclose=()=>{$('wsDot').classList.add('off');$('wsText').textContent='Offline';setTimeout(conn,3000)};ws.onmessage=e=>{try{const d=JSON.parse(e.data);if(d._type==='periodic_update'){const s=d.status||{};$('posC').textContent=s.open_positions||'0'}}catch(x){}}}
+async function load(){try{const[ps]=await Promise.all([aFetch('/api/personality-stats').then(r=>r.json()).catch(()=>({}))]);let tw=0,tt=0;for(const k of['speed_demon','analyst','whale_tracker']){const s=ps[k]||{};tw+=s.wins||0;tt+=s.total_trades||0}$('kWr').textContent=tt>0?(tw/tt*100).toFixed(1)+'%':'--'}catch(e){}}
 conn();load();
 </script>
 </body>
