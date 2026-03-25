@@ -316,7 +316,7 @@ async def test_nansen(session: aiohttp.ClientSession):
         status, body, ms = await http_post(session,
             "https://api.nansen.ai/api/v1/smart-money/holdings",
             json_body={"chains": ["solana"], "pagination": {"page": 1, "per_page": 1}},
-            headers={"Authorization": f"Bearer {NANSEN_API_KEY}", "Content-Type": "application/json"})
+            headers={"apikey": NANSEN_API_KEY, "Content-Type": "application/json"})
         if status == 200:
             record("DATA FEEDS", "Nansen API", PASS, f"{ms}ms")
         elif status == 402:

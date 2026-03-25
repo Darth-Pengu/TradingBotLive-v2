@@ -82,7 +82,7 @@ def fetch_nansen_wallets() -> list[dict]:
 
     url = "https://api.nansen.ai/api/v1/smart-money/holdings"
     headers = {
-        "Authorization": f"Bearer {NANSEN_API_KEY}",
+        "apikey": NANSEN_API_KEY,
         "Content-Type": "application/json",
     }
     body = {

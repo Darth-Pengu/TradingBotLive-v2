@@ -64,7 +64,7 @@ async def nansen_post(
 
     url = f"{NANSEN_BASE_URL}/{endpoint.lstrip('/')}"
     headers = {
-        "apiKey": NANSEN_API_KEY,
+        "apikey": NANSEN_API_KEY,
         "Content-Type": "application/json",
     }
 
@@ -182,6 +182,7 @@ async def screen_new_tokens(
     """
     result = await nansen_post(session, "/token-screener", {
         "chains": ["solana"],
+        "timeframe": "1h",
         "filters": {"token_age_days": {"max": 1}},
         "order_by": [{"field": "market_cap_usd", "direction": "DESC"}],
         "pagination": {"page": 1, "per_page": 20},
