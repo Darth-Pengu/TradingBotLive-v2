@@ -407,6 +407,41 @@ async def api_portfolio_history(request):
     return web.json_response(list(reversed(snapshots)))
 
 
+async def api_paper_stats(request):
+    """Paper trading stats from Redis."""
+    redis_conn = request.app.get("redis")
+    stats = {"total_trades": 0, "winning_trades": 0, "total_pnl_sol": 0, "win_rate": 0, "by_personality": {}}
+    if redis_conn:
+        try:
+            raw = await redis_conn.hgetall("paper:stats")
+            if raw:
+                stats["total_trades"] = int(raw.get("total_trades", 0))
+                stats["winning_trades"] = int(raw.get("winning_trades", 0))
+                stats["total_pnl_sol"] = float(raw.get("total_pnl_sol", 0))
+                if stats["total_trades"] > 0:
+                    stats["win_rate"] = round(stats["winning_trades"] / stats["total_trades"] * 100, 1)
+            for p in ["speed_demon", "analyst", "whale_tracker"]:
+                praw = await redis_conn.hgetall(f"paper:stats:personality:{p}")
+                stats["by_personality"][p] = {
+                    "trades": int(praw.get("trades", 0)),
+                    "pnl": float(praw.get("pnl", 0)),
+                } if praw else {"trades": 0, "pnl": 0}
+        except Exception:
+            pass
+    # Also check SQLite paper_trades table
+    if stats["total_trades"] == 0:
+        try:
+            rows = await _query_db("SELECT COUNT(*) as cnt, COALESCE(SUM(realised_pnl_sol),0) as pnl, SUM(CASE WHEN realised_pnl_sol>0 THEN 1 ELSE 0 END) as wins FROM paper_trades WHERE exit_time IS NOT NULL")
+            if rows and rows[0].get("cnt", 0) > 0:
+                stats["total_trades"] = rows[0]["cnt"]
+                stats["winning_trades"] = rows[0].get("wins", 0) or 0
+                stats["total_pnl_sol"] = rows[0].get("pnl", 0) or 0
+                stats["win_rate"] = round(stats["winning_trades"] / stats["total_trades"] * 100, 1) if stats["total_trades"] > 0 else 0
+        except Exception:
+            pass
+    return web.json_response(stats)
+
+
 async def api_emergency_stop(request):
     redis_conn = request.app.get("redis")
     if redis_conn:
@@ -630,6 +665,27 @@ async def _periodic_push(app: web.Application):
             if tick % 5 == 0:
                 payload["trading_balance"] = await _get_sol_balance(TRADING_WALLET_ADDRESS)
                 payload["holding_balance"] = await _get_sol_balance(HOLDING_WALLET_ADDRESS)
+
+            # Paper stats + signals every 3rd tick (~6s)
+            if redis_conn and tick % 3 == 0:
+                try:
+                    ps = await redis_conn.hgetall("paper:stats")
+                    total = int(ps.get("total_trades", 0))
+                    wins = int(ps.get("winning_trades", 0))
+                    payload["paper_stats"] = {
+                        "total_trades": total,
+                        "winning_trades": wins,
+                        "total_pnl_sol": float(ps.get("total_pnl_sol", 0)),
+                        "win_rate": round(wins / total * 100, 1) if total > 0 else 0,
+                    }
+                except Exception:
+                    pass
+                try:
+                    sigs = await redis_conn.lrange("signals:raw", 0, 9)
+                    payload["recent_signals"] = [json.loads(s) for s in sigs if s]
+                except Exception:
+                    pass
+
             await _broadcast_ws(payload)
         except Exception as e:
             logger.debug("Periodic push error: %s", e)
@@ -690,6 +746,7 @@ def create_app() -> web.Application:
     app.router.add_get("/api/treasury", api_treasury)
     app.router.add_get("/api/governance", api_governance)
     app.router.add_get("/api/portfolio-history", api_portfolio_history)
+    app.router.add_get("/api/paper-stats", api_paper_stats)
     app.router.add_post("/api/emergency-stop", api_emergency_stop)
     app.router.add_post("/api/approve-parameter", api_approve_parameter)
     app.router.add_get("/api/sol-price", api_sol_price)

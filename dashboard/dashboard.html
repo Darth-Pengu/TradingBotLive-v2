@@ -270,26 +270,11 @@ kbd{background:var(--bg-elevated);border:1px solid var(--border-active);border-r
   <div class="row-2e">
     <div class="card">
       <div class="card-h"><span class="card-title">Recent Trades</span><a class="card-link" href="/dashboard/dashboard-wallet.html">View All &rarr;</a></div>
-      <div id="tradeList">
-        <div class="trade-row"><div class="trade-icon spd"><i class="bi bi-lightning-charge-fill"></i></div><div class="trade-info"><div class="trade-token">PEPE3 <span style="font-size:11px;color:var(--text-muted)">DezM...v4Qp</span></div><div class="trade-meta">4m 32s &middot; <span class="pill pill-green" style="font-size:9px;padding:1px 6px">TP1</span></div></div><div class="trade-pnl"><div class="trade-pnl-val" style="color:var(--green)">+0.3200</div><div class="trade-pnl-pct">+64.0%</div></div></div>
-        <div class="trade-row"><div class="trade-icon anl"><i class="bi bi-search"></i></div><div class="trade-info"><div class="trade-token">BONK2 <span style="font-size:11px;color:var(--text-muted)">7kRm...bN3x</span></div><div class="trade-meta">1h 12m &middot; <span class="pill pill-red" style="font-size:9px;padding:1px 6px">STOP</span></div></div><div class="trade-pnl"><div class="trade-pnl-val" style="color:var(--red)">-0.1500</div><div class="trade-pnl-pct">-30.0%</div></div></div>
-        <div class="trade-row"><div class="trade-icon whl"><i class="bi bi-water"></i></div><div class="trade-info"><div class="trade-token">SOL2 <span style="font-size:11px;color:var(--text-muted)">FqeT...mK2w</span></div><div class="trade-meta">47m &middot; <span class="pill pill-green" style="font-size:9px;padding:1px 6px">TP3</span></div></div><div class="trade-pnl"><div class="trade-pnl-val" style="color:var(--green)">+0.9100</div><div class="trade-pnl-pct">+113.8%</div></div></div>
-        <div class="trade-row"><div class="trade-icon spd"><i class="bi bi-lightning-charge-fill"></i></div><div class="trade-info"><div class="trade-token">MEME1 <span style="font-size:11px;color:var(--text-muted)">9xK2...pL4m</span></div><div class="trade-meta">3m 45s &middot; <span class="pill pill-green" style="font-size:9px;padding:1px 6px">TP2</span></div></div><div class="trade-pnl"><div class="trade-pnl-val" style="color:var(--green)">+0.4500</div><div class="trade-pnl-pct">+90.0%</div></div></div>
-        <div class="trade-row"><div class="trade-icon anl"><i class="bi bi-search"></i></div><div class="trade-info"><div class="trade-token">PUMP7 <span style="font-size:11px;color:var(--text-muted)">Bp4R...k9Wq</span></div><div class="trade-meta">28m &middot; <span class="pill pill-amber" style="font-size:9px;padding:1px 6px">TIME</span></div></div><div class="trade-pnl"><div class="trade-pnl-val" style="color:var(--red)">-0.3000</div><div class="trade-pnl-pct">-30.0%</div></div></div>
-      </div>
+      <div id="tradeList"><div style="text-align:center;padding:20px;color:var(--text-muted);font-size:12px">Waiting for trade data...</div></div>
     </div>
     <div class="card">
       <div class="card-h"><span class="card-title">Activity</span><span style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--green)"><span class="sb-dot green" style="width:5px;height:5px"></span>LIVE</span></div>
-      <div class="feed" id="actFeed">
-        <div class="feed-item buy"><span class="feed-time">14:32</span><span class="feed-msg">Speed Demon BUY DezM...v4Qp 0.50 SOL (ML:82%)</span></div>
-        <div class="feed-item sell"><span class="feed-time">14:30</span><span class="feed-msg">Analyst SELL 7kRm...bN3x +0.32 SOL staged_2x</span></div>
-        <div class="feed-item signal"><span class="feed-time">14:28</span><span class="feed-msg">Whale 515v...Np8p bought FqeT...mK2w via webhook</span></div>
-        <div class="feed-item buy"><span class="feed-time">14:25</span><span class="feed-msg">Whale Tracker BUY FqeT...mK2w 0.80 SOL</span></div>
-        <div class="feed-item warn"><span class="feed-time">14:22</span><span class="feed-msg">Market mode: NORMAL -> AGGRESSIVE</span></div>
-        <div class="feed-item sell"><span class="feed-time">14:20</span><span class="feed-msg">Speed Demon STOP_LOSS Bp4R...k9Wq -0.15</span></div>
-        <div class="feed-item signal"><span class="feed-time">14:18</span><span class="feed-msg">Nansen: Smart Money Inflow 9xK2...pL4m</span></div>
-        <div class="feed-item gov"><span class="feed-time">14:10</span><span class="feed-msg">Treasury sweep: 5.23 SOL -> holding wallet</span></div>
-      </div>
+      <div class="feed" id="actFeed"><div style="text-align:center;padding:20px;color:var(--text-muted);font-size:12px">Waiting for activity...</div></div>
     </div>
   </div>
 </main>
@@ -345,7 +330,7 @@ setInterval(updateClock,1000);updateClock();
 // Chart
 const cx=$('eqChart').getContext('2d');const gr=cx.createLinearGradient(0,0,0,220);gr.addColorStop(0,'rgba(0,212,170,0.15)');gr.addColorStop(1,'rgba(0,212,170,0)');
 const days=[...Array(7)].map((_,i)=>{const d=new Date();d.setDate(d.getDate()-6+i);return d.toLocaleDateString('en',{month:'short',day:'numeric'})});
-let cum=0;const cData=days.map(()=>{cum+=(Math.random()-.42)*.3;return+cum.toFixed(4)});
+const cData=new Array(7).fill(0);
 const eqChart=new Chart(cx,{type:'line',data:{labels:days,datasets:[{data:cData,borderColor:'#fff',backgroundColor:gr,borderWidth:2,fill:true,tension:.4,pointRadius:0,pointHitRadius:10}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{backgroundColor:'#1a1f2e',borderColor:'rgba(255,255,255,.1)',borderWidth:1,titleColor:'#8b949e',bodyFont:{family:'SF Mono, Fira Code',size:12},callbacks:{label:c=>c.parsed.y.toFixed(4)+' SOL'}}},scales:{x:{grid:{display:false},ticks:{color:'#484f58',font:{size:11}},border:{display:false}},y:{grid:{display:false},ticks:{color:'#484f58',font:{family:'SF Mono, Fira Code',size:11},callback:v=>v.toFixed(2)},position:'right',border:{display:false}}}}});
 // WS
 let ws,wsRetry=1000;
@@ -376,6 +361,30 @@ $('trSweep').textContent='Total swept: '+F(tr.total_swept_sol)+' SOL';
 let tw=0,tt=0;
 for(const[k,pre] of[['speed_demon','spd'],['analyst','anl'],['whale_tracker','whl']]){const s=ps[k]||{};$(pre+'T').textContent=s.total_trades||0;const wr=s.total_trades>0?(s.wins/s.total_trades*100).toFixed(0)+'%':'--';$(pre+'W').textContent=wr;const p=s.total_pnl_sol||0;$(pre+'P').textContent=(p>=0?'+':'')+F(p,2);$(pre+'P').style.color=p>=0?'var(--green)':'var(--red)';tw+=s.wins||0;tt+=s.total_trades||0}
 $('kWr').textContent=tt>0?(tw/tt*100).toFixed(1)+'%':'--';$('kWrSub').textContent=tt>0?tw+'W / '+(tt-tw)+'L':'';
+// Load recent trades
+aFetch('/api/trades?limit=8').then(r=>r.json()).then(trades=>{
+  if(!trades||!trades.length){$('tradeList').innerHTML='<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:12px">No trades yet</div>';return}
+  const icons={speed_demon:'spd',analyst:'anl',whale_tracker:'whl'};
+  const imap={spd:'bi-lightning-charge-fill',anl:'bi-search',whl:'bi-water'};
+  $('tradeList').innerHTML=trades.map(t=>{
+    const ic=icons[t.personality]||'spd';const pnl=t.pnl_sol||0;const pp=t.pnl_pct||0;
+    const clr=pnl>=0?'var(--green)':'var(--red)';
+    const mint=(t.mint||'').substring(0,6)+'...'+(t.mint||'').slice(-4);
+    const hs=t.closed_at&&t.created_at?Math.round(t.closed_at-t.created_at):0;
+    const hm=Math.floor(hs/60),hsec=hs%60;
+    const reason=t.outcome==='profit'?'WIN':'LOSS';
+    const rc=pnl>=0?'pill-green':'pill-red';
+    return '<div class="trade-row"><div class="trade-icon '+ic+'"><i class="bi '+imap[ic]+'"></i></div>'
+      +'<div class="trade-info"><div class="trade-token">'+mint+'</div>'
+      +'<div class="trade-meta">'+hm+'m '+hsec+'s &middot; <span class="pill '+rc+'" style="font-size:9px;padding:1px 6px">'+reason+'</span></div></div>'
+      +'<div class="trade-pnl"><div class="trade-pnl-val" style="color:'+clr+'">'+(pnl>=0?'+':'')+pnl.toFixed(4)+'</div>'
+      +'<div class="trade-pnl-pct">'+(pp>=0?'+':'')+pp.toFixed(1)+'%</div></div></div>'
+  }).join('');
+}).catch(()=>{});
+// Load paper stats for KPI if in paper mode
+aFetch('/api/paper-stats').then(r=>r.json()).then(ps=>{
+  if(ps.total_trades>0){$('kPnl').textContent=(ps.total_pnl_sol>=0?'+':'')+ps.total_pnl_sol.toFixed(4)+' SOL';$('kPnl').style.color=ps.total_pnl_sol>=0?'var(--green)':'var(--red)';$('kWr').textContent=ps.win_rate+'%';$('kWrSub').textContent=ps.winning_trades+'W / '+(ps.total_trades-ps.winning_trades)+'L'}
+}).catch(()=>{});
 }catch(e){}}
 // Emergency modal
 function openModal(){$('modalBg').classList.add('on');$('modalBar').style.width='0';setTimeout(()=>{$('modalBar').style.width='100%'},50);setTimeout(()=>{$('modalConfirm').classList.add('ready')},3000)}
