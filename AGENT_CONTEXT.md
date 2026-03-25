@@ -736,6 +736,10 @@ GOVERNANCE_TRIGGERS = {
 # Governance service subscribes to these channels and fires the appropriate Claude API call
 ```
 
+### Governance check-in frequency — deliberate decision
+
+Governance runs on a strategic schedule only (daily 7am Sydney, weekly Monday, anomaly detection every 30min). Do NOT add more frequent market check-ins to governance. Reason: `market_health.py` already monitors every 5 minutes intraday and publishes to Redis in real-time. Governance is for strategic oversight only. Adding hourly or 6-hourly market check-ins would duplicate monitoring and create unnecessary Anthropic API costs. If more frequent automated analysis is needed, extend `market_health.py` not `governance.py`.
+
 ---
 
 ## 8. Market Health Detection (`services/market_health.py`)
@@ -947,7 +951,25 @@ ML_THRESHOLDS = {
 - Recent closed trades log (last 50)
 - Whale wallet activity panel
 
-**All pages:** Remove ADA/ETH/BTC/MetaMask/Coinbase/Avalanche. Phantom and Glow only. Apply TRON glassmorphism CSS.
+**All pages:** Solana only. JWT authentication required. Satoshi font + Bootstrap Icons.
+
+### Dashboard data architecture
+
+Three dashboard pages load data via two mechanisms:
+
+1. **REST endpoints on page load** (JWT required):
+   - `GET /api/trades` — last 50 closed trades from SQLite
+   - `GET /api/trades/active` — current open positions
+   - `GET /api/personality-stats` — P/L, win rate, trade count per personality
+   - `GET /api/ml-status` — reads `data/models/model_meta.json`
+   - `GET /api/treasury` — treasury sweeps table, last 10
+   - `GET /api/governance` — governance_notes.md preview + pending flag
+   - `GET /api/paper-stats` — paper trading stats from Redis/SQLite
+
+2. **WebSocket push for live updates** (JWT required as first message):
+   - `periodic_update` every 2 seconds: status, market_health, test_mode, trading_balance, holding_balance, paper_stats, active_positions count
+
+All REST endpoints return empty arrays/zeros if no data exists — never return errors for missing data. Dashboard shows empty states ("No trades yet") until real data arrives. No hardcoded placeholder data anywhere in the dashboard files.
 
 ---
 
@@ -971,6 +993,11 @@ governance: python services/governance.py
 - `governance.py` makes Anthropic API calls — costs money per call. Guard all calls with try/except and log token usage.
 - `treasury.py` is the most critical safety service — give it `restart: always` and monitor its logs closely.
 - `ml_engine.py` retrains weekly — watch for Railway memory spikes during retraining.
+
+**Railway service architecture — CRITICAL:**
+Only `services/dashboard_api.py` has an HTTP server. The other 7 services are pure asyncio workers with no web server. Only the "web" service in `railway.toml` should have `healthcheckPath`. Worker services must NOT have healthcheck config — no HTTP server to respond to it. Setting healthcheck on a worker causes Railway deployment failures.
+
+**nixpacks.toml** is used for Railway build config: Python 3.11, `PYTHONPATH=/app`. Only web service uses `healthcheckPath = "/api/health"`. `restartPolicyType = "ON_FAILURE"` for all services.
 
 ---
 
