@@ -37,6 +37,7 @@ logger = logging.getLogger("signal_listener")
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 TEST_MODE = os.getenv("TEST_MODE", "true").lower() == "true"
+HELIUS_API_KEY = os.getenv("HELIUS_API_KEY", "")
 
 DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN", "")
 DISCORD_NANSEN_CHANNEL_ID = os.getenv("DISCORD_NANSEN_CHANNEL_ID", "")
@@ -505,7 +506,139 @@ async def discord_nansen_poller(redis_conn: aioredis.Redis | None):
 
 
 # ---------------------------------------------------------------------------
-# 5. Nansen Token Screener (Analyst signal source — polls every 10 minutes)
+# 5. Helius Enhanced Whale Wallet Monitor (polls every 30s)
+# ---------------------------------------------------------------------------
+# Supplements PumpPortal subscribeAccountTrade with parsed transaction data
+# from Helius Enhanced Transactions API — detects buys, sells, CEX transfers.
+# Cache per wallet in Redis with 5min TTL to avoid redundant API calls.
+
+WHALE_POLL_INTERVAL = 30  # seconds between full poll cycles
+WHALE_POLL_BATCH_SIZE = 5  # wallets per batch to stay within rate limits
+
+# Known CEX deposit addresses (non-exhaustive — extend as needed)
+CEX_ADDRESSES = {
+    "5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9",  # Binance
+    "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",  # FTX
+    "ASTyfSima4LLAdDgoFGkgqoKowG1LZFDr9fAQrg7iaJZ",  # Bybit
+}
+
+
+async def helius_whale_poller(redis_conn: aioredis.Redis | None):
+    """Poll tracked whale wallets via Helius Enhanced Transactions API."""
+    if not HELIUS_API_KEY:
+        logger.info("HELIUS_API_KEY not set — Helius whale poller disabled")
+        return
+
+    while True:
+        try:
+            whale_wallets = await _load_whale_wallets()
+            if not whale_wallets:
+                await asyncio.sleep(WHALE_POLL_INTERVAL)
+                continue
+
+            async with aiohttp.ClientSession() as session:
+                for i in range(0, len(whale_wallets), WHALE_POLL_BATCH_SIZE):
+                    batch = whale_wallets[i:i + WHALE_POLL_BATCH_SIZE]
+                    tasks = [_poll_whale_wallet(session, wallet, redis_conn) for wallet in batch]
+                    await asyncio.gather(*tasks, return_exceptions=True)
+
+        except Exception as e:
+            logger.warning("Helius whale poller error: %s", e)
+
+        await asyncio.sleep(WHALE_POLL_INTERVAL)
+
+
+async def _poll_whale_wallet(session: aiohttp.ClientSession, wallet: str, redis_conn: aioredis.Redis | None):
+    """Fetch recent transactions for a single whale wallet via Helius enhanced API."""
+    cache_key = f"whale_activity:{wallet}"
+
+    # Check cache (5min TTL)
+    if redis_conn:
+        try:
+            cached = await redis_conn.get(cache_key)
+            if cached:
+                return  # Already polled recently
+        except Exception:
+            pass
+
+    t0 = time.time()
+    try:
+        url = f"https://api.helius.xyz/v0/addresses/{wallet}/transactions"
+        params = {"api-key": HELIUS_API_KEY, "limit": 10}
+        async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+            elapsed_ms = (time.time() - t0) * 1000
+            logger.debug("Helius whale poll %s: %dms (HTTP %d)", wallet[:12], elapsed_ms, resp.status)
+
+            if resp.status != 200:
+                return
+
+            txs = await resp.json()
+            if not isinstance(txs, list):
+                return
+
+        for tx in txs:
+            tx_type = tx.get("type", "")
+            source = tx.get("source", "")
+            timestamp = tx.get("timestamp", 0)
+
+            # Skip old transactions (only care about last 5 minutes)
+            if timestamp and (time.time() - timestamp) > 300:
+                continue
+
+            token_transfers = tx.get("tokenTransfers", [])
+            for transfer in token_transfers:
+                mint = transfer.get("mint", "")
+                if not mint or mint == "So11111111111111111111111111111111111111112":
+                    continue
+
+                from_addr = transfer.get("fromUserAccount", "")
+                to_addr = transfer.get("toUserAccount", "")
+                amount = float(transfer.get("tokenAmount", 0) or 0)
+
+                # Detect trade direction
+                if to_addr == wallet:
+                    action = "buy"
+                elif from_addr == wallet:
+                    # Check if sending to CEX (distribution signal)
+                    if to_addr in CEX_ADDRESSES:
+                        action = "cex_transfer"
+                    else:
+                        action = "sell"
+                else:
+                    continue
+
+                signal_data = {
+                    "wallet": wallet,
+                    "action": action,
+                    "token_amount": amount,
+                    "tx_type": tx_type,
+                    "source": source,
+                    "signature": tx.get("signature", ""),
+                    "slot": tx.get("slot", 0),
+                    "helius_enhanced": True,
+                }
+
+                if action == "cex_transfer":
+                    signal_data["cex_destination"] = to_addr
+
+                signal = _build_signal(mint, "helius_whale", "account_trade", signal_data, 0.0)
+                signal["raw_data"]["txType"] = "sell" if action in ("sell", "cex_transfer") else "buy"
+                await _push_signal(redis_conn, signal)
+
+        # Cache this wallet as polled (5min TTL)
+        if redis_conn:
+            try:
+                await redis_conn.set(cache_key, "1", ex=300)
+            except Exception:
+                pass
+
+    except Exception as e:
+        elapsed_ms = (time.time() - t0) * 1000
+        logger.debug("Helius whale poll error for %s (%.0fms): %s", wallet[:12], elapsed_ms, e)
+
+
+# ---------------------------------------------------------------------------
+# 6. Nansen Token Screener (Analyst signal source — polls every 10 minutes)
 # ---------------------------------------------------------------------------
 NANSEN_API_KEY = os.getenv("NANSEN_API_KEY", "")
 NANSEN_SCREENER_SEEN: set[str] = set()
@@ -572,6 +705,7 @@ async def main():
         dexpaprika_listener(redis_conn),
         nansen_screener_poller(redis_conn),
         discord_nansen_poller(redis_conn),
+        helius_whale_poller(redis_conn),
     )
 
 

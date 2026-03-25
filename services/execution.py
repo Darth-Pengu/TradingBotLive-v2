@@ -34,6 +34,7 @@ logging.basicConfig(
 logger = logging.getLogger("execution")
 
 TEST_MODE = os.getenv("TEST_MODE", "true").lower() == "true"
+HELIUS_API_KEY = os.getenv("HELIUS_API_KEY", "")
 HELIUS_RPC_URL = os.getenv("HELIUS_RPC_URL", "")
 TRADING_WALLET_PRIVATE_KEY = os.getenv("TRADING_WALLET_PRIVATE_KEY", "")
 TRADING_WALLET_ADDRESS = os.getenv("TRADING_WALLET_ADDRESS", "")
@@ -322,6 +323,76 @@ async def _send_transaction(session: aiohttp.ClientSession, tx_bytes: bytes, ski
 
 
 # ---------------------------------------------------------------------------
+# Helius Enhanced Trade Confirmation
+# ---------------------------------------------------------------------------
+async def _confirm_trade_helius(session: aiohttp.ClientSession, signature: str) -> dict:
+    """
+    Confirm a trade landed successfully using Helius Enhanced Transaction parsing.
+    POST /v0/transactions — parse result to verify swap completed.
+    Retries 3 times with 2s delays. No caching (real-time confirmation).
+    Falls back to treating as unconfirmed if Helius unavailable.
+
+    Returns: {"confirmed": bool, "details": dict}
+    """
+    if not HELIUS_API_KEY or not signature or signature.startswith("TEST_MODE"):
+        return {"confirmed": True, "details": {}}
+
+    url = f"https://api.helius.xyz/v0/transactions?api-key={HELIUS_API_KEY}"
+    payload = {"transactions": [signature]}
+
+    for attempt in range(1, 4):
+        t0 = time.time()
+        try:
+            async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                elapsed_ms = (time.time() - t0) * 1000
+                logger.debug("Helius trade confirm attempt %d: %.0fms (HTTP %d)", attempt, elapsed_ms, resp.status)
+
+                if resp.status != 200:
+                    if attempt < 3:
+                        await asyncio.sleep(2)
+                        continue
+                    return {"confirmed": False, "details": {"error": f"HTTP {resp.status}"}}
+
+                txs = await resp.json()
+                if not isinstance(txs, list) or not txs:
+                    if attempt < 3:
+                        await asyncio.sleep(2)
+                        continue
+                    return {"confirmed": False, "details": {"error": "empty response"}}
+
+                tx = txs[0]
+                tx_error = tx.get("transactionError")
+                tx_type = tx.get("type", "")
+                source = tx.get("source", "")
+                token_transfers = tx.get("tokenTransfers", [])
+
+                if tx_error:
+                    logger.warning("Trade %s failed on-chain: %s", signature[:16], tx_error)
+                    return {"confirmed": False, "details": {"error": str(tx_error), "type": tx_type}}
+
+                # Swap completed successfully
+                logger.info("Trade confirmed via Helius: %s (type=%s, source=%s, transfers=%d)",
+                             signature[:16], tx_type, source, len(token_transfers))
+                return {
+                    "confirmed": True,
+                    "details": {
+                        "type": tx_type,
+                        "source": source,
+                        "token_transfers": len(token_transfers),
+                        "slot": tx.get("slot", 0),
+                    },
+                }
+
+        except Exception as e:
+            logger.debug("Helius confirm attempt %d error: %s", attempt, e)
+            if attempt < 3:
+                await asyncio.sleep(2)
+
+    logger.warning("Trade confirmation failed after 3 attempts for %s — treating as unconfirmed", signature[:16])
+    return {"confirmed": False, "details": {"error": "timeout after 3 attempts"}}
+
+
+# ---------------------------------------------------------------------------
 # High-level execution with retry
 # ---------------------------------------------------------------------------
 async def execute_trade(
@@ -371,6 +442,19 @@ async def execute_trade(
                         token.mint, SOL_MINT, amount_lamports, slippage_bps,
                         skip_preflight=skip_preflight,
                     )
+
+            # Confirm trade landed via Helius Enhanced Transaction parsing
+            if not TEST_MODE and signature:
+                async with aiohttp.ClientSession() as confirm_session:
+                    confirmation = await _confirm_trade_helius(confirm_session, signature)
+                if not confirmation["confirmed"]:
+                    err_detail = confirmation["details"].get("error", "unconfirmed")
+                    logger.warning("Trade %s not confirmed: %s — retrying", signature[:16], err_detail)
+                    last_error = f"trade not confirmed: {err_detail}"
+                    if attempt < RETRY_CONFIG["max_retries"]:
+                        await asyncio.sleep(delay_ms / 1000.0)
+                        delay_ms *= RETRY_CONFIG["backoff_factor"]
+                    continue
 
             return ExecutionResult(
                 success=True,

@@ -327,6 +327,145 @@ async def _fetch_creator_history(session: aiohttp.ClientSession, mint: str, redi
     return details
 
 
+async def _check_dev_wallet_sells(session: aiohttp.ClientSession, dev_wallet: str, mint: str) -> dict:
+    """
+    Check if dev has sold >20% of holdings in first 2 minutes using
+    Helius Enhanced Transactions API (SWAP type filter).
+    Falls back to raw_data fields if Helius unavailable.
+    """
+    if not dev_wallet or not HELIUS_API_KEY:
+        return {}
+
+    t0 = time.time()
+    try:
+        url = f"https://api.helius.xyz/v0/addresses/{dev_wallet}/transactions"
+        params = {"api-key": HELIUS_API_KEY, "limit": 20, "type": "SWAP"}
+        async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+            elapsed_ms = (time.time() - t0) * 1000
+            logger.debug("Helius dev sell check %s: %.0fms (HTTP %d)", dev_wallet[:12], elapsed_ms, resp.status)
+
+            if resp.status != 200:
+                return {}
+
+            txs = await resp.json()
+            if not isinstance(txs, list):
+                return {}
+
+        total_sold = 0.0
+        total_held = 0.0
+        now = time.time()
+
+        for tx in txs:
+            timestamp = tx.get("timestamp", 0)
+            # Only check transactions in the first 2 minutes of token life
+            # (we approximate by checking recent swaps)
+            if timestamp and (now - timestamp) > 300:
+                continue
+
+            for transfer in tx.get("tokenTransfers", []):
+                if transfer.get("mint") != mint:
+                    continue
+                amount = float(transfer.get("tokenAmount", 0) or 0)
+                from_addr = transfer.get("fromUserAccount", "")
+                to_addr = transfer.get("toUserAccount", "")
+
+                if from_addr == dev_wallet:
+                    total_sold += amount
+                elif to_addr == dev_wallet:
+                    total_held += amount
+
+        sell_pct = (total_sold / (total_sold + total_held) * 100) if (total_sold + total_held) > 0 else 0
+
+        return {
+            "dev_sold_pct": round(sell_pct, 1),
+            "dev_sell_detected": sell_pct > 20,
+            "dev_total_sold": total_sold,
+            "dev_total_held": total_held,
+        }
+
+    except Exception as e:
+        logger.debug("Helius dev sell check error for %s: %s", dev_wallet[:12], e)
+    return {}
+
+
+async def _check_bundle_detection(session: aiohttp.ClientSession, tx_signatures: list[str]) -> dict:
+    """
+    Check for coordinated buys using Helius Enhanced Transaction parsing.
+    POST /v0/transactions — parse results to check if multiple buys landed
+    in the same slot from fresh wallets.
+    Falls back to raw_data bundle_detected field if Helius unavailable.
+    """
+    if not tx_signatures or not HELIUS_API_KEY:
+        return {}
+
+    # Limit to 20 signatures per request
+    sigs = tx_signatures[:20]
+
+    t0 = time.time()
+    try:
+        url = f"https://api.helius.xyz/v0/transactions?api-key={HELIUS_API_KEY}"
+        payload = {"transactions": sigs}
+        async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+            elapsed_ms = (time.time() - t0) * 1000
+            logger.debug("Helius bundle check: %.0fms (HTTP %d, %d txs)", elapsed_ms, resp.status, len(sigs))
+
+            if resp.status != 200:
+                return {}
+
+            txs = await resp.json()
+            if not isinstance(txs, list):
+                return {}
+
+        # Group buys by slot to detect coordinated activity
+        slot_buyers: dict[int, list[str]] = {}
+        buyer_ages: dict[str, bool] = {}  # wallet -> is_fresh
+
+        for tx in txs:
+            slot = tx.get("slot", 0)
+            tx_type = tx.get("type", "")
+
+            # Look for buy-side token transfers
+            for transfer in tx.get("tokenTransfers", []):
+                buyer = transfer.get("toUserAccount", "")
+                if not buyer:
+                    continue
+                slot_buyers.setdefault(slot, []).append(buyer)
+
+            # Check fee payer as potential fresh wallet
+            fee_payer = tx.get("feePayer", "")
+            if fee_payer:
+                # Account data can tell us wallet age via nativeTransfers
+                native = tx.get("nativeTransfers", [])
+                # Fresh wallets often only have 1-2 native transfers total
+                buyer_ages[fee_payer] = len(native) <= 2
+
+        # Detect bundles: 3+ buys in same slot
+        bundled_slots = {slot: buyers for slot, buyers in slot_buyers.items() if len(buyers) >= 3}
+        fresh_in_bundle = 0
+        total_in_bundle = 0
+
+        for slot, buyers in bundled_slots.items():
+            total_in_bundle += len(buyers)
+            fresh_in_bundle += sum(1 for b in buyers if buyer_ages.get(b, False))
+
+        is_bundled = len(bundled_slots) > 0
+        bundled_supply_pct = 0.0
+        if total_in_bundle > 0 and len(txs) > 0:
+            bundled_supply_pct = round(total_in_bundle / len(txs) * 100, 1)
+
+        return {
+            "bundle_detected": is_bundled,
+            "bundled_slots_count": len(bundled_slots),
+            "bundled_supply_pct": bundled_supply_pct,
+            "fresh_wallet_ratio": round(fresh_in_bundle / total_in_bundle, 2) if total_in_bundle > 0 else 0.0,
+            "helius_bundle_check": True,
+        }
+
+    except Exception as e:
+        logger.debug("Helius bundle check error: %s", e)
+    return {}
+
+
 def _compute_confidence(sources: set[str]) -> int:
     """Multi-source confidence: base 50 + 15 per additional source."""
     return BASE_CONFIDENCE + max(0, (len(sources) - 1)) * PER_SOURCE_BONUS
@@ -392,6 +531,11 @@ def _apply_hard_filters(personality: str, signal: dict, rugcheck: dict) -> tuple
         fresh_ratio = raw.get("fresh_wallet_ratio", 0)
         if fresh_ratio > SPEED_DEMON_FILTERS["max_fresh_wallet_ratio"]:
             return False, f"fresh wallet ratio {fresh_ratio} > {SPEED_DEMON_FILTERS['max_fresh_wallet_ratio']}"
+
+        # Dev sold >20% in first 2 minutes — reject (Helius enhanced detection)
+        dev_sold_pct = raw.get("dev_sold_pct", 0)
+        if dev_sold_pct > 20:
+            return False, f"dev sold {dev_sold_pct}% > 20% (Helius enhanced)"
 
     if personality == "analyst":
         liq = raw.get("liquidity_sol", 0)
@@ -532,6 +676,30 @@ async def _process_signals(redis_conn: aioredis.Redis):
                     _fetch_token_details(session, mint, redis_conn),
                 )
 
+                # --- Helius enhanced checks: dev wallet sells + bundle detection ---
+                raw_data = signal.get("raw_data", {})
+                creator_addr = token_details.get("creator_address", raw_data.get("traderPublicKey", ""))
+                early_tx_sigs = [raw_data.get("signature", "")] if raw_data.get("signature") else []
+                # Gather additional signatures from PumpPortal trade data if available
+                if raw_data.get("tx_signatures"):
+                    early_tx_sigs.extend(raw_data["tx_signatures"][:19])
+
+                dev_sell_data, bundle_data = await asyncio.gather(
+                    _check_dev_wallet_sells(session, creator_addr, mint),
+                    _check_bundle_detection(session, early_tx_sigs),
+                    return_exceptions=True,
+                )
+                if isinstance(dev_sell_data, dict):
+                    token_details.update(dev_sell_data)
+                if isinstance(bundle_data, dict):
+                    # Helius bundle data overrides raw_data values with more reliable detection
+                    if bundle_data.get("helius_bundle_check"):
+                        signal.setdefault("raw_data", {}).update({
+                            "bundle_detected": bundle_data.get("bundle_detected", False),
+                            "bundled_supply_pct": bundle_data.get("bundled_supply_pct", 0),
+                            "fresh_wallet_ratio": bundle_data.get("fresh_wallet_ratio", 0),
+                        })
+
                 # --- Classify target personalities ---
                 targets = _classify_target_personalities(signal, rugcheck)
                 if not targets:
@@ -552,6 +720,7 @@ async def _process_signals(redis_conn: aioredis.Redis):
                     "unique_buyers_30min": int(raw.get("unique_buyers_30min", 0)),
                     "volume_acceleration_15min": float(raw.get("volume_acceleration_15min", 0)),
                     "dev_wallet_hold_pct": float(raw.get("dev_wallet_hold_pct", 0)),
+                    "dev_sold_pct": float(token_details.get("dev_sold_pct", raw.get("dev_sold_pct", 0))),
                     "bundle_detected": 1 if raw.get("bundle_detected", False) else 0,
                     "bundled_supply_pct": float(raw.get("bundled_supply_pct", 0)),
                     "bot_transaction_ratio": float(raw.get("bot_transaction_ratio", 0)),
