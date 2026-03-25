@@ -116,32 +116,30 @@ async def _fetch_json(session: aiohttp.ClientSession, url: str, params: dict | N
 
 
 async def _fetch_sol_price(session: aiohttp.ClientSession) -> float | None:
-    """Fetch SOL price -- Binance primary (no auth), Jupiter fallback."""
-    # Primary: Binance -- completely free, no API key needed
-    try:
-        async with session.get(
-            "https://api.binance.com/api/v3/ticker/price",
-            params={"symbol": "SOLUSDT"},
-            timeout=aiohttp.ClientTimeout(total=10),
-        ) as resp:
-            if resp.status == 200:
-                data = await resp.json()
-                price = float(data.get("price", 0))
-                if price > 0:
-                    logger.debug("SOL price from Binance: $%.2f", price)
-                    return price
-    except Exception as e:
-        logger.warning("Binance SOL price error: %s", e)
+    """Fetch SOL price -- tries multiple sources, no single point of failure."""
+    sources = [
+        ("CoinGecko", "https://api.coingecko.com/api/v3/simple/price", {"ids": "solana", "vs_currencies": "usd"}, lambda d: d.get("solana", {}).get("usd")),
+        ("Binance", "https://api.binance.com/api/v3/ticker/price", {"symbol": "SOLUSDT"}, lambda d: float(d.get("price", 0)) or None),
+    ]
+    for name, url, params, extract in sources:
+        try:
+            async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    price = extract(data)
+                    if price and float(price) > 0:
+                        logger.debug("SOL price from %s: $%.2f", name, float(price))
+                        return float(price)
+                else:
+                    logger.debug("%s HTTP %d", name, resp.status)
+        except Exception as e:
+            logger.debug("%s error: %s", name, e)
 
-    # Fallback: Jupiter V3
+    # Last resort: Jupiter V3 (requires API key)
     try:
         headers = {"x-api-key": JUPITER_API_KEY} if JUPITER_API_KEY else {}
-        async with session.get(
-            JUPITER_PRICE_URL,
-            params={"ids": SOL_MINT},
-            headers=headers,
-            timeout=aiohttp.ClientTimeout(total=10),
-        ) as resp:
+        async with session.get(JUPITER_PRICE_URL, params={"ids": SOL_MINT}, headers=headers,
+                               timeout=aiohttp.ClientTimeout(total=8)) as resp:
             if resp.status == 200:
                 data = await resp.json()
                 sol_data = data.get("data", {}).get(SOL_MINT, {})
@@ -149,7 +147,7 @@ async def _fetch_sol_price(session: aiohttp.ClientSession) -> float | None:
                 if price:
                     return float(price)
     except Exception as e:
-        logger.warning("Jupiter SOL price error: %s", e)
+        logger.warning("All SOL price sources failed. Last: %s", e)
 
     return None
 

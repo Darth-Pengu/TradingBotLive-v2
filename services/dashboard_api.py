@@ -508,36 +508,22 @@ async def api_approve_parameter(request):
 
 
 async def api_sol_price(request):
-    """SOL price — Binance primary (no auth), Jupiter V3 fallback."""
-    # Binance — no auth needed
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get("https://api.binance.com/api/v3/ticker/price",
-                                   params={"symbol": "SOLUSDT"},
-                                   timeout=aiohttp.ClientTimeout(total=5)) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    price = float(data.get("price", 0))
-                    if price > 0:
-                        return web.json_response({"price": price})
-    except Exception:
-        pass
-    # Jupiter V3 fallback
-    try:
-        jup_key = os.getenv("JUPITER_API_KEY", "").strip()
-        headers = {"x-api-key": jup_key} if jup_key else {}
-        async with aiohttp.ClientSession() as session:
-            async with session.get("https://api.jup.ag/price/v3",
-                                   params={"ids": "So11111111111111111111111111111111111111112"},
-                                   headers=headers,
-                                   timeout=aiohttp.ClientTimeout(total=5)) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    sol = data.get("data", {}).get("So11111111111111111111111111111111111111112", {})
-                    price = sol.get("usdPrice") or sol.get("price", 0)
-                    return web.json_response({"price": float(price) if price else 0})
-    except Exception:
-        pass
+    """SOL price -- CoinGecko primary (no auth, no geo blocks), Binance + Jupiter fallback."""
+    sources = [
+        ("https://api.coingecko.com/api/v3/simple/price", {"ids": "solana", "vs_currencies": "usd"}, {}, lambda d: d.get("solana", {}).get("usd")),
+        ("https://api.binance.com/api/v3/ticker/price", {"symbol": "SOLUSDT"}, {}, lambda d: float(d.get("price", 0)) or None),
+    ]
+    async with aiohttp.ClientSession() as session:
+        for url, params, headers, extract in sources:
+            try:
+                async with session.get(url, params=params, headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        price = extract(data)
+                        if price and float(price) > 0:
+                            return web.json_response({"price": float(price)})
+            except Exception:
+                continue
     return web.json_response({"price": 0})
 
 
