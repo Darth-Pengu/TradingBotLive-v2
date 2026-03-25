@@ -246,7 +246,7 @@ def calculate_position_size(
     # Apply correlation haircut
     position *= CORRELATION_HAIRCUT
 
-    # Cap at per-personality maximum
+    # HARD CAP: per-personality maximum — never exceeded regardless of Kelly result
     max_pos = portfolio.total_balance_sol * MAX_POSITION_PCT[personality]
     position = min(position, max_pos)
 
