@@ -18,8 +18,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-VYBE_API_KEY = os.getenv("VYBE_API_KEY", "")
-NANSEN_API_KEY = os.getenv("NANSEN_API_KEY", "")
+VYBE_API_KEY = os.getenv("VYBE_API_KEY", "").strip()
+NANSEN_API_KEY = os.getenv("NANSEN_API_KEY", "").strip()
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 OUTPUT_PATH = os.path.join(DATA_DIR, "whale_wallets.json")
@@ -32,11 +32,12 @@ def fetch_vybe_wallets() -> list[dict]:
         print("[vybe] VYBE_API_KEY not set — skipping")
         return []
 
-    url = "https://api.vybenetwork.xyz/wallet/top-traders"
+    url = "https://api.vybenetwork.xyz/v4/wallets/top-traders"
     headers = {"X-API-KEY": VYBE_API_KEY}
+    params = {"resolution": "30d", "limit": 100, "sortByDesc": "realizedPnlUsd"}
 
     try:
-        resp = requests.get(url, headers=headers, timeout=15)
+        resp = requests.get(url, headers=headers, params=params, timeout=15)
         resp.raise_for_status()
         data = resp.json()
     except requests.RequestException as e:
@@ -51,16 +52,21 @@ def fetch_vybe_wallets() -> list[dict]:
 
     wallets = []
     for t in traders:
-        address = t.get("ownerAddress", t.get("address", t.get("wallet", "")))
+        address = t.get("accountAddress", t.get("address", ""))
         if not address:
             continue
+        metrics = t.get("metrics", t)
+        win_rate = metrics.get("winRate")
+        pnl = metrics.get("realizedPnlUsd")
+        # winRate is 0-100 from Vybe, use directly as score (capped)
+        score = min(100, int(win_rate)) if win_rate is not None else 75
         wallets.append({
             "address": address,
-            "score": min(100, int(float(t.get("score", t.get("winRate", 50))) * 100)) if t.get("score") or t.get("winRate") else 75,
+            "score": score,
             "label": "Top Trader",
             "source": "vybe",
-            "win_rate": float(t["winRate"]) if t.get("winRate") is not None else None,
-            "realized_pnl_30d": float(t["pnl"]) if t.get("pnl") is not None else None,
+            "win_rate": round(win_rate, 1) if win_rate is not None else None,
+            "realized_pnl_30d": round(pnl, 2) if pnl is not None else None,
             "last_scored": TODAY,
             "active": True,
         })
