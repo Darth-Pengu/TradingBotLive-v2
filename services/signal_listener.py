@@ -38,6 +38,8 @@ logger = logging.getLogger("signal_listener")
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 TEST_MODE = os.getenv("TEST_MODE", "true").lower() == "true"
 HELIUS_PARSE_HISTORY_URL = os.getenv("HELIUS_PARSE_HISTORY_URL", "")
+HELIUS_API_KEY = os.getenv("HELIUS_API_KEY", "")
+RAILWAY_SERVICE_URL = os.getenv("RAILWAY_STATIC_URL", os.getenv("RAILWAY_PUBLIC_DOMAIN", ""))
 
 DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN", "")
 DISCORD_NANSEN_CHANNEL_ID = os.getenv("DISCORD_NANSEN_CHANNEL_ID", "")
@@ -155,6 +157,71 @@ async def _load_whale_wallets() -> list[str]:
     except (FileNotFoundError, json.JSONDecodeError, KeyError):
         logger.warning("No valid whale_wallets.json found — skipping subscribeAccountTrade")
         return []
+
+
+async def _register_helius_webhook(redis_conn: aioredis.Redis | None):
+    """Register a Helius enhanced webhook for all active whale wallet addresses.
+    Replaces polling with real-time push notifications for whale swap activity.
+    Stores webhook ID in Redis key 'helius:webhook_id' for later updates.
+    """
+    if not HELIUS_API_KEY or not RAILWAY_SERVICE_URL:
+        logger.info("HELIUS_API_KEY or RAILWAY_SERVICE_URL not set — webhook registration skipped")
+        return
+
+    whale_wallets = await _load_whale_wallets()
+    if not whale_wallets:
+        logger.info("No whale wallets loaded — webhook registration skipped")
+        return
+
+    webhook_url = f"https://{RAILWAY_SERVICE_URL}/helius-webhook" if not RAILWAY_SERVICE_URL.startswith("http") else f"{RAILWAY_SERVICE_URL}/helius-webhook"
+    api_url = f"https://api.helius.xyz/v0/webhooks?api-key={HELIUS_API_KEY}"
+
+    # Check if we already have a webhook registered
+    existing_webhook_id = None
+    if redis_conn:
+        try:
+            existing_webhook_id = await redis_conn.get("helius:webhook_id")
+        except Exception:
+            pass
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            # If we have an existing webhook, update it instead of creating a new one
+            if existing_webhook_id:
+                update_url = f"https://api.helius.xyz/v0/webhooks/{existing_webhook_id}?api-key={HELIUS_API_KEY}"
+                payload = {
+                    "webhookURL": webhook_url,
+                    "transactionTypes": ["SWAP"],
+                    "accountAddresses": whale_wallets[:100],  # Helius limit
+                    "webhookType": "enhanced",
+                }
+                async with session.put(update_url, json=payload, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                    if resp.status == 200:
+                        logger.info("Helius webhook updated: %s (%d wallets)", existing_webhook_id, len(whale_wallets[:100]))
+                        return
+                    else:
+                        logger.warning("Helius webhook update failed (HTTP %d) — creating new one", resp.status)
+
+            # Create new webhook
+            payload = {
+                "webhookURL": webhook_url,
+                "transactionTypes": ["SWAP"],
+                "accountAddresses": whale_wallets[:100],
+                "webhookType": "enhanced",
+            }
+            async with session.post(api_url, json=payload, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    webhook_id = data.get("webhookID", "")
+                    logger.info("Helius webhook created: %s → %s (%d wallets)", webhook_id, webhook_url, len(whale_wallets[:100]))
+                    if redis_conn and webhook_id:
+                        await redis_conn.set("helius:webhook_id", webhook_id)
+                else:
+                    body = await resp.text()
+                    logger.warning("Helius webhook creation failed (HTTP %d): %s", resp.status, body[:200])
+
+    except Exception as e:
+        logger.warning("Helius webhook registration error: %s", e)
 
 
 async def pumpportal_listener(redis_conn: aioredis.Redis | None):
@@ -698,6 +765,9 @@ async def main():
         except Exception as e:
             logger.error("Redis connection failed: %s — signals will be logged only", e)
             redis_conn = None
+
+    # Register Helius webhook for real-time whale monitoring (non-blocking)
+    await _register_helius_webhook(redis_conn)
 
     await asyncio.gather(
         pumpportal_listener(redis_conn),

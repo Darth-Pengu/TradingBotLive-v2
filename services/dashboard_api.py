@@ -41,6 +41,7 @@ logging.basicConfig(
 logger = logging.getLogger("dashboard_api")
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
+TEST_MODE = os.getenv("TEST_MODE", "true").lower() == "true"
 DATABASE_PATH = os.getenv("DATABASE_PATH", "toxibot.db")
 DASHBOARD_SECRET = os.getenv("DASHBOARD_SECRET", "")
 DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "")
@@ -99,7 +100,7 @@ def _check_password(password: str) -> bool:
 # ---------------------------------------------------------------------------
 # Auth middleware
 # ---------------------------------------------------------------------------
-PUBLIC_PATHS = {"/login", "/api/health"}
+PUBLIC_PATHS = {"/login", "/api/health", "/helius-webhook"}
 
 
 @web.middleware
@@ -414,6 +415,85 @@ async def api_emergency_stop(request):
     return web.json_response({"error": "Redis not available"}, status=503)
 
 
+# --- Helius Webhook Receiver ---
+async def handle_helius_webhook(request):
+    """Receive real-time whale swap transactions from Helius enhanced webhooks.
+    Parses incoming transactions and pushes to Redis 'signals:raw' immediately.
+    No auth required — Helius needs to call this endpoint directly.
+    """
+    try:
+        payload = await request.json()
+    except Exception:
+        return web.json_response({"error": "invalid json"}, status=400)
+
+    # Helius sends an array of enhanced transactions
+    txs = payload if isinstance(payload, list) else [payload]
+    redis_conn = request.app.get("redis")
+    processed = 0
+
+    for tx in txs:
+        try:
+            tx_type = tx.get("type", "")
+            source = tx.get("source", "")
+            signature = tx.get("signature", "")
+            timestamp = tx.get("timestamp", 0)
+            fee_payer = tx.get("feePayer", "")
+
+            token_transfers = tx.get("tokenTransfers", [])
+            if not token_transfers:
+                continue
+
+            for transfer in token_transfers:
+                mint = transfer.get("mint", "")
+                if not mint or mint == "So11111111111111111111111111111111111111112":
+                    continue
+
+                from_addr = transfer.get("fromUserAccount", "")
+                to_addr = transfer.get("toUserAccount", "")
+                amount = float(transfer.get("tokenAmount", 0) or 0)
+
+                # Determine trade direction based on who the tracked wallet is
+                # fee_payer is typically the initiator
+                if to_addr == fee_payer:
+                    action = "buy"
+                elif from_addr == fee_payer:
+                    action = "sell"
+                else:
+                    action = "buy" if to_addr else "sell"
+
+                signal = {
+                    "mint": mint,
+                    "source": "helius_webhook",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "age_seconds": 0.0,
+                    "signal_type": "whale_trade",
+                    "raw_data": {
+                        "wallet": fee_payer,
+                        "action": action,
+                        "token_amount": amount,
+                        "tx_type": tx_type,
+                        "source": source,
+                        "signature": signature,
+                        "slot": tx.get("slot", 0),
+                        "txType": "buy" if action == "buy" else "sell",
+                        "helius_webhook": True,
+                    },
+                }
+
+                if TEST_MODE:
+                    logger.info("Helius webhook [TEST]: %s %s %s (%.4f)", action, mint[:12], fee_payer[:12], amount)
+                elif redis_conn:
+                    await redis_conn.lpush("signals:raw", json.dumps(signal))
+                    logger.info("Helius webhook: %s %s %s (%.4f)", action, mint[:12], fee_payer[:12], amount)
+
+                processed += 1
+
+        except Exception as e:
+            logger.warning("Helius webhook parse error: %s", e)
+
+    return web.json_response({"processed": processed})
+
+
 # --- WebSocket handler ---
 async def ws_handler(request):
     """WebSocket endpoint for real-time dashboard updates."""
@@ -544,6 +624,7 @@ def create_app() -> web.Application:
     app.router.add_post("/login", handle_login_post)
     app.router.add_get("/logout", handle_logout)
     app.router.add_get("/api/health", api_health)
+    app.router.add_post("/helius-webhook", handle_helius_webhook)
 
     # Dashboard routes (auth required)
     app.router.add_get("/", handle_index)
