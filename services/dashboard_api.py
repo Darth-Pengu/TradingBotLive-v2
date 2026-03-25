@@ -100,7 +100,7 @@ def _check_password(password: str) -> bool:
 # ---------------------------------------------------------------------------
 # Auth middleware
 # ---------------------------------------------------------------------------
-PUBLIC_PATHS = {"/login", "/api/health", "/helius-webhook"}
+PUBLIC_PATHS = {"/login", "/api/health", "/helius-webhook", "/api/sol-price"}
 
 
 @web.middleware
@@ -415,6 +415,48 @@ async def api_emergency_stop(request):
     return web.json_response({"error": "Redis not available"}, status=503)
 
 
+# --- SOL Price endpoint (backup for Jupiter direct call) ---
+async def api_sol_price(request):
+    """Fetch SOL/USD price from Jupiter Price API."""
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get("https://price.jup.ag/v6/price?ids=SOL",
+                                   timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    sol = data.get("data", {}).get("SOL", {})
+                    return web.json_response({"price": sol.get("price", 0), "mint_symbol": "SOL"})
+    except Exception:
+        pass
+    return web.json_response({"price": 0, "error": "unavailable"})
+
+
+# --- Health Check Trigger ---
+async def api_trigger_health_check(request):
+    """Run health_check.py and stream results via WebSocket."""
+    import subprocess
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "python", "scripts/health_check.py",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+            cwd=str(Path(__file__).parent.parent),
+        )
+        output_lines = []
+        async for line in proc.stdout:
+            text = line.decode("utf-8", errors="replace").rstrip()
+            output_lines.append(text)
+            await _broadcast_ws({"_type": "health_check_line", "line": text})
+        await proc.wait()
+        await _broadcast_ws({
+            "_type": "health_check_done",
+            "exit_code": proc.returncode,
+            "output": "\n".join(output_lines),
+        })
+        return web.json_response({"status": "completed", "exit_code": proc.returncode})
+    except Exception as e:
+        return web.json_response({"status": "error", "error": str(e)}, status=500)
+
+
 # --- Helius Webhook Receiver ---
 async def handle_helius_webhook(request):
     """Receive real-time whale swap transactions from Helius enhanced webhooks.
@@ -557,7 +599,8 @@ async def _redis_broadcaster(app: web.Application):
 
 # --- Periodic data push ---
 async def _periodic_push(app: web.Application):
-    """Push periodic updates to WebSocket clients."""
+    """Push periodic updates to WebSocket clients every 2 seconds."""
+    tick = 0
     while True:
         try:
             redis_conn = app.get("redis")
@@ -574,16 +617,25 @@ async def _periodic_push(app: web.Application):
                 if raw:
                     health = json.loads(raw)
 
-            await _broadcast_ws({
+            payload = {
                 "_type": "periodic_update",
                 "status": status,
                 "market_health": health,
+                "test_mode": TEST_MODE,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
-            })
+            }
+
+            # Every 5th tick (~10s), include wallet balances
+            if tick % 5 == 0:
+                payload["trading_balance"] = await _get_sol_balance(TRADING_WALLET_ADDRESS)
+                payload["holding_balance"] = await _get_sol_balance(HOLDING_WALLET_ADDRESS)
+
+            await _broadcast_ws(payload)
         except Exception as e:
             logger.debug("Periodic push error: %s", e)
 
-        await asyncio.sleep(5)
+        tick += 1
+        await asyncio.sleep(2)
 
 
 # --- App lifecycle ---
@@ -637,6 +689,8 @@ def create_app() -> web.Application:
     app.router.add_get("/api/governance", api_governance)
     app.router.add_get("/api/portfolio-history", api_portfolio_history)
     app.router.add_post("/api/emergency-stop", api_emergency_stop)
+    app.router.add_get("/api/sol-price", api_sol_price)
+    app.router.add_post("/api/trigger-health-check", api_trigger_health_check)
     app.router.add_get("/ws", ws_handler)
 
     # Static dashboard files
