@@ -16,6 +16,7 @@ Include/
 pyvenv.cfg
 .railway/
 .claude/
+data/whale_wallets.json
 data/whale_wallets_pending.json
 data/models/
 node_modules/
