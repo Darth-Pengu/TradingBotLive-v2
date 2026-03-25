@@ -43,7 +43,17 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 DATABASE_PATH = os.getenv("DATABASE_PATH", "toxibot.db")
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+NANSEN_API_KEY = os.getenv("NANSEN_API_KEY", "").strip()
 GOVERNANCE_MODEL = os.getenv("GOVERNANCE_MODEL", "claude-sonnet-4-6")
+
+# Nansen MCP server config — passed to Anthropic API calls that need Nansen data.
+# Claude will automatically discover and use Nansen MCP tools during reasoning.
+NANSEN_MCP_SERVER = {
+    "type": "url",
+    "url": "https://mcp.nansen.ai/ra/mcp/",
+    "name": "nansen-mcp",
+    "authorization_token": NANSEN_API_KEY,
+} if NANSEN_API_KEY else None
 
 GOVERNANCE_SCHEDULE = {
     "wallet_rescore":     "weekly",
@@ -62,16 +72,34 @@ parameter changes are applied. Flag anything unusual. Be direct about problems."
 
 def build_governance_prompt(task_type: str, context: dict) -> str:
     if task_type == "wallet_rescore":
+        wallet_addrs = context.get("wallet_addresses", [])
+        # Include up to 20 addresses for MCP lookup (avoid overwhelming the prompt)
+        lookup_addrs = wallet_addrs[:20]
         return f"""
-Review the following whale wallet performance data from the past 7 days and provide
-an updated score (0-100) for each wallet. Remove wallets that no longer meet minimum
-thresholds. Suggest any new wallets from the top trader lists that should be added.
+Review the following whale wallet list and provide updated scores (0-100) for each wallet.
+Remove wallets that no longer meet minimum thresholds. Suggest new wallets to add.
 
 Current wallet list: {json.dumps(context.get('current_wallets', []), indent=2)}
 Performance data (7 days): {json.dumps(context.get('performance_data', {}), indent=2)}
 Vybe top trader data: {json.dumps(context.get('vybe_data', {}), indent=2)}
 
-Output: Valid JSON array matching the whale_wallets.json schema. Nothing else.
+IMPORTANT — Use your Nansen MCP tools to:
+1. Look up the PnL summary and trading performance for these wallet addresses (check up to 20):
+   {json.dumps(lookup_addrs, indent=2)}
+   For each wallet, get: realized PnL (30d), win rate, total trades, and any smart money labels.
+
+2. Get the current top smart money holdings on Solana — check if any wallets in our list
+   appear in the smart money rankings.
+
+3. Identify any new high-performing wallets from the smart money data that we should add.
+
+Scoring dimensions: win_rate (25%), avg_roi (20%), trade_frequency (15%),
+realized_pnl (15%), consistency (15%), hold_period (10%).
+Prefer Nansen data over Vybe when both are available — Nansen is more reliable for win_rate and realized_pnl.
+
+Output: Valid JSON array matching this schema:
+[{{"address": "...", "score": 75, "label": "...", "source": "nansen", "win_rate": null, "realized_pnl_30d": null, "last_scored": "{datetime.now(timezone.utc).strftime('%Y-%m-%d')}", "active": true}}]
+Nothing else — just the JSON array.
 """
 
     elif task_type == "daily_briefing":
@@ -82,10 +110,13 @@ Write a concise daily briefing for the ToxiBot owner. Cover:
    mode seems correct given what you see in the data
 3. Any anomalies or concerns worth flagging
 4. One specific recommendation if something looks off
+5. Smart money snapshot — use your Nansen MCP tools to check what smart money wallets
+   have been doing on Solana in the last 24 hours. Are they accumulating, distributing,
+   or rotating? This adds important context to the market condition assessment.
 
 Data: {json.dumps(context, indent=2)}
 
-Be direct. No fluff. Max 300 words.
+Be direct. No fluff. Max 400 words.
 """
 
     elif task_type == "drawdown_diagnosis":
@@ -133,6 +164,25 @@ Write a monthly performance report for ToxiBot. Include:
 Data: {json.dumps(context, indent=2)}
 """
 
+    elif task_type == "smart_money_analysis":
+        return f"""
+Analyse smart money activity on Solana this week using your Nansen MCP tools.
+
+Use your Nansen tools to:
+1. Get the top smart money holdings on Solana right now
+2. Check for any significant changes in smart money positioning this week
+
+Questions to answer:
+1. Are any of the top smart money tokens also appearing in our active trading signals?
+2. Are there tokens that smart money holds heavily that we should add to our watchlist?
+3. What patterns do you see — rotation into new sectors, accumulation of specific tokens, or reducing exposure?
+4. Flag any tokens with unusual concentration by smart money wallets.
+
+Our current active signals context: {json.dumps(context.get('active_signals', []), indent=2)}
+
+Be concise. Max 300 words.
+"""
+
     return "No valid task type provided."
 
 
@@ -169,13 +219,17 @@ async def send_discord(session: aiohttp.ClientSession, message: str):
         logger.warning("Discord notification failed: %s", e)
 
 
-async def run_governance_task(task_type: str, context_data: dict, session: aiohttp.ClientSession):
-    """Call Claude API with relevant data. Never writes to execution config directly."""
+async def run_governance_task(task_type: str, context_data: dict, session: aiohttp.ClientSession,
+                             use_nansen_mcp: bool = False):
+    """Call Claude API with relevant data. Never writes to execution config directly.
+    When use_nansen_mcp=True and NANSEN_API_KEY is set, the Nansen MCP server is attached
+    so Claude can query wallet PnL, smart money holdings, and activity data directly.
+    """
     if not ANTHROPIC_API_KEY:
         logger.warning("ANTHROPIC_API_KEY not set — skipping governance task: %s", task_type)
         return
 
-    logger.info("Running governance task: %s", task_type)
+    logger.info("Running governance task: %s (nansen_mcp=%s)", task_type, use_nansen_mcp)
 
     try:
         import anthropic
@@ -183,14 +237,23 @@ async def run_governance_task(task_type: str, context_data: dict, session: aioht
 
         user_prompt = build_governance_prompt(task_type, context_data)
 
-        message = await client.messages.create(
-            model=GOVERNANCE_MODEL,
-            max_tokens=2000,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": user_prompt}],
-        )
+        # Build API call kwargs — add MCP server if requested and available
+        api_kwargs = {
+            "model": GOVERNANCE_MODEL,
+            "max_tokens": 4096,
+            "system": SYSTEM_PROMPT,
+            "messages": [{"role": "user", "content": user_prompt}],
+        }
 
-        output = message.content[0].text
+        if use_nansen_mcp and NANSEN_MCP_SERVER:
+            api_kwargs["mcp_servers"] = [NANSEN_MCP_SERVER]
+            logger.info("Nansen MCP server attached for %s", task_type)
+
+        message = await client.messages.create(**api_kwargs)
+
+        # Extract text from response — MCP calls may produce multiple content blocks
+        text_parts = [block.text for block in message.content if hasattr(block, "text")]
+        output = "\n".join(text_parts)
         token_usage = message.usage
 
         logger.info("Governance %s complete — tokens: input=%d, output=%d",
@@ -249,6 +312,13 @@ async def _gather_context(db: aiosqlite.Connection, redis_conn: aioredis.Redis |
                     context["current_wallets"] = json.load(f)
             except (FileNotFoundError, json.JSONDecodeError):
                 context["current_wallets"] = []
+
+            # Nansen data is now fetched by Claude via MCP during the API call.
+            # We pass wallet addresses so the prompt can instruct Claude to look them up.
+            context["wallet_addresses"] = [
+                w.get("address", "") if isinstance(w, dict) else str(w)
+                for w in context["current_wallets"] if w
+            ]
             context["performance_data"] = {}
             context["vybe_data"] = {}
 
@@ -285,6 +355,7 @@ async def _scheduled_loop(db: aiosqlite.Connection, redis_conn: aioredis.Redis |
     """Run scheduled governance tasks."""
     last_daily = 0.0
     last_weekly = 0.0
+    last_weekly_sm = 0.0
     last_monthly = 0.0
 
     async with aiohttp.ClientSession() as session:
@@ -292,17 +363,23 @@ async def _scheduled_loop(db: aiosqlite.Connection, redis_conn: aioredis.Redis |
             now = datetime.now(timezone.utc)
             now_ts = time.time()
 
-            # Daily briefing at 06:00 UTC
+            # Daily briefing at 06:00 UTC — uses Nansen MCP for smart money snapshot
             if now.hour == 6 and now_ts - last_daily > 82800:
                 context = await _gather_context(db, redis_conn, "daily_briefing")
-                await run_governance_task("daily_briefing", context, session)
+                await run_governance_task("daily_briefing", context, session, use_nansen_mcp=True)
                 last_daily = now_ts
 
-            # Weekly wallet rescore on Monday at 02:00 UTC
+            # Weekly wallet rescore on Monday at 02:00 UTC — uses Nansen MCP for PnL data
             if now.weekday() == 0 and now.hour == 2 and now_ts - last_weekly > 604800:
                 context = await _gather_context(db, redis_conn, "wallet_rescore")
-                await run_governance_task("wallet_rescore", context, session)
+                await run_governance_task("wallet_rescore", context, session, use_nansen_mcp=True)
                 last_weekly = now_ts
+
+            # Weekly smart money analysis — Monday 03:00 UTC — uses Nansen MCP directly
+            if now.weekday() == 0 and now.hour == 3 and now_ts - last_weekly_sm > 604800:
+                context = {"active_signals": []}
+                await run_governance_task("smart_money_analysis", context, session, use_nansen_mcp=True)
+                last_weekly_sm = now_ts
 
             # Monthly report on 1st at 06:00 UTC
             if now.day == 1 and now.hour == 6 and now_ts - last_monthly > 2592000:

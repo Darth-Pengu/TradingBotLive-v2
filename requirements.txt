@@ -20,8 +20,8 @@ scikit-learn>=1.4.0
 numpy>=1.26.0
 pandas>=2.2.0
 
-# Governance agent
-anthropic>=0.25.0
+# Governance agent (>=0.49.0 required for MCP server support)
+anthropic>=0.49.0
 
 # Utilities
 python-dotenv>=1.0.0
