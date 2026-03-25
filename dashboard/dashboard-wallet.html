@@ -91,6 +91,49 @@ tr:hover td{background:var(--bg-hover)}
 .empty{text-align:center;padding:40px;color:var(--text-muted)}
 .empty i{font-size:32px;display:block;margin-bottom:8px;opacity:.3}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+/* Tooltips */
+.mi{position:relative;display:inline-flex;cursor:help;color:var(--text-muted);font-size:11px;margin-left:4px}
+.mi::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);background:var(--bg-elevated);border:1px solid var(--border-active);border-radius:var(--radius-sm);padding:8px 12px;font-size:12px;font-family:var(--font);color:var(--text-secondary);max-width:240px;opacity:0;pointer-events:none;transition:opacity .15s;z-index:100;white-space:normal;line-height:1.4}
+.mi:hover::after{opacity:1}
+/* Slide-out panel (Enhancement 1) */
+.panel-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:300;opacity:0;pointer-events:none;transition:opacity .2s}
+.panel-overlay.on{opacity:1;pointer-events:auto}
+.panel{position:fixed;top:0;right:0;width:380px;height:100vh;background:var(--bg-surface);border-left:1px solid var(--border);z-index:301;transform:translateX(100%);transition:transform .2s ease-out;overflow-y:auto;padding:24px}
+.panel.on{transform:translateX(0)}
+.panel::-webkit-scrollbar{width:4px}.panel::-webkit-scrollbar-thumb{background:var(--border-active);border-radius:2px}
+.panel-close{position:absolute;top:16px;right:16px;background:none;border:none;color:var(--text-muted);font-size:20px;cursor:pointer;transition:.15s}.panel-close:hover{color:var(--text-primary)}
+.panel-h{font-size:18px;font-weight:700;margin-bottom:4px}
+.panel-sub{font-size:12px;color:var(--text-muted);margin-bottom:16px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.panel-sec{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin:16px 0 8px;padding-top:12px;border-top:1px solid var(--border)}
+.panel-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.panel-stat{background:var(--bg-elevated);border-radius:var(--radius-sm);padding:10px 12px}
+.panel-stat-label{font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em}
+.panel-stat-val{font-size:16px;font-weight:700;font-family:var(--font-mono);margin-top:2px}
+.panel-row{display:flex;justify-content:space-between;padding:5px 0;font-size:12px;border-bottom:1px solid var(--border)}
+.panel-row:last-child{border:none}
+.panel-row .label{color:var(--text-muted)}
+.panel-row .val{font-family:var(--font-mono);color:var(--text-secondary)}
+/* Command palette + shortcuts */
+.cmd-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);z-index:400;display:none;align-items:flex-start;justify-content:center;padding-top:20vh}
+.cmd-bg.on{display:flex}
+.cmd{background:var(--bg-elevated);border:1px solid var(--border-active);border-radius:var(--radius-lg);width:560px;max-height:400px;box-shadow:var(--shadow-md);overflow:hidden}
+.cmd-input{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--border)}
+.cmd-input i{color:var(--text-muted);font-size:16px}.cmd-input input{flex:1;background:none;border:none;color:var(--text-primary);font-size:15px;font-family:var(--font-mono);outline:none}
+.cmd-list{overflow-y:auto;max-height:320px;padding:8px}
+.cmd-sec{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--text-muted);padding:8px 10px 4px}
+.cmd-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--radius-sm);cursor:pointer;transition:.1s}
+.cmd-item:hover{background:var(--accent-teal-dim);color:var(--accent-teal)}
+.cmd-item i{font-size:14px;width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;background:var(--bg-card)}
+.cmd-item span{flex:1;font-size:13px;font-weight:500}
+.cmd-item small{font-size:11px;color:var(--text-muted);font-family:var(--font-mono)}
+.shortcuts-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:400;display:none;align-items:center;justify-content:center}
+.shortcuts-bg.on{display:flex}
+.shortcuts{background:var(--bg-card);border:1px solid var(--border-active);border-radius:var(--radius-lg);padding:24px;width:480px}
+.shortcuts h3{font-size:16px;font-weight:700;margin-bottom:16px}
+.sc-row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px}
+.sc-row:last-child{border:none}
+kbd{background:var(--bg-elevated);border:1px solid var(--border-active);border-radius:4px;padding:2px 6px;font-family:var(--font-mono);font-size:11px}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--bg-card);border:1px solid var(--border-active);border-radius:var(--radius-sm);padding:8px 16px;font-size:12px;z-index:500}
 @media(max-width:1200px){.stats-strip{flex-wrap:wrap}.stat-item{min-width:33%}.grid2{grid-template-columns:1fr}}
 @media(max-width:768px){.sb{display:none}.main{padding:16px}.stats-strip{flex-direction:column}.stat-item{border-right:none;border-bottom:1px solid var(--border)}}
 </style>
@@ -200,6 +243,32 @@ tr:hover td{background:var(--bg-hover)}
     </div>
   </div>
 </main>
+<!-- Trade Detail Panel (Enhancement 1) -->
+<div class="panel-overlay" id="panelOverlay" onclick="closePanel()"></div>
+<div class="panel" id="tradePanel">
+  <button class="panel-close" onclick="closePanel()">&times;</button>
+  <div class="panel-h" id="panelToken">--</div>
+  <div class="panel-sub"><span class="pill pill-teal" id="panelReason">--</span></div>
+  <div class="panel-sec">Trade Summary</div>
+  <div class="panel-grid">
+    <div class="panel-stat"><div class="panel-stat-label">Entry Price</div><div class="panel-stat-val" id="panelEntry">--</div></div>
+    <div class="panel-stat"><div class="panel-stat-label">Exit Price</div><div class="panel-stat-val" id="panelExit">--</div></div>
+    <div class="panel-stat"><div class="panel-stat-label">P/L SOL</div><div class="panel-stat-val" id="panelPnl">--</div></div>
+    <div class="panel-stat"><div class="panel-stat-label">Hold Time</div><div class="panel-stat-val" id="panelHold">--</div></div>
+  </div>
+  <div class="panel-sec">Signal Intelligence</div>
+  <div class="panel-row"><span class="label">Signal Source</span><span class="val">PumpPortal</span></div>
+  <div class="panel-row"><span class="label">ML Score</span><span class="val">78%</span></div>
+  <div class="panel-row"><span class="label">Market Mode</span><span class="val">NORMAL</span></div>
+  <div class="panel-sec">Execution Details</div>
+  <div class="panel-row"><span class="label">Entry Slippage</span><span class="val">1.2%</span></div>
+  <div class="panel-row"><span class="label">Exit Slippage</span><span class="val">0.8%</span></div>
+  <div class="panel-row"><span class="label">Total Fees</span><span class="val">0.0025 SOL</span></div>
+</div>
+<!-- Command Palette -->
+<div class="cmd-bg" id="cmdBg" onclick="if(event.target===this)closeCmd()"><div class="cmd"><div class="cmd-input"><i class="bi bi-search"></i><input id="cmdIn" placeholder="Search or jump to..." oninput="filterCmd(this.value)"></div><div class="cmd-list"><div class="cmd-sec">Navigation</div><div class="cmd-item" onclick="go('/dashboard/dashboard.html')"><i class="bi bi-grid-1x2-fill"></i><span>Overview</span><small>G O</small></div><div class="cmd-item" onclick="go('/dashboard/dashboard-analytics.html')"><i class="bi bi-activity"></i><span>Status</span><small>G S</small></div><div class="cmd-item" onclick="go('/dashboard/dashboard-wallet.html')"><i class="bi bi-wallet2"></i><span>Wallet</span><small>G W</small></div><div class="cmd-sec">Actions</div><div class="cmd-item" onclick="csvExport();closeCmd()"><i class="bi bi-file-earmark-arrow-down"></i><span>Export CSV</span></div></div></div></div>
+<!-- Shortcuts -->
+<div class="shortcuts-bg" id="scBg" onclick="if(event.target===this)$('scBg').classList.remove('on')"><div class="shortcuts"><h3>Keyboard Shortcuts</h3><div class="sc-row"><span><kbd>G</kbd> then <kbd>O</kbd></span><span>Overview</span></div><div class="sc-row"><span><kbd>G</kbd> then <kbd>S</kbd></span><span>Status</span></div><div class="sc-row"><span><kbd>G</kbd> then <kbd>W</kbd></span><span>Wallet</span></div><div class="sc-row"><span><kbd>Ctrl+K</kbd></span><span>Command palette</span></div><div class="sc-row"><span><kbd>?</kbd></span><span>This dialog</span></div><div class="sc-row"><span><kbd>Esc</kbd></span><span>Close</span></div></div></div>
 <script>
 const TOKEN=sessionStorage.getItem('zmn_token');
 if(!TOKEN)window.location.href='/login.html';
@@ -220,6 +289,36 @@ function csvExport(){const rows=[['Time','Token','Bot','Entry','Exit','PL_SOL','
 let ws;function conn(){ws=new WebSocket((location.protocol==='https:'?'wss':'ws')+'://'+location.host+'/ws');ws.onopen=()=>{ws.send(JSON.stringify({token:TOKEN}))};ws.onclose=()=>setTimeout(conn,3000);ws.onmessage=e=>{try{const d=JSON.parse(e.data);if(d._type==='periodic_update'){$('posC').textContent=(d.status||{}).open_positions||'0'}}catch(x){}}}
 async function load(){try{const ps=await aFetch('/api/personality-stats').then(r=>r.json()).catch(()=>({}));let tw=0,tt=0;for(const k of['speed_demon','analyst','whale_tracker']){const s=ps[k]||{};tw+=s.wins||0;tt+=s.total_trades||0}$('kWr').textContent=tt>0?(tw/tt*100).toFixed(1)+'%':'--'}catch(e){}}
 conn();load();
+// Trade detail panel (Enhancement 1)
+function openPanel(row){
+  const cells=[...row.querySelectorAll('td')];
+  if(cells.length<8)return;
+  $('panelToken').textContent=cells[1]?.textContent||'--';
+  $('panelEntry').textContent=cells[3]?.textContent||'--';
+  $('panelExit').textContent=cells[4]?.textContent||'--';
+  $('panelPnl').textContent=cells[5]?.textContent||'--';
+  $('panelPnl').style.color=cells[5]?.textContent?.includes('-')?'var(--red)':'var(--green)';
+  $('panelHold').textContent=cells[7]?.textContent||'--';
+  $('panelReason').textContent=cells[9]?.textContent||'--';
+  $('panelOverlay').classList.add('on');
+  $('tradePanel').classList.add('on');
+}
+function closePanel(){$('panelOverlay').classList.remove('on');$('tradePanel').classList.remove('on')}
+document.querySelectorAll('#histTbl tr').forEach(r=>{r.style.cursor='pointer';r.addEventListener('click',()=>openPanel(r))});
+// Command palette + keyboard shortcuts (Enhancements 4 & 6)
+function go(u){window.location.href=u}
+function openCmd(){$('cmdBg').classList.add('on');$('cmdIn').value='';$('cmdIn').focus();filterCmd('')}
+function closeCmd(){$('cmdBg').classList.remove('on')}
+function filterCmd(q){document.querySelectorAll('.cmd-item').forEach(i=>{i.style.display=i.textContent.toLowerCase().includes(q.toLowerCase())?'':'none'})}
+let gWait=0;
+document.addEventListener('keydown',e=>{
+if(e.target.tagName==='INPUT')return;
+if((e.ctrlKey||e.metaKey)&&e.key==='k'){e.preventDefault();openCmd();return}
+if(e.key==='Escape'){closePanel();closeCmd();$('scBg').classList.remove('on');return}
+if(e.key==='?'){$('scBg').classList.add('on');return}
+if(e.key==='g'){gWait=Date.now();return}
+if(Date.now()-gWait<500){if(e.key==='o')go('/dashboard/dashboard.html');if(e.key==='s')go('/dashboard/dashboard-analytics.html');if(e.key==='w')go('/dashboard/dashboard-wallet.html');gWait=0}
+});
 </script>
 </body>
 </html>

@@ -152,11 +152,53 @@ body{background:var(--bg-base);color:var(--text-primary);font-family:var(--font)
 /* WS indicator */
 .ws-ind{position:fixed;top:12px;right:24px;font-size:12px;color:var(--accent-amber);display:none;align-items:center;gap:6px;z-index:100;background:var(--bg-card);padding:6px 14px;border-radius:20px;border:1px solid var(--accent-amber-dim)}
 .ws-ind.on{display:flex}
+/* Tooltips (Enhancement 2) */
+.mi{position:relative;display:inline-flex;cursor:help;color:var(--text-muted);font-size:11px;margin-left:4px}
+.mi::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);background:var(--bg-elevated);border:1px solid var(--border-active);border-radius:var(--radius-sm);padding:8px 12px;font-size:12px;font-family:var(--font);color:var(--text-secondary);max-width:240px;opacity:0;pointer-events:none;transition:opacity .15s;z-index:100;white-space:normal;line-height:1.4}
+.mi:hover::after{opacity:1}
+/* Background orbs (Enhancement 5) */
+.bg-orbs{position:fixed;inset:0;pointer-events:none;z-index:0;overflow:hidden}
+.orb{position:absolute;border-radius:50%;filter:blur(80px);opacity:.025}
+.orb-1{width:600px;height:600px;background:var(--accent-teal);top:-200px;left:-100px;animation:drift1 25s ease-in-out infinite alternate}
+.orb-2{width:400px;height:400px;background:var(--accent-purple);top:40%;right:-100px;animation:drift2 30s ease-in-out infinite alternate}
+.orb-3{width:300px;height:300px;background:var(--accent-amber);bottom:-100px;left:40%;animation:drift3 20s ease-in-out infinite alternate}
+@keyframes drift1{from{transform:translate(0,0) scale(1)}to{transform:translate(60px,40px) scale(1.1)}}
+@keyframes drift2{from{transform:translate(0,0) scale(1)}to{transform:translate(-40px,-60px) scale(.9)}}
+@keyframes drift3{from{transform:translate(0,0) scale(1)}to{transform:translate(30px,-30px) scale(1.05)}}
+@media(prefers-reduced-motion:reduce){.orb{animation:none}}
+/* Command palette (Enhancement 6) */
+.cmd-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);z-index:400;display:none;align-items:flex-start;justify-content:center;padding-top:20vh}
+.cmd-bg.on{display:flex}
+.cmd{background:var(--bg-elevated);border:1px solid var(--border-active);border-radius:var(--radius-lg);width:560px;max-height:400px;box-shadow:var(--shadow-md);overflow:hidden;animation:cmdIn .15s ease}
+@keyframes cmdIn{from{transform:scale(.96);opacity:0}to{transform:scale(1);opacity:1}}
+.cmd-input{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--border)}
+.cmd-input i{color:var(--text-muted);font-size:16px}
+.cmd-input input{flex:1;background:none;border:none;color:var(--text-primary);font-size:15px;font-family:var(--font-mono);outline:none}
+.cmd-list{overflow-y:auto;max-height:320px;padding:8px}
+.cmd-list::-webkit-scrollbar{width:4px}.cmd-list::-webkit-scrollbar-thumb{background:var(--border-active);border-radius:2px}
+.cmd-sec{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--text-muted);padding:8px 10px 4px}
+.cmd-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--radius-sm);cursor:pointer;transition:.1s}
+.cmd-item:hover,.cmd-item.sel{background:var(--accent-teal-dim);color:var(--accent-teal)}
+.cmd-item i{font-size:14px;width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;background:var(--bg-card)}
+.cmd-item span{flex:1;font-size:13px;font-weight:500}
+.cmd-item small{font-size:11px;color:var(--text-muted);font-family:var(--font-mono)}
+/* Shortcuts modal */
+.shortcuts-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:400;display:none;align-items:center;justify-content:center}
+.shortcuts-bg.on{display:flex}
+.shortcuts{background:var(--bg-card);border:1px solid var(--border-active);border-radius:var(--radius-lg);padding:24px;width:480px;box-shadow:var(--shadow-md)}
+.shortcuts h3{font-size:16px;font-weight:700;margin-bottom:16px}
+.sc-row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px}
+.sc-row:last-child{border:none}
+kbd{background:var(--bg-elevated);border:1px solid var(--border-active);border-radius:4px;padding:2px 6px;font-family:var(--font-mono);font-size:11px}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--bg-card);border:1px solid var(--border-active);border-radius:var(--radius-sm);padding:8px 16px;font-size:12px;z-index:500;animation:toastIn .3s ease}
+@keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%)}}
 @media(max-width:1200px){.kpi-row{grid-template-columns:repeat(2,1fr)}.row-2,.row-2e{grid-template-columns:1fr}.row-3{grid-template-columns:1fr}}
 @media(max-width:768px){.sb{display:none}.main{padding:16px}.kpi-row{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
+<!-- Background orbs (Enhancement 5) -->
+<div class="bg-orbs" aria-hidden="true"><div class="orb orb-1"></div><div class="orb orb-2"></div><div class="orb orb-3"></div></div>
 <!-- Sidebar -->
 <nav class="sb">
   <div class="sb-logo"><div class="mark">Z</div><span class="name">ZMN</span></div>
@@ -182,7 +224,7 @@ body{background:var(--bg-base);color:var(--text-primary);font-family:var(--font)
     <div><div class="sb-time" id="sydClock">--:--:-- AEDT</div></div>
     <div class="sb-user"><div class="sb-avatar">JR</div><i class="bi bi-box-arrow-right sb-logout" onclick="logout()" title="Logout"></i></div>
   </div>
-  <div class="sb-ver">v3.0.0</div>
+  <div class="sb-ver">v3.0.0 &middot; Press <kbd>?</kbd> for shortcuts</div>
 </nav>
 <!-- Main -->
 <main class="main">
@@ -191,7 +233,7 @@ body{background:var(--bg-base);color:var(--text-primary);font-family:var(--font)
   <!-- KPIs -->
   <div class="kpi-row">
     <div class="kpi"><div class="kpi-top"><span class="kpi-label">Total P/L</span><span class="kpi-icon" style="background:var(--accent-teal-dim);color:var(--accent-teal)"><i class="bi bi-graph-up-arrow"></i></span></div><div class="kpi-val" id="kPnl">--</div><div class="kpi-sub" id="kPnlUsd"></div></div>
-    <div class="kpi"><div class="kpi-top"><span class="kpi-label">Win Rate</span><span class="kpi-icon" style="background:var(--accent-amber-dim);color:var(--accent-amber)"><i class="bi bi-trophy"></i></span></div><div class="kpi-val" id="kWr">--%</div><div class="kpi-sub" id="kWrSub"></div></div>
+    <div class="kpi"><div class="kpi-top"><span class="kpi-label">Win Rate <span class="mi" data-tip="Percentage of closed trades that were profitable. All-time.">i</span></span><span class="kpi-icon" style="background:var(--accent-amber-dim);color:var(--accent-amber)"><i class="bi bi-trophy"></i></span></div><div class="kpi-val" id="kWr">--%</div><div class="kpi-sub" id="kWrSub"></div></div>
     <div class="kpi"><div class="kpi-top"><span class="kpi-label">Active Positions</span><span class="kpi-icon" style="background:var(--accent-purple-dim);color:var(--accent-purple)"><i class="bi bi-layers"></i></span></div><div class="kpi-val" id="kPos">0</div><div class="kpi-sub" id="kExp"></div></div>
     <div class="kpi"><div class="kpi-top"><span class="kpi-label">Trading Balance</span><span class="kpi-icon" style="background:var(--blue-dim);color:var(--blue)"><i class="bi bi-wallet2"></i></span></div><div class="kpi-val" id="kBal">--</div><div class="kpi-sub" id="kBalUsd"></div></div>
   </div>
@@ -203,14 +245,14 @@ body{background:var(--bg-base);color:var(--text-primary);font-family:var(--font)
     </div>
     <div style="display:flex;flex-direction:column;gap:16px">
       <div class="card" style="flex:1">
-        <div class="card-title" style="margin-bottom:12px;font-size:13px">Market Health</div>
+        <div class="card-title" style="margin-bottom:12px;font-size:13px">Market Health <span class="mi" data-tip="Composite score from DEX volume, graduation rate, SOL price, Fear & Greed. Determines position sizing.">i</span></div>
         <div class="mh-mode"><span class="pill pill-teal" id="mMode" style="font-size:13px;padding:5px 16px">NORMAL</span></div>
         <div class="mh-row"><span class="mh-label">DEX Volume 24h</span><span class="mh-val" id="mVol">--</span></div>
         <div class="mh-row"><span class="mh-label">Fear &amp; Greed</span><span class="mh-val" id="mFgi">--</span></div>
         <div class="mh-row"><span class="mh-label">Session</span><span class="mh-val" id="mSess">--</span></div>
       </div>
       <div class="card" style="flex:1">
-        <div class="card-title" style="margin-bottom:12px;font-size:13px">Treasury</div>
+        <div class="card-title" style="margin-bottom:12px;font-size:13px">Treasury <span class="mi" data-tip="When trading wallet exceeds 30 SOL, excess is swept to holding wallet automatically.">i</span></div>
         <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-muted)"><span>Trading</span><span style="font-family:var(--font-mono);color:var(--text-primary);font-weight:600" id="trBal">-- SOL</span></div>
         <div class="tr-bar"><div class="tr-fill" id="trBar" style="width:0%"></div></div>
         <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-muted);margin-top:8px"><span>Holding</span><span style="font-family:var(--font-mono);color:var(--text-primary)" id="trHold">-- SOL</span></div>
@@ -253,6 +295,30 @@ body{background:var(--bg-base);color:var(--text-primary);font-family:var(--font)
 </main>
 <!-- Emergency FAB -->
 <button class="fab" onclick="openModal()" aria-label="Emergency Stop"><i class="bi bi-stop-circle-fill"></i></button>
+<!-- Command Palette -->
+<div class="cmd-bg" id="cmdBg" onclick="if(event.target===this)closeCmd()">
+<div class="cmd"><div class="cmd-input"><i class="bi bi-search"></i><input id="cmdIn" placeholder="Search or jump to..." oninput="filterCmd(this.value)"></div>
+<div class="cmd-list" id="cmdList">
+<div class="cmd-sec">Navigation</div>
+<div class="cmd-item" onclick="go('/dashboard/dashboard.html')"><i class="bi bi-grid-1x2-fill"></i><span>Overview</span><small>G O</small></div>
+<div class="cmd-item" onclick="go('/dashboard/dashboard-analytics.html')"><i class="bi bi-activity"></i><span>Status</span><small>G S</small></div>
+<div class="cmd-item" onclick="go('/dashboard/dashboard-wallet.html')"><i class="bi bi-wallet2"></i><span>Wallet & Trades</span><small>G W</small></div>
+<div class="cmd-sec">Actions</div>
+<div class="cmd-item" onclick="load();closeCmd();showToast('Data refreshed')"><i class="bi bi-arrow-repeat"></i><span>Refresh all data</span><small>R</small></div>
+<div class="cmd-item" onclick="openModal();closeCmd()"><i class="bi bi-stop-circle"></i><span>Emergency stop...</span><small>E</small></div>
+</div></div></div>
+<!-- Shortcuts Modal -->
+<div class="shortcuts-bg" id="scBg" onclick="if(event.target===this)$('scBg').classList.remove('on')">
+<div class="shortcuts"><h3>Keyboard Shortcuts</h3>
+<div class="sc-row"><span><kbd>G</kbd> then <kbd>O</kbd></span><span>Overview</span></div>
+<div class="sc-row"><span><kbd>G</kbd> then <kbd>S</kbd></span><span>Status</span></div>
+<div class="sc-row"><span><kbd>G</kbd> then <kbd>W</kbd></span><span>Wallet</span></div>
+<div class="sc-row"><span><kbd>R</kbd></span><span>Refresh data</span></div>
+<div class="sc-row"><span><kbd>E</kbd></span><span>Emergency stop</span></div>
+<div class="sc-row"><span><kbd>Ctrl+K</kbd></span><span>Command palette</span></div>
+<div class="sc-row"><span><kbd>Esc</kbd></span><span>Close modal/panel</span></div>
+<div class="sc-row"><span><kbd>?</kbd></span><span>This dialog</span></div>
+</div></div>
 <!-- Emergency Modal -->
 <div class="modal-bg" id="modalBg">
   <div class="modal">
@@ -316,6 +382,23 @@ function openModal(){$('modalBg').classList.add('on');$('modalBar').style.width=
 function closeModal(){$('modalBg').classList.remove('on');$('modalConfirm').classList.remove('ready');$('modalBar').style.width='0'}
 function confirmStop(){aFetch('/api/emergency-stop',{method:'POST'});closeModal()}
 conn();load();setInterval(load,15000);
+// Command palette + keyboard shortcuts (Enhancements 4 & 6)
+function go(u){window.location.href=u}
+function openCmd(){$('cmdBg').classList.add('on');$('cmdIn').value='';$('cmdIn').focus();filterCmd('')}
+function closeCmd(){$('cmdBg').classList.remove('on')}
+function filterCmd(q){const items=document.querySelectorAll('.cmd-item');q=q.toLowerCase();items.forEach(i=>{i.style.display=i.textContent.toLowerCase().includes(q)?'':'none'})}
+function showToast(msg){const t=document.createElement('div');t.className='toast';t.textContent=msg;document.body.appendChild(t);setTimeout(()=>t.remove(),2000)}
+let gWait=0;
+document.addEventListener('keydown',e=>{
+if(e.target.tagName==='INPUT')return;
+if((e.ctrlKey||e.metaKey)&&e.key==='k'){e.preventDefault();openCmd();return}
+if(e.key==='Escape'){closeModal();closeCmd();$('scBg').classList.remove('on');return}
+if(e.key==='?'&&!e.ctrlKey){$('scBg').classList.add('on');return}
+if(e.key==='r'&&!e.ctrlKey){load();showToast('Refreshing...');return}
+if(e.key==='e'&&!e.ctrlKey){openModal();return}
+if(e.key==='g'){gWait=Date.now();return}
+if(Date.now()-gWait<500){if(e.key==='o')go('/dashboard/dashboard.html');if(e.key==='s')go('/dashboard/dashboard-analytics.html');if(e.key==='w')go('/dashboard/dashboard-wallet.html');gWait=0}
+});
 </script>
 </body>
 </html>

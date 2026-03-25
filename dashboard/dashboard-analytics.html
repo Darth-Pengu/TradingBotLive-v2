@@ -86,6 +86,45 @@ tr:nth-child(even) td{background:var(--bg-elevated)}
 .hc-output{background:var(--bg-base);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;font-family:var(--font-mono);font-size:12px;max-height:300px;overflow-y:auto;white-space:pre-wrap;display:none;margin-top:12px;line-height:1.6}
 .hc-output::-webkit-scrollbar{width:4px}.hc-output::-webkit-scrollbar-thumb{background:var(--border-active);border-radius:2px}
 .gov-notes{font-size:12px;color:var(--text-secondary);line-height:1.6;max-height:100px;overflow-y:auto;font-family:var(--font-mono)}
+/* Tooltips */
+.mi{position:relative;display:inline-flex;cursor:help;color:var(--text-muted);font-size:11px;margin-left:4px}
+.mi::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);background:var(--bg-elevated);border:1px solid var(--border-active);border-radius:var(--radius-sm);padding:8px 12px;font-size:12px;font-family:var(--font);color:var(--text-secondary);max-width:240px;opacity:0;pointer-events:none;transition:opacity .15s;z-index:100;white-space:normal;line-height:1.4}
+.mi:hover::after{opacity:1}
+/* Readiness checklist (Enhancement 3) */
+.checklist{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:16px 20px;margin-bottom:16px}
+.checklist-h{display:flex;justify-content:space-between;align-items:center;cursor:pointer;font-size:14px;font-weight:600}
+.checklist-h i{transition:transform .15s}
+.checklist-body{margin-top:12px}
+.checklist.collapsed .checklist-body{display:none}
+.checklist.collapsed .checklist-h i{transform:rotate(-90deg)}
+.cl-sec{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--text-muted);margin:10px 0 6px}
+.cl-item{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:13px}
+.cl-item i{font-size:14px}
+.cl-item .cl-val{margin-left:auto;font-family:var(--font-mono);font-size:12px;color:var(--text-secondary)}
+.cl-check{cursor:pointer;border:none;background:none;font-size:14px;padding:0}
+.cl-progress{height:4px;background:var(--bg-elevated);border-radius:2px;margin-top:12px;overflow:hidden}
+.cl-progress-fill{height:100%;background:var(--accent-teal);border-radius:2px;transition:width .3s}
+/* Command palette + shortcuts */
+.cmd-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);z-index:400;display:none;align-items:flex-start;justify-content:center;padding-top:20vh}
+.cmd-bg.on{display:flex}
+.cmd{background:var(--bg-elevated);border:1px solid var(--border-active);border-radius:var(--radius-lg);width:560px;max-height:400px;box-shadow:var(--shadow-md);overflow:hidden}
+.cmd-input{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--border)}
+.cmd-input i{color:var(--text-muted);font-size:16px}.cmd-input input{flex:1;background:none;border:none;color:var(--text-primary);font-size:15px;font-family:var(--font-mono);outline:none}
+.cmd-list{overflow-y:auto;max-height:320px;padding:8px}
+.cmd-sec{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--text-muted);padding:8px 10px 4px}
+.cmd-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--radius-sm);cursor:pointer;transition:.1s}
+.cmd-item:hover{background:var(--accent-teal-dim);color:var(--accent-teal)}
+.cmd-item i{font-size:14px;width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;background:var(--bg-card)}
+.cmd-item span{flex:1;font-size:13px;font-weight:500}
+.cmd-item small{font-size:11px;color:var(--text-muted);font-family:var(--font-mono)}
+.shortcuts-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:400;display:none;align-items:center;justify-content:center}
+.shortcuts-bg.on{display:flex}
+.shortcuts{background:var(--bg-card);border:1px solid var(--border-active);border-radius:var(--radius-lg);padding:24px;width:480px}
+.shortcuts h3{font-size:16px;font-weight:700;margin-bottom:16px}
+.sc-row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px}
+.sc-row:last-child{border:none}
+kbd{background:var(--bg-elevated);border:1px solid var(--border-active);border-radius:4px;padding:2px 6px;font-family:var(--font-mono);font-size:11px}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--bg-card);border:1px solid var(--border-active);border-radius:var(--radius-sm);padding:8px 16px;font-size:12px;z-index:500}
 @media(max-width:1200px){.svc-grid{grid-template-columns:repeat(auto-fill,minmax(200px,1fr))}.grid2{grid-template-columns:1fr}}
 @media(max-width:768px){.sb{display:none}.main{padding:16px}}
 </style>
@@ -106,6 +145,30 @@ tr:nth-child(even) td{background:var(--bg-elevated)}
 </nav>
 <main class="main">
   <div class="status-bar ok" id="statusBar"><span>&#9679; ALL SYSTEMS OPERATIONAL</span><button class="hc-btn" onclick="runHC()">Run Health Check</button></div>
+
+  <!-- Readiness Checklist (Enhancement 3) -->
+  <div class="checklist" id="checklist">
+    <div class="checklist-h" onclick="this.parentElement.classList.toggle('collapsed')"><span>Bot Readiness</span><i class="bi bi-chevron-down"></i></div>
+    <div class="checklist-body">
+      <div class="cl-sec">Infrastructure</div>
+      <div class="cl-item"><i class="bi bi-check-circle-fill" style="color:var(--green)"></i> APIs connected <span class="cl-val" id="clApis">--/-- operational</span></div>
+      <div class="cl-item"><i class="bi bi-check-circle-fill" id="clRedisIcon" style="color:var(--text-muted)"></i> Redis connected <span class="cl-val" id="clRedis">--</span></div>
+      <div class="cl-item"><i class="bi bi-check-circle-fill" style="color:var(--green)"></i> Discord alerts active</div>
+      <div class="cl-sec">Data</div>
+      <div class="cl-item"><i class="bi bi-check-circle-fill" style="color:var(--green)"></i> Whale wallets seeded <span class="cl-val" id="clWallets">--</span></div>
+      <div class="cl-item"><i class="bi bi-check-circle-fill" style="color:var(--green)"></i> ML model trained</div>
+      <div class="cl-item"><i class="bi bi-check-circle-fill" style="color:var(--green)"></i> Governance scheduled</div>
+      <div class="cl-sec">Paper Trading</div>
+      <div class="cl-item"><i class="bi bi-clock" style="color:var(--accent-amber)"></i> Paper trading period <span class="cl-val" id="clPaper">running</span></div>
+      <div class="cl-item"><button class="cl-check" id="clReview" onclick="toggleCheck('clReview')"><i class="bi bi-circle" style="color:var(--text-muted)"></i></button> Paper results reviewed</div>
+      <div class="cl-sec">Live Trading</div>
+      <div class="cl-item"><i class="bi bi-circle" id="clTestIcon" style="color:var(--text-muted)"></i> TEST_MODE disabled <span class="cl-val" id="clTest">--</span></div>
+      <div class="cl-item"><i class="bi bi-check-circle-fill" style="color:var(--green)" id="clFundIcon"></i> Trading wallet funded <span class="cl-val" id="clFund">--</span></div>
+      <div class="cl-item"><button class="cl-check" id="clEstop" onclick="toggleCheck('clEstop')"><i class="bi bi-circle" style="color:var(--text-muted)"></i></button> Emergency stop tested</div>
+      <div class="cl-progress"><div class="cl-progress-fill" id="clBar" style="width:50%"></div></div>
+      <div style="text-align:center;font-size:11px;color:var(--text-muted);margin-top:6px" id="clSummary">-- items remaining</div>
+    </div>
+  </div>
 
   <div class="sec-h">Execution</div>
   <div class="svc-grid">
@@ -151,7 +214,7 @@ tr:nth-child(even) td{background:var(--bg-elevated)}
       <div class="info-row"><span class="info-label">Session</span><span class="info-val" id="mSess">Asian (moderate)</span></div>
     </div>
     <div class="card">
-      <div class="card-title">ML Model Status</div>
+      <div class="card-title">ML Model Status <span class="mi" data-tip="CatBoost + LightGBM ensemble. Retrains weekly with new trade data.">i</span></div>
       <div class="info-row"><span class="info-label">Trained</span><span><span class="pill pill-green">YES</span></span></div>
       <div class="info-row"><span class="info-label">Last Trained</span><span class="info-val">2026-03-25 02:00 UTC</span></div>
       <div class="info-row"><span class="info-label">Samples</span><span class="info-val">847</span></div>
@@ -194,6 +257,9 @@ tr:nth-child(even) td{background:var(--bg-elevated)}
     <div class="hc-output" id="hcOut"></div>
   </div>
 </main>
+<!-- Command Palette + Shortcuts -->
+<div class="cmd-bg" id="cmdBg" onclick="if(event.target===this)closeCmd()"><div class="cmd"><div class="cmd-input"><i class="bi bi-search"></i><input id="cmdIn" placeholder="Search or jump to..." oninput="filterCmd(this.value)"></div><div class="cmd-list" id="cmdList"><div class="cmd-sec">Navigation</div><div class="cmd-item" onclick="go('/dashboard/dashboard.html')"><i class="bi bi-grid-1x2-fill"></i><span>Overview</span><small>G O</small></div><div class="cmd-item" onclick="go('/dashboard/dashboard-analytics.html')"><i class="bi bi-activity"></i><span>Status</span><small>G S</small></div><div class="cmd-item" onclick="go('/dashboard/dashboard-wallet.html')"><i class="bi bi-wallet2"></i><span>Wallet</span><small>G W</small></div><div class="cmd-sec">Actions</div><div class="cmd-item" onclick="runHC();closeCmd()"><i class="bi bi-shield-check"></i><span>Run health check</span></div></div></div></div>
+<div class="shortcuts-bg" id="scBg" onclick="if(event.target===this)$('scBg').classList.remove('on')"><div class="shortcuts"><h3>Keyboard Shortcuts</h3><div class="sc-row"><span><kbd>G</kbd> then <kbd>O</kbd></span><span>Overview</span></div><div class="sc-row"><span><kbd>G</kbd> then <kbd>S</kbd></span><span>Status</span></div><div class="sc-row"><span><kbd>G</kbd> then <kbd>W</kbd></span><span>Wallet</span></div><div class="sc-row"><span><kbd>Ctrl+K</kbd></span><span>Command palette</span></div><div class="sc-row"><span><kbd>?</kbd></span><span>This dialog</span></div><div class="sc-row"><span><kbd>Esc</kbd></span><span>Close</span></div></div></div>
 <script>
 const TOKEN=sessionStorage.getItem('zmn_token');
 if(!TOKEN)window.location.href='/login.html';
@@ -206,10 +272,23 @@ async function runHC(){const b=$('hcBtn'),o=$('hcOut');b.textContent='Running...
 try{const r=await aFetch('/api/trigger-health-check',{method:'POST'});const d=await r.json();if(d.output)o.textContent=d.output}catch(e){o.textContent='Error: '+e.message}
 b.textContent='Run Full Health Check';b.style.opacity='1'}
 async function loadGov(){try{const r=await aFetch('/api/governance');const d=await r.json();if(d.pending_whale_review)$('govPend').innerHTML='<span class="pill pill-amber">PENDING REVIEW</span>';if(d.notes)$('govNotes').textContent=d.notes.slice(-300)}catch(e){}}
-async function loadRedis(){try{const r=await aFetch('/api/status');const d=await r.json();if(d._redis_connected){$('redisDot').className='svc-dot ok';$('redisDetail').textContent='connected';$('redisMs').textContent=(d._redis_ping_ms||0)+'ms'}else{$('redisDot').className='svc-dot warn';$('redisDetail').textContent=(d._redis_error||'not connected').substring(0,40)}}catch(e){}}
+async function loadRedis(){try{const r=await aFetch('/api/status');const d=await r.json();
+if(d._redis_connected){$('redisDot').className='svc-dot ok';$('redisDetail').textContent='connected';$('redisMs').textContent=(d._redis_ping_ms||0)+'ms';$('clRedisIcon').style.color='var(--green)';$('clRedis').textContent='connected'}
+else{$('redisDot').className='svc-dot warn';$('redisDetail').textContent=(d._redis_error||'').substring(0,40);$('clRedis').textContent='not connected'}
+}catch(e){}}
+// Checklist manual items (localStorage)
+function toggleCheck(id){const el=$(id);const key='cl_'+id;const done=localStorage.getItem(key)==='1';localStorage.setItem(key,done?'0':'1');el.querySelector('i').className=done?'bi bi-circle':'bi bi-check-circle-fill';el.querySelector('i').style.color=done?'var(--text-muted)':'var(--green)'}
+['clReview','clEstop'].forEach(id=>{if(localStorage.getItem('cl_'+id)==='1'){const el=$(id);el.querySelector('i').className='bi bi-check-circle-fill';el.querySelector('i').style.color='var(--green)'}});
 // WS
 let ws;function conn(){ws=new WebSocket((location.protocol==='https:'?'wss':'ws')+'://'+location.host+'/ws');ws.onopen=()=>{ws.send(JSON.stringify({token:TOKEN}))};ws.onclose=()=>setTimeout(conn,3000);ws.onmessage=e=>{try{const d=JSON.parse(e.data);if(d._type==='health_check_line'){$('hcOut').style.display='block';$('hcOut').textContent+=d.line+'\n';$('hcOut').scrollTop=$('hcOut').scrollHeight}if(d._type==='health_check_done'){$('hcBtn').textContent='Run Full Health Check';$('hcBtn').style.opacity='1'}}catch(x){}}}
 conn();loadGov();loadRedis();
+// Keyboard shortcuts + command palette
+function go(u){window.location.href=u}
+function openCmd(){$('cmdBg').classList.add('on');$('cmdIn').value='';$('cmdIn').focus();filterCmd('')}
+function closeCmd(){$('cmdBg').classList.remove('on')}
+function filterCmd(q){document.querySelectorAll('.cmd-item').forEach(i=>{i.style.display=i.textContent.toLowerCase().includes(q.toLowerCase())?'':'none'})}
+let gWait=0;
+document.addEventListener('keydown',e=>{if(e.target.tagName==='INPUT')return;if((e.ctrlKey||e.metaKey)&&e.key==='k'){e.preventDefault();openCmd();return}if(e.key==='Escape'){closeCmd();$('scBg').classList.remove('on');return}if(e.key==='?'){$('scBg').classList.add('on');return}if(e.key==='g'){gWait=Date.now();return}if(Date.now()-gWait<500){if(e.key==='o')go('/dashboard/dashboard.html');if(e.key==='s')go('/dashboard/dashboard-analytics.html');if(e.key==='w')go('/dashboard/dashboard-wallet.html');gWait=0}});
 </script>
 </body>
 </html>
