@@ -50,6 +50,10 @@ from services.risk_manager import (
     DAILY_LOSS_LIMIT_SOL,
 )
 
+# Paper trading (imported conditionally to avoid circular imports at module level)
+if TEST_MODE:
+    from services.paper_trader import paper_buy, paper_sell
+
 # --- Exit strategies per personality (Section 3) ---
 EXIT_STRATEGIES = {
     "speed_demon": {
@@ -286,45 +290,100 @@ class BotCore:
         )
 
         # Execute trade
-        logger.info("ENTERING: %s %s %.4f SOL (ML=%.1f, mode=%s)",
-                     personality, mint[:12], size_sol, ml_score, market_mode)
+        logger.info("ENTERING: %s %s %.4f SOL (ML=%.1f, mode=%s)%s",
+                     personality, mint[:12], size_sol, ml_score, market_mode,
+                     " [PAPER]" if TEST_MODE else "")
 
-        result = await execute_trade("buy", token, size_sol, slippage_tier=slippage_tier)
-
-        if result.success:
-            price = await self._get_token_price(mint)
-            pos = Position(
-                mint=mint,
-                personality=personality,
-                entry_price=price,
-                entry_time=time.time(),
-                size_sol=size_sol,
-                peak_price=price,
+        if TEST_MODE:
+            # Paper trading: simulate execution, real everything else
+            signal_source = scored_signal.get("signal", {}).get("source", "unknown")
+            fgi = scored_signal.get("features", {}).get("cfgi_score", 50)
+            paper_result = await paper_buy(
+                self.db, self.redis, mint, size_sol, personality,
+                slippage_tier=slippage_tier, pool=token.pool,
+                ml_score=ml_score, signal_source=signal_source,
+                market_mode=market_mode, fear_greed=fgi,
             )
-
-            # Log trade to DB
-            cursor = await self.db.execute(
-                """INSERT INTO trades (mint, personality, action, amount_sol, entry_price,
-                   features_json, ml_score, signal_sources, created_at)
-                   VALUES (?, ?, 'buy', ?, ?, ?, ?, ?, ?)""",
-                (mint, personality, size_sol, price, json.dumps(features), ml_score,
-                 json.dumps(scored_signal.get("sources", [])), time.time()),
-            )
-            await self.db.commit()
-            pos.trade_id = cursor.lastrowid
-
-            key = f"{personality}:{mint}"
-            self.positions[key] = pos
-            logger.info("ENTERED: %s %s @ $%.8f, %.4f SOL (tx: %s)",
-                         personality, mint[:12], price, size_sol, result.signature)
+            if paper_result["success"]:
+                pos = Position(
+                    mint=mint, personality=personality,
+                    entry_price=paper_result["entry_price"],
+                    entry_time=time.time(),
+                    size_sol=paper_result["amount_sol"],
+                    peak_price=paper_result["entry_price"],
+                    trade_id=paper_result["trade_id"],
+                )
+                key = f"{personality}:{mint}"
+                self.positions[key] = pos
+                logger.info("PAPER ENTERED: %s %s @ $%.8f, %.4f SOL (sig: %s)",
+                             personality, mint[:12], paper_result["entry_price"],
+                             paper_result["amount_sol"], paper_result["signature"])
         else:
-            logger.warning("ENTRY FAILED: %s %s — %s", personality, mint[:12], result.error)
+            result = await execute_trade("buy", token, size_sol, slippage_tier=slippage_tier)
+
+            if result.success:
+                price = await self._get_token_price(mint)
+                pos = Position(
+                    mint=mint, personality=personality,
+                    entry_price=price, entry_time=time.time(),
+                    size_sol=size_sol, peak_price=price,
+                )
+                cursor = await self.db.execute(
+                    """INSERT INTO trades (mint, personality, action, amount_sol, entry_price,
+                       features_json, ml_score, signal_sources, created_at)
+                       VALUES (?, ?, 'buy', ?, ?, ?, ?, ?, ?)""",
+                    (mint, personality, size_sol, price, json.dumps(features), ml_score,
+                     json.dumps(scored_signal.get("sources", [])), time.time()),
+                )
+                await self.db.commit()
+                pos.trade_id = cursor.lastrowid
+                key = f"{personality}:{mint}"
+                self.positions[key] = pos
+                logger.info("ENTERED: %s %s @ $%.8f, %.4f SOL (tx: %s)",
+                             personality, mint[:12], price, size_sol, result.signature)
+            else:
+                logger.warning("ENTRY FAILED: %s %s -- %s", personality, mint[:12], result.error)
 
     # --- EXIT MONITORING ---
     async def _close_position(self, pos: Position, reason: str, sell_pct: float = 1.0):
         """Close (partial or full) a position."""
         sell_amount = pos.size_sol * pos.remaining_pct * sell_pct
         if sell_amount < 0.001:
+            return
+
+        if TEST_MODE:
+            # Paper trading: simulate exit
+            paper_result = await paper_sell(
+                self.db, self.redis, pos.mint, sell_pct, reason, pos.personality,
+                trade_id=pos.trade_id, entry_price=pos.entry_price,
+                entry_time=pos.entry_time, amount_sol=pos.size_sol * pos.remaining_pct,
+            )
+            pos.remaining_pct *= (1 - sell_pct)
+            if pos.remaining_pct <= 0.01:
+                pnl_sol = paper_result.get("pnl_sol", 0)
+                pnl_pct = paper_result.get("pnl_pct", 0)
+                outcome = paper_result.get("outcome", "loss")
+                self.portfolio.daily_pnl_sol += pnl_sol
+                self.portfolio.total_balance_sol += pnl_sol
+                if outcome == "loss":
+                    self.portfolio.consecutive_losses[pos.personality] = \
+                        self.portfolio.consecutive_losses.get(pos.personality, 0) + 1
+                else:
+                    self.portfolio.consecutive_losses[pos.personality] = 0
+                key = f"{pos.personality}:{pos.mint}"
+                self.positions.pop(key, None)
+                logger.info("PAPER CLOSED: %s %s -- %s %.4f SOL (%.1f%%) reason=%s",
+                             pos.personality, pos.mint[:12], outcome, pnl_sol, pnl_pct, reason)
+                if outcome == "loss" and self.portfolio.consecutive_losses.get(pos.personality, 0) >= 3:
+                    if self.redis:
+                        await self.redis.publish("streak:loss", json.dumps({
+                            "personality": pos.personality,
+                            "consecutive_losses": self.portfolio.consecutive_losses[pos.personality],
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        }))
+            else:
+                logger.info("PAPER PARTIAL: %s %s %.0f%% (reason=%s, remaining=%.0f%%)",
+                             pos.personality, pos.mint[:12], sell_pct*100, reason, pos.remaining_pct*100)
             return
 
         token = Token(mint=pos.mint)
@@ -334,7 +393,6 @@ class BotCore:
         current_price = await self._get_token_price(pos.mint)
 
         if pos.remaining_pct <= 0.01:
-            # Position fully closed
             pnl_pct = ((current_price - pos.entry_price) / pos.entry_price * 100) if pos.entry_price > 0 else 0
             pnl_sol = sell_amount * (pnl_pct / 100)
             outcome = "profit" if pnl_sol > 0 else "loss"
@@ -342,14 +400,12 @@ class BotCore:
             self.portfolio.daily_pnl_sol += pnl_sol
             self.portfolio.total_balance_sol += pnl_sol
 
-            # Update consecutive losses
             if outcome == "loss":
                 self.portfolio.consecutive_losses[pos.personality] = \
                     self.portfolio.consecutive_losses.get(pos.personality, 0) + 1
             else:
                 self.portfolio.consecutive_losses[pos.personality] = 0
 
-            # Update DB
             await self.db.execute(
                 """UPDATE trades SET exit_price=?, pnl_sol=?, pnl_pct=?, outcome=?, closed_at=?
                    WHERE id=?""",
@@ -360,7 +416,7 @@ class BotCore:
             key = f"{pos.personality}:{pos.mint}"
             self.positions.pop(key, None)
 
-            logger.info("CLOSED: %s %s — %s %.4f SOL (%.1f%%) reason=%s",
+            logger.info("CLOSED: %s %s -- %s %.4f SOL (%.1f%%) reason=%s",
                          pos.personality, pos.mint[:12], outcome, pnl_sol, pnl_pct, reason)
 
             # Publish loss streak event for governance
