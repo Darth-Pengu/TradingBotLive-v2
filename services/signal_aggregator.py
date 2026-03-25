@@ -33,10 +33,14 @@ logger = logging.getLogger("signal_aggregator")
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 TEST_MODE = os.getenv("TEST_MODE", "true").lower() == "true"
-RUGCHECK_API_KEY = os.getenv("RUGCHECK_API_KEY", "")  # Not needed for summary endpoint (public), but required for bulk/full report
 VYBE_API_KEY = os.getenv("VYBE_API_KEY", "")
+HELIUS_API_KEY = os.getenv("HELIUS_API_KEY", "")
 HELIUS_RPC_URL = os.getenv("HELIUS_RPC_URL", "")
-SOLANAFM_API_KEY = os.getenv("SOLANAFM_API_KEY", "")
+NANSEN_API_KEY = os.getenv("NANSEN_API_KEY", "")
+
+# Nansen smart money confidence boost
+NANSEN_SM_CONFIDENCE_BOOST = 20  # +20 confidence if any smart money bought
+NANSEN_SM_MAX_CONFIDENCE = 3     # 3+ smart money wallets = max confidence
 
 # --- Deduplication ---
 DEDUP_WINDOW_SECONDS = 60
@@ -68,10 +72,10 @@ ANALYST_FILTERS = {
 }
 
 # --- Rugcheck ---
-# /v1/tokens/{id}/report/summary is public (no auth required)
-# Response: {score, score_normalised, risks[], lpLockedPct, tokenType, tokenProgram}
+# /v1/tokens/{mint}/report is public (no auth required)
+# Response includes: {score, risks[], tokenMeta, markets[], lpLockedPct, ...}
 # risks[]: [{name, level, description, score, value}, ...]
-RUGCHECK_SUMMARY_URL = "https://api.rugcheck.xyz/v1/tokens/{mint}/report/summary"
+RUGCHECK_REPORT_URL = "https://api.rugcheck.xyz/v1/tokens/{mint}/report"
 
 # Score thresholds — Rugcheck score is 0-100 where HIGHER = MORE RISK
 # (opposite of a "safety score")
@@ -87,11 +91,11 @@ ML_THRESHOLDS = {
 
 async def _fetch_rugcheck(session: aiohttp.ClientSession, mint: str) -> dict:
     """
-    Fetch token safety report summary from Rugcheck.
-    The summary endpoint is public — no auth needed.
-    Returns: {score, score_normalised, risks[], lpLockedPct, tokenType, tokenProgram}
+    Fetch token safety report from Rugcheck.
+    The report endpoint is public — no auth needed.
+    Returns: {score, risks[], tokenMeta, markets[], lpLockedPct, ...}
     """
-    url = RUGCHECK_SUMMARY_URL.format(mint=mint)
+    url = RUGCHECK_REPORT_URL.format(mint=mint)
     try:
         async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
             if resp.status == 200:
@@ -120,13 +124,12 @@ async def _fetch_rugcheck(session: aiohttp.ClientSession, mint: str) -> dict:
     return {}
 
 
-async def _fetch_token_details(session: aiohttp.ClientSession, mint: str) -> dict:
+async def _fetch_token_details(session: aiohttp.ClientSession, mint: str, redis_conn: aioredis.Redis | None = None) -> dict:
     """
     Fetch additional token details from free APIs:
     - Helius getTokenLargestAccounts → holder concentration
     - GeckoTerminal pool data → DEX volume, liquidity
-    - Vybe Network → creator wallet history
-    - SolanaFM → historical transaction lookups
+    - Vybe Network + Helius Enhanced Transactions → creator wallet history
     """
     details = {}
 
@@ -134,7 +137,7 @@ async def _fetch_token_details(session: aiohttp.ClientSession, mint: str) -> dic
     results = await asyncio.gather(
         _fetch_holder_data(session, mint),
         _fetch_gecko_pool_data(session, mint),
-        _fetch_creator_history(session, mint),
+        _fetch_creator_history(session, mint, redis_conn),
         return_exceptions=True,
     )
 
@@ -206,11 +209,12 @@ async def _fetch_gecko_pool_data(session: aiohttp.ClientSession, mint: str) -> d
     return {}
 
 
-async def _fetch_creator_history(session: aiohttp.ClientSession, mint: str) -> dict:
-    """Fetch creator wallet history via Vybe Network or SolanaFM."""
+async def _fetch_creator_history(session: aiohttp.ClientSession, mint: str, redis_conn: aioredis.Redis | None = None) -> dict:
+    """Fetch creator wallet history via Vybe Network + Helius Enhanced Transactions API."""
     details = {}
 
-    # Try Vybe Network for creator/wallet data
+    # Step 1: Get creator address from Vybe Network
+    creator = ""
     if VYBE_API_KEY:
         try:
             url = f"https://api.vybenetwork.xyz/token/{mint}"
@@ -218,26 +222,107 @@ async def _fetch_creator_history(session: aiohttp.ClientSession, mint: str) -> d
             async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    details["creator_address"] = data.get("creator", "")
-                    details["creator_token_count"] = data.get("creatorTokenCount", 0)
+                    creator = data.get("creator", "")
+                    details["creator_address"] = creator
         except Exception as e:
             logger.debug("Vybe error for %s: %s", mint[:12], e)
 
-    # Try SolanaFM for transaction history if we have a creator address
-    creator = details.get("creator_address", "")
-    if creator and SOLANAFM_API_KEY:
+    if not creator or not HELIUS_API_KEY:
+        return details
+
+    # Step 2: Check Redis cache for creator history (24hr TTL)
+    cache_key = f"creator_history:{creator}"
+    if redis_conn:
         try:
-            url = f"https://api.solana.fm/v0/accounts/{creator}/transactions"
-            headers = {"ApiKey": SOLANAFM_API_KEY}
-            async with session.get(url, headers=headers, params={"limit": 50},
-                                   timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    txs = data.get("result", data.get("data", []))
-                    if isinstance(txs, list):
-                        details["creator_tx_count_recent"] = len(txs)
-        except Exception as e:
-            logger.debug("SolanaFM error for %s: %s", mint[:12], e)
+            cached = await redis_conn.get(cache_key)
+            if cached:
+                cached_data = json.loads(cached)
+                details.update(cached_data)
+                logger.debug("Creator history cache hit for %s", creator[:12])
+                return details
+        except Exception:
+            pass
+
+    # Step 3: Fetch token creation transactions from Helius Enhanced Transactions API
+    try:
+        url = f"https://api.helius.xyz/v0/addresses/{creator}/transactions"
+        params = {
+            "api-key": HELIUS_API_KEY,
+            "type": "CREATE_ACCOUNT",
+            "limit": 50,
+        }
+        async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+            if resp.status != 200:
+                logger.debug("Helius creator history HTTP %d for %s", resp.status, creator[:12])
+                return details
+
+            txs = await resp.json()
+            if not isinstance(txs, list):
+                return details
+
+            # Extract token mints from creation transactions
+            created_mints = []
+            for tx in txs:
+                # Helius enhanced tx format: tokenTransfers[] contains mint addresses
+                token_transfers = tx.get("tokenTransfers", [])
+                for transfer in token_transfers:
+                    token_mint = transfer.get("mint", "")
+                    if token_mint and token_mint != mint:
+                        created_mints.append(token_mint)
+
+                # Also check account data for created token accounts
+                account_data = tx.get("accountData", [])
+                for acc in account_data:
+                    if acc.get("tokenBalanceChanges"):
+                        for change in acc["tokenBalanceChanges"]:
+                            token_mint = change.get("mint", "")
+                            if token_mint and token_mint != mint:
+                                created_mints.append(token_mint)
+
+            # Deduplicate
+            created_mints = list(set(created_mints))
+            prev_token_count = len(created_mints)
+            details["creator_prev_tokens_count"] = prev_token_count
+
+            # Step 4: Check previous tokens against Rugcheck for rug history
+            rug_count = 0
+            graduated_count = 0
+            if created_mints:
+                # Check up to 10 previous tokens to avoid rate limiting
+                check_mints = created_mints[:10]
+                rugcheck_tasks = [_fetch_rugcheck(session, m) for m in check_mints]
+                rugcheck_results = await asyncio.gather(*rugcheck_tasks, return_exceptions=True)
+
+                for rc_result in rugcheck_results:
+                    if isinstance(rc_result, dict) and rc_result:
+                        if rc_result.get("has_danger"):
+                            rug_count += 1
+                        # Token type indicates graduation status
+                        if rc_result.get("token_type") in ("graduated", "raydium", "orca", "meteora"):
+                            graduated_count += 1
+
+            details["creator_rug_count"] = rug_count
+            details["creator_graduation_rate"] = round(graduated_count / prev_token_count, 2) if prev_token_count > 0 else 0.0
+
+            logger.info("Creator %s: %d prev tokens, %d rugs, %.0f%% graduation rate",
+                         creator[:12], prev_token_count, rug_count,
+                         details["creator_graduation_rate"] * 100)
+
+    except Exception as e:
+        logger.debug("Helius creator history error for %s: %s", creator[:12], e)
+        return details
+
+    # Step 5: Cache results in Redis with 24hr TTL
+    creator_cache = {
+        "creator_prev_tokens_count": details.get("creator_prev_tokens_count", 0),
+        "creator_rug_count": details.get("creator_rug_count", 0),
+        "creator_graduation_rate": details.get("creator_graduation_rate", 0.0),
+    }
+    if redis_conn:
+        try:
+            await redis_conn.set(cache_key, json.dumps(creator_cache), ex=86400)
+        except Exception:
+            pass
 
     return details
 
@@ -444,7 +529,7 @@ async def _process_signals(redis_conn: aioredis.Redis):
                 # --- Enrich with Rugcheck + token details (concurrent) ---
                 rugcheck, token_details = await asyncio.gather(
                     _fetch_rugcheck(session, mint),
-                    _fetch_token_details(session, mint),
+                    _fetch_token_details(session, mint, redis_conn),
                 )
 
                 # --- Classify target personalities ---
@@ -471,7 +556,9 @@ async def _process_signals(redis_conn: aioredis.Redis):
                     "bundled_supply_pct": float(raw.get("bundled_supply_pct", 0)),
                     "bot_transaction_ratio": float(raw.get("bot_transaction_ratio", 0)),
                     "fresh_wallet_ratio": float(raw.get("fresh_wallet_ratio", 0)),
-                    "creator_dead_tokens_30d": int(raw.get("creator_dead_tokens_30d", 0)),
+                    "creator_prev_tokens_count": int(token_details.get("creator_prev_tokens_count", raw.get("creator_prev_tokens_count", 0))),
+                    "creator_rug_count": int(token_details.get("creator_rug_count", raw.get("creator_rug_count", 0))),
+                    "creator_graduation_rate": float(token_details.get("creator_graduation_rate", raw.get("creator_graduation_rate", 0))),
                     "token_age_seconds": float(signal.get("age_seconds", 0)),
                     "market_cap_usd": float(raw.get("market_cap_usd", raw.get("usdMarketCap", 0))),
                     "volume_24h_usd": float(token_details.get("volume_24h_usd", raw.get("volume_24h_usd", 0))),
@@ -528,12 +615,35 @@ async def _process_signals(redis_conn: aioredis.Redis):
                         logger.debug("Analyst needs 2+ sources for %s (has %d)", mint[:12], len(_seen_tokens[mint]["sources"]))
                         continue
 
+                    # --- Nansen smart money confirmation (Analyst + Whale Tracker only) ---
+                    # Speed Demon skips this — latency is critical for 30-sec alpha snipes
+                    nansen_sm_count = 0
+                    if personality in ("analyst", "whale_tracker") and NANSEN_API_KEY:
+                        try:
+                            from services.nansen_client import get_smart_money_buyers
+                            sm_data = await get_smart_money_buyers(session, mint, hours_back=1, redis_conn=redis_conn)
+                            if sm_data:
+                                buyers = sm_data.get("data", sm_data.get("result", []))
+                                if isinstance(buyers, list):
+                                    nansen_sm_count = len(buyers)
+                                    if nansen_sm_count > 0:
+                                        confidence += NANSEN_SM_CONFIDENCE_BOOST
+                                        logger.info("Nansen: %d smart money buyers for %s (+%d confidence)",
+                                                     nansen_sm_count, mint[:12], NANSEN_SM_CONFIDENCE_BOOST)
+                                    if nansen_sm_count >= NANSEN_SM_MAX_CONFIDENCE:
+                                        confidence = 100  # Max confidence
+                                        logger.info("Nansen: %d+ smart money → MAX CONFIDENCE for %s",
+                                                     nansen_sm_count, mint[:12])
+                        except Exception as e:
+                            logger.debug("Nansen SM check failed for %s: %s", mint[:12], e)
+
                     # --- SIGNAL PASSED ALL GATES ---
                     scored_signal = {
                         "mint": mint,
                         "personality": personality,
                         "ml_score": ml_score,
                         "confidence": confidence,
+                        "nansen_smart_money_count": nansen_sm_count,
                         "market_mode": market_mode,
                         "features": features,
                         "rugcheck": rugcheck,
