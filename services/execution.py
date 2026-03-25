@@ -411,6 +411,32 @@ async def _confirm_trade_helius(session: aiohttp.ClientSession, signature: str) 
 
 
 # ---------------------------------------------------------------------------
+# Token balance helper (for Jupiter sells)
+# ---------------------------------------------------------------------------
+async def _get_token_balance(session: aiohttp.ClientSession, mint: str, wallet: str) -> int:
+    """Get token balance in raw units via Helius RPC getTokenAccountsByOwner."""
+    for rpc_url in (HELIUS_RPC_URL, HELIUS_GATEKEEPER_URL):
+        if not rpc_url:
+            continue
+        try:
+            payload = {
+                "jsonrpc": "2.0", "id": 1,
+                "method": "getTokenAccountsByOwner",
+                "params": [wallet, {"mint": mint}, {"encoding": "jsonParsed"}],
+            }
+            async with session.post(rpc_url, json=payload, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                data = await resp.json()
+                accounts = data.get("result", {}).get("value", [])
+                if accounts:
+                    info = accounts[0].get("account", {}).get("data", {}).get("parsed", {}).get("info", {})
+                    amount = info.get("tokenAmount", {}).get("amount", "0")
+                    return int(amount)
+        except Exception as e:
+            logger.debug("Token balance fetch failed on %s: %s", rpc_url[:30], e)
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # High-level execution with retry
 # ---------------------------------------------------------------------------
 async def execute_trade(
@@ -453,11 +479,14 @@ async def execute_trade(
                         skip_preflight=skip_preflight,
                     )
                 else:
-                    # For sells, amount_sol represents the token amount to sell
-                    # Caller should pass token amount in lamports-equivalent
-                    amount_lamports = int(amount_sol * LAMPORTS_PER_SOL)
+                    # For sells: fetch actual token balance from wallet
+                    # amount_sol is the SOL value but Jupiter needs token units
+                    async with aiohttp.ClientSession() as bal_session:
+                        token_amount = await _get_token_balance(bal_session, token.mint, TRADING_WALLET_ADDRESS)
+                    if token_amount <= 0:
+                        raise ExecutionError(f"No token balance found for {token.mint[:12]}")
                     signature = await _execute_jupiter_with_session(
-                        token.mint, SOL_MINT, amount_lamports, slippage_bps,
+                        token.mint, SOL_MINT, token_amount, slippage_bps,
                         skip_preflight=skip_preflight,
                     )
 

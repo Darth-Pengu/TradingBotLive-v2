@@ -194,21 +194,31 @@ class BotCore:
 
     async def _get_token_price(self, mint: str) -> float:
         """Get current token price via Jupiter."""
+        prices = await self._get_token_prices_batch([mint])
+        return prices.get(mint, 0.0)
+
+    async def _get_token_prices_batch(self, mints: list[str]) -> dict[str, float]:
+        """Batch-fetch token prices via Jupiter. Returns {mint: price}."""
+        if not mints:
+            return {}
         try:
+            ids = ",".join(set(mints))
             async with aiohttp.ClientSession() as session:
                 async with session.get(
                     "https://api.jup.ag/price/v2",
-                    params={"ids": mint},
+                    params={"ids": ids},
                     timeout=aiohttp.ClientTimeout(total=10),
                 ) as resp:
                     if resp.status == 200:
                         data = await resp.json()
-                        price = data.get("data", {}).get(mint, {}).get("price")
-                        if price:
-                            return float(price)
+                        result = {}
+                        for mint in mints:
+                            p = data.get("data", {}).get(mint, {}).get("price")
+                            result[mint] = float(p) if p else 0.0
+                        return result
         except Exception:
             pass
-        return 0.0
+        return {m: 0.0 for m in mints}
 
     # --- EMERGENCY STOP ---
     async def emergency_stop(self, reason: str):
@@ -439,9 +449,13 @@ class BotCore:
                 await asyncio.sleep(5)
                 continue
 
+            # Batch-fetch all position prices in one API call
+            open_mints = [pos.mint for pos in self.positions.values()]
+            prices = await self._get_token_prices_batch(open_mints) if open_mints else {}
+
             for key, pos in list(self.positions.items()):
                 try:
-                    current_price = await self._get_token_price(pos.mint)
+                    current_price = prices.get(pos.mint, 0.0)
                     if current_price <= 0:
                         continue
 

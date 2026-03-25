@@ -359,14 +359,14 @@ async def main():
     await model.train(db)
     await db.close()
 
+    # Connect Redis always — ML scoring is read-only, needed for paper trading too
     redis_conn = None
-    if not TEST_MODE:
-        try:
-            redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True)
-            await redis_conn.ping()
-            logger.info("Redis connected")
-        except Exception as e:
-            logger.warning("Redis connection failed: %s", e)
+    try:
+        redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True)
+        await redis_conn.ping()
+        logger.info("Redis connected")
+    except Exception as e:
+        logger.warning("Redis connection failed: %s -- scoring disabled", e)
 
     await asyncio.gather(
         _scoring_listener(model, redis_conn),
