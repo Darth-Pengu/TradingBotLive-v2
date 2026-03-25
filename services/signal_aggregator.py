@@ -34,8 +34,10 @@ logger = logging.getLogger("signal_aggregator")
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 TEST_MODE = os.getenv("TEST_MODE", "true").lower() == "true"
 VYBE_API_KEY = os.getenv("VYBE_API_KEY", "")
-HELIUS_API_KEY = os.getenv("HELIUS_API_KEY", "")
 HELIUS_RPC_URL = os.getenv("HELIUS_RPC_URL", "")
+HELIUS_PARSE_TX_URL = os.getenv("HELIUS_PARSE_TX_URL", "")
+HELIUS_PARSE_HISTORY_URL = os.getenv("HELIUS_PARSE_HISTORY_URL", "")
+HELIUS_GATEKEEPER_URL = os.getenv("HELIUS_GATEKEEPER_URL", "")
 NANSEN_API_KEY = os.getenv("NANSEN_API_KEY", "")
 
 # Nansen smart money confidence boost
@@ -149,35 +151,35 @@ async def _fetch_token_details(session: aiohttp.ClientSession, mint: str, redis_
 
 
 async def _fetch_holder_data(session: aiohttp.ClientSession, mint: str) -> dict:
-    """Fetch top holder data via Helius getTokenLargestAccounts."""
-    if not HELIUS_RPC_URL:
-        return {}
-    try:
-        payload = {
-            "jsonrpc": "2.0", "id": 1,
-            "method": "getTokenLargestAccounts",
-            "params": [mint],
-        }
-        async with session.post(HELIUS_RPC_URL, json=payload, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-            if resp.status != 200:
-                return {}
-            data = await resp.json()
-            accounts = data.get("result", {}).get("value", [])
-            if not accounts:
-                return {}
+    """Fetch top holder data via Helius getTokenLargestAccounts (RPC, gatekeeper fallback)."""
+    payload = {
+        "jsonrpc": "2.0", "id": 1,
+        "method": "getTokenLargestAccounts",
+        "params": [mint],
+    }
+    for rpc_url in (HELIUS_RPC_URL, HELIUS_GATEKEEPER_URL):
+        if not rpc_url:
+            continue
+        try:
+            async with session.post(rpc_url, json=payload, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                if resp.status != 200:
+                    continue
+                data = await resp.json()
+                accounts = data.get("result", {}).get("value", [])
+                if not accounts:
+                    return {}
 
-            # Calculate holder concentration — top 10 holders as % of total
-            amounts = [float(a.get("uiAmount", 0) or 0) for a in accounts[:20]]
-            total_supply_sample = sum(amounts)
-            top10_sum = sum(amounts[:10])
-            top10_pct = (top10_sum / total_supply_sample * 100) if total_supply_sample > 0 else 0
+                amounts = [float(a.get("uiAmount", 0) or 0) for a in accounts[:20]]
+                total_supply_sample = sum(amounts)
+                top10_sum = sum(amounts[:10])
+                top10_pct = (top10_sum / total_supply_sample * 100) if total_supply_sample > 0 else 0
 
-            return {
-                "holder_count_sample": len(accounts),
-                "top10_holder_pct": round(top10_pct, 1),
-            }
-    except Exception as e:
-        logger.debug("Helius holder data error for %s: %s", mint[:12], e)
+                return {
+                    "holder_count_sample": len(accounts),
+                    "top10_holder_pct": round(top10_pct, 1),
+                }
+        except Exception as e:
+            logger.debug("Helius holder data error for %s on %s: %s", mint[:12], rpc_url[:40], e)
     return {}
 
 
@@ -227,7 +229,7 @@ async def _fetch_creator_history(session: aiohttp.ClientSession, mint: str, redi
         except Exception as e:
             logger.debug("Vybe error for %s: %s", mint[:12], e)
 
-    if not creator or not HELIUS_API_KEY:
+    if not creator or not HELIUS_PARSE_HISTORY_URL:
         return details
 
     # Step 2: Check Redis cache for creator history (24hr TTL)
@@ -245,9 +247,8 @@ async def _fetch_creator_history(session: aiohttp.ClientSession, mint: str, redi
 
     # Step 3: Fetch token creation transactions from Helius Enhanced Transactions API
     try:
-        url = f"https://api.helius.xyz/v0/addresses/{creator}/transactions"
+        url = HELIUS_PARSE_HISTORY_URL.replace("{address}", creator)
         params = {
-            "api-key": HELIUS_API_KEY,
             "type": "CREATE_ACCOUNT",
             "limit": 50,
         }
@@ -333,13 +334,13 @@ async def _check_dev_wallet_sells(session: aiohttp.ClientSession, dev_wallet: st
     Helius Enhanced Transactions API (SWAP type filter).
     Falls back to raw_data fields if Helius unavailable.
     """
-    if not dev_wallet or not HELIUS_API_KEY:
+    if not dev_wallet or not HELIUS_PARSE_HISTORY_URL:
         return {}
 
     t0 = time.time()
     try:
-        url = f"https://api.helius.xyz/v0/addresses/{dev_wallet}/transactions"
-        params = {"api-key": HELIUS_API_KEY, "limit": 20, "type": "SWAP"}
+        url = HELIUS_PARSE_HISTORY_URL.replace("{address}", dev_wallet)
+        params = {"limit": 20, "type": "SWAP"}
         async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=10)) as resp:
             elapsed_ms = (time.time() - t0) * 1000
             logger.debug("Helius dev sell check %s: %.0fms (HTTP %d)", dev_wallet[:12], elapsed_ms, resp.status)
@@ -395,7 +396,7 @@ async def _check_bundle_detection(session: aiohttp.ClientSession, tx_signatures:
     in the same slot from fresh wallets.
     Falls back to raw_data bundle_detected field if Helius unavailable.
     """
-    if not tx_signatures or not HELIUS_API_KEY:
+    if not tx_signatures or not HELIUS_PARSE_TX_URL:
         return {}
 
     # Limit to 20 signatures per request
@@ -403,7 +404,7 @@ async def _check_bundle_detection(session: aiohttp.ClientSession, tx_signatures:
 
     t0 = time.time()
     try:
-        url = f"https://api.helius.xyz/v0/transactions?api-key={HELIUS_API_KEY}"
+        url = HELIUS_PARSE_TX_URL
         payload = {"transactions": sigs}
         async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=15)) as resp:
             elapsed_ms = (time.time() - t0) * 1000

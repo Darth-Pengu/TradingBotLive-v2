@@ -30,7 +30,7 @@ logger = logging.getLogger("market_health")
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 TEST_MODE = os.getenv("TEST_MODE", "true").lower() == "true"
 HELIUS_RPC_URL = os.getenv("HELIUS_RPC_URL", "")
-HELIUS_API_KEY = os.getenv("HELIUS_API_KEY", "")
+HELIUS_GATEKEEPER_URL = os.getenv("HELIUS_GATEKEEPER_URL", "")
 
 # --- Market mode thresholds (from AGENT_CONTEXT Section 8) ---
 # Mode        | pumpfun_24h_vol | grad_rate | solana_dex_vol
@@ -114,22 +114,23 @@ async def _fetch_cfgi(session: aiohttp.ClientSession) -> float:
 
 
 async def _fetch_priority_fee(session: aiohttp.ClientSession) -> dict:
-    """Fetch priority fee estimate from Helius."""
-    if not HELIUS_RPC_URL:
-        return {}
+    """Fetch priority fee estimate from Helius (gatekeeper fallback)."""
     payload = {
         "jsonrpc": "2.0",
         "id": 1,
         "method": "getPriorityFeeEstimate",
         "params": [{"options": {"includeAllPriorityFeeLevels": True}}],
     }
-    try:
-        async with session.post(HELIUS_RPC_URL, json=payload, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-            if resp.status == 200:
-                result = await resp.json()
-                return result.get("result", {}).get("priorityFeeLevels", {})
-    except Exception as e:
-        logger.warning("Priority fee fetch failed: %s", e)
+    for rpc_url in (HELIUS_RPC_URL, HELIUS_GATEKEEPER_URL):
+        if not rpc_url:
+            continue
+        try:
+            async with session.post(rpc_url, json=payload, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                if resp.status == 200:
+                    result = await resp.json()
+                    return result.get("result", {}).get("priorityFeeLevels", {})
+        except Exception as e:
+            logger.warning("Priority fee fetch failed on %s: %s", rpc_url[:40], e)
     return {}
 
 

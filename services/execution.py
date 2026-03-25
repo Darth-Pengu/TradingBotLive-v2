@@ -34,8 +34,10 @@ logging.basicConfig(
 logger = logging.getLogger("execution")
 
 TEST_MODE = os.getenv("TEST_MODE", "true").lower() == "true"
-HELIUS_API_KEY = os.getenv("HELIUS_API_KEY", "")
 HELIUS_RPC_URL = os.getenv("HELIUS_RPC_URL", "")
+HELIUS_STAKED_URL = os.getenv("HELIUS_STAKED_URL", "")
+HELIUS_PARSE_TX_URL = os.getenv("HELIUS_PARSE_TX_URL", "")
+HELIUS_GATEKEEPER_URL = os.getenv("HELIUS_GATEKEEPER_URL", "")
 TRADING_WALLET_PRIVATE_KEY = os.getenv("TRADING_WALLET_PRIVATE_KEY", "")
 TRADING_WALLET_ADDRESS = os.getenv("TRADING_WALLET_ADDRESS", "")
 
@@ -135,19 +137,23 @@ async def _get_dynamic_priority_fee(session: aiohttp.ClientSession) -> int:
     """Get dynamic priority fee from Helius in microlamports."""
     if not HELIUS_RPC_URL:
         return 100_000  # 0.0001 SOL default
-    try:
-        payload = {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "getPriorityFeeEstimate",
-            "params": [{"options": {"priorityLevel": "High"}}],
-        }
-        async with session.post(HELIUS_RPC_URL, json=payload, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-            result = await resp.json()
-            fee = result.get("result", {}).get("priorityFeeEstimate", 100_000)
-            return int(fee)
-    except Exception:
-        return 100_000
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "getPriorityFeeEstimate",
+        "params": [{"options": {"priorityLevel": "High"}}],
+    }
+    for rpc_url in (HELIUS_RPC_URL, HELIUS_GATEKEEPER_URL):
+        if not rpc_url:
+            continue
+        try:
+            async with session.post(rpc_url, json=payload, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                result = await resp.json()
+                fee = result.get("result", {}).get("priorityFeeEstimate", 100_000)
+                return int(fee)
+        except Exception:
+            continue
+    return 100_000
 
 
 # ---------------------------------------------------------------------------
@@ -304,6 +310,7 @@ async def _send_jito_bundle(session: aiohttp.ClientSession, tx_bytes: bytes, tip
 # Send transaction via Helius RPC
 # ---------------------------------------------------------------------------
 async def _send_transaction(session: aiohttp.ClientSession, tx_bytes: bytes, skip_preflight: bool = False) -> str:
+    """Send transaction via HELIUS_STAKED_URL (fastest landing), fallback to HELIUS_GATEKEEPER_URL."""
     tx_b64 = base64.b64encode(tx_bytes).decode("utf-8")
     payload = {
         "jsonrpc": "2.0",
@@ -315,11 +322,22 @@ async def _send_transaction(session: aiohttp.ClientSession, tx_bytes: bytes, ski
             "preflightCommitment": "confirmed",
         }],
     }
-    async with session.post(HELIUS_RPC_URL, json=payload, timeout=aiohttp.ClientTimeout(total=30)) as resp:
-        result = await resp.json()
-        if "error" in result:
-            raise ExecutionError(f"sendTransaction error: {result['error']}")
-        return result["result"]
+    last_error = ""
+    for rpc_url in (HELIUS_STAKED_URL, HELIUS_GATEKEEPER_URL):
+        if not rpc_url:
+            continue
+        try:
+            async with session.post(rpc_url, json=payload, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                result = await resp.json()
+                if "error" in result:
+                    last_error = f"sendTransaction error: {result['error']}"
+                    logger.warning("sendTransaction failed on %s: %s", rpc_url[:40], last_error)
+                    continue
+                return result["result"]
+        except Exception as e:
+            last_error = str(e)
+            logger.warning("sendTransaction error on %s: %s", rpc_url[:40], e)
+    raise ExecutionError(last_error or "No Helius URL configured for transaction submission")
 
 
 # ---------------------------------------------------------------------------
@@ -334,10 +352,10 @@ async def _confirm_trade_helius(session: aiohttp.ClientSession, signature: str) 
 
     Returns: {"confirmed": bool, "details": dict}
     """
-    if not HELIUS_API_KEY or not signature or signature.startswith("TEST_MODE"):
+    if not HELIUS_PARSE_TX_URL or not signature or signature.startswith("TEST_MODE"):
         return {"confirmed": True, "details": {}}
 
-    url = f"https://api.helius.xyz/v0/transactions?api-key={HELIUS_API_KEY}"
+    url = HELIUS_PARSE_TX_URL
     payload = {"transactions": [signature]}
 
     for attempt in range(1, 4):

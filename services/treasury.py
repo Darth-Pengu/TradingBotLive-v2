@@ -33,6 +33,8 @@ logger = logging.getLogger("treasury")
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 TEST_MODE = os.getenv("TEST_MODE", "true").lower() == "true"
 HELIUS_RPC_URL = os.getenv("HELIUS_RPC_URL", "")
+HELIUS_STAKED_URL = os.getenv("HELIUS_STAKED_URL", "")
+HELIUS_GATEKEEPER_URL = os.getenv("HELIUS_GATEKEEPER_URL", "")
 TRADING_WALLET_PRIVATE_KEY = os.getenv("TRADING_WALLET_PRIVATE_KEY", "")
 TRADING_WALLET_ADDRESS = os.getenv("TRADING_WALLET_ADDRESS", "")
 HOLDING_WALLET_ADDRESS = os.getenv("HOLDING_WALLET_ADDRESS", "")
@@ -70,26 +72,26 @@ async def _init_db(db: aiosqlite.Connection):
 
 
 async def _get_balance(session: aiohttp.ClientSession, address: str) -> float | None:
-    """Get SOL balance via Helius RPC getBalance."""
-    if not HELIUS_RPC_URL:
-        logger.error("HELIUS_RPC_URL not set")
-        return None
-
+    """Get SOL balance via Helius RPC getBalance (gatekeeper fallback)."""
     payload = {
         "jsonrpc": "2.0",
         "id": 1,
         "method": "getBalance",
         "params": [address],
     }
-    try:
-        async with session.post(HELIUS_RPC_URL, json=payload, timeout=aiohttp.ClientTimeout(total=15)) as resp:
-            if resp.status == 200:
-                result = await resp.json()
-                lamports = result.get("result", {}).get("value", 0)
-                return lamports / LAMPORTS_PER_SOL
-            logger.warning("getBalance HTTP %d", resp.status)
-    except Exception as e:
-        logger.error("getBalance failed: %s", e)
+    for rpc_url in (HELIUS_RPC_URL, HELIUS_GATEKEEPER_URL):
+        if not rpc_url:
+            continue
+        try:
+            async with session.post(rpc_url, json=payload, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                if resp.status == 200:
+                    result = await resp.json()
+                    lamports = result.get("result", {}).get("value", 0)
+                    return lamports / LAMPORTS_PER_SOL
+                logger.warning("getBalance HTTP %d on %s", resp.status, rpc_url[:40])
+        except Exception as e:
+            logger.warning("getBalance failed on %s: %s", rpc_url[:40], e)
+    logger.error("getBalance failed on all Helius endpoints")
     return None
 
 
@@ -122,9 +124,20 @@ async def _execute_sweep(session: aiohttp.ClientSession, amount_sol: float) -> s
         "method": "getLatestBlockhash",
         "params": [{"commitment": "confirmed"}],
     }
-    async with session.post(HELIUS_RPC_URL, json=bh_payload, timeout=aiohttp.ClientTimeout(total=15)) as resp:
-        bh_result = await resp.json()
-        blockhash_str = bh_result["result"]["value"]["blockhash"]
+    # getLatestBlockhash via standard RPC (gatekeeper fallback)
+    blockhash_str = None
+    for rpc_url in (HELIUS_RPC_URL, HELIUS_GATEKEEPER_URL):
+        if not rpc_url:
+            continue
+        try:
+            async with session.post(rpc_url, json=bh_payload, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                bh_result = await resp.json()
+                blockhash_str = bh_result["result"]["value"]["blockhash"]
+                break
+        except Exception as e:
+            logger.warning("getLatestBlockhash failed on %s: %s", rpc_url[:40], e)
+    if not blockhash_str:
+        raise Exception("getLatestBlockhash failed on all Helius endpoints")
 
     from solders.hash import Hash
     blockhash = Hash.from_string(blockhash_str)
@@ -147,11 +160,20 @@ async def _execute_sweep(session: aiohttp.ClientSession, amount_sol: float) -> s
         "method": "sendTransaction",
         "params": [tx_b64, {"encoding": "base64", "skipPreflight": False}],
     }
-    async with session.post(HELIUS_RPC_URL, json=send_payload, timeout=aiohttp.ClientTimeout(total=30)) as resp:
-        send_result = await resp.json()
-        if "error" in send_result:
-            raise Exception(f"sendTransaction error: {send_result['error']}")
-        return send_result["result"]
+    # sendTransaction via staked connection (fastest landing), gatekeeper fallback
+    for rpc_url in (HELIUS_STAKED_URL, HELIUS_GATEKEEPER_URL):
+        if not rpc_url:
+            continue
+        try:
+            async with session.post(rpc_url, json=send_payload, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                send_result = await resp.json()
+                if "error" in send_result:
+                    logger.warning("sendTransaction error on %s: %s", rpc_url[:40], send_result["error"])
+                    continue
+                return send_result["result"]
+        except Exception as e:
+            logger.warning("sendTransaction failed on %s: %s", rpc_url[:40], e)
+    raise Exception("sendTransaction failed on all Helius endpoints")
 
 
 async def _send_discord_notification(session: aiohttp.ClientSession, message: str):
@@ -180,8 +202,7 @@ async def run_treasury_sweep():
     logger.info("Treasury sweep service starting (TEST_MODE=%s)", TEST_MODE)
 
     if not HOLDING_WALLET_ADDRESS:
-        logger.error("HOLDING_WALLET_ADDRESS not set — treasury service cannot start")
-        return
+        raise RuntimeError("HOLDING_WALLET_ADDRESS not set — treasury service cannot start")
 
     redis_conn = None
     if not TEST_MODE:

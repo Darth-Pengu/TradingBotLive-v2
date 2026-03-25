@@ -45,6 +45,7 @@ DATABASE_PATH = os.getenv("DATABASE_PATH", "toxibot.db")
 DASHBOARD_SECRET = os.getenv("DASHBOARD_SECRET", "")
 DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "")
 HELIUS_RPC_URL = os.getenv("HELIUS_RPC_URL", "")
+HELIUS_GATEKEEPER_URL = os.getenv("HELIUS_GATEKEEPER_URL", "")
 TRADING_WALLET_ADDRESS = os.getenv("TRADING_WALLET_ADDRESS", "")
 HOLDING_WALLET_ADDRESS = os.getenv("HOLDING_WALLET_ADDRESS", "")
 PORT = int(os.getenv("PORT", "8080"))
@@ -234,20 +235,24 @@ async def _query_db(query: str, params: tuple = ()) -> list[dict]:
 
 # --- Wallet balance helper ---
 async def _get_sol_balance(address: str) -> float | None:
-    if not HELIUS_RPC_URL or not address:
+    if not address:
         return None
-    try:
-        async with aiohttp.ClientSession() as session:
-            payload = {
-                "jsonrpc": "2.0", "id": 1,
-                "method": "getBalance",
-                "params": [address],
-            }
-            async with session.post(HELIUS_RPC_URL, json=payload, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                result = await resp.json()
-                return result.get("result", {}).get("value", 0) / 1_000_000_000
-    except Exception:
-        return None
+    payload = {
+        "jsonrpc": "2.0", "id": 1,
+        "method": "getBalance",
+        "params": [address],
+    }
+    async with aiohttp.ClientSession() as session:
+        for rpc_url in (HELIUS_RPC_URL, HELIUS_GATEKEEPER_URL):
+            if not rpc_url:
+                continue
+            try:
+                async with session.post(rpc_url, json=payload, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                    result = await resp.json()
+                    return result.get("result", {}).get("value", 0) / 1_000_000_000
+            except Exception:
+                continue
+    return None
 
 
 # --- REST API routes ---

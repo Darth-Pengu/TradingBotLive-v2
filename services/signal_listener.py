@@ -37,7 +37,7 @@ logger = logging.getLogger("signal_listener")
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 TEST_MODE = os.getenv("TEST_MODE", "true").lower() == "true"
-HELIUS_API_KEY = os.getenv("HELIUS_API_KEY", "")
+HELIUS_PARSE_HISTORY_URL = os.getenv("HELIUS_PARSE_HISTORY_URL", "")
 
 DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN", "")
 DISCORD_NANSEN_CHANNEL_ID = os.getenv("DISCORD_NANSEN_CHANNEL_ID", "")
@@ -525,8 +525,8 @@ CEX_ADDRESSES = {
 
 async def helius_whale_poller(redis_conn: aioredis.Redis | None):
     """Poll tracked whale wallets via Helius Enhanced Transactions API."""
-    if not HELIUS_API_KEY:
-        logger.info("HELIUS_API_KEY not set — Helius whale poller disabled")
+    if not HELIUS_PARSE_HISTORY_URL:
+        logger.info("HELIUS_PARSE_HISTORY_URL not set — Helius whale poller disabled")
         return
 
     while True:
@@ -563,8 +563,8 @@ async def _poll_whale_wallet(session: aiohttp.ClientSession, wallet: str, redis_
 
     t0 = time.time()
     try:
-        url = f"https://api.helius.xyz/v0/addresses/{wallet}/transactions"
-        params = {"api-key": HELIUS_API_KEY, "limit": 10}
+        url = HELIUS_PARSE_HISTORY_URL.replace("{address}", wallet)
+        params = {"limit": 10}
         async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=15)) as resp:
             elapsed_ms = (time.time() - t0) * 1000
             logger.debug("Helius whale poll %s: %dms (HTTP %d)", wallet[:12], elapsed_ms, resp.status)
