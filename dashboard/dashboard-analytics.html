@@ -20,25 +20,28 @@
 .mn{margin-left:220px;flex:1;padding:1.5rem 2rem;min-width:0}
 .ct{font-size:.75rem;font-weight:600;color:var(--td);margin-bottom:.8rem;text-transform:uppercase;letter-spacing:.5px}
 .card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:1.2rem;backdrop-filter:blur(10px);margin-bottom:1.5rem;transition:.2s}.card:hover{border-color:var(--bh)}
-.status-banner{padding:.8rem 1.2rem;border-radius:8px;font-size:.85rem;font-weight:600;margin-bottom:1.5rem;text-align:center;letter-spacing:.5px}
+.status-banner{padding:.8rem 1.2rem;border-radius:8px;font-size:.85rem;font-weight:600;margin-bottom:1.5rem;text-align:center;letter-spacing:.5px;display:flex;align-items:center;justify-content:center;gap:.5rem}
 .sb-ok{background:rgba(0,212,170,.1);border:1px solid rgba(0,212,170,.25);color:var(--a)}
 .sb-warn{background:rgba(255,170,0,.1);border:1px solid rgba(255,170,0,.25);color:var(--w)}
 .sb-crit{background:rgba(255,68,102,.1);border:1px solid rgba(255,68,102,.25);color:var(--r)}
-.api-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:.8rem;margin-bottom:1.5rem}
-.api-card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:.8rem 1rem;display:flex;align-items:center;gap:.6rem;transition:.2s}.api-card:hover{border-color:var(--bh)}
+.top-bar{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}
+.refresh-btn{padding:.4rem 1rem;background:rgba(0,212,170,.08);border:1px solid rgba(0,212,170,.2);border-radius:6px;color:var(--a);font-size:.72rem;font-weight:500;cursor:pointer;transition:.15s;letter-spacing:.3px}.refresh-btn:hover{background:rgba(0,212,170,.15)}
+.last-updated{font-size:.65rem;color:var(--tm);font-family:var(--m)}
+.api-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:.8rem;margin-bottom:1.5rem}
+.api-card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:.8rem 1rem;display:flex;align-items:center;gap:.6rem;transition:.2s;position:relative}.api-card:hover{border-color:var(--bh)}
 .api-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}.api-ok{background:var(--a);box-shadow:0 0 6px var(--a)}.api-warn{background:var(--w);box-shadow:0 0 6px var(--w)}.api-down{background:var(--r);box-shadow:0 0 6px var(--r)}
-.api-info{flex:1;min-width:0}.api-name{font-size:.75rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.api-detail{font-size:.6rem;color:var(--tm);font-family:var(--m);margin-top:2px}
-.api-ms{font-family:var(--m);font-size:.7rem;color:var(--td);text-align:right}
+.api-info{flex:1;min-width:0}.api-name{font-size:.75rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.api-detail{font-size:.58rem;color:var(--tm);font-family:var(--m);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.api-ms{font-family:var(--m);font-size:.68rem;color:var(--td);text-align:right;white-space:nowrap}
+.down-label{position:absolute;top:4px;right:6px;font-size:.5rem;color:var(--r);font-weight:700;letter-spacing:.3px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;margin-bottom:1.5rem}
-.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-bottom:1.5rem}
 table{width:100%;border-collapse:collapse;font-size:.72rem}th{text-align:left;padding:.4rem .6rem;color:var(--tm);font-weight:500;text-transform:uppercase;font-size:.58rem;letter-spacing:.5px;border-bottom:1px solid var(--border)}td{padding:.4rem .6rem;border-bottom:1px solid rgba(0,212,170,.04);font-family:var(--m);font-size:.72rem}tr:nth-child(even){background:rgba(0,212,170,.015)}
-.gauge{width:120px;height:60px;position:relative;margin:0 auto}.gauge-label{text-align:center;font-family:var(--m);font-size:1.2rem;font-weight:700;margin-top:.3rem}
 .hc-btn{display:inline-block;padding:.6rem 1.5rem;background:rgba(0,212,170,.1);border:1px solid rgba(0,212,170,.25);border-radius:8px;color:var(--a);font-size:.82rem;font-weight:600;cursor:pointer;transition:.2s;letter-spacing:.5px}.hc-btn:hover{background:rgba(0,212,170,.2);box-shadow:0 0 15px rgba(0,212,170,.1)}
 .hc-output{background:#0a0c10;border:1px solid var(--border);border-radius:6px;padding:.8rem;font-family:var(--m);font-size:.7rem;max-height:300px;overflow-y:auto;white-space:pre-wrap;display:none;margin-top:.8rem;line-height:1.5}
 .badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:.6rem;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
 .b-n{background:rgba(0,212,170,.12);color:var(--a)}.b-d{background:rgba(255,170,0,.12);color:var(--w)}.b-h{background:rgba(255,68,102,.12);color:var(--r)}
 .gov-notes{font-size:.78rem;color:var(--td);line-height:1.6;max-height:150px;overflow-y:auto}
-@media(max-width:1280px){.api-grid{grid-template-columns:repeat(auto-fill,minmax(180px,1fr))}.grid2,.grid3{grid-template-columns:1fr}}
+.chart-wrap{position:relative;width:100%}
+@media(max-width:1280px){.api-grid{grid-template-columns:repeat(auto-fill,minmax(180px,1fr))}.grid2{grid-template-columns:1fr}}
 @media(max-width:768px){.sb{display:none}.mn{margin-left:0;padding:1rem}}
 </style>
 </head>
@@ -53,40 +56,46 @@ table{width:100%;border-collapse:collapse;font-size:.72rem}th{text-align:left;pa
   <div class="sb-ft">v3.0</div>
 </aside>
 <main class="mn">
-  <div class="status-banner sb-ok" id="statusBanner">ALL SYSTEMS OPERATIONAL</div>
+  <div class="top-bar">
+    <div class="status-banner sb-ok" id="statusBanner">ALL SYSTEMS OPERATIONAL</div>
+    <div style="display:flex;align-items:center;gap:1rem">
+      <span class="last-updated" id="lastUpdated">--</span>
+      <button class="refresh-btn" id="refreshBtn" onclick="refreshStatus()">Refresh Status</button>
+    </div>
+  </div>
 
   <div class="ct">Execution</div>
   <div class="api-grid" id="execGrid">
-    <div class="api-card"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">PumpPortal WebSocket</div><div class="api-detail">~12 msg/min</div></div><div class="api-ms">live</div></div>
-    <div class="api-card"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">Jupiter Ultra API</div><div class="api-detail">swap/v1/quote</div></div><div class="api-ms">170ms</div></div>
-    <div class="api-card"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">Jito Bundles</div><div class="api-detail">sendBundle</div></div><div class="api-ms">89ms</div></div>
+    <div class="api-card" data-svc="pumpportal_ws"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">PumpPortal WebSocket</div><div class="api-detail">~12 msg/min</div></div><div class="api-ms">live</div></div>
+    <div class="api-card" data-svc="jupiter"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">Jupiter Ultra API</div><div class="api-detail">swap/v1/quote</div></div><div class="api-ms">170ms</div></div>
+    <div class="api-card" data-svc="jito"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">Jito Bundles</div><div class="api-detail">sendBundle</div></div><div class="api-ms">89ms</div></div>
   </div>
 
   <div class="ct">Blockchain</div>
   <div class="api-grid" id="blockGrid">
-    <div class="api-card"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">Helius RPC</div><div class="api-detail">slot: 312847291</div></div><div class="api-ms">213ms</div></div>
-    <div class="api-card"><div class="api-dot api-warn"></div><div class="api-info"><div class="api-name">Helius Staked</div><div class="api-detail">config issue</div></div><div class="api-ms">--</div></div>
-    <div class="api-card"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">Helius Parse TX</div><div class="api-detail">v0/transactions</div></div><div class="api-ms">807ms</div></div>
-    <div class="api-card"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">Helius Gatekeeper</div><div class="api-detail">fallback RPC</div></div><div class="api-ms">427ms</div></div>
+    <div class="api-card" data-svc="helius_rpc"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">Helius RPC</div><div class="api-detail">slot: 312847291</div></div><div class="api-ms">213ms</div></div>
+    <div class="api-card" data-svc="helius_staked"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">Helius Staked</div><div class="api-detail">named RPC (bearer auth)</div></div><div class="api-ms">--</div></div>
+    <div class="api-card" data-svc="helius_parse"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">Helius Parse TX</div><div class="api-detail">v0/transactions</div></div><div class="api-ms">807ms</div></div>
+    <div class="api-card" data-svc="helius_gk"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">Helius Gatekeeper</div><div class="api-detail">fallback RPC</div></div><div class="api-ms">427ms</div></div>
   </div>
 
   <div class="ct">Data Feeds</div>
   <div class="api-grid" id="dataGrid">
-    <div class="api-card"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">GeckoTerminal</div><div class="api-detail">new_pools</div></div><div class="api-ms">67ms</div></div>
-    <div class="api-card"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">DexPaprika SSE</div><div class="api-detail">streaming</div></div><div class="api-ms">live</div></div>
-    <div class="api-card"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">DefiLlama</div><div class="api-detail">dex volume</div></div><div class="api-ms">92ms</div></div>
-    <div class="api-card"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">CFGI Fear/Greed</div><div class="api-detail">value: 65</div></div><div class="api-ms">2.4s</div></div>
-    <div class="api-card"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">Rugcheck</div><div class="api-detail">v1/report</div></div><div class="api-ms">788ms</div></div>
-    <div class="api-card"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">Vybe Network</div><div class="api-detail">top-traders</div></div><div class="api-ms">245ms</div></div>
-    <div class="api-card"><div class="api-dot api-warn"></div><div class="api-info"><div class="api-name">Nansen API</div><div class="api-detail">402 Payment Required</div></div><div class="api-ms">--</div></div>
+    <div class="api-card" data-svc="gecko"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">GeckoTerminal</div><div class="api-detail">new_pools</div></div><div class="api-ms">67ms</div></div>
+    <div class="api-card" data-svc="dexpaprika"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">DexPaprika SSE</div><div class="api-detail">streaming</div></div><div class="api-ms">live</div></div>
+    <div class="api-card" data-svc="defillama"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">DefiLlama</div><div class="api-detail">dex volume</div></div><div class="api-ms">92ms</div></div>
+    <div class="api-card" data-svc="cfgi"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">CFGI Fear/Greed</div><div class="api-detail">value: 65</div></div><div class="api-ms">2.4s</div></div>
+    <div class="api-card" data-svc="rugcheck"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">Rugcheck</div><div class="api-detail">v1/report</div></div><div class="api-ms">788ms</div></div>
+    <div class="api-card" data-svc="vybe"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">Vybe Network</div><div class="api-detail">top-traders</div></div><div class="api-ms">245ms</div></div>
+    <div class="api-card" data-svc="nansen"><div class="api-dot api-warn"></div><div class="api-info"><div class="api-name">Nansen API</div><div class="api-detail">Pro subscription required</div></div><div class="api-ms">--</div></div>
   </div>
 
   <div class="ct">Infrastructure</div>
   <div class="api-grid" id="infraGrid">
-    <div class="api-card"><div class="api-dot api-down"></div><div class="api-info"><div class="api-name">Redis</div><div class="api-detail">not configured</div></div><div class="api-ms">--</div></div>
-    <div class="api-card"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">Anthropic API</div><div class="api-detail">governance agent</div></div><div class="api-ms">1.2s</div></div>
-    <div class="api-card"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">Discord Webhooks</div><div class="api-detail">alerts + treasury</div></div><div class="api-ms">sent</div></div>
-    <div class="api-card"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">Discord Bot</div><div class="api-detail">ZMN Listener</div></div><div class="api-ms">ok</div></div>
+    <div class="api-card" data-svc="redis"><div class="api-dot api-warn" id="redisDot"></div><div class="api-info"><div class="api-name">Redis</div><div class="api-detail" id="redisDetail">checking...</div></div><div class="api-ms" id="redisMs">--</div></div>
+    <div class="api-card" data-svc="anthropic"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">Anthropic API</div><div class="api-detail">governance agent</div></div><div class="api-ms">1.2s</div></div>
+    <div class="api-card" data-svc="discord_wh"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">Discord Webhooks</div><div class="api-detail">alerts + treasury</div></div><div class="api-ms">sent</div></div>
+    <div class="api-card" data-svc="discord_bot"><div class="api-dot api-ok"></div><div class="api-info"><div class="api-name">Discord Bot</div><div class="api-detail">ZMN Listener</div></div><div class="api-ms">ok</div></div>
   </div>
 
   <div class="grid2">
@@ -108,7 +117,7 @@ table{width:100%;border-collapse:collapse;font-size:.72rem}th{text-align:left;pa
         <tr><td>Training Samples</td><td style="font-family:var(--m)">847</td></tr>
         <tr><td>Accuracy (last 100)</td><td style="font-family:var(--m)">72.3%</td></tr>
       </table>
-      <div style="margin-top:.8rem"><canvas id="featChart" height="80"></canvas></div>
+      <div class="chart-wrap" style="height:100px;margin-top:.8rem"><canvas id="featChart"></canvas></div>
     </div>
   </div>
 
@@ -144,13 +153,63 @@ table{width:100%;border-collapse:collapse;font-size:.72rem}th{text-align:left;pa
 </main>
 <script>
 const $=id=>document.getElementById(id);
-// Feature importance chart
-new Chart($('featChart').getContext('2d'),{type:'bar',data:{labels:['liquidity_vel','buy_sell_ratio','holder_conc','volume_accel','creator_rugs'],datasets:[{data:[0.18,0.15,0.12,0.11,0.09],backgroundColor:'rgba(0,212,170,.5)',borderColor:'rgba(0,212,170,.8)',borderWidth:1,borderRadius:3}]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{color:'rgba(0,212,170,.04)'},ticks:{color:'#484f58',font:{family:'JetBrains Mono',size:9}}},y:{grid:{display:false},ticks:{color:'#7d8590',font:{size:9}}}}}});
+
+// Feature importance chart — wrapped in div with explicit height
+new Chart($('featChart').getContext('2d'),{
+  type:'bar',
+  data:{labels:['liquidity_vel','buy_sell_ratio','holder_conc','volume_accel','creator_rugs'],
+    datasets:[{data:[0.18,0.15,0.12,0.11,0.09],backgroundColor:'rgba(0,212,170,.5)',borderColor:'rgba(0,212,170,.8)',borderWidth:1,borderRadius:3}]},
+  options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,
+    plugins:{legend:{display:false}},
+    scales:{x:{grid:{color:'rgba(0,212,170,.04)'},ticks:{color:'#484f58',font:{family:'JetBrains Mono',size:9}}},
+            y:{grid:{display:false},ticks:{color:'#7d8590',font:{size:9}}}}}
+});
+
+// Status banner logic
+function updateBanner(){
+  const dots=document.querySelectorAll('.api-dot');
+  let hasDown=false,hasWarn=false;
+  dots.forEach(d=>{if(d.classList.contains('api-down'))hasDown=true;if(d.classList.contains('api-warn'))hasWarn=true});
+  const b=$('statusBanner');
+  if(hasDown){b.className='status-banner sb-crit';b.textContent='CRITICAL - SERVICE DOWN'}
+  else if(hasWarn){b.className='status-banner sb-warn';b.textContent='DEGRADED - SOME WARNINGS'}
+  else{b.className='status-banner sb-ok';b.textContent='ALL SYSTEMS OPERATIONAL'}
+}
+
+// Last updated
+function setUpdated(){
+  const now=new Date();
+  $('lastUpdated').textContent='Updated: '+now.toLocaleTimeString();
+}
+
+// Refresh status — re-check Redis via API and update cards
+async function refreshStatus(){
+  const btn=$('refreshBtn');btn.textContent='Checking...';btn.style.opacity='.6';
+  // Check Redis via status endpoint
+  try{
+    const r=await fetch('/api/status');const d=await r.json();
+    const rDot=$('redisDot'),rDet=$('redisDetail'),rMs=$('redisMs');
+    if(d._redis_connected){
+      rDot.className='api-dot api-ok';rDet.textContent='connected';rMs.textContent=d._redis_ping_ms?d._redis_ping_ms+'ms':'ok';
+    }else{
+      const err=d._redis_error||'connection failed';
+      rDot.className='api-dot api-warn';rDet.textContent=err.substring(0,40);rMs.textContent='--';
+    }
+  }catch(e){
+    $('redisDot').className='api-dot api-down';$('redisDetail').textContent='API unreachable';
+  }
+  updateBanner();setUpdated();
+  btn.textContent='Refresh Status';btn.style.opacity='1';
+}
+
 // Health check
-async function runHC(){const b=$('hcBtn'),o=$('hcOut');b.textContent='RUNNING...';b.style.opacity='.6';o.style.display='block';o.textContent='Starting health check...\n';
-try{const r=await fetch('/api/trigger-health-check',{method:'POST'});const d=await r.json();if(d.output)o.textContent=d.output}catch(e){o.textContent='Error: '+e.message}
-b.textContent='RUN HEALTH CHECK';b.style.opacity='1'}
-// Also listen for streaming lines via WS
+async function runHC(){
+  const b=$('hcBtn'),o=$('hcOut');b.textContent='RUNNING...';b.style.opacity='.6';o.style.display='block';o.textContent='Starting health check...\n';
+  try{const r=await fetch('/api/trigger-health-check',{method:'POST'});const d=await r.json();if(d.output)o.textContent=d.output}catch(e){o.textContent='Error: '+e.message}
+  b.textContent='RUN HEALTH CHECK';b.style.opacity='1';
+}
+
+// WS
 let ws;function conn(){ws=new WebSocket((location.protocol==='https:'?'wss':'ws')+'://'+location.host+'/ws');
 ws.onopen=()=>{$('wsDot').classList.remove('off');$('wsText').textContent='Connected'};
 ws.onclose=()=>{$('wsDot').classList.add('off');$('wsText').textContent='Offline';setTimeout(conn,3000)};
@@ -158,9 +217,11 @@ ws.onmessage=e=>{try{const d=JSON.parse(e.data);
 if(d._type==='health_check_line'){const o=$('hcOut');o.style.display='block';o.textContent+=d.line+'\n';o.scrollTop=o.scrollHeight}
 if(d._type==='health_check_done'){$('hcBtn').textContent='RUN HEALTH CHECK';$('hcBtn').style.opacity='1'}
 }catch(x){}}}
+
 // Governance
 async function loadGov(){try{const r=await fetch('/api/governance');const d=await r.json();if(d.pending_whale_review)$('govPend').innerHTML='<span class="badge b-d">PENDING REVIEW</span>';if(d.notes)$('govNotes').textContent=d.notes.slice(-300)}catch(e){}}
-conn();loadGov();
+
+conn();loadGov();refreshStatus();updateBanner();setUpdated();
 </script>
 </body>
 </html>

@@ -275,17 +275,27 @@ async def handle_static(request):
 
 
 async def api_status(request):
-    """Bot status overview."""
+    """Bot status overview with Redis connection diagnostics."""
     redis_conn = request.app.get("redis")
     status_data = {}
 
     if redis_conn:
         try:
+            t0 = time.time()
+            await redis_conn.ping()
+            ping_ms = int((time.time() - t0) * 1000)
+            status_data["_redis_connected"] = True
+            status_data["_redis_ping_ms"] = ping_ms
             raw = await redis_conn.get("bot:status")
             if raw:
-                status_data = json.loads(raw)
-        except Exception:
-            pass
+                status_data.update(json.loads(raw))
+        except Exception as e:
+            status_data["_redis_connected"] = False
+            status_data["_redis_error"] = str(e)[:100]
+            logger.warning("Redis ping failed in status check: %s", e)
+    else:
+        status_data["_redis_connected"] = False
+        status_data["_redis_error"] = request.app.get("_redis_error", "REDIS_URL not set or connection failed at startup")
 
     # Get wallet balances
     trading_balance = await _get_sol_balance(TRADING_WALLET_ADDRESS)
@@ -649,6 +659,7 @@ async def on_startup(app: web.Application):
     except Exception as e:
         logger.warning("Redis connection failed: %s — running without real-time data", e)
         app["redis"] = None
+        app["_redis_error"] = str(e)[:100]
 
     if _auth_enabled():
         logger.info("Dashboard auth ENABLED — password required")

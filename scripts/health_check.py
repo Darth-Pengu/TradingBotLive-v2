@@ -23,6 +23,7 @@ HELIUS_RPC_URL = os.getenv("HELIUS_RPC_URL", "")
 HELIUS_STAKED_URL = os.getenv("HELIUS_STAKED_URL", "")
 HELIUS_PARSE_TX_URL = os.getenv("HELIUS_PARSE_TX_URL", "")
 HELIUS_GATEKEEPER_URL = os.getenv("HELIUS_GATEKEEPER_URL", "")
+HELIUS_API_KEY = os.getenv("HELIUS_API_KEY", "").strip()
 JITO_ENDPOINT = os.getenv("JITO_ENDPOINT", "")
 TRADING_WALLET_ADDRESS = os.getenv("TRADING_WALLET_ADDRESS", "")
 HOLDING_WALLET_ADDRESS = os.getenv("HOLDING_WALLET_ADDRESS", "")
@@ -96,16 +97,31 @@ async def http_post(session: aiohttp.ClientSession, url: str, json_body: dict = 
 
 
 # ── Test functions ────────────────────────────────────────────────────────────
-async def test_helius_rpc(session: aiohttp.ClientSession, name: str, url: str):
+async def test_helius_rpc(session: aiohttp.ClientSession, name: str, url: str, bearer_auth: bool = False):
     if not url:
         record("BLOCKCHAIN", name, SKIP, "not configured")
         return
     try:
-        result, ms = await rpc_call(session, url, "getSlot")
-        if ms > 500:
-            record("BLOCKCHAIN", name, WARN, f"{ms}ms (>500ms)")
-        else:
-            record("BLOCKCHAIN", name, PASS, f"{ms}ms")
+        payload = {"jsonrpc": "2.0", "id": 1, "method": "getSlot", "params": []}
+        headers = {}
+        if bearer_auth and HELIUS_API_KEY:
+            headers["Authorization"] = f"Bearer {HELIUS_API_KEY}"
+        t0 = time.time()
+        async with session.post(url, json=payload, headers=headers,
+                                timeout=aiohttp.ClientTimeout(total=10)) as resp:
+            ms = int((time.time() - t0) * 1000)
+            ct = resp.headers.get("content-type", "")
+            if "text/html" in ct:
+                # Cloudflare/proxy error page — endpoint unreachable
+                record("BLOCKCHAIN", name, FAIL, f"HTTP {resp.status} -- endpoint unreachable (check URL in .env)")
+                return
+            data = await resp.json()
+            if "error" in data:
+                raise Exception(data["error"])
+            if ms > 500:
+                record("BLOCKCHAIN", name, WARN, f"{ms}ms (>500ms)")
+            else:
+                record("BLOCKCHAIN", name, PASS, f"{ms}ms")
     except Exception as e:
         record("BLOCKCHAIN", name, FAIL, str(e)[:80])
 
@@ -304,9 +320,9 @@ async def test_nansen(session: aiohttp.ClientSession):
         if status == 200:
             record("DATA FEEDS", "Nansen API", PASS, f"{ms}ms")
         elif status == 402:
-            record("DATA FEEDS", "Nansen API", WARN, f"402 Payment Required — plan upgrade needed")
+            record("DATA FEEDS", "Nansen API", WARN, "Pro subscription required -- visit nansen.ai to upgrade")
         elif status == 401:
-            record("DATA FEEDS", "Nansen API", FAIL, "401 Unauthorized — bad API key")
+            record("DATA FEEDS", "Nansen API", FAIL, "401 Unauthorized -- bad API key")
         else:
             record("DATA FEEDS", "Nansen API", WARN, f"HTTP {status} ({ms}ms)")
     except Exception as e:
@@ -315,12 +331,12 @@ async def test_nansen(session: aiohttp.ClientSession):
 
 async def test_redis():
     if not REDIS_URL:
-        record("INFRA", "Redis", SKIP, "REDIS_URL not set")
+        record("INFRA", "Redis", WARN, "REDIS_URL not set -- configure for production")
         return
     try:
         import redis.asyncio as aioredis
         t0 = time.time()
-        conn = aioredis.from_url(REDIS_URL, decode_responses=True)
+        conn = aioredis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=5)
         await conn.ping()
         await conn.set("healthcheck:test", "ok", ex=10)
         val = await conn.get("healthcheck:test")
@@ -333,7 +349,16 @@ async def test_redis():
     except ImportError:
         record("INFRA", "Redis", SKIP, "redis package not installed")
     except Exception as e:
-        record("INFRA", "Redis", FAIL, str(e)[:80])
+        # Show the actual error so user can diagnose
+        err = str(e)
+        if "Connection refused" in err:
+            record("INFRA", "Redis", WARN, f"connection refused at {REDIS_URL[:30]}...")
+        elif "Name or service not known" in err or "getaddrinfo" in err:
+            record("INFRA", "Redis", WARN, f"DNS resolution failed -- check REDIS_URL hostname")
+        elif "timed out" in err.lower():
+            record("INFRA", "Redis", WARN, f"connection timeout -- server unreachable")
+        else:
+            record("INFRA", "Redis", FAIL, err[:80])
 
 
 async def test_anthropic(session: aiohttp.ClientSession):
