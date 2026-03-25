@@ -12,6 +12,7 @@ venv/
 ENV/
 Lib/
 Scripts/*.exe
+scripts/*.exe
 Include/
 pyvenv.cfg
 .railway/
