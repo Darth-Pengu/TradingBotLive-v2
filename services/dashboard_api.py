@@ -576,10 +576,10 @@ async def handle_helius_webhook(request):
                                  "signature": tx.get("signature", ""),
                                  "txType": action, "helius_webhook": True},
                 }
-                if TEST_MODE:
-                    logger.info("Helius webhook [TEST]: %s %s", action, mint[:12])
-                elif redis_conn:
+                if redis_conn:
                     await redis_conn.lpush("signals:raw", json.dumps(signal))
+                    if TEST_MODE:
+                        logger.info("Helius webhook [TEST→Redis]: %s %s", action, mint[:12])
                 processed += 1
         except Exception as e:
             logger.warning("Helius webhook parse error: %s", e)

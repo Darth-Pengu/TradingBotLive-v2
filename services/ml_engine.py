@@ -73,7 +73,10 @@ FEATURE_COLUMNS = [
     "bundled_supply_pct",
     "bot_transaction_ratio",
     "fresh_wallet_ratio",
-    "creator_dead_tokens_30d",
+    "creator_prev_tokens_count",   # from signal_aggregator via Helius
+    "creator_rug_count",           # from signal_aggregator via Rugcheck
+    "creator_graduation_rate",     # from signal_aggregator
+    "dev_sold_pct",                # from Helius enhanced dev sell check
     "token_age_seconds",
     "market_cap_usd",
     "volume_24h_usd",
@@ -94,7 +97,9 @@ FEATURE_WEIGHTS = {
     "bonding_curve_progress": 2.0,
     "buy_sell_ratio_5min": 2.0,
     "dev_wallet_hold_pct": 2.0,
+    "dev_sold_pct": 2.0,
     "bundle_detected": 2.0,
+    "creator_rug_count": 1.5,
 }
 
 MARKET_MODE_ENCODING = {

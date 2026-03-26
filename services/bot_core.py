@@ -650,13 +650,13 @@ class BotCore:
     # --- Daily P/L reset ---
     async def _daily_reset(self):
         """Reset daily P/L at midnight UTC."""
+        from datetime import timedelta
         while True:
             now = datetime.now(timezone.utc)
-            # Sleep until next midnight
-            tomorrow = now.replace(hour=0, minute=0, second=0, microsecond=0)
-            if now.hour > 0 or now.minute > 0:
-                tomorrow = tomorrow.replace(day=now.day + 1)
-            sleep_seconds = (tomorrow - now).total_seconds()
+            # Sleep until next midnight (timedelta handles month rollover safely)
+            tomorrow_midnight = (now.replace(hour=0, minute=0, second=0, microsecond=0)
+                                 + timedelta(days=1))
+            sleep_seconds = (tomorrow_midnight - now).total_seconds()
             await asyncio.sleep(max(sleep_seconds, 60))
 
             self.portfolio.daily_pnl_sol = 0.0

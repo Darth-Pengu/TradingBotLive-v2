@@ -30,7 +30,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
 async def run_service(name: str, module_path: str, critical: bool = False):
-    """Run a service's main() with automatic restart on failure."""
+    """Run a service's main() with automatic restart on failure and exponential backoff."""
+    base_delay = 5 if critical else 10
+    max_delay = 300  # Cap at 5 minutes
+    current_delay = base_delay
+    consecutive_failures = 0
+
     while True:
         try:
             logger.info("Starting service: %s", name)
@@ -38,19 +43,21 @@ async def run_service(name: str, module_path: str, critical: bool = False):
             import importlib
             mod = importlib.import_module(module_path)
             await mod.main()
-            # Service exited cleanly — still delay before restart to prevent tight loops
-            logger.warning("Service %s exited cleanly — restarting in 10s", name)
-            await asyncio.sleep(10)
+            # Service exited cleanly — reset backoff
+            logger.warning("Service %s exited cleanly — restarting in %ds", name, base_delay)
+            current_delay = base_delay
+            consecutive_failures = 0
+            await asyncio.sleep(base_delay)
         except asyncio.CancelledError:
             logger.info("Service %s cancelled", name)
             break
         except Exception as e:
-            logger.error("Service %s crashed: %s", name, e, exc_info=True)
-            if critical:
-                logger.critical("Critical service %s failed — restarting in 5s", name)
-            else:
-                logger.warning("Service %s failed — restarting in 10s", name)
-            await asyncio.sleep(5 if critical else 10)
+            consecutive_failures += 1
+            logger.error("Service %s crashed (attempt %d): %s", name, consecutive_failures, e, exc_info=True)
+            logger.warning("Service %s restarting in %ds", name, current_delay)
+            await asyncio.sleep(current_delay)
+            # Exponential backoff: 5 → 10 → 20 → 40 → 80 → 160 → 300 (cap)
+            current_delay = min(current_delay * 2, max_delay)
 
 
 async def main():

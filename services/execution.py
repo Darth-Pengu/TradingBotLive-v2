@@ -117,9 +117,12 @@ class ExecutionResult:
 
 def choose_execution_api(token: Token) -> ExecutionAPI:
     """Route to correct API based on token state (AGENT_CONTEXT Section 5)."""
-    if token.pool in ("pump", "pump-amm") and token.bonding_curve_progress < 1.0:
+    PUMPPORTAL_POOLS = {"pump", "pump-amm", "launchlab", "bonk"}
+    JUPITER_POOLS = {"raydium", "raydium-cpmm", "orca", "meteora", "pumpswap"}
+
+    if token.pool in PUMPPORTAL_POOLS and token.bonding_curve_progress < 1.0:
         return ExecutionAPI.PUMPPORTAL
-    elif token.pool in ("raydium", "raydium-cpmm", "orca", "meteora", "pumpswap"):
+    elif token.pool in JUPITER_POOLS:
         return ExecutionAPI.JUPITER
     else:
         return ExecutionAPI.PUMPPORTAL  # Default to PumpPortal with pool="auto"

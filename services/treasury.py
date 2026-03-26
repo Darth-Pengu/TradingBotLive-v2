@@ -203,32 +203,45 @@ async def run_treasury_sweep():
     logger.info("Treasury sweep service starting (TEST_MODE=%s)", TEST_MODE)
 
     if not HOLDING_WALLET_ADDRESS:
-        raise RuntimeError("HOLDING_WALLET_ADDRESS not set — treasury service cannot start")
+        logger.error("HOLDING_WALLET_ADDRESS not set — treasury service running in monitor-only mode")
+
+    if not TRADING_WALLET_ADDRESS:
+        logger.error("TRADING_WALLET_ADDRESS not set — treasury cannot check balance")
 
     redis_conn = None
-    if not TEST_MODE:
-        try:
-            redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True)
-            await redis_conn.ping()
-        except Exception as e:
-            logger.warning("Redis connection failed: %s", e)
+    try:
+        redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True)
+        await redis_conn.ping()
+    except Exception as e:
+        logger.warning("Redis connection failed: %s", e)
 
     db = await aiosqlite.connect(DATABASE_PATH)
     await _init_db(db)
 
     consecutive_failures = 0
+    last_emergency_alert_time = 0.0
+    EMERGENCY_COOLDOWN = 3600  # Only send one emergency alert per hour
 
     async with aiohttp.ClientSession() as session:
         while True:
             try:
+                if not TRADING_WALLET_ADDRESS:
+                    logger.debug("No TRADING_WALLET_ADDRESS — skipping balance check")
+                    await asyncio.sleep(TREASURY_RULES["check_interval_seconds"])
+                    continue
+
                 balance = await _get_balance(session, TRADING_WALLET_ADDRESS)
                 if balance is None:
                     logger.warning("Could not fetch trading wallet balance")
                     consecutive_failures += 1
                 else:
                     logger.info("Trading wallet balance: %.4f SOL", balance)
+                    consecutive_failures = 0  # Balance check succeeded — reset counter
 
-                    if balance > TREASURY_RULES["trigger_threshold_sol"]:
+                    if not HOLDING_WALLET_ADDRESS:
+                        # Monitor-only mode — log balance but don't sweep
+                        pass
+                    elif balance > TREASURY_RULES["trigger_threshold_sol"]:
                         transfer_amount = balance - TREASURY_RULES["target_balance_sol"]
 
                         if transfer_amount < TREASURY_RULES["min_transfer_sol"]:
@@ -241,7 +254,6 @@ async def run_treasury_sweep():
                                             transfer_amount, balance, balance - transfer_amount)
                                 await _log_sweep(db, transfer_amount, balance, balance - transfer_amount,
                                                  "TEST_MODE", "test")
-                                consecutive_failures = 0
                             else:
                                 try:
                                     signature = await _execute_sweep(session, transfer_amount)
@@ -253,26 +265,28 @@ async def run_treasury_sweep():
                                         f"Treasury sweep: {transfer_amount:.4f} SOL → holding wallet. "
                                         f"Trading balance: {after_balance:.4f} SOL. Tx: {signature}"
                                     )
-                                    consecutive_failures = 0
                                 except Exception as e:
                                     logger.error("Sweep execution failed: %s", e)
                                     await _log_sweep(db, transfer_amount, balance, balance, None, "failed", str(e))
                                     consecutive_failures += 1
-                    else:
-                        consecutive_failures = 0  # Balance check succeeded, just no sweep needed
 
-                # 3 consecutive failures → EMERGENCY_STOP
+                # 3 consecutive failures → EMERGENCY alert (rate-limited, no halt)
                 if consecutive_failures >= TREASURY_RULES["max_retries"]:
-                    msg = f"Treasury sweep failed {consecutive_failures} consecutive times — possible wallet compromise"
-                    logger.critical(msg)
-                    if redis_conn:
-                        await redis_conn.publish("alerts:emergency", json.dumps({
-                            "reason": msg,
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
-                        }))
-                    await _send_discord_notification(session, f"EMERGENCY: {msg}")
-                    # Halt — require manual restart
-                    break
+                    now = datetime.now(timezone.utc).timestamp()
+                    if now - last_emergency_alert_time > EMERGENCY_COOLDOWN:
+                        msg = (f"Treasury: {consecutive_failures} consecutive balance check failures. "
+                               f"Check Helius RPC connectivity.")
+                        logger.critical(msg)
+                        if redis_conn:
+                            await redis_conn.publish("alerts:emergency", json.dumps({
+                                "reason": msg,
+                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                            }))
+                        await _send_discord_notification(session, f"⚠ TREASURY ALERT: {msg}")
+                        last_emergency_alert_time = now
+                    # Don't halt — keep retrying. Reset failure count to avoid
+                    # spamming but let it re-trigger if still failing next cycle.
+                    consecutive_failures = 0
 
             except Exception as e:
                 logger.error("Treasury sweep loop error: %s", e)
