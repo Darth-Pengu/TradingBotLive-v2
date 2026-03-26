@@ -27,10 +27,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import aiohttp
-import aiosqlite
 import pytz
 import redis.asyncio as aioredis
 from dotenv import load_dotenv
+
+from services.db import get_pool
 
 load_dotenv()
 
@@ -42,8 +43,6 @@ logging.basicConfig(
 logger = logging.getLogger("governance")
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
-_db_url = os.getenv("DATABASE_URL", "toxibot.db")
-DATABASE_PATH = _db_url.replace("sqlite:///", "") if _db_url.startswith("sqlite") else _db_url
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 NANSEN_API_KEY = os.getenv("NANSEN_API_KEY", "").strip()
@@ -405,51 +404,47 @@ async def run_governance_task(task_type: str, context_data: dict, session: aioht
 # FEATURE 2 — ANOMALY DETECTION
 # ═══════════════════════════════════════════════════════════════════════════════
 
-async def _anomaly_loop(db: aiosqlite.Connection, redis_conn: aioredis.Redis | None):
+async def _anomaly_loop(pool, redis_conn: aioredis.Redis | None):
     """Run anomaly checks every 30 minutes."""
     async with aiohttp.ClientSession() as session:
         while True:
             try:
-                await _check_anomalies(db, redis_conn, session)
+                await _check_anomalies(pool, redis_conn, session)
             except Exception as e:
                 logger.error("Anomaly check error: %s", e)
             await asyncio.sleep(1800)  # 30 minutes
 
 
-async def _check_anomalies(db: aiosqlite.Connection, redis_conn, session):
+async def _check_anomalies(pool, redis_conn, session):
     now = time.time()
     anomalies = []
 
     try:
         # 1. Win rate drop >10% in 24h window
-        cursor = await db.execute(
+        row = await pool.fetchrow(
             "SELECT COUNT(*) as total, SUM(CASE WHEN outcome='profit' THEN 1 ELSE 0 END) as wins "
-            "FROM trades WHERE closed_at > ? AND outcome IS NOT NULL", (now - 86400,))
-        row = await cursor.fetchone()
-        if row and row[0] >= 5:
-            wr_24h = (row[1] or 0) / row[0] * 100
-            cursor2 = await db.execute(
+            "FROM trades WHERE closed_at > $1 AND outcome IS NOT NULL", now - 86400)
+        if row and row["total"] >= 5:
+            wr_24h = (row["wins"] or 0) / row["total"] * 100
+            row2 = await pool.fetchrow(
                 "SELECT COUNT(*) as total, SUM(CASE WHEN outcome='profit' THEN 1 ELSE 0 END) as wins "
-                "FROM trades WHERE closed_at > ? AND closed_at <= ? AND outcome IS NOT NULL",
-                (now - 7 * 86400, now - 86400))
-            row2 = await cursor2.fetchone()
-            if row2 and row2[0] >= 10:
-                wr_7d = (row2[1] or 0) / row2[0] * 100
+                "FROM trades WHERE closed_at > $1 AND closed_at <= $2 AND outcome IS NOT NULL",
+                now - 7 * 86400, now - 86400)
+            if row2 and row2["total"] >= 10:
+                wr_7d = (row2["wins"] or 0) / row2["total"] * 100
                 if wr_7d - wr_24h > 10:
                     anomalies.append(f"Win rate dropped from {wr_7d:.1f}% (7d avg) to {wr_24h:.1f}% (24h)")
 
         # 2. Exit reason spike >3x
         for reason in ["stop_loss", "emergency_stop", "smart_money_exit_alert"]:
-            cursor = await db.execute(
-                "SELECT COUNT(*) FROM trades WHERE closed_at > ? AND outcome='loss' AND "
-                "features_json LIKE ?", (now - 86400, f"%{reason}%"))
-            row = await cursor.fetchone()
-            count_24h = row[0] if row else 0
-            cursor2 = await db.execute(
-                "SELECT COUNT(*) FROM trades WHERE closed_at > ? AND closed_at <= ? AND "
-                "features_json LIKE ?", (now - 7 * 86400, now - 86400, f"%{reason}%"))
-            row2 = await cursor2.fetchone()
-            avg_daily = ((row2[0] if row2 else 0) / 6) if row2 else 0
+            row = await pool.fetchval(
+                "SELECT COUNT(*) FROM trades WHERE closed_at > $1 AND outcome='loss' AND "
+                "features_json LIKE $2", now - 86400, f"%{reason}%")
+            count_24h = row or 0
+            row2 = await pool.fetchval(
+                "SELECT COUNT(*) FROM trades WHERE closed_at > $1 AND closed_at <= $2 AND "
+                "features_json LIKE $3", now - 7 * 86400, now - 86400, f"%{reason}%")
+            avg_daily = ((row2 or 0) / 6)
             if avg_daily > 0 and count_24h > avg_daily * 3:
                 anomalies.append(f"Exit reason '{reason}' spiked: {count_24h} today vs {avg_daily:.1f}/day avg")
 
@@ -460,14 +455,10 @@ async def _check_anomalies(db: aiosqlite.Connection, redis_conn, session):
     for anomaly in anomalies:
         logger.warning("ANOMALY: %s", anomaly)
         try:
-            recent_trades = []
-            cursor = await db.execute(
-                "SELECT * FROM trades WHERE closed_at > ? ORDER BY closed_at DESC LIMIT 15",
-                (now - 86400,))
-            rows = await cursor.fetchall()
-            if rows:
-                cols = [d[0] for d in cursor.description]
-                recent_trades = [dict(zip(cols, r)) for r in rows]
+            rows = await pool.fetch(
+                "SELECT * FROM trades WHERE closed_at > $1 ORDER BY closed_at DESC LIMIT 15",
+                now - 86400)
+            recent_trades = [dict(r) for r in rows]
 
             context = {"anomaly_description": anomaly, "recent_data": recent_trades}
             await run_governance_task("anomaly_diagnosis", context, session)
@@ -479,16 +470,14 @@ async def _check_anomalies(db: aiosqlite.Connection, redis_conn, session):
 # FEATURE 4 — PERSONALITY WEIGHTING
 # ═══════════════════════════════════════════════════════════════════════════════
 
-async def _calculate_personality_weights(db: aiosqlite.Connection, session: aiohttp.ClientSession):
+async def _calculate_personality_weights(pool, session: aiohttp.ClientSession):
     """Analyse trades by market condition, ask Claude for optimal weights."""
     now = time.time()
     try:
-        cursor = await db.execute(
-            "SELECT * FROM trades WHERE created_at > ? AND outcome IS NOT NULL ORDER BY created_at DESC LIMIT 200",
-            (now - 30 * 86400,))
-        rows = await cursor.fetchall()
-        cols = [d[0] for d in cursor.description]
-        trades = [dict(zip(cols, r)) for r in rows]
+        rows = await pool.fetch(
+            "SELECT * FROM trades WHERE created_at > $1 AND outcome IS NOT NULL ORDER BY created_at DESC LIMIT 200",
+            now - 30 * 86400)
+        trades = [dict(r) for r in rows]
 
         if len(trades) < 10:
             logger.info("Not enough trades for personality weighting (%d)", len(trades))
@@ -550,22 +539,18 @@ async def _weekly_meta_report(session: aiohttp.ClientSession):
 # CONTEXT GATHERING
 # ═══════════════════════════════════════════════════════════════════════════════
 
-async def _gather_context(db: aiosqlite.Connection, redis_conn, task_type: str) -> dict:
+async def _gather_context(pool, redis_conn, task_type: str) -> dict:
     context = {}
     now = time.time()
     try:
         if task_type == "daily_briefing":
-            cursor = await db.execute(
-                "SELECT * FROM trades WHERE created_at > ? ORDER BY created_at DESC", (now - 86400,))
-            rows = await cursor.fetchall()
-            cols = [d[0] for d in cursor.description]
-            context["trades_24h"] = [dict(zip(cols, r)) for r in rows]
+            rows = await pool.fetch(
+                "SELECT * FROM trades WHERE created_at > $1 ORDER BY created_at DESC", now - 86400)
+            context["trades_24h"] = [dict(r) for r in rows]
 
-            cursor = await db.execute("SELECT * FROM portfolio_snapshots ORDER BY id DESC LIMIT 1")
-            row = await cursor.fetchone()
+            row = await pool.fetchrow("SELECT * FROM portfolio_snapshots ORDER BY id DESC LIMIT 1")
             if row:
-                cols = [d[0] for d in cursor.description]
-                context["portfolio"] = dict(zip(cols, row))
+                context["portfolio"] = dict(row)
 
             if redis_conn:
                 try:
@@ -587,18 +572,14 @@ async def _gather_context(db: aiosqlite.Connection, redis_conn, task_type: str) 
             ]
 
         elif task_type == "monthly_report":
-            cursor = await db.execute(
-                "SELECT * FROM trades WHERE created_at > ? ORDER BY created_at DESC",
-                (now - 30 * 86400,))
-            rows = await cursor.fetchall()
-            cols = [d[0] for d in cursor.description]
-            context["trades_30d"] = [dict(zip(cols, r)) for r in rows]
+            rows = await pool.fetch(
+                "SELECT * FROM trades WHERE created_at > $1 ORDER BY created_at DESC",
+                now - 30 * 86400)
+            context["trades_30d"] = [dict(r) for r in rows]
             try:
-                cursor = await db.execute(
+                rows = await pool.fetch(
                     "SELECT * FROM treasury_sweeps ORDER BY id DESC LIMIT 10")
-                rows = await cursor.fetchall()
-                cols = [d[0] for d in cursor.description]
-                context["treasury_sweeps"] = [dict(zip(cols, r)) for r in rows]
+                context["treasury_sweeps"] = [dict(r) for r in rows]
             except Exception:
                 context["treasury_sweeps"] = []
 
@@ -612,7 +593,7 @@ async def _gather_context(db: aiosqlite.Connection, redis_conn, task_type: str) 
 # SCHEDULED + TRIGGERED LOOPS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-async def _scheduled_loop(db: aiosqlite.Connection, redis_conn):
+async def _scheduled_loop(pool, redis_conn):
     """Run scheduled tasks. All times in Sydney local time (auto DST)."""
     last_daily = 0.0
     last_weekly = 0.0
@@ -626,7 +607,7 @@ async def _scheduled_loop(db: aiosqlite.Connection, redis_conn):
 
             # Daily briefing: 7:00 AM Sydney
             if syd.hour == 7 and syd.minute < 2 and now_ts - last_daily > 82800:
-                context = await _gather_context(db, redis_conn, "daily_briefing")
+                context = await _gather_context(pool, redis_conn, "daily_briefing")
                 context["test_mode"] = TEST_MODE
                 await run_governance_task("daily_briefing", context, session, use_nansen_mcp=True)
                 syd_header = syd.strftime("%A %d %B %Y %H:%M %Z")
@@ -635,9 +616,9 @@ async def _scheduled_loop(db: aiosqlite.Connection, redis_conn):
 
             # Monday 6:00 AM Sydney: wallet rescore + personality weights
             if syd.weekday() == 0 and syd.hour == 6 and syd.minute < 2 and now_ts - last_weekly > 604800:
-                context = await _gather_context(db, redis_conn, "wallet_rescore")
+                context = await _gather_context(pool, redis_conn, "wallet_rescore")
                 await run_governance_task("wallet_rescore", context, session, use_nansen_mcp=True)
-                await _calculate_personality_weights(db, session)
+                await _calculate_personality_weights(pool, session)
                 last_weekly = now_ts
 
             # Monday 6:30 AM Sydney: weekly meta report
@@ -647,14 +628,14 @@ async def _scheduled_loop(db: aiosqlite.Connection, redis_conn):
 
             # 1st of month, 7:00 AM Sydney
             if syd.day == 1 and syd.hour == 7 and syd.minute < 2 and now_ts - last_monthly > 2592000:
-                context = await _gather_context(db, redis_conn, "monthly_report")
+                context = await _gather_context(pool, redis_conn, "monthly_report")
                 await run_governance_task("monthly_report", context, session)
                 last_monthly = now_ts
 
             await asyncio.sleep(60)
 
 
-async def _trigger_listener(db: aiosqlite.Connection, redis_conn: aioredis.Redis):
+async def _trigger_listener(pool, redis_conn: aioredis.Redis):
     """Listen for triggered governance events via Redis pub/sub."""
     pubsub = redis_conn.pubsub()
     await pubsub.subscribe("drawdown:significant", "streak:loss")
@@ -669,18 +650,16 @@ async def _trigger_listener(db: aiosqlite.Connection, redis_conn: aioredis.Redis
                 channel = message["channel"]
 
                 if channel == "drawdown:significant":
-                    context = await _gather_context(db, redis_conn, "drawdown_diagnosis")
+                    context = await _gather_context(pool, redis_conn, "drawdown_diagnosis")
                     context["drawdown_info"] = data
                     await run_governance_task("drawdown_diagnosis", context, session)
 
                 elif channel == "streak:loss":
                     context = data
-                    cursor = await db.execute(
-                        "SELECT * FROM trades WHERE personality = ? AND outcome = 'loss' "
-                        "ORDER BY created_at DESC LIMIT 10", (data.get("personality", ""),))
-                    rows = await cursor.fetchall()
-                    cols = [d[0] for d in cursor.description]
-                    context["losing_trades"] = [dict(zip(cols, r)) for r in rows]
+                    rows = await pool.fetch(
+                        "SELECT * FROM trades WHERE personality = $1 AND outcome = 'loss' "
+                        "ORDER BY created_at DESC LIMIT 10", data.get("personality", ""))
+                    context["losing_trades"] = [dict(r) for r in rows]
                     context["parameters"] = {}
                     await run_governance_task("loss_streak_review", context, session)
 
@@ -692,7 +671,7 @@ async def _trigger_listener(db: aiosqlite.Connection, redis_conn: aioredis.Redis
 # FEATURE 7 — DISCORD TWO-WAY COMMANDS (handler called from signal_listener)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-async def handle_discord_command(command: str, db_path: str = DATABASE_PATH) -> str:
+async def handle_discord_command(command: str) -> str:
     """Process a !zmn command from Discord. Returns response string."""
     parts = command.strip().lower().split()
     if len(parts) < 2 or parts[0] != "!zmn":
@@ -701,88 +680,73 @@ async def handle_discord_command(command: str, db_path: str = DATABASE_PATH) -> 
     cmd = parts[1]
 
     try:
-        db = await aiosqlite.connect(db_path)
+        pool = await get_pool()
         now = time.time()
 
         if cmd == "status":
-            cursor = await db.execute("SELECT * FROM portfolio_snapshots ORDER BY id DESC LIMIT 1")
-            row = await cursor.fetchone()
+            row = await pool.fetchrow("SELECT * FROM portfolio_snapshots ORDER BY id DESC LIMIT 1")
             if row:
-                cols = [d[0] for d in cursor.description]
-                snap = dict(zip(cols, row))
-                await db.close()
+                snap = dict(row)
                 return (f"[ZMN Bot] Status: {snap.get('market_mode', 'NORMAL')} mode | "
                         f"Balance: {snap.get('total_balance_sol', 0):.4f} SOL | "
                         f"Daily P/L: {snap.get('daily_pnl_sol', 0):.4f} SOL | "
                         f"Open: {snap.get('open_positions', 0)} positions")
-            await db.close()
             return "[ZMN Bot] No portfolio data available."
 
         elif cmd == "today":
-            cursor = await db.execute(
-                "SELECT COUNT(*) as cnt, COALESCE(SUM(pnl_sol),0) as pnl FROM trades WHERE created_at > ?",
-                (now - 86400,))
-            row = await cursor.fetchone()
-            await db.close()
-            return f"[ZMN Bot] Today: {row[0]} trades | P/L: {row[1]:.4f} SOL"
+            row = await pool.fetchrow(
+                "SELECT COUNT(*) as cnt, COALESCE(SUM(pnl_sol),0) as pnl FROM trades WHERE created_at > $1",
+                now - 86400)
+            return f"[ZMN Bot] Today: {row['cnt']} trades | P/L: {row['pnl']:.4f} SOL"
 
         elif cmd in ("best", "worst"):
             direction = "DESC" if cmd == "best" else "ASC"
             label = "Best" if cmd == "best" else "Worst"
-            cursor = await db.execute(
+            row = await pool.fetchrow(
                 f"SELECT mint, personality, pnl_sol, pnl_pct FROM trades WHERE outcome IS NOT NULL "
                 f"ORDER BY pnl_sol {direction} LIMIT 1")
-            row = await cursor.fetchone()
-            await db.close()
             if row:
-                return f"[ZMN Bot] {label} trade: {row[0][:12]}... ({row[1]}) | P/L: {row[2]:.4f} SOL ({row[3]:.1f}%)"
-            return f"[ZMN Bot] No trades recorded yet."
+                return f"[ZMN Bot] {label} trade: {row['mint'][:12]}... ({row['personality']}) | P/L: {row['pnl_sol']:.4f} SOL ({row['pnl_pct']:.1f}%)"
+            return "[ZMN Bot] No trades recorded yet."
 
         elif cmd == "pause" and len(parts) >= 3:
             personality = parts[2]
-            await db.close()
-            # Publish pause to Redis (bot_core listens)
             try:
                 conn = aioredis.from_url(REDIS_URL, decode_responses=True)
                 await conn.publish("bot:command", json.dumps({"action": "pause", "personality": personality}))
                 await conn.close()
                 return f"[ZMN Bot] Pause command sent for {personality}."
             except Exception:
-                return f"[ZMN Bot] Redis unavailable -- cannot send pause command."
+                return "[ZMN Bot] Redis unavailable -- cannot send pause command."
 
         elif cmd == "resume" and len(parts) >= 3:
             personality = parts[2]
-            await db.close()
             try:
                 conn = aioredis.from_url(REDIS_URL, decode_responses=True)
                 await conn.publish("bot:command", json.dumps({"action": "resume", "personality": personality}))
                 await conn.close()
                 return f"[ZMN Bot] Resume command sent for {personality}."
             except Exception:
-                return f"[ZMN Bot] Redis unavailable -- cannot send resume command."
+                return "[ZMN Bot] Redis unavailable -- cannot send resume command."
 
         elif cmd == "meta":
-            await db.close()
             async with aiohttp.ClientSession() as session:
                 await _weekly_meta_report(session)
             return "[ZMN Bot] Meta report triggered -- check governance_notes.md."
 
         elif cmd == "diagnose":
-            context = {}
-            cursor = await db.execute(
-                "SELECT * FROM trades WHERE created_at > ? ORDER BY created_at DESC LIMIT 20",
-                (now - 48 * 3600,))
-            rows = await cursor.fetchall()
-            cols = [d[0] for d in cursor.description]
-            context["recent_trades"] = [dict(zip(cols, r)) for r in rows]
-            context["drawdown_info"] = {"reason": "manual_diagnose_command"}
-            await db.close()
+            rows = await pool.fetch(
+                "SELECT * FROM trades WHERE created_at > $1 ORDER BY created_at DESC LIMIT 20",
+                now - 48 * 3600)
+            context = {
+                "recent_trades": [dict(r) for r in rows],
+                "drawdown_info": {"reason": "manual_diagnose_command"},
+            }
             async with aiohttp.ClientSession() as session:
                 await run_governance_task("drawdown_diagnosis", context, session)
             return "[ZMN Bot] Diagnosis triggered -- check governance_notes.md."
 
         else:
-            await db.close()
             return (f"[ZMN Bot] Commands: !zmn status | !zmn today | !zmn best | !zmn worst | "
                     f"!zmn pause <personality> | !zmn resume <personality> | !zmn meta | !zmn diagnose")
 
@@ -814,7 +778,7 @@ async def main():
         if not path.exists():
             _save_json_file(path, default)
 
-    db = await aiosqlite.connect(DATABASE_PATH)
+    pool = await get_pool()
 
     redis_conn = None
     try:
@@ -825,11 +789,11 @@ async def main():
         logger.warning("Redis connection failed: %s -- triggers disabled", e)
 
     tasks = [
-        _scheduled_loop(db, redis_conn),
-        _anomaly_loop(db, redis_conn),
+        _scheduled_loop(pool, redis_conn),
+        _anomaly_loop(pool, redis_conn),
     ]
     if redis_conn:
-        tasks.append(_trigger_listener(db, redis_conn))
+        tasks.append(_trigger_listener(pool, redis_conn))
 
     await asyncio.gather(*tasks)
 

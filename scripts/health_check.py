@@ -332,6 +332,36 @@ async def test_nansen(session):
 
 # ===== INFRASTRUCTURE =====
 
+async def test_postgresql():
+    db_url = os.getenv("DATABASE_URL", "")
+    if not db_url:
+        record("INFRA", "PostgreSQL", WARN, "DATABASE_URL not set"); return
+    if db_url.startswith("sqlite"):
+        record("INFRA", "PostgreSQL", FAIL, "DATABASE_URL is SQLite — migrate to PostgreSQL"); return
+    try:
+        import asyncpg
+    except ImportError:
+        record("INFRA", "PostgreSQL", SKIP, "asyncpg not installed"); return
+    dsn = db_url
+    if dsn.startswith("postgres://"):
+        dsn = "postgresql://" + dsn[len("postgres://"):]
+    try:
+        t0 = time.time()
+        conn = await asyncpg.connect(dsn)
+        version = await conn.fetchval("SELECT version()")
+        # Check key tables exist
+        tables = await conn.fetch(
+            "SELECT table_name FROM information_schema.tables WHERE table_schema='public' "
+            "AND table_name IN ('trades', 'portfolio_snapshots', 'treasury_sweeps', 'paper_trades')")
+        table_names = [r["table_name"] for r in tables]
+        await conn.close()
+        ms = int((time.time() - t0) * 1000)
+        short_ver = version.split(",")[0] if version else "?"
+        record("INFRA", "PostgreSQL", PASS, f"{ms}ms — {short_ver} — tables: {', '.join(table_names) or 'none'}")
+    except Exception as e:
+        record("INFRA", "PostgreSQL", FAIL, str(e)[:80])
+
+
 async def test_redis():
     if not REDIS_URL:
         record("INFRA", "Redis", WARN, "REDIS_URL not set -- configure for production")
@@ -524,6 +554,7 @@ async def main():
         )
 
         # INFRA
+        await test_postgresql()
         await test_redis()
         await test_anthropic(session)
 

@@ -22,7 +22,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import aiohttp
-import aiosqlite
 import redis.asyncio as aioredis
 from dotenv import load_dotenv
 
@@ -35,8 +34,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger("paper_trader")
 
-_db_url = os.getenv("DATABASE_URL", "toxibot.db")
-DATABASE_PATH = _db_url.replace("sqlite:///", "") if _db_url.startswith("sqlite") else _db_url
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 
 # Slippage simulation ranges (percentage)
@@ -64,36 +61,6 @@ def _paper_log(message: str):
     with open(PAPER_LOG_PATH, "a") as f:
         f.write(line)
     logger.info("PAPER: %s", message)
-
-
-async def _init_paper_table(db: aiosqlite.Connection):
-    """Create paper_trades table if it doesn't exist."""
-    await db.execute("""
-        CREATE TABLE IF NOT EXISTS paper_trades (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            mint TEXT NOT NULL,
-            symbol TEXT DEFAULT '',
-            personality TEXT NOT NULL,
-            entry_price REAL,
-            exit_price REAL,
-            amount_sol REAL NOT NULL,
-            slippage_pct REAL DEFAULT 0,
-            fees_sol REAL DEFAULT 0,
-            entry_time REAL NOT NULL,
-            exit_time REAL,
-            hold_seconds REAL,
-            realised_pnl_sol REAL,
-            realised_pnl_pct REAL,
-            exit_reason TEXT,
-            signal_source TEXT,
-            ml_score REAL,
-            entry_signature TEXT,
-            exit_signature TEXT,
-            market_mode_at_entry TEXT DEFAULT 'NORMAL',
-            fear_greed_at_entry REAL
-        )
-    """)
-    await db.commit()
 
 
 async def _get_token_price(mint: str) -> float:
@@ -134,7 +101,7 @@ def _simulate_fees(amount_sol: float, pool: str) -> float:
 
 
 async def paper_buy(
-    db: aiosqlite.Connection,
+    pg_pool,
     redis_conn: aioredis.Redis | None,
     mint: str,
     amount_sol: float,
@@ -147,8 +114,6 @@ async def paper_buy(
     fear_greed: float = 50.0,
 ) -> dict:
     """Simulate a paper buy trade. Returns result dict with fake signature."""
-    await _init_paper_table(db)
-
     # Get real price
     price = await _get_token_price(mint)
 
@@ -164,18 +129,17 @@ async def paper_buy(
     sig = f"PAPER_{uuid.uuid4().hex[:16]}"
     now = time.time()
 
-    # Store in SQLite
-    cursor = await db.execute(
+    # Store in PostgreSQL
+    trade_id = await pg_pool.fetchval(
         """INSERT INTO paper_trades
            (mint, personality, entry_price, amount_sol, slippage_pct, fees_sol,
             entry_time, signal_source, ml_score, entry_signature,
             market_mode_at_entry, fear_greed_at_entry)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (mint, personality, entry_price, net_amount, slippage, fees,
-         now, signal_source, ml_score, sig, market_mode, fear_greed),
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+           RETURNING id""",
+        mint, personality, entry_price, net_amount, slippage, fees,
+        now, signal_source, ml_score, sig, market_mode, fear_greed,
     )
-    await db.commit()
-    trade_id = cursor.lastrowid
 
     # Store in Redis for live tracking
     if redis_conn:
@@ -216,7 +180,7 @@ async def paper_buy(
 
 
 async def paper_sell(
-    db: aiosqlite.Connection,
+    pg_pool,
     redis_conn: aioredis.Redis | None,
     mint: str,
     sell_pct: float,
@@ -228,7 +192,6 @@ async def paper_sell(
     amount_sol: float = 0.0,
 ) -> dict:
     """Simulate a paper sell trade. Returns result dict with P/L."""
-    await _init_paper_table(db)
 
     # Get current real price
     current_price = await _get_token_price(mint)
@@ -252,15 +215,14 @@ async def paper_sell(
     outcome = "profit" if pnl_sol > 0 else "loss"
     sig = f"PAPER_{uuid.uuid4().hex[:16]}"
 
-    # Update SQLite
+    # Update PostgreSQL
     if trade_id:
-        await db.execute(
-            """UPDATE paper_trades SET exit_price=?, exit_time=?, hold_seconds=?,
-               realised_pnl_sol=?, realised_pnl_pct=?, exit_reason=?, exit_signature=?
-               WHERE id=?""",
-            (exit_price, time.time(), hold_seconds, pnl_sol, pnl_pct, reason, sig, trade_id),
+        await pg_pool.execute(
+            """UPDATE paper_trades SET exit_price=$1, exit_time=$2, hold_seconds=$3,
+               realised_pnl_sol=$4, realised_pnl_pct=$5, exit_reason=$6, exit_signature=$7
+               WHERE id=$8""",
+            exit_price, time.time(), hold_seconds, pnl_sol, pnl_pct, reason, sig, trade_id,
         )
-        await db.commit()
 
     # Update Redis stats
     if redis_conn:

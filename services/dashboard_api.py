@@ -23,9 +23,10 @@ from pathlib import Path
 
 import aiohttp
 from aiohttp import web
-import aiosqlite
 import redis.asyncio as aioredis
 from dotenv import load_dotenv
+
+from services.db import get_pool
 
 load_dotenv()
 
@@ -38,8 +39,6 @@ logger = logging.getLogger("dashboard_api")
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 TEST_MODE = os.getenv("TEST_MODE", "true").lower() == "true"
-_db_url = os.getenv("DATABASE_URL", "toxibot.db")
-DATABASE_PATH = _db_url.replace("sqlite:///", "") if _db_url.startswith("sqlite") else _db_url
 DASHBOARD_SECRET = os.getenv("DASHBOARD_SECRET", "")
 HELIUS_RPC_URL = os.getenv("HELIUS_RPC_URL", "")
 HELIUS_GATEKEEPER_URL = os.getenv("HELIUS_GATEKEEPER_URL", "")
@@ -250,24 +249,14 @@ async def api_health(request):
 
 
 # --- Database helpers ---
-async def _get_db() -> aiosqlite.Connection:
-    db = await aiosqlite.connect(DATABASE_PATH)
-    db.row_factory = aiosqlite.Row
-    return db
-
-
-async def _query_db(query: str, params: tuple = ()) -> list[dict]:
-    db = await _get_db()
+async def _query_db(query: str, *args) -> list[dict]:
     try:
-        cursor = await db.execute(query, params)
-        cols = [d[0] for d in cursor.description] if cursor.description else []
-        rows = await cursor.fetchall()
-        return [dict(zip(cols, row)) for row in rows]
+        pool = await get_pool()
+        rows = await pool.fetch(query, *args)
+        return [dict(row) for row in rows]
     except Exception as e:
         logger.warning("DB query error: %s", e)
         return []
-    finally:
-        await db.close()
 
 
 # --- Wallet balance helper ---
@@ -349,7 +338,7 @@ async def api_market_health(request):
 
 async def api_trades(request):
     limit = int(request.query.get("limit", "50"))
-    trades = await _query_db("SELECT * FROM trades ORDER BY created_at DESC LIMIT ?", (limit,))
+    trades = await _query_db("SELECT * FROM trades ORDER BY created_at DESC LIMIT $1", limit)
     return web.json_response(trades)
 
 
@@ -369,8 +358,8 @@ async def api_personality_stats(request):
                 COALESCE(AVG(pnl_pct), 0) as avg_pnl_pct,
                 COALESCE(MAX(pnl_sol), 0) as best_trade_sol,
                 COALESCE(MIN(pnl_sol), 0) as worst_trade_sol
-            FROM trades WHERE personality = ? AND outcome IS NOT NULL""",
-            (personality,),
+            FROM trades WHERE personality = $1 AND outcome IS NOT NULL""",
+            personality,
         )
         if rows:
             row = rows[0]
@@ -446,7 +435,7 @@ async def api_paper_stats(request):
                 } if praw else {"trades": 0, "pnl": 0}
         except Exception:
             pass
-    # Also check SQLite paper_trades table
+    # Also check PostgreSQL paper_trades table
     if stats["total_trades"] == 0:
         try:
             rows = await _query_db("SELECT COUNT(*) as cnt, COALESCE(SUM(realised_pnl_sol),0) as pnl, SUM(CASE WHEN realised_pnl_sol>0 THEN 1 ELSE 0 END) as wins FROM paper_trades WHERE exit_time IS NOT NULL")
@@ -718,6 +707,13 @@ async def _periodic_push(app: web.Application):
 
 
 async def on_startup(app: web.Application):
+    # Initialize PostgreSQL pool (shared with all services)
+    try:
+        pool = await get_pool()
+        logger.info("PostgreSQL pool ready")
+    except Exception as e:
+        logger.error("PostgreSQL connection failed: %s", e)
+
     try:
         redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True)
         await redis_conn.ping()

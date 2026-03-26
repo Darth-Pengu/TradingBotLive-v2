@@ -5,7 +5,7 @@ Automatically transfers excess SOL from trading wallet to holding wallet.
 - Polls Helius getBalance every 5 minutes
 - If balance > 30 SOL: transfer (balance - 25) SOL to holding wallet
 - Minimum transfer: 1 SOL
-- 3 consecutive failures → EMERGENCY_STOP
+- 3 consecutive failures → rate-limited alert (1/hour)
 - Uses SystemProgram.transfer via Helius RPC (NOT Jito — low priority)
 - TEST_MODE=true: log what WOULD be swept, never execute
 """
@@ -17,9 +17,10 @@ import os
 from datetime import datetime, timezone
 
 import aiohttp
-import aiosqlite
 import redis.asyncio as aioredis
 from dotenv import load_dotenv
+
+from services.db import get_pool
 
 load_dotenv()
 
@@ -40,8 +41,6 @@ TRADING_WALLET_ADDRESS = os.getenv("TRADING_WALLET_ADDRESS", "")
 HOLDING_WALLET_ADDRESS = os.getenv("HOLDING_WALLET_ADDRESS", "")
 DISCORD_WEBHOOK_TREASURY = os.getenv("DISCORD_WEBHOOK_TREASURY", "")
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
-_db_url = os.getenv("DATABASE_URL", "toxibot.db")
-DATABASE_PATH = _db_url.replace("sqlite:///", "") if _db_url.startswith("sqlite") else _db_url
 
 # Hard-coded treasury rules — never make these configurable at runtime
 TREASURY_RULES = {
@@ -54,22 +53,6 @@ TREASURY_RULES = {
 }
 
 LAMPORTS_PER_SOL = 1_000_000_000
-
-
-async def _init_db(db: aiosqlite.Connection):
-    await db.execute("""
-        CREATE TABLE IF NOT EXISTS treasury_sweeps (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT NOT NULL,
-            amount_sol REAL NOT NULL,
-            balance_before_sol REAL NOT NULL,
-            balance_after_sol REAL NOT NULL,
-            signature TEXT,
-            status TEXT NOT NULL DEFAULT 'success',
-            error_message TEXT
-        )
-    """)
-    await db.commit()
 
 
 async def _get_balance(session: aiohttp.ClientSession, address: str) -> float | None:
@@ -190,13 +173,12 @@ async def _send_discord_notification(session: aiohttp.ClientSession, message: st
         logger.warning("Discord notification failed: %s", e)
 
 
-async def _log_sweep(db: aiosqlite.Connection, amount: float, before: float, after: float,
+async def _log_sweep(pool, amount: float, before: float, after: float,
                      signature: str | None, status: str, error: str | None = None):
-    await db.execute(
-        "INSERT INTO treasury_sweeps (timestamp, amount_sol, balance_before_sol, balance_after_sol, signature, status, error_message) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (datetime.now(timezone.utc).isoformat(), amount, before, after, signature, status, error),
+    await pool.execute(
+        "INSERT INTO treasury_sweeps (timestamp, amount_sol, balance_before_sol, balance_after_sol, signature, status, error_message) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        datetime.now(timezone.utc).isoformat(), amount, before, after, signature, status, error,
     )
-    await db.commit()
 
 
 async def run_treasury_sweep():
@@ -215,8 +197,7 @@ async def run_treasury_sweep():
     except Exception as e:
         logger.warning("Redis connection failed: %s", e)
 
-    db = await aiosqlite.connect(DATABASE_PATH)
-    await _init_db(db)
+    pool = await get_pool()
 
     consecutive_failures = 0
     last_emergency_alert_time = 0.0
@@ -252,14 +233,14 @@ async def run_treasury_sweep():
                             if TEST_MODE:
                                 logger.info("TEST_MODE — would sweep %.4f SOL (balance: %.4f → %.4f)",
                                             transfer_amount, balance, balance - transfer_amount)
-                                await _log_sweep(db, transfer_amount, balance, balance - transfer_amount,
+                                await _log_sweep(pool, transfer_amount, balance, balance - transfer_amount,
                                                  "TEST_MODE", "test")
                             else:
                                 try:
                                     signature = await _execute_sweep(session, transfer_amount)
                                     after_balance = balance - transfer_amount
                                     logger.info("Sweep success: %s (%.4f SOL)", signature, transfer_amount)
-                                    await _log_sweep(db, transfer_amount, balance, after_balance, signature, "success")
+                                    await _log_sweep(pool, transfer_amount, balance, after_balance, signature, "success")
                                     await _send_discord_notification(
                                         session,
                                         f"Treasury sweep: {transfer_amount:.4f} SOL → holding wallet. "
@@ -267,7 +248,7 @@ async def run_treasury_sweep():
                                     )
                                 except Exception as e:
                                     logger.error("Sweep execution failed: %s", e)
-                                    await _log_sweep(db, transfer_amount, balance, balance, None, "failed", str(e))
+                                    await _log_sweep(pool, transfer_amount, balance, balance, None, "failed", str(e))
                                     consecutive_failures += 1
 
                 # 3 consecutive failures → EMERGENCY alert (rate-limited, no halt)
@@ -294,7 +275,6 @@ async def run_treasury_sweep():
 
             await asyncio.sleep(TREASURY_RULES["check_interval_seconds"])
 
-    await db.close()
     logger.info("Treasury sweep service stopped")
 
 

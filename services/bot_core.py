@@ -8,7 +8,7 @@ Central trading engine that:
 - Implements staged exit strategies per personality
 - Handles EMERGENCY_STOP (halts all three simultaneously)
 - Waits up to 60s for market:mode key in Redis before starting
-- Tracks open positions, P/L, and trade history in SQLite
+- Tracks open positions, P/L, and trade history in PostgreSQL
 """
 
 import asyncio
@@ -17,12 +17,13 @@ import logging
 import os
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import aiohttp
-import aiosqlite
 import redis.asyncio as aioredis
 from dotenv import load_dotenv
+
+from services.db import get_pool
 
 load_dotenv()
 
@@ -35,8 +36,6 @@ logger = logging.getLogger("bot_core")
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 TEST_MODE = os.getenv("TEST_MODE", "true").lower() == "true"
-_db_url = os.getenv("DATABASE_URL", "toxibot.db")
-DATABASE_PATH = _db_url.replace("sqlite:///", "") if _db_url.startswith("sqlite") else _db_url
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
 STARTING_CAPITAL_SOL = float(os.getenv("STARTING_CAPITAL_SOL", "20"))
 HELIUS_RPC_URL = os.getenv("HELIUS_RPC_URL", "")
@@ -120,68 +119,33 @@ class BotCore:
         self.positions: dict[str, Position] = {}  # key: f"{personality}:{mint}"
         self.portfolio = PortfolioState(total_balance_sol=STARTING_CAPITAL_SOL, peak_balance_sol=STARTING_CAPITAL_SOL)
         self.emergency_stopped = False
-        self.db: aiosqlite.Connection | None = None
+        self.pool = None
         self.redis: aioredis.Redis | None = None
 
     async def init(self):
-        self.db = await aiosqlite.connect(DATABASE_PATH)
-        await self._init_db()
+        self.pool = await get_pool()
         await self._load_state()
-
-    async def _init_db(self):
-        await self.db.execute("""
-            CREATE TABLE IF NOT EXISTS trades (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                mint TEXT NOT NULL,
-                personality TEXT NOT NULL,
-                action TEXT NOT NULL,
-                amount_sol REAL,
-                entry_price REAL,
-                exit_price REAL,
-                pnl_sol REAL,
-                pnl_pct REAL,
-                features_json TEXT,
-                outcome TEXT,
-                ml_score REAL,
-                signal_sources TEXT,
-                created_at REAL NOT NULL,
-                closed_at REAL
-            )
-        """)
-        await self.db.execute("""
-            CREATE TABLE IF NOT EXISTS portfolio_snapshots (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT NOT NULL,
-                total_balance_sol REAL,
-                open_positions INTEGER,
-                daily_pnl_sol REAL,
-                market_mode TEXT
-            )
-        """)
-        await self.db.commit()
 
     async def _load_state(self):
         """Load latest portfolio state from DB."""
         try:
-            cursor = await self.db.execute(
+            row = await self.pool.fetchrow(
                 "SELECT total_balance_sol, daily_pnl_sol FROM portfolio_snapshots ORDER BY id DESC LIMIT 1"
             )
-            row = await cursor.fetchone()
             if row:
-                self.portfolio.total_balance_sol = row[0]
-                self.portfolio.daily_pnl_sol = row[1]
-                self.portfolio.peak_balance_sol = max(self.portfolio.peak_balance_sol, row[0])
-                logger.info("Loaded portfolio state: %.4f SOL", row[0])
+                self.portfolio.total_balance_sol = row["total_balance_sol"]
+                self.portfolio.daily_pnl_sol = row["daily_pnl_sol"]
+                self.portfolio.peak_balance_sol = max(self.portfolio.peak_balance_sol, row["total_balance_sol"])
+                logger.info("Loaded portfolio state: %.4f SOL", row["total_balance_sol"])
         except Exception:
             pass
 
     async def _save_snapshot(self):
-        await self.db.execute(
-            "INSERT INTO portfolio_snapshots (timestamp, total_balance_sol, open_positions, daily_pnl_sol, market_mode) VALUES (?, ?, ?, ?, ?)",
-            (datetime.now(timezone.utc).isoformat(), self.portfolio.total_balance_sol,
-             len(self.positions), self.portfolio.daily_pnl_sol, self.portfolio.market_mode),
+        await self.pool.execute(
+            "INSERT INTO portfolio_snapshots (timestamp, total_balance_sol, open_positions, daily_pnl_sol, market_mode) VALUES ($1, $2, $3, $4, $5)",
+            datetime.now(timezone.utc).isoformat(), self.portfolio.total_balance_sol,
+            len(self.positions), self.portfolio.daily_pnl_sol, self.portfolio.market_mode,
         )
-        await self.db.commit()
 
     async def _send_discord(self, message: str):
         if not DISCORD_WEBHOOK_URL:
@@ -329,7 +293,7 @@ class BotCore:
             signal_source = scored_signal.get("signal", {}).get("source", "unknown")
             fgi = scored_signal.get("features", {}).get("cfgi_score", 50)
             paper_result = await paper_buy(
-                self.db, self.redis, mint, size_sol, personality,
+                self.pool, self.redis, mint, size_sol, personality,
                 slippage_tier=slippage_tier, pool=token.pool,
                 ml_score=ml_score, signal_source=signal_source,
                 market_mode=market_mode, fear_greed=fgi,
@@ -358,15 +322,14 @@ class BotCore:
                     entry_price=price, entry_time=time.time(),
                     size_sol=size_sol, peak_price=price,
                 )
-                cursor = await self.db.execute(
+                trade_id = await self.pool.fetchval(
                     """INSERT INTO trades (mint, personality, action, amount_sol, entry_price,
                        features_json, ml_score, signal_sources, created_at)
-                       VALUES (?, ?, 'buy', ?, ?, ?, ?, ?, ?)""",
-                    (mint, personality, size_sol, price, json.dumps(features), ml_score,
-                     json.dumps(scored_signal.get("sources", [])), time.time()),
+                       VALUES ($1, $2, 'buy', $3, $4, $5, $6, $7, $8) RETURNING id""",
+                    mint, personality, size_sol, price, json.dumps(features), ml_score,
+                    json.dumps(scored_signal.get("sources", [])), time.time(),
                 )
-                await self.db.commit()
-                pos.trade_id = cursor.lastrowid
+                pos.trade_id = trade_id
                 key = f"{personality}:{mint}"
                 self.positions[key] = pos
                 logger.info("ENTERED: %s %s @ $%.8f, %.4f SOL (tx: %s)",
@@ -384,7 +347,7 @@ class BotCore:
         if TEST_MODE:
             # Paper trading: simulate exit
             paper_result = await paper_sell(
-                self.db, self.redis, pos.mint, sell_pct, reason, pos.personality,
+                self.pool, self.redis, pos.mint, sell_pct, reason, pos.personality,
                 trade_id=pos.trade_id, entry_price=pos.entry_price,
                 entry_time=pos.entry_time, amount_sol=pos.size_sol * pos.remaining_pct,
             )
@@ -436,12 +399,11 @@ class BotCore:
             else:
                 self.portfolio.consecutive_losses[pos.personality] = 0
 
-            await self.db.execute(
-                """UPDATE trades SET exit_price=?, pnl_sol=?, pnl_pct=?, outcome=?, closed_at=?
-                   WHERE id=?""",
-                (current_price, pnl_sol, pnl_pct, outcome, time.time(), pos.trade_id),
+            await self.pool.execute(
+                """UPDATE trades SET exit_price=$1, pnl_sol=$2, pnl_pct=$3, outcome=$4, closed_at=$5
+                   WHERE id=$6""",
+                current_price, pnl_sol, pnl_pct, outcome, time.time(), pos.trade_id,
             )
-            await self.db.commit()
 
             key = f"{pos.personality}:{pos.mint}"
             self.positions.pop(key, None)
@@ -650,7 +612,6 @@ class BotCore:
     # --- Daily P/L reset ---
     async def _daily_reset(self):
         """Reset daily P/L at midnight UTC."""
-        from datetime import timedelta
         while True:
             now = datetime.now(timezone.utc)
             # Sleep until next midnight (timedelta handles month rollover safely)

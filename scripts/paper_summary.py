@@ -4,47 +4,54 @@ ZMN Bot Paper Trading Summary Report
 Usage:
     python scripts/paper_summary.py
 
-Reads from SQLite paper_trades table and prints performance report.
+Reads from PostgreSQL paper_trades table and prints performance report.
+Requires DATABASE_URL env var (set in .env or Railway).
 """
 
-import json
+import asyncio
 import os
-import sqlite3
 import sys
 from datetime import datetime, timezone
 
+import asyncpg
 from dotenv import load_dotenv
 
 load_dotenv()
 
-_db_url = os.getenv("DATABASE_URL", "toxibot.db")
-DATABASE_PATH = _db_url.replace("sqlite:///", "") if _db_url.startswith("sqlite") else _db_url
 
-
-def main():
-    db_path = os.path.join(os.path.dirname(__file__), "..", DATABASE_PATH)
-    if not os.path.exists(db_path):
-        print(f"Database not found: {db_path}")
+def _get_dsn() -> str:
+    url = os.getenv("DATABASE_URL", "")
+    if not url:
+        print("ERROR: DATABASE_URL not set")
         sys.exit(1)
+    if url.startswith("postgres://"):
+        url = "postgresql://" + url[len("postgres://"):]
+    if url.startswith("sqlite"):
+        print("ERROR: SQLite no longer supported. Set DATABASE_URL to a PostgreSQL connection string.")
+        sys.exit(1)
+    return url
 
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+
+async def main():
+    conn = await asyncpg.connect(_get_dsn())
 
     # Check table exists
-    tables = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='paper_trades'").fetchone()
-    if not tables:
+    exists = await conn.fetchval(
+        "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'paper_trades')")
+    if not exists:
         print("No paper_trades table found. Run the bot in TEST_MODE first.")
+        await conn.close()
         sys.exit(0)
 
-    trades = [dict(r) for r in conn.execute(
-        "SELECT * FROM paper_trades WHERE exit_time IS NOT NULL ORDER BY exit_time DESC"
-    ).fetchall()]
+    trades = [dict(r) for r in await conn.fetch(
+        "SELECT * FROM paper_trades WHERE exit_time IS NOT NULL ORDER BY exit_time DESC")]
 
-    open_trades = [dict(r) for r in conn.execute(
-        "SELECT * FROM paper_trades WHERE exit_time IS NULL ORDER BY entry_time DESC"
-    ).fetchall()]
+    open_trades = [dict(r) for r in await conn.fetch(
+        "SELECT * FROM paper_trades WHERE exit_time IS NULL ORDER BY entry_time DESC")]
 
-    conn.close()
+    all_trades_raw = [dict(r) for r in await conn.fetch("SELECT * FROM paper_trades")]
+
+    await conn.close()
 
     if not trades and not open_trades:
         print("No paper trades recorded yet.")
@@ -55,10 +62,6 @@ def main():
     wins = sum(1 for t in trades if (t.get("realised_pnl_sol") or 0) > 0)
     losses = total - wins
     total_pnl = sum(t.get("realised_pnl_sol") or 0 for t in trades)
-    total_fees = sum(t.get("fees_sol") or 0 for t in trades)
-    # Also add entry fees for all trades
-    all_trades_raw = [dict(r) for r in sqlite3.connect(db_path).execute(
-        "SELECT * FROM paper_trades").fetchall()]
     total_fees = sum(t.get("fees_sol") or 0 for t in all_trades_raw)
 
     hold_times = [t.get("hold_seconds") or 0 for t in trades if t.get("hold_seconds")]
@@ -158,4 +161,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

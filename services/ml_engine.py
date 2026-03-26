@@ -20,9 +20,10 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import aiosqlite
 import redis.asyncio as aioredis
 from dotenv import load_dotenv
+
+from services.db import get_pool
 
 load_dotenv()
 
@@ -35,8 +36,6 @@ logger = logging.getLogger("ml_engine")
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 TEST_MODE = os.getenv("TEST_MODE", "true").lower() == "true"
-_db_url = os.getenv("DATABASE_URL", "toxibot.db")
-DATABASE_PATH = _db_url.replace("sqlite:///", "") if _db_url.startswith("sqlite") else _db_url
 
 MODEL_DIR = Path("data/models")
 MODEL_DIR.mkdir(parents=True, exist_ok=True)
@@ -160,7 +159,7 @@ class MLModel:
         except Exception as e:
             logger.error("Failed to save models: %s", e)
 
-    async def train(self, db: aiosqlite.Connection):
+    async def train(self, pool):
         """Train on 7-day sliding window of trade outcomes."""
         try:
             from catboost import CatBoostClassifier
@@ -172,12 +171,11 @@ class MLModel:
         # Fetch training data from trades table
         seven_days_ago = datetime.now(timezone.utc).timestamp() - (7 * 86400)
         try:
-            cursor = await db.execute(
+            rows = await pool.fetch(
                 """SELECT features_json, outcome FROM trades
-                   WHERE created_at > ? AND features_json IS NOT NULL AND outcome IS NOT NULL""",
-                (seven_days_ago,),
+                   WHERE created_at > $1 AND features_json IS NOT NULL AND outcome IS NOT NULL""",
+                seven_days_ago,
             )
-            rows = await cursor.fetchall()
         except Exception as e:
             logger.warning("Could not fetch training data: %s", e)
             return
@@ -189,7 +187,9 @@ class MLModel:
         # Build DataFrame
         features_list = []
         labels = []
-        for features_json, outcome in rows:
+        for row in rows:
+            features_json = row["features_json"]
+            outcome = row["outcome"]
             try:
                 features = json.loads(features_json)
                 row = [features.get(col, 0) for col in FEATURE_COLUMNS]
@@ -277,30 +277,6 @@ class MLModel:
         return score >= threshold
 
 
-# --- Database schema for trades ---
-async def _init_db(db: aiosqlite.Connection):
-    await db.execute("""
-        CREATE TABLE IF NOT EXISTS trades (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            mint TEXT NOT NULL,
-            personality TEXT NOT NULL,
-            action TEXT NOT NULL,
-            amount_sol REAL,
-            entry_price REAL,
-            exit_price REAL,
-            pnl_sol REAL,
-            pnl_pct REAL,
-            features_json TEXT,
-            outcome TEXT,
-            ml_score REAL,
-            signal_sources TEXT,
-            created_at REAL NOT NULL,
-            closed_at REAL
-        )
-    """)
-    await db.commit()
-
-
 # --- Redis listener for scoring requests ---
 async def _scoring_listener(model: MLModel, redis_conn: aioredis.Redis | None):
     """Listen for scoring requests on Redis and respond with ML scores."""
@@ -335,15 +311,13 @@ async def _scoring_listener(model: MLModel, redis_conn: aioredis.Redis | None):
 # --- Weekly retrain loop ---
 async def _retrain_loop(model: MLModel):
     """Retrain model weekly."""
+    pool = await get_pool()
     while True:
         elapsed = time.time() - model.last_train_time
         if elapsed >= RETRAIN_INTERVAL_SECONDS:
             logger.info("Weekly retrain triggered")
             try:
-                db = await aiosqlite.connect(DATABASE_PATH)
-                await _init_db(db)
-                await model.train(db)
-                await db.close()
+                await model.train(pool)
             except Exception as e:
                 logger.error("Retrain failed: %s", e)
         # Check every hour
@@ -356,13 +330,9 @@ async def main():
 
     model = MLModel()
 
-    # Initialize DB
-    db = await aiosqlite.connect(DATABASE_PATH)
-    await _init_db(db)
-
-    # Attempt initial training if enough data
-    await model.train(db)
-    await db.close()
+    # Initialize DB pool + attempt initial training
+    pool = await get_pool()
+    await model.train(pool)
 
     # Connect Redis always — ML scoring is read-only, needed for paper trading too
     redis_conn = None
