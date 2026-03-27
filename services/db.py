@@ -200,7 +200,105 @@ async def _init_tables():
             )
         """)
 
+        # --- ml_models table (persist ML models to PostgreSQL) ---
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS ml_models (
+                id              SERIAL PRIMARY KEY,
+                model_name      TEXT NOT NULL,
+                model_data      BYTEA NOT NULL,
+                meta_json       JSONB,
+                trained_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                sample_count    INTEGER,
+                accuracy        NUMERIC,
+                is_active       BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_ml_models_active
+                ON ml_models(model_name, trained_at DESC) WHERE is_active = TRUE
+        """)
+
+        # --- governance_state + governance_notes_log (replaces flat files) ---
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS governance_state (
+                id              SERIAL PRIMARY KEY,
+                decision        TEXT NOT NULL,
+                reason          TEXT,
+                notes           TEXT,
+                market_mode     TEXT,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                session         TEXT,
+                triggered_by    TEXT
+            )
+        """)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS governance_notes_log (
+                id              SERIAL PRIMARY KEY,
+                content         TEXT NOT NULL,
+                appended_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+
+        # --- bot_state table (persistent counters — not Redis) ---
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS bot_state (
+                key             TEXT PRIMARY KEY,
+                value_text      TEXT,
+                value_int       INTEGER,
+                value_float     NUMERIC,
+                updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+
+        # --- portfolio_snapshots index for time-series queries ---
+        try:
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_portfolio_snapshots_time
+                    ON portfolio_snapshots(timestamp DESC)
+            """)
+        except Exception:
+            pass
+
     logger.info("All database tables verified")
+
+
+async def get_bot_state(key: str, default=None):
+    """Read persistent bot state from PostgreSQL."""
+    pool = await get_pool()
+    row = await pool.fetchrow(
+        "SELECT value_text, value_int, value_float FROM bot_state WHERE key = $1", key
+    )
+    if not row:
+        return default
+    if row["value_int"] is not None:
+        return row["value_int"]
+    if row["value_float"] is not None:
+        return row["value_float"]
+    return row["value_text"]
+
+
+async def set_bot_state(key: str, value):
+    """Write persistent bot state to PostgreSQL."""
+    pool = await get_pool()
+    if isinstance(value, int):
+        await pool.execute(
+            """INSERT INTO bot_state (key, value_int, updated_at) VALUES ($1, $2, NOW())
+               ON CONFLICT (key) DO UPDATE SET value_int = $2, updated_at = NOW()""",
+            key, value,
+        )
+    elif isinstance(value, float):
+        await pool.execute(
+            """INSERT INTO bot_state (key, value_float, updated_at) VALUES ($1, $2, NOW())
+               ON CONFLICT (key) DO UPDATE SET value_float = $2, updated_at = NOW()""",
+            key, value,
+        )
+    else:
+        await pool.execute(
+            """INSERT INTO bot_state (key, value_text, updated_at) VALUES ($1, $2, NOW())
+               ON CONFLICT (key) DO UPDATE SET value_text = $2, updated_at = NOW()""",
+            key, str(value),
+        )
 
 
 async def update_trailing_stop(
