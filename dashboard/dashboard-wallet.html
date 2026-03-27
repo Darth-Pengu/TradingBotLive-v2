@@ -248,13 +248,13 @@ kbd{background:var(--bg-elevated);border:1px solid var(--border-active);border-r
     <div class="panel-stat"><div class="panel-stat-label">Hold Time</div><div class="panel-stat-val" id="panelHold">--</div></div>
   </div>
   <div class="panel-sec">Signal Intelligence</div>
-  <div class="panel-row"><span class="label">Signal Source</span><span class="val">PumpPortal</span></div>
-  <div class="panel-row"><span class="label">ML Score</span><span class="val">78%</span></div>
-  <div class="panel-row"><span class="label">Market Mode</span><span class="val">NORMAL</span></div>
+  <div class="panel-row"><span class="label">Signal Source</span><span class="val" id="panelSource">--</span></div>
+  <div class="panel-row"><span class="label">ML Score</span><span class="val" id="panelMl">--</span></div>
+  <div class="panel-row"><span class="label">P/L %</span><span class="val" id="panelPnlPct">--</span></div>
   <div class="panel-sec">Execution Details</div>
-  <div class="panel-row"><span class="label">Entry Slippage</span><span class="val">1.2%</span></div>
-  <div class="panel-row"><span class="label">Exit Slippage</span><span class="val">0.8%</span></div>
-  <div class="panel-row"><span class="label">Total Fees</span><span class="val">0.0025 SOL</span></div>
+  <div class="panel-row"><span class="label">Entry Slippage</span><span class="val">--</span></div>
+  <div class="panel-row"><span class="label">Exit Slippage</span><span class="val">--</span></div>
+  <div class="panel-row"><span class="label">Total Fees</span><span class="val">--</span></div>
 </div>
 <!-- Command Palette -->
 <div class="cmd-bg" id="cmdBg" onclick="if(event.target===this)closeCmd()"><div class="cmd"><div class="cmd-input"><i class="bi bi-search"></i><input id="cmdIn" placeholder="Search or jump to..." oninput="filterCmd(this.value)"></div><div class="cmd-list"><div class="cmd-sec">Navigation</div><div class="cmd-item" onclick="go('/dashboard/dashboard.html')"><i class="bi bi-grid-1x2-fill"></i><span>Overview</span><small>G O</small></div><div class="cmd-item" onclick="go('/dashboard/dashboard-analytics.html')"><i class="bi bi-activity"></i><span>Status</span><small>G S</small></div><div class="cmd-item" onclick="go('/dashboard/dashboard-wallet.html')"><i class="bi bi-wallet2"></i><span>Wallet</span><small>G W</small></div><div class="cmd-sec">Actions</div><div class="cmd-item" onclick="csvExport();closeCmd()"><i class="bi bi-file-earmark-arrow-down"></i><span>Export CSV</span></div></div></div></div>
@@ -269,15 +269,51 @@ const $=id=>document.getElementById(id);
 function updateClock(){const s=new Date().toLocaleString('en-AU',{timeZone:'Australia/Sydney',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false,timeZoneName:'short'});$('sydClock').textContent=s}
 setInterval(updateClock,1000);updateClock();
 // Tabs
-document.querySelectorAll('.tab').forEach(t=>{t.addEventListener('click',function(){document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));document.querySelectorAll('.tab-panel').forEach(x=>x.classList.remove('on'));this.classList.add('on');$('tab-'+this.dataset.tab).classList.add('on')})});
+let activeWhaleTab=false;
+document.querySelectorAll('.tab').forEach(t=>{t.addEventListener('click',function(){document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));document.querySelectorAll('.tab-panel').forEach(x=>x.classList.remove('on'));this.classList.add('on');$('tab-'+this.dataset.tab).classList.add('on');activeWhaleTab=this.dataset.tab==='whales';if(activeWhaleTab)loadWhales()})});
 // Filters
 document.querySelectorAll('.filters .fil').forEach(b=>{b.addEventListener('click',function(){document.querySelectorAll('.filters .fil').forEach(x=>x.classList.remove('on'));this.classList.add('on');const f=this.dataset.f;document.querySelectorAll('#histTbl tr').forEach(r=>{if(f==='all')r.style.display='';else r.style.display=r.textContent.toLowerCase().includes(f)?'':'none'})})});
 // Sort
 document.querySelectorAll('th').forEach(th=>{th.addEventListener('click',function(){const tbl=this.closest('table'),tb=tbl.querySelector('tbody');if(!tb)return;const rows=[...tb.querySelectorAll('tr')],i=[...this.parentElement.children].indexOf(this),asc=this.dataset.s!=='a';this.dataset.s=asc?'a':'d';rows.sort((a,b)=>{const at=a.children[i]?.textContent||'',bt=b.children[i]?.textContent||'',an=parseFloat(at.replace(/[^0-9.-]/g,'')),bn=parseFloat(bt.replace(/[^0-9.-]/g,''));if(!isNaN(an)&&!isNaN(bn))return asc?an-bn:bn-an;return asc?at.localeCompare(bt):bt.localeCompare(at)});rows.forEach(r=>tb.appendChild(r))})});
 // CSV
 function csvExport(){const rows=[['Time','Token','Bot','Entry','Exit','PL_SOL','PL_Pct','Hold','Size','Reason']];document.querySelectorAll('#histTbl tr').forEach(r=>{rows.push([...r.querySelectorAll('td')].map(c=>c.textContent.trim()))});const a=document.createElement('a');a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(rows.map(r=>r.join(',')).join('\n'));a.download='zmn_trades.csv';a.click()}
-// WS
-let ws;function conn(){ws=new WebSocket((location.protocol==='https:'?'wss':'ws')+'://'+location.host+'/ws');ws.onopen=()=>{ws.send(JSON.stringify({token:TOKEN}))};ws.onclose=()=>setTimeout(conn,3000);ws.onmessage=e=>{try{const d=JSON.parse(e.data);if(d._type==='periodic_update'){$('posC').textContent=(d.status||{}).open_positions||'0'}}catch(x){}}}
+// Source abbreviation map (FIX 21)
+const srcMap={pumpportal:'PP',helius_webhook:'HL',helius_whale:'HL',geckoterminal:'GK',dexpaprika:'DP',nansen_discord:'NS',nansen_discovery:'NS'};
+// WS (FIX 21: wire signal feed + FIX 11: position count)
+let ws;function conn(){ws=new WebSocket((location.protocol==='https:'?'wss':'ws')+'://'+location.host+'/ws');ws.onopen=()=>{ws.send(JSON.stringify({token:TOKEN}))};ws.onclose=()=>setTimeout(conn,3000);ws.onmessage=e=>{try{const d=JSON.parse(e.data);
+if(d._type==='periodic_update'){
+  $('posC').textContent=(d.status||{}).open_positions||'0';
+  // FIX 21: Signal feed from WS
+  if(d.recent_signals)updateSignalFeed(d.recent_signals);
+}
+// FIX 21: Post-ML gate trade entries
+if(d._type==='trade_entered'){
+  const pml=$('tab-signals');if(pml){
+    const postDiv=pml.querySelector('.post-ml-feed')||pml;
+    const item=document.createElement('div');item.className='feed-item';
+    item.innerHTML='<span class="feed-time">'+new Date().toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit',hour12:false})+'</span> <span class="pill pill-green" style="font-size:9px">ENTRY</span> '+(d.mint||'').substring(0,8)+'... '+d.personality+' ML:'+(d.ml_score||0).toFixed(0);
+    postDiv.prepend(item);while(postDiv.children.length>20)postDiv.lastChild.remove();
+  }
+}
+}catch(x){}}}
+// FIX 21: Update signal feed from WS data
+function updateSignalFeed(signals){
+  const container=$('tab-signals');if(!container)return;
+  const feedDiv=container.querySelector('.sig-feed')||container;
+  // Clear static placeholder on first real data
+  if(feedDiv.dataset.init!=='1'){feedDiv.innerHTML='';feedDiv.dataset.init='1'}
+  signals.slice(0,5).reverse().forEach(sig=>{
+    const src=srcMap[sig.source]||sig.source||'?';
+    const mint=(sig.mint||'').substring(0,8);
+    const bsr=sig.raw_data?.buy_sell_ratio_5min;
+    const ml=sig.raw_data?.ml_score;
+    const time=new Date().toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
+    const item=document.createElement('div');item.className='feed-item';
+    item.innerHTML='<span class="feed-time">'+time+'</span> <span class="pill pill-muted" style="font-size:9px">'+src+'</span> '+mint+'... '+(bsr?'BSR:'+Number(bsr).toFixed(1):'')+(ml?' ML:'+Number(ml).toFixed(0):'');
+    feedDiv.prepend(item);
+  });
+  while(feedDiv.children.length>20)feedDiv.lastChild.remove();
+}
 async function load(){try{
 const[ps,trades,active]=await Promise.all([
   aFetch('/api/personality-stats').then(r=>r.json()).catch(()=>({})),
@@ -287,15 +323,65 @@ const[ps,trades,active]=await Promise.all([
 let tw=0,tt=0;for(const k of['speed_demon','analyst','whale_tracker']){const s=ps[k]||{};tw+=s.wins||0;tt+=s.total_trades||0}
 $('kWr').textContent=tt>0?(tw/tt*100).toFixed(1)+'%':'--';
 $('posC').textContent=active.length;
-// Populate positions table
+// FIX 8: Populate stats strip from trades data
+const closedTrades=trades.filter(t=>t.exit_time);
+if(closedTrades.length>0){
+  const allPnl=closedTrades.reduce((s,t)=>s+(t.pnl_sol||0),0);
+  $('kAll').textContent=(allPnl>=0?'+':'')+allPnl.toFixed(4);$('kAll').style.color=allPnl>=0?'var(--green)':'var(--red)';
+  const now=new Date();const sydNow=new Date(now.toLocaleString('en-US',{timeZone:'Australia/Sydney'}));
+  const todayStart=new Date(sydNow);todayStart.setHours(0,0,0,0);
+  const monthStart=new Date(sydNow.getFullYear(),sydNow.getMonth(),1);
+  const dayPnl=closedTrades.filter(t=>{const d=new Date(t.exit_time);return d>=todayStart}).reduce((s,t)=>s+(t.pnl_sol||0),0);
+  const moPnl=closedTrades.filter(t=>{const d=new Date(t.exit_time);return d>=monthStart}).reduce((s,t)=>s+(t.pnl_sol||0),0);
+  $('kDay').textContent=(dayPnl>=0?'+':'')+dayPnl.toFixed(4);$('kDay').style.color=dayPnl>=0?'var(--green)':'var(--red)';
+  $('kMo').textContent=(moPnl>=0?'+':'')+moPnl.toFixed(4);$('kMo').style.color=moPnl>=0?'var(--green)':'var(--red)';
+  const best=Math.max(...closedTrades.map(t=>t.pnl_sol||0));
+  $('kBest').textContent='+'+best.toFixed(4);$('kBest').style.color='var(--green)';
+  const avgHold=closedTrades.reduce((s,t)=>s+(t.hold_seconds||0),0)/closedTrades.length;
+  const hm=Math.floor(avgHold/60),hs=Math.round(avgHold%60);
+  $('kHold').textContent=hm+'m '+hs+'s';
+}
+// FIX 11/12: Populate positions table with hold time + Stop All button
 if(active.length>0){const icons={speed_demon:'pill-teal',analyst:'pill-purple',whale_tracker:'pill-amber'};const imap={speed_demon:'bi-lightning-charge-fill',analyst:'bi-search',whale_tracker:'bi-water'};
-$('posTbl').innerHTML=active.map(t=>{const mint=(t.mint||'').substring(0,6)+'...'+(t.mint||'').slice(-4);const ic=icons[t.personality]||'pill-teal';const im=imap[t.personality]||'bi-circle';return '<tr><td>'+mint+'</td><td><span class="pill '+ic+'" style="font-size:9px"><i class="bi '+im+'"></i></span></td><td>'+(t.entry_price?'$'+Number(t.entry_price).toFixed(8):'--')+'</td><td>--</td><td>--</td><td>--</td><td>'+(t.amount_sol?Number(t.amount_sol).toFixed(4):'--')+'</td><td>--</td><td><button class="btn-sm">Exit</button></td></tr>'}).join('')}
-// Populate trade history
+$('posTbl').innerHTML=active.map(t=>{
+  const mint=(t.mint||'').substring(0,6)+'...'+(t.mint||'').slice(-4);
+  const ic=icons[t.personality]||'pill-teal';const im=imap[t.personality]||'bi-circle';
+  const ca=t.created_at||t.entry_time;
+  let holdStr='--';
+  if(ca){const entryMs=typeof ca==='number'?ca*1000:new Date(ca).getTime();const mins=Math.floor((Date.now()-entryMs)/60000);holdStr=mins+'m'}
+  return '<tr><td>'+mint+'</td><td><span class="pill '+ic+'" style="font-size:9px"><i class="bi '+im+'"></i></span></td><td>'+(t.entry_price?'$'+Number(t.entry_price).toFixed(8):'--')+'</td><td>--</td><td>--</td><td>--</td><td>'+(t.amount_sol?Number(t.amount_sol).toFixed(4):'--')+'</td><td>'+holdStr+'</td><td><button class="btn-sm" onclick="if(confirm(\'Stop All positions?\'))aFetch(\'/api/emergency-stop\',{method:\'POST\'})">Stop All</button></td></tr>'
+}).join('')}
+// FIX 7/10: Populate trade history with correct win/loss from pnl_sol + data attribute
 if(trades.length>0){const icons={speed_demon:'pill-teal',analyst:'pill-purple',whale_tracker:'pill-amber'};const imap={speed_demon:'bi-lightning-charge-fill',analyst:'bi-search',whale_tracker:'bi-water'};
-$('histTbl').innerHTML=trades.filter(t=>t.closed_at).map(t=>{const mint=(t.mint||'').substring(0,6)+'...'+(t.mint||'').slice(-4);const pnl=t.pnl_sol||0;const pp=t.pnl_pct||0;const clr=pnl>=0?'var(--green)':'var(--red)';const pc=pnl>=0?'pill-green':'pill-red';const ic=icons[t.personality]||'pill-teal';const im=imap[t.personality]||'bi-circle';const hs=t.closed_at&&t.created_at?Math.round(t.closed_at-t.created_at):0;const hm=Math.floor(hs/60);const reason=t.outcome==='profit'?'WIN':'LOSS';const d=t.created_at?new Date(t.created_at*1000):new Date();const ts=d.toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit'});return '<tr><td>'+ts+'</td><td>'+mint+'</td><td><span class="pill '+ic+'" style="font-size:9px"><i class="bi '+im+'"></i></span></td><td>'+(t.entry_price?'$'+Number(t.entry_price).toFixed(8):'--')+'</td><td>'+(t.exit_price?'$'+Number(t.exit_price).toFixed(8):'--')+'</td><td style="color:'+clr+';font-weight:600">'+(pnl>=0?'+':'')+pnl.toFixed(4)+'</td><td><span class="pill '+pc+'">'+(pp>=0?'+':'')+pp.toFixed(0)+'%</span></td><td>'+hm+'m</td><td>'+(t.amount_sol?Number(t.amount_sol).toFixed(2):'--')+'</td><td><span class="pill '+pc+'">'+reason+'</span></td></tr>'}).join('')}
-}catch(e){}}
-conn();load();
-// Trade detail panel (Enhancement 1)
+$('histTbl').innerHTML=closedTrades.map(t=>{
+  const mint=(t.mint||'').substring(0,6)+'...'+(t.mint||'').slice(-4);
+  const pnl=t.pnl_sol||0;const pp=t.pnl_pct||0;
+  const isWin=pnl>0;const clr=isWin?'var(--green)':'var(--red)';const pc=isWin?'pill-green':'pill-red';
+  const ic=icons[t.personality]||'pill-teal';const im=imap[t.personality]||'bi-circle';
+  const hs=t.hold_seconds||0;const hm=Math.floor(hs/60);
+  const reason=t.exit_reason||(isWin?'WIN':'LOSS');
+  const d=t.entry_time?new Date(t.entry_time):new Date();
+  const ts=d.toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit'});
+  const dataAttr=JSON.stringify(t).replace(/'/g,'&#39;').replace(/"/g,'&quot;');
+  return "<tr data-trade='"+dataAttr+"' style='cursor:pointer'><td>"+ts+'</td><td>'+mint+'</td><td><span class="pill '+ic+'" style="font-size:9px"><i class="bi '+im+'"></i></span></td><td>'+(t.entry_price?'$'+Number(t.entry_price).toFixed(8):'--')+'</td><td>'+(t.exit_price?'$'+Number(t.exit_price).toFixed(8):'--')+'</td><td style="color:'+clr+';font-weight:600">'+(pnl>=0?'+':'')+pnl.toFixed(4)+'</td><td><span class="pill '+pc+'">'+(pp>=0?'+':'')+pp.toFixed(0)+'%</span></td><td>'+hm+'m</td><td>'+(t.amount_sol?Number(t.amount_sol).toFixed(2):'--')+'</td><td><span class="pill '+pc+'">'+reason+'</span></td></tr>'
+}).join('')}
+}catch(e){console.error('load:',e)}}
+// FIX 22: Load whale activity
+async function loadWhales(){
+  try{const r=await aFetch('/api/whale-activity');const data=await r.json();
+  const container=$('tab-whales');if(!container)return;
+  if(!data||!data.length){container.innerHTML='<div style="text-align:center;padding:20px;color:var(--text-muted)">No whale activity detected yet</div>';return}
+  container.innerHTML=data.map(w=>{
+    const time=w.timestamp?new Date(w.timestamp).toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit',hour12:false}):'--';
+    const wallet=w.wallet||'unknown';
+    const action=w.action||'unknown';
+    const actClr=action.toLowerCase()==='buy'?'var(--green)':action.toLowerCase()==='sell'?'var(--red)':'var(--accent-amber)';
+    const typePill=w.signal_type==='whale_trade'?'Whale':w.signal_type==='account_trade'?'Tracked':'Smart';
+    return '<div class="wh-item"><span class="wh-time">'+time+'</span><div class="wh-card"><span class="wh-wallet">'+wallet+'</span> <span class="pill pill-purple" style="font-size:9px">'+typePill+'</span><br><span style="color:'+actClr+'">'+action.toUpperCase()+'</span> '+w.mint+'</div></div>'
+  }).join('');
+  }catch(e){}}
+conn();load();setInterval(load,15000);setInterval(()=>{if(activeWhaleTab)loadWhales()},15000);
+// FIX 10: Trade detail panel with real data from data attribute
 function openPanel(row){
   const cells=[...row.querySelectorAll('td')];
   if(cells.length<8)return;
@@ -306,12 +392,23 @@ function openPanel(row){
   $('panelPnl').style.color=cells[5]?.textContent?.includes('-')?'var(--red)':'var(--green)';
   $('panelHold').textContent=cells[7]?.textContent||'--';
   $('panelReason').textContent=cells[9]?.textContent||'--';
+  // Populate from data attribute if available
+  try{
+    const t=JSON.parse(row.dataset.trade||'{}');
+    if(t.signal_source)$('panelSource').textContent=t.signal_source;
+    if(t.ml_score!=null)$('panelMl').textContent=(t.ml_score*100).toFixed(0)+'%';
+    const pp=t.pnl_pct||0;$('panelPnlPct').textContent=(pp>=0?'+':'')+pp.toFixed(1)+'%';$('panelPnlPct').style.color=pp>=0?'var(--green)':'var(--red)';
+  }catch(x){}
   $('panelOverlay').classList.add('on');
   $('tradePanel').classList.add('on');
 }
 function closePanel(){$('panelOverlay').classList.remove('on');$('tradePanel').classList.remove('on')}
-document.querySelectorAll('#histTbl tr').forEach(r=>{r.style.cursor='pointer';r.addEventListener('click',()=>openPanel(r))});
-// Command palette + keyboard shortcuts (Enhancements 4 & 6)
+// FIX 9: Event delegation for dynamically added rows
+document.getElementById('histTbl').addEventListener('click',function(e){
+  const row=e.target.closest('tr');
+  if(row&&row.closest('#histTbl')&&row.querySelectorAll('td').length>=8)openPanel(row);
+});
+// Command palette + keyboard shortcuts
 function go(u){window.location.href=u}
 function openCmd(){$('cmdBg').classList.add('on');$('cmdIn').value='';$('cmdIn').focus();filterCmd('')}
 function closeCmd(){$('cmdBg').classList.remove('on')}

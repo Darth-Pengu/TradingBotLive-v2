@@ -435,6 +435,18 @@ async def api_market_health(request):
     return web.json_response({"mode": "UNKNOWN"})
 
 
+def _safe_isoformat(val) -> str | None:
+    """Convert a timestamp to ISO string. Handles datetime objects, unix floats/ints, and None."""
+    if val is None:
+        return None
+    if isinstance(val, datetime):
+        return val.isoformat()
+    try:
+        return datetime.fromtimestamp(float(val), tz=timezone.utc).isoformat()
+    except (TypeError, ValueError, OSError):
+        return str(val) if val else None
+
+
 async def api_trades(request):
     """Return last N closed paper trades with formatted fields."""
     limit = int(request.query.get("limit", "50"))
@@ -443,54 +455,99 @@ async def api_trades(request):
     trades = []
     for r in rows:
         mint = r.get("mint", "")
-        et = r.get("entry_time")
-        xt = r.get("exit_time")
         trades.append({
             "id": r.get("id"),
             "mint": mint,
             "mint_short": mint[:6] + "..." if len(mint) > 6 else mint,
             "personality": r.get("personality", ""),
-            "entry_price": r.get("entry_price", 0),
-            "exit_price": r.get("exit_price", 0),
-            "amount_sol": r.get("amount_sol", 0),
-            "pnl_sol": r.get("realised_pnl_sol", 0),
-            "pnl_pct": r.get("realised_pnl_pct", 0),
+            "entry_price": float(r.get("entry_price", 0) or 0),
+            "exit_price": float(r.get("exit_price", 0) or 0),
+            "amount_sol": float(r.get("amount_sol", 0) or 0),
+            "pnl_sol": float(r.get("realised_pnl_sol", 0) or 0),
+            "pnl_pct": float(r.get("realised_pnl_pct", 0) or 0),
             "exit_reason": r.get("exit_reason", ""),
-            "hold_seconds": r.get("hold_seconds", 0),
-            "ml_score": r.get("ml_score", 0),
+            "hold_seconds": float(r.get("hold_seconds", 0) or 0),
+            "ml_score": float(r.get("ml_score", 0) or 0),
             "signal_source": r.get("signal_source", ""),
-            "entry_time": datetime.fromtimestamp(et, tz=timezone.utc).isoformat() if et else None,
-            "exit_time": datetime.fromtimestamp(xt, tz=timezone.utc).isoformat() if xt else None,
+            "entry_time": _safe_isoformat(r.get("entry_time")),
+            "exit_time": _safe_isoformat(r.get("exit_time")),
         })
     return web.json_response(trades)
 
 
 async def api_trades_active(request):
-    trades = await _query_db("SELECT * FROM trades WHERE closed_at IS NULL ORDER BY created_at DESC")
+    """Return currently open trades with explicit field mapping to avoid serialisation crashes."""
+    rows = await _query_db("SELECT * FROM trades WHERE closed_at IS NULL ORDER BY created_at DESC")
+    trades = []
+    for r in rows:
+        mint = r.get("mint", "")
+        trades.append({
+            "id": r.get("id"),
+            "mint": mint,
+            "mint_short": mint[:6] + "..." if len(mint) > 6 else mint,
+            "personality": r.get("personality", ""),
+            "entry_price": float(r.get("entry_price", 0) or 0),
+            "exit_price": float(r.get("exit_price", 0) or 0),
+            "amount_sol": float(r.get("amount_sol", 0) or 0),
+            "pnl_sol": float(r.get("pnl_sol", 0) or 0),
+            "pnl_pct": float(r.get("pnl_pct", 0) or 0),
+            "exit_reason": r.get("exit_reason", ""),
+            "hold_seconds": 0,
+            "ml_score": float(r.get("ml_score", 0) or 0),
+            "signal_source": r.get("signal_source", ""),
+            "created_at": _safe_isoformat(r.get("created_at")),
+            "closed_at": _safe_isoformat(r.get("closed_at")),
+        })
     return web.json_response(trades)
 
 
 async def api_personality_stats(request):
+    """Per-personality stats — queries paper_trades first, falls back to trades table."""
     stats = {}
     for personality in ["speed_demon", "analyst", "whale_tracker"]:
+        # Try paper_trades first (primary in paper mode)
+        rows = await _query_db(
+            """SELECT COUNT(*) as total_trades,
+                SUM(CASE WHEN realised_pnl_sol > 0 THEN 1 ELSE 0 END) as wins,
+                SUM(CASE WHEN realised_pnl_sol <= 0 THEN 1 ELSE 0 END) as losses,
+                COALESCE(SUM(realised_pnl_sol), 0) as total_pnl_sol
+            FROM paper_trades WHERE exit_time IS NOT NULL AND personality = $1""",
+            personality,
+        )
+        if rows and rows[0].get("total_trades", 0) > 0:
+            row = rows[0]
+            total = row["total_trades"]
+            wins = row.get("wins", 0) or 0
+            stats[personality] = {
+                "total_trades": total,
+                "wins": wins,
+                "losses": row.get("losses", 0) or 0,
+                "total_pnl_sol": float(row.get("total_pnl_sol", 0) or 0),
+                "win_rate": round(wins / total * 100, 1) if total > 0 else 0,
+            }
+            continue
+        # Fallback to trades table
         rows = await _query_db(
             """SELECT COUNT(*) as total_trades,
                 SUM(CASE WHEN outcome='profit' THEN 1 ELSE 0 END) as wins,
                 SUM(CASE WHEN outcome='loss' THEN 1 ELSE 0 END) as losses,
-                COALESCE(SUM(pnl_sol), 0) as total_pnl_sol,
-                COALESCE(AVG(pnl_pct), 0) as avg_pnl_pct,
-                COALESCE(MAX(pnl_sol), 0) as best_trade_sol,
-                COALESCE(MIN(pnl_sol), 0) as worst_trade_sol
+                COALESCE(SUM(pnl_sol), 0) as total_pnl_sol
             FROM trades WHERE personality = $1 AND outcome IS NOT NULL""",
             personality,
         )
-        if rows:
+        if rows and rows[0].get("total_trades", 0) > 0:
             row = rows[0]
-            total = row.get("total_trades", 0)
-            wins = row.get("wins", 0)
-            stats[personality] = {**row, "win_rate": round(wins / total * 100, 1) if total > 0 else 0}
+            total = row["total_trades"]
+            wins = row.get("wins", 0) or 0
+            stats[personality] = {
+                "total_trades": total,
+                "wins": wins,
+                "losses": row.get("losses", 0) or 0,
+                "total_pnl_sol": float(row.get("total_pnl_sol", 0) or 0),
+                "win_rate": round(wins / total * 100, 1) if total > 0 else 0,
+            }
         else:
-            stats[personality] = {"total_trades": 0, "wins": 0, "losses": 0, "total_pnl_sol": 0}
+            stats[personality] = {"total_trades": 0, "wins": 0, "losses": 0, "total_pnl_sol": 0, "win_rate": 0}
     return web.json_response(stats)
 
 
@@ -529,12 +586,18 @@ async def api_ml_status(request):
         try:
             with open(meta_path) as f:
                 data = json.load(f)
-            result["trained"] = True
-            result["bootstrap_mode"] = False
-            result["sample_count"] = data.get("sample_count", data.get("training_samples", 0))
-            result["last_train_time"] = data.get("last_trained", data.get("trained_at", None))
-            result["accuracy_last_100"] = data.get("accuracy", data.get("accuracy_last_100", 0))
-            result["features"] = data.get("feature_importance", data.get("features", {}))
+            sc = data.get("sample_count", 0)
+            result["trained"] = sc >= 50
+            result["bootstrap_mode"] = sc < 200
+            result["sample_count"] = sc
+            result["last_train_time"] = data.get("last_train_time", data.get("last_trained", None))
+            result["accuracy_last_100"] = data.get("accuracy_last_100", None)
+            result["win_rate_last_100"] = data.get("win_rate_last_100", None)
+            result["feature_count"] = data.get("feature_count", len(data.get("features", [])))
+            result["top_5_features"] = data.get("top_5_features", [])
+            # feature_importance is a dict of name->value; features is a list of names
+            fi = data.get("feature_importance", {})
+            result["features"] = fi if isinstance(fi, dict) and fi else data.get("features", [])
         except Exception:
             pass
     # Also check DB for pending training samples
@@ -587,6 +650,103 @@ async def api_paper_stats(request):
     return web.json_response(stats)
 
 
+async def api_service_health(request):
+    """Return health status of all services from Redis cache or live checks."""
+    result = {}
+    redis_conn = request.app.get("redis")
+    if redis_conn:
+        try:
+            cached = await redis_conn.get("service:health")
+            if cached:
+                return web.json_response(json.loads(cached))
+        except Exception:
+            pass
+    # If no cache, return basic status
+    redis_ok = False
+    redis_ms = None
+    if redis_conn:
+        try:
+            t0 = time.time()
+            await redis_conn.ping()
+            redis_ms = int((time.time() - t0) * 1000)
+            redis_ok = True
+        except Exception:
+            pass
+    result["redis"] = {"status": "ok" if redis_ok else "down", "latency_ms": redis_ms, "detail": "connected" if redis_ok else "disconnected"}
+    # Check if PumpPortal is live via recent signals
+    pp_status = "down"
+    if redis_conn:
+        try:
+            sigs = await redis_conn.lrange("signals:raw", 0, 0)
+            if sigs:
+                sig = json.loads(sigs[0])
+                ts = sig.get("timestamp", "")
+                if ts:
+                    from datetime import datetime as dt
+                    sig_time = dt.fromisoformat(ts.replace("Z", "+00:00"))
+                    age = (datetime.now(timezone.utc) - sig_time).total_seconds()
+                    pp_status = "live" if age < 120 else "warn"
+        except Exception:
+            pass
+    result["pumpportal"] = {"status": pp_status, "latency_ms": None, "detail": "websocket stream"}
+    # Market health age check
+    mh_status = "down"
+    if redis_conn:
+        try:
+            raw = await redis_conn.get("market:health")
+            if raw:
+                mh = json.loads(raw)
+                ts = mh.get("timestamp", "")
+                if ts:
+                    mh_time = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                    age = (datetime.now(timezone.utc) - mh_time).total_seconds()
+                    mh_status = "ok" if age < 300 else "warn"
+        except Exception:
+            pass
+    for svc in ["gecko", "defillama", "dexpaprika"]:
+        result[svc] = {"status": mh_status, "latency_ms": None, "detail": "via market_health"}
+    # Static services (checked at startup, assumed ok)
+    for svc in ["jupiter", "jito", "helius_rpc", "helius_parse", "helius_gatekeeper",
+                 "rugcheck", "vybe", "nansen", "anthropic", "discord_webhook", "discord_bot"]:
+        result[svc] = {"status": "ok", "latency_ms": None, "detail": "assumed ok"}
+    return web.json_response(result)
+
+
+async def api_whale_activity(request):
+    """Return recent whale/smart money signals from Redis."""
+    result = []
+    redis_conn = request.app.get("redis")
+    if redis_conn:
+        try:
+            sigs = await redis_conn.lrange("signals:raw", 0, 49)
+            for raw in sigs:
+                try:
+                    sig = json.loads(raw)
+                    source = sig.get("source", "")
+                    sig_type = sig.get("signal_type", "")
+                    is_whale = (source in ("helius_webhook", "helius_whale", "nansen_discord") or
+                                sig_type in ("whale_entry", "account_trade", "whale_trade"))
+                    if not is_whale:
+                        continue
+                    rd = sig.get("raw_data", {})
+                    result.append({
+                        "wallet": rd.get("wallet", rd.get("traderPublicKey", ""))[:12],
+                        "action": rd.get("action", rd.get("txType", "unknown")),
+                        "mint": sig.get("mint", "")[:12],
+                        "signal_type": sig_type,
+                        "source": source,
+                        "timestamp": sig.get("timestamp", ""),
+                        "token_amount": rd.get("token_amount", 0),
+                    })
+                    if len(result) >= 20:
+                        break
+                except Exception:
+                    continue
+        except Exception:
+            pass
+    return web.json_response(result)
+
+
 async def api_emergency_stop(request):
     redis_conn = request.app.get("redis")
     if redis_conn:
@@ -635,10 +795,12 @@ async def api_approve_parameter(request):
 
 
 async def api_sol_price(request):
-    """SOL price -- CoinGecko primary (no auth, no geo blocks), Binance + Jupiter fallback."""
+    """SOL price -- Binance primary (no auth), Jupiter V3 fallback (per AGENT_CONTEXT Section 21)."""
+    jupiter_api_key = os.getenv("JUPITER_API_KEY", "")
+    jup_headers = {"x-api-key": jupiter_api_key} if jupiter_api_key else {}
     sources = [
-        ("https://api.coingecko.com/api/v3/simple/price", {"ids": "solana", "vs_currencies": "usd"}, {}, lambda d: d.get("solana", {}).get("usd")),
         ("https://api.binance.com/api/v3/ticker/price", {"symbol": "SOLUSDT"}, {}, lambda d: float(d.get("price", 0)) or None),
+        ("https://api.jup.ag/price/v3", {"ids": "So11111111111111111111111111111111111111112"}, jup_headers, lambda d: d.get("data", {}).get("So11111111111111111111111111111111111111112", {}).get("usdPrice")),
     ]
     async with aiohttp.ClientSession() as session:
         for url, params, headers, extract in sources:
@@ -847,6 +1009,75 @@ async def _periodic_push(app: web.Application):
         await asyncio.sleep(2)
 
 
+async def _service_health_checker(app: web.Application):
+    """Background task: check service health every 60s, cache in Redis."""
+    while True:
+        try:
+            redis_conn = app.get("redis")
+            if not redis_conn:
+                await asyncio.sleep(60)
+                continue
+            health = {}
+            # Redis ping
+            try:
+                t0 = time.time()
+                await redis_conn.ping()
+                ms = int((time.time() - t0) * 1000)
+                health["redis"] = {"status": "ok", "latency_ms": ms, "detail": "connected"}
+            except Exception:
+                health["redis"] = {"status": "down", "latency_ms": None, "detail": "disconnected"}
+            # Binance connectivity proxy
+            try:
+                async with aiohttp.ClientSession() as session:
+                    t0 = time.time()
+                    async with session.get("https://api.binance.com/api/v3/ping", timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                        ms = int((time.time() - t0) * 1000)
+                        health["binance"] = {"status": "ok" if resp.status == 200 else "warn", "latency_ms": ms, "detail": "ping"}
+            except Exception:
+                health["binance"] = {"status": "down", "latency_ms": None, "detail": "unreachable"}
+            # PumpPortal — check last signal age
+            try:
+                sigs = await redis_conn.lrange("signals:raw", 0, 0)
+                if sigs:
+                    sig = json.loads(sigs[0])
+                    ts = sig.get("timestamp", "")
+                    if ts:
+                        sig_time = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                        age = (datetime.now(timezone.utc) - sig_time).total_seconds()
+                        health["pumpportal"] = {"status": "live" if age < 120 else "warn", "latency_ms": None, "detail": f"last signal {int(age)}s ago"}
+                    else:
+                        health["pumpportal"] = {"status": "warn", "latency_ms": None, "detail": "no timestamp"}
+                else:
+                    health["pumpportal"] = {"status": "warn", "latency_ms": None, "detail": "no signals"}
+            except Exception:
+                health["pumpportal"] = {"status": "down", "latency_ms": None, "detail": "check failed"}
+            # Market health — recent timestamp means data feeds are ok
+            mh_status = "down"
+            mh_detail = "no data"
+            try:
+                raw = await redis_conn.get("market:health")
+                if raw:
+                    mh = json.loads(raw)
+                    ts = mh.get("timestamp", "")
+                    if ts:
+                        mh_time = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                        age = (datetime.now(timezone.utc) - mh_time).total_seconds()
+                        mh_status = "ok" if age < 300 else "warn"
+                        mh_detail = f"updated {int(age)}s ago"
+            except Exception:
+                pass
+            for svc in ["gecko", "defillama", "dexpaprika", "rugcheck", "vybe"]:
+                health[svc] = {"status": mh_status, "latency_ms": None, "detail": mh_detail}
+            # Static-assumed services
+            for svc in ["jupiter", "jito", "helius_rpc", "helius_parse", "helius_gatekeeper",
+                         "nansen", "anthropic", "discord_webhook", "discord_bot"]:
+                health[svc] = {"status": "ok", "latency_ms": None, "detail": "assumed ok"}
+            await redis_conn.set("service:health", json.dumps(health), ex=120)
+        except Exception as e:
+            logger.debug("Service health check error: %s", e)
+        await asyncio.sleep(60)
+
+
 async def on_startup(app: web.Application):
     # Initialize PostgreSQL pool (shared with all services)
     try:
@@ -876,6 +1107,7 @@ async def on_startup(app: web.Application):
     app["bg_tasks"] = [
         asyncio.create_task(_redis_broadcaster(app)),
         asyncio.create_task(_periodic_push(app)),
+        asyncio.create_task(_service_health_checker(app)),
     ]
 
 
@@ -915,6 +1147,8 @@ def create_app() -> web.Application:
     app.router.add_post("/api/emergency-stop", api_emergency_stop)
     app.router.add_post("/api/approve-parameter", api_approve_parameter)
     app.router.add_get("/api/sol-price", api_sol_price)
+    app.router.add_get("/api/service-health", api_service_health)
+    app.router.add_get("/api/whale-activity", api_whale_activity)
     app.router.add_post("/api/trigger-health-check", api_trigger_health_check)
     app.router.add_get("/ws", ws_handler)
     app.router.add_get("/dashboard/{filename}", handle_static)

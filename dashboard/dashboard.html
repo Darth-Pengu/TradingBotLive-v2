@@ -320,7 +320,7 @@ if(!TOKEN)window.location.href='/login.html';
 function aFetch(u,o={}){o.headers={...(o.headers||{}),Authorization:'Bearer '+TOKEN};return fetch(u,o).then(r=>{if(r.status===401){sessionStorage.removeItem('zmn_token');window.location.href='/login.html'}return r})}
 function logout(){sessionStorage.removeItem('zmn_token');window.location.href='/login.html'}
 const $=id=>document.getElementById(id),F=(n,d=4)=>n!=null?Number(n).toFixed(d):'--';
-let solUsd=0,solPrev=0;
+let solUsd=0,solPrev=0,treasuryThreshold=30;
 // SOL price — updated from WebSocket periodic_update + fallback REST
 function updateSolPrice(price,chg24){
   if(!price||price<=0)return;
@@ -372,7 +372,7 @@ $('modePill').innerHTML='<span class="sb-dot '+(tm?'amber':'green')+'"></span> '
 $('watermark').style.display=tm?'block':'none';
 // SOL price from WS
 if(d.sol_price)updateSolPrice(d.sol_price,h.sol_24h_change||0);
-if(d.trading_balance!=null){$('kBal').textContent=F(d.trading_balance)+' SOL';$('trBal').textContent=F(d.trading_balance)+' SOL';if(solUsd)$('kBalUsd').textContent='$'+(d.trading_balance*solUsd).toFixed(2)+' USD';const p=Math.min(100,(d.trading_balance||0)/30*100);$('trBar').style.width=p+'%'}
+if(d.trading_balance!=null){$('kBal').textContent=F(d.trading_balance)+' SOL';$('trBal').textContent=F(d.trading_balance)+' SOL';if(solUsd)$('kBalUsd').textContent='$'+(d.trading_balance*solUsd).toFixed(2)+' USD';const p=Math.min(100,(d.trading_balance||0)/treasuryThreshold*100);$('trBar').style.width=p+'%'}
 if(d.holding_balance!=null)$('trHold').textContent=F(d.holding_balance)+' SOL';
 $('kPos').textContent=d.open_positions||s.open_positions||'0';
 const mode=(d.market_mode||s.market_mode||h.mode||'NORMAL').toUpperCase();
@@ -433,7 +433,33 @@ aFetch('/api/paper-stats').then(r=>r.json()).then(ps=>{
 function openModal(){$('modalBg').classList.add('on');$('modalBar').style.width='0';setTimeout(()=>{$('modalBar').style.width='100%'},50);setTimeout(()=>{$('modalConfirm').classList.add('ready')},3000)}
 function closeModal(){$('modalBg').classList.remove('on');$('modalConfirm').classList.remove('ready');$('modalBar').style.width='0'}
 function confirmStop(){aFetch('/api/emergency-stop',{method:'POST'});closeModal()}
-conn();load();setInterval(load,15000);
+// FIX 6: Load equity chart from portfolio history
+async function loadChart(tf){
+  try{
+    const r=await aFetch('/api/portfolio-history');const snaps=await r.json();
+    if(!snaps||!snaps.length)return;
+    const now=Date.now();
+    const cutoff=tf==='all'?0:tf==='30d'?now-30*86400000:now-7*86400000;
+    const filtered=snaps.filter(s=>{
+      const t=s.timestamp?((typeof s.timestamp==='number'?s.timestamp*1000:new Date(s.timestamp).getTime())):0;
+      return t>=cutoff;
+    });
+    if(!filtered.length)return;
+    const labels=filtered.map(s=>{
+      const d=new Date(typeof s.timestamp==='number'?s.timestamp*1000:s.timestamp);
+      return d.toLocaleDateString('en',{month:'short',day:'numeric'});
+    });
+    const data=filtered.map(s=>s.total_balance_sol||s.balance_sol||0);
+    eqChart.data.labels=labels;eqChart.data.datasets[0].data=data;eqChart.update();
+  }catch(e){}}
+// Wire tf-pill buttons
+document.querySelectorAll('.tf-pill').forEach(b=>{b.addEventListener('click',function(){
+  document.querySelectorAll('.tf-pill').forEach(x=>x.classList.remove('on'));this.classList.add('on');
+  loadChart(this.textContent.trim().toLowerCase());
+})});
+// FIX 5: Store treasury threshold from API
+aFetch('/api/treasury').then(r=>r.json()).then(d=>{if(d.trigger_threshold)treasuryThreshold=d.trigger_threshold}).catch(()=>{});
+conn();load();loadChart('7d');setInterval(load,15000);
 // Command palette + keyboard shortcuts (Enhancements 4 & 6)
 function go(u){window.location.href=u}
 function openCmd(){$('cmdBg').classList.add('on');$('cmdIn').value='';$('cmdIn').focus();filterCmd('')}
