@@ -5,7 +5,7 @@ Connects to signal sources and pushes raw signals to Redis:
   1. PumpPortal WebSocket (primary) — subscribeNewToken, subscribeAccountTrade,
      subscribeMigration, subscribeTokenTrade
   2. GeckoTerminal polling (backup) — /networks/solana/new_pools every 60s
-  3. DexPaprika SSE stream (tertiary) — /v1/solana/events/stream
+  3. DexPaprika SSE stream (tertiary) — streaming.dexpaprika.com/stream
   4. Discord Nansen alerts — polls channel every 15s for whale/smart money signals
   5. Nansen Token Screener — polls every 10 minutes
 
@@ -485,6 +485,14 @@ async def discord_nansen_poller(redis_conn: aioredis.Redis | None):
                     url, headers=headers, params=params,
                     timeout=aiohttp.ClientTimeout(total=10),
                 ) as resp:
+                    if resp.status == 404:
+                        logger.error("Discord channel not found — check DISCORD_NANSEN_CHANNEL_ID (got 404)")
+                        await asyncio.sleep(300)  # Back off 5 minutes on 404
+                        continue
+                    if resp.status == 403:
+                        logger.error("Discord bot lacks permission to read channel (got 403)")
+                        await asyncio.sleep(300)
+                        continue
                     if resp.status != 200:
                         logger.warning("Discord API HTTP %d", resp.status)
                         await asyncio.sleep(DISCORD_POLL_INTERVAL)
@@ -740,11 +748,22 @@ async def nansen_screener_poller(redis_conn: aioredis.Redis | None):
         logger.info("NANSEN_API_KEY not set — screener disabled")
         return
 
+    nansen_disabled = False
+
     while True:
+        if nansen_disabled:
+            await asyncio.sleep(3600)  # Sleep long, don't exit (keeps gather alive)
+            continue
+
         try:
             from services.nansen_client import screen_new_tokens
             async with aiohttp.ClientSession() as session:
                 tokens = await screen_new_tokens(session, redis_conn)
+                # Check for credits exhausted (nansen_client returns None on error)
+                if tokens is None:
+                    logger.warning("Nansen returned None — possible credits issue, retrying in 10min")
+                    await asyncio.sleep(600)
+                    continue
                 for token in tokens:
                     mint = token.get("token_address", token.get("address", ""))
                     if not mint or mint in NANSEN_SCREENER_SEEN:
@@ -788,6 +807,24 @@ async def main():
     except Exception as e:
         logger.warning("Redis connection failed: %s — signals will be logged only", e)
         redis_conn = None
+
+    # Auto-seed whale wallets if missing (Railway filesystem is ephemeral)
+    from pathlib import Path
+    whale_path = Path("data/whale_wallets.json")
+    if not whale_path.exists() or whale_path.stat().st_size < 100:
+        logger.info("Auto-seeding whale wallets...")
+        try:
+            import subprocess, sys
+            result = subprocess.run(
+                [sys.executable, "scripts/seed_wallets.py"],
+                capture_output=True, text=True, timeout=60,
+            )
+            if result.returncode == 0:
+                logger.info("Whale wallets seeded: %s", result.stdout.strip()[-200:])
+            else:
+                logger.warning("Seed failed: %s", result.stderr.strip()[-200:])
+        except Exception as e:
+            logger.warning("Auto-seed error: %s", e)
 
     # Register Helius webhook for real-time whale monitoring (non-blocking)
     await _register_helius_webhook(redis_conn)

@@ -79,6 +79,12 @@ async def nansen_post(
 
             if resp.status == 200:
                 return await resp.json()
+            elif resp.status == 403:
+                body_text = await resp.text()
+                if "credit" in body_text.lower() or "insufficient" in body_text.lower():
+                    logger.error("Nansen credits exhausted — screener disabled until restart")
+                else:
+                    logger.error("Nansen %s forbidden (403): %s", endpoint, body_text[:200])
             elif resp.status == 429:
                 logger.warning("Nansen rate limited on %s — backing off", endpoint)
                 await asyncio.sleep(5)
