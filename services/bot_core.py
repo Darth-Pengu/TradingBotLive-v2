@@ -231,6 +231,17 @@ class BotCore:
         if self.emergency_stopped:
             return
 
+        # FIX 19: Consecutive loss circuit breaker
+        if self.redis:
+            try:
+                pause_until = await self.redis.get("bot:loss_pause_until")
+                if pause_until and time.time() < float(pause_until):
+                    remaining = int(float(pause_until) - time.time())
+                    logger.debug("Loss pause active — %ds remaining, skipping signal", remaining)
+                    return
+            except Exception:
+                pass
+
         mint = scored_signal["mint"]
         personality = scored_signal["personality"]
         ml_score = scored_signal["ml_score"]
@@ -329,6 +340,14 @@ class BotCore:
                 logger.info("PAPER ENTERED: %s %s @ $%.8f, %.4f SOL (sig: %s)",
                              personality, mint[:12], paper_result["entry_price"],
                              paper_result["amount_sol"], paper_result["signature"])
+                # FIX 21: Publish trade_entered for dashboard signal feed
+                if self.redis:
+                    await self.redis.publish("bot:status", json.dumps({
+                        "_type": "trade_entered",
+                        "mint": mint, "personality": personality, "ml_score": ml_score,
+                        "source": scored_signal.get("signal", {}).get("source", "unknown"),
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    }))
         else:
             result = await execute_trade("buy", token, size_sol, slippage_tier=slippage_tier)
 
@@ -404,6 +423,21 @@ class BotCore:
                         "personality": pos.personality,
                         "timestamp": time.time(),
                     }))
+                    # FIX 18: Add to traded mints set (2h TTL)
+                    await self.redis.sadd("traded:mints", pos.mint)
+                    await self.redis.expire("traded:mints", 7200)
+                    # FIX 19: Consecutive loss counter
+                    if outcome == "loss":
+                        consec = await self.redis.incr("bot:consecutive_losses")
+                        if consec >= 3:
+                            pause_until = time.time() + 900
+                            await self.redis.set("bot:loss_pause_until", str(pause_until), ex=1800)
+                            logger.warning("3+ consecutive losses (%d) — pausing entries 15min", consec)
+                        if consec >= 5:
+                            await self.redis.set("market:loss_override", "DEFENSIVE", ex=3600)
+                            logger.warning("5+ consecutive losses — overriding market mode to DEFENSIVE")
+                    else:
+                        await self.redis.set("bot:consecutive_losses", "0")
 
                 if outcome == "loss" and self.portfolio.consecutive_losses.get(pos.personality, 0) >= 3:
                     if self.redis:
@@ -459,6 +493,21 @@ class BotCore:
                     "personality": pos.personality,
                     "timestamp": time.time(),
                 }))
+                # FIX 18: Add to traded mints set (2h TTL)
+                await self.redis.sadd("traded:mints", pos.mint)
+                await self.redis.expire("traded:mints", 7200)
+                # FIX 19: Consecutive loss counter
+                if outcome == "loss":
+                    consec = await self.redis.incr("bot:consecutive_losses")
+                    if consec >= 3:
+                        pause_until = time.time() + 900
+                        await self.redis.set("bot:loss_pause_until", str(pause_until), ex=1800)
+                        logger.warning("3+ consecutive losses (%d) — pausing entries 15min", consec)
+                    if consec >= 5:
+                        await self.redis.set("market:loss_override", "DEFENSIVE", ex=3600)
+                        logger.warning("5+ consecutive losses — overriding market mode to DEFENSIVE")
+                else:
+                    await self.redis.set("bot:consecutive_losses", "0")
 
             # Publish loss streak event for governance
             if outcome == "loss" and self.portfolio.consecutive_losses.get(pos.personality, 0) >= 3:
@@ -772,12 +821,21 @@ class BotCore:
         """Publish bot status to Redis for dashboard consumption."""
         while True:
             if self.redis:
+                # FIX 19: Read consecutive losses from Redis
+                consec_losses = 0
+                try:
+                    cl = await self.redis.get("bot:consecutive_losses")
+                    consec_losses = int(cl) if cl else 0
+                except Exception:
+                    pass
                 status = {
                     "status": "EMERGENCY_STOPPED" if self.emergency_stopped else "RUNNING",
                     "portfolio_balance": self.portfolio.total_balance_sol,
                     "daily_pnl": self.portfolio.daily_pnl_sol,
                     "open_positions": len(self.positions),
                     "market_mode": self.portfolio.market_mode,
+                    "consecutive_losses": consec_losses,
+                    "test_mode": TEST_MODE,
                     "positions": {k: {
                         "mint": v.mint,
                         "personality": v.personality,

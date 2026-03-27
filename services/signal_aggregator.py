@@ -111,7 +111,10 @@ RUGCHECK_REPORT_URL = "https://api.rugcheck.xyz/v1/tokens/{mint}/report"
 # Real world scores: safe tokens ~100-500, risky tokens 1000+, rugs 5000+
 # Primary gate: has_danger level check (already implemented in _apply_hard_filters)
 # Secondary gate: reject extreme scores only
-RUGCHECK_REJECT_SCORE = 2000  # Reject tokens with raw risk score >= 2000
+# Rugcheck scores are unbounded integers, NOT 0-100.
+# Safe tokens ~100-500, risky ~1000-3000, rugs 5000+, TRUMP scored 18,715.
+# Threshold calibrated per AGENT_CONTEXT Section 21.
+RUGCHECK_REJECT_SCORE = 2000
 
 # --- ML thresholds (Section 12) ---
 # Production thresholds (used when ML model is trained with >= 200 samples)
@@ -972,6 +975,39 @@ async def _process_signals(redis_conn: aioredis.Redis):
                     "signal_data": signal,
                 }
 
+                # --- FIX 15: Token age hard gate ---
+                sig_type = signal.get("signal_type", "")
+                age_sec = signal.get("age_seconds", 0)
+                if sig_type == "new_token" and age_sec > 180:
+                    logger.debug("Age reject %s: %ds > 180s", mint[:12], age_sec)
+                    continue
+
+                # --- FIX 16: Buy/sell ratio hard gate ---
+                bsr_raw = signal.get("raw_data", {}).get("buy_sell_ratio_5min", 1.0)
+                try:
+                    bsr_val = float(bsr_raw)
+                except (TypeError, ValueError):
+                    bsr_val = 1.0
+                if bsr_val < 0.8 and sig_type not in ("whale_entry", "smart_money_inflow", "account_trade", "whale_trade"):
+                    logger.debug("BSR reject %s: %.2f < 0.8", mint[:12], bsr_val)
+                    continue
+
+                # --- FIX 17: Graduation proximity filter ---
+                v_sol = signal.get("raw_data", {}).get("vSolInBondingCurve", 0)
+                try:
+                    v_sol = float(v_sol)
+                except (TypeError, ValueError):
+                    v_sol = 0
+                graduation_zone = 65 <= v_sol <= 85
+                if graduation_zone:
+                    signal["graduation_zone"] = True
+
+                # --- FIX 18: Repeated mint guard ---
+                already_traded = await redis_conn.sismember("traded:mints", mint)
+                if already_traded:
+                    logger.debug("Repeated mint reject %s (traded in last 2h)", mint[:12])
+                    continue
+
                 # --- Get market mode ---
                 market_mode = "NORMAL"
                 mode_str = await redis_conn.get("market:mode:current")
@@ -1124,6 +1160,16 @@ async def _process_signals(redis_conn: aioredis.Redis):
                 bc_progress = features["bonding_curve_progress"]
 
                 for personality in targets:
+                    # FIX 15: Speed demon age tightening (60s max)
+                    if personality == "speed_demon" and age_sec > 60:
+                        logger.debug("Speed demon age reject %s: %ds > 60s", mint[:12], age_sec)
+                        continue
+
+                    # FIX 17: Graduation zone — Speed Demon skips entirely
+                    if graduation_zone and personality == "speed_demon":
+                        logger.debug("Graduation zone reject %s for speed_demon", mint[:12])
+                        continue
+
                     # Hard filters
                     passed, reason = _apply_hard_filters(personality, signal, rugcheck)
                     if not passed:
