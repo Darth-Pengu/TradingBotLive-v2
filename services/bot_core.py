@@ -111,6 +111,7 @@ class Position:
     trades_ml_id: int = 0      # trades.id (ML training record)
     ml_score: float = 0.0      # ML score at entry time
     signal_source: str = ""    # Signal source for per-source stats
+    bonding_curve_progress: float = 0.0  # For PumpPortal Local routing on sells
     # Trailing stop state (persisted to PostgreSQL, mirrored to Redis)
     trailing_stop_active: bool = False
     trailing_stop_price: float = 0.0
@@ -440,6 +441,7 @@ class BotCore:
                     trades_ml_id=trades_ml_id,    # trades.id for ML training
                     ml_score=ml_score,
                     signal_source=signal_source,
+                    bonding_curve_progress=bc_progress,
                 )
                 # Persist trades_ml_id to paper_trades for restart recovery
                 try:
@@ -463,7 +465,11 @@ class BotCore:
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                     }))
         else:
-            result = await execute_trade("buy", token, size_sol, slippage_tier=slippage_tier)
+            signal_type = scored_signal.get("signal", {}).get("type", "")
+            result = await execute_trade(
+                "buy", token, size_sol, slippage_tier=slippage_tier,
+                bonding_curve_progress=bc_progress, signal_type=signal_type,
+            )
 
             if result.success:
                 price = await self._get_token_price(mint)
@@ -473,6 +479,7 @@ class BotCore:
                     entry_price=price, entry_time=time.time(),
                     size_sol=size_sol, peak_price=price,
                     ml_score=ml_score, signal_source=signal_source,
+                    bonding_curve_progress=bc_progress,
                 )
                 trade_id = await self.pool.fetchval(
                     """INSERT INTO trades (mint, personality, action, amount_sol, entry_price,
@@ -584,8 +591,11 @@ class BotCore:
                              pos.personality, pos.mint[:12], sell_pct*100, reason, pos.remaining_pct*100)
             return
 
-        token = Token(mint=pos.mint)
-        result = await execute_trade("sell", token, sell_amount, slippage_tier="sell")
+        token = Token(mint=pos.mint, bonding_curve_progress=pos.bonding_curve_progress)
+        result = await execute_trade(
+            "sell", token, sell_amount, slippage_tier="sell",
+            bonding_curve_progress=pos.bonding_curve_progress,
+        )
 
         pos.remaining_pct *= (1 - sell_pct)
         current_price = await self._get_token_price(pos.mint)

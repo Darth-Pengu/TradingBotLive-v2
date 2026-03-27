@@ -46,6 +46,8 @@ JUPITER_API_KEY = os.getenv("JUPITER_API_KEY", "").strip()
 PUMPPORTAL_TRADE_URL = "https://pumpportal.fun/api/trade-local"
 JUPITER_ORDER_URL = "https://api.jup.ag/swap/v2/order"
 JUPITER_EXECUTE_URL = "https://api.jup.ag/swap/v2/execute"
+PUMPPORTAL_LOCAL_URL = "https://pumpportal.fun/api/trade-local"
+GRADUATION_THRESHOLD = 0.95
 JITO_ENDPOINT = os.getenv("JITO_ENDPOINT", "https://mainnet.block-engine.jito.wtf/api/v1/bundles")
 JITO_DONTFRONT_PUBKEY = "jitodontfront111111111111111111111111111111"
 
@@ -219,6 +221,108 @@ async def _execute_pumpportal(
     # Fallback: send directly via Helius RPC
     signature = await _send_transaction(session, signed_bytes, skip_preflight=skip_preflight)
     return signature
+
+
+# ---------------------------------------------------------------------------
+# PumpPortal Local API — pre-graduation path (form data, not JSON)
+# ---------------------------------------------------------------------------
+async def _execute_pumpportal_local(
+    session: aiohttp.ClientSession,
+    action: str,
+    mint: str,
+    amount_sol: float,
+    slippage_bps: int,
+    pool: str = "pump",
+) -> str:
+    """Execute trade via PumpPortal Local API for pre-graduation tokens.
+    Uses form data (not JSON). Response is raw unsigned tx bytes."""
+
+    if TEST_MODE:
+        logger.info("TEST_MODE PumpPortal Local %s: %s %.4f SOL (slippage=%d bps, pool=%s)",
+                     action, mint, amount_sol, slippage_bps, pool)
+        return "TEST_MODE_PUMPPORTAL_TX"
+
+    slippage_pct = slippage_bps // 100
+
+    if action == "buy":
+        form_data = {
+            "publicKey": TRADING_WALLET_ADDRESS,
+            "action": "buy",
+            "mint": mint,
+            "amount": str(amount_sol),
+            "denominatedInSol": "true",
+            "slippage": str(slippage_pct),
+            "priorityFee": "0.0005",
+            "pool": pool,
+        }
+    else:
+        form_data = {
+            "publicKey": TRADING_WALLET_ADDRESS,
+            "action": "sell",
+            "mint": mint,
+            "amount": "100%",
+            "denominatedInSol": "false",
+            "slippage": str(slippage_pct),
+            "priorityFee": "0.0005",
+            "pool": pool,
+        }
+
+    async with session.post(
+        PUMPPORTAL_LOCAL_URL, data=form_data,
+        timeout=aiohttp.ClientTimeout(total=30),
+    ) as resp:
+        if resp.status != 200:
+            body = await resp.text()
+            raise ExecutionError(f"PumpPortal Local HTTP {resp.status}: {body[:200]}")
+        tx_bytes = await resp.read()
+
+    # Sign with trading wallet keypair
+    from solders.transaction import VersionedTransaction
+    from solders.keypair import Keypair
+
+    keypair = Keypair.from_base58_string(TRADING_WALLET_PRIVATE_KEY)
+    tx = VersionedTransaction.from_bytes(tx_bytes)
+    tx.sign([keypair])
+    signed_bytes = bytes(tx)
+
+    # Send via Helius RPC
+    tx_b64 = base64.b64encode(signed_bytes).decode("utf-8")
+    rpc_payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "sendTransaction",
+        "params": [tx_b64, {
+            "encoding": "base64",
+            "skipPreflight": False,
+            "preflightCommitment": "confirmed",
+        }],
+    }
+
+    for rpc_url in (HELIUS_STAKED_URL, HELIUS_RPC_URL):
+        if not rpc_url:
+            continue
+        try:
+            async with session.post(rpc_url, json=rpc_payload,
+                                    timeout=aiohttp.ClientTimeout(total=30)) as rpc_resp:
+                result = await rpc_resp.json()
+                if "error" in result:
+                    logger.warning("PumpPortal Local sendTransaction error on %s: %s",
+                                   rpc_url[:40], result["error"])
+                    continue
+                signature = result["result"]
+                logger.info("PumpPortal Local %s executed: sig=%s", action, signature[:16])
+                return signature
+        except Exception as e:
+            logger.warning("PumpPortal Local sendTransaction failed on %s: %s", rpc_url[:40], e)
+
+    raise ExecutionError("PumpPortal Local: no Helius URL available for transaction submission")
+
+
+async def _execute_pumpportal_local_with_session(
+    action: str, mint: str, amount_sol: float, slippage_bps: int, pool: str = "pump",
+) -> str:
+    async with aiohttp.ClientSession() as session:
+        return await _execute_pumpportal_local(session, action, mint, amount_sol, slippage_bps, pool)
 
 
 # ---------------------------------------------------------------------------
@@ -481,13 +585,27 @@ async def execute_trade(
     slippage_tier: str = "confirmation",
     jito_tip_tier: str = "normal",
     use_jito: bool = True,
+    bonding_curve_progress: float | None = None,
+    signal_type: str = "",
 ) -> ExecutionResult:
     """
     Execute a trade with retry logic.
     action: "buy" or "sell"
+    bonding_curve_progress: if provided, used for PumpPortal Local routing
+    signal_type: e.g. "migration" — forces Jupiter even if pre-graduation
     Returns ExecutionResult with success status, signature, etc.
     """
+    # Determine effective bonding curve progress
+    bc_progress = bonding_curve_progress if bonding_curve_progress is not None else token.bonding_curve_progress
+
+    # Route: pre-graduation tokens go through PumpPortal Local API,
+    # unless signal_type is "migration" (already graduating → use Jupiter)
+    use_pumpportal_local = (
+        bc_progress < GRADUATION_THRESHOLD and signal_type != "migration"
+    )
+
     api = choose_execution_api(token)
+    router_label = "pumpportal" if use_pumpportal_local else "jupiter_v2"
     delay_ms = RETRY_CONFIG["initial_delay_ms"]
     last_error = ""
 
@@ -496,7 +614,13 @@ async def execute_trade(
         skip_preflight = attempt > 1
 
         try:
-            if api == ExecutionAPI.PUMPPORTAL:
+            if use_pumpportal_local:
+                # PumpPortal Local path for pre-graduation tokens
+                slippage_bps_pp = PUMPPORTAL_SLIPPAGE.get(slippage_tier, 15) * 100  # convert pct to bps
+                signature = await _execute_pumpportal_local_with_session(
+                    action, token.mint, amount_sol, slippage_bps_pp, token.pool,
+                )
+            elif api == ExecutionAPI.PUMPPORTAL:
                 slippage = PUMPPORTAL_SLIPPAGE.get(slippage_tier, 15)
                 fee_idx = min(attempt - 1, len(PRIORITY_FEE_TIERS) - 1)
                 priority_fee = PRIORITY_FEE_TIERS[fee_idx] if RETRY_CONFIG["escalate_fee"] else PRIORITY_FEE_TIERS[0]
@@ -541,7 +665,7 @@ async def execute_trade(
             return ExecutionResult(
                 success=True,
                 signature=signature,
-                api_used=api.value,
+                api_used=router_label,
                 attempts=attempt,
                 simulated=TEST_MODE,
             )
@@ -559,7 +683,7 @@ async def execute_trade(
 
     return ExecutionResult(
         success=False,
-        api_used=api.value,
+        api_used=router_label,
         attempts=RETRY_CONFIG["max_retries"],
         error=last_error,
         simulated=TEST_MODE,

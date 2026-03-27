@@ -202,6 +202,9 @@ async def paper_buy(
         "slippage_pct": slippage,
         "fees_sol": fees,
         "simulated": True,
+        # Determine which router would have been used
+        # (bonding_curve_progress comes from features passed to bot_core, not paper_trader directly)
+        "router": "paper_mode",  # paper mode doesn't route — just logs
     }
 
 
@@ -292,4 +295,5 @@ async def paper_sell(
         "hold_seconds": hold_seconds,
         "fees_sol": fees,
         "simulated": True,
+        "router": "paper_mode",  # paper mode doesn't route — just logs
     }
