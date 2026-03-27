@@ -248,15 +248,33 @@ class MLModel:
                 pickle.dump(self.lgbm_model, f)
             with open(MODEL_DIR / "xgb_model.pkl", "wb") as f:
                 pickle.dump(self.xgb_model, f)
-            with open(MODEL_DIR / "model_meta.json", "w") as f:
-                json.dump({
-                    "sample_count": self.sample_count,
-                    "last_train_time": self.last_train_time,
-                    "last_update_time": self.last_update_time,
-                    "trades_since_last_update": self.trades_since_last_update,
-                    "total_trades_trained": self.total_trades_trained,
-                    "features": FEATURE_COLUMNS,
-                }, f, indent=2)
+            meta = {
+                "sample_count": self.sample_count,
+                "last_train_time": self.last_train_time,
+                "last_update_time": self.last_update_time,
+                "trades_since_last_update": self.trades_since_last_update,
+                "total_trades_trained": self.total_trades_trained,
+                "features": FEATURE_COLUMNS,
+                "feature_count": len(FEATURE_COLUMNS),
+            }
+            # Include SHAP feature importance if computed
+            fi = getattr(self, "_feature_importance", {})
+            if fi:
+                meta["feature_importance"] = fi
+                meta["top_5_features"] = list(fi.keys())[:5]
+            # Preserve existing accuracy tracking if present
+            meta_path = MODEL_DIR / "model_meta.json"
+            if meta_path.exists():
+                try:
+                    with open(meta_path, "r") as f:
+                        existing = json.load(f)
+                    for key in ("accuracy_last_100", "win_rate_last_100", "predictions_tracked"):
+                        if key in existing:
+                            meta[key] = existing[key]
+                except Exception:
+                    pass
+            with open(meta_path, "w") as f:
+                json.dump(meta, f, indent=2)
             logger.info("Models saved to %s", MODEL_DIR)
         except Exception as e:
             logger.error("Failed to save models: %s", e)
@@ -407,6 +425,30 @@ class MLModel:
                 logger.info("FLAML not installed — skipping auto-tuning")
             except Exception as e:
                 logger.warning("FLAML tuning failed: %s — using default configs", e)
+
+        # SHAP feature importance (runs after full retrain only)
+        try:
+            import shap
+            explainer = shap.TreeExplainer(self.lgbm_model)
+            shap_values = explainer.shap_values(X)
+            # For binary classification, shap_values[1] is positive class
+            if isinstance(shap_values, list):
+                shap_importance = shap_values[1]
+            else:
+                shap_importance = shap_values
+            mean_abs_shap = np.abs(shap_importance).mean(axis=0)
+            feature_importance = dict(zip(FEATURE_COLUMNS, mean_abs_shap.tolist()))
+            feature_importance = dict(
+                sorted(feature_importance.items(), key=lambda x: x[1], reverse=True)
+            )
+            self._feature_importance = feature_importance
+            logger.info("SHAP top 5 features: %s", list(feature_importance.keys())[:5])
+        except ImportError:
+            logger.info("SHAP not installed — skipping feature importance")
+            self._feature_importance = {}
+        except Exception as e:
+            logger.warning("SHAP computation failed: %s", e)
+            self._feature_importance = {}
 
         self._save_models()
         ensemble_size = 3 + (1 if self.flaml_model else 0)
