@@ -147,26 +147,90 @@ async def _fetch_rugcheck(session: aiohttp.ClientSession, mint: str) -> dict:
 
 async def _fetch_token_details(session: aiohttp.ClientSession, mint: str, redis_conn: aioredis.Redis | None = None) -> dict:
     """
-    Fetch additional token details from free APIs:
-    - Helius getTokenLargestAccounts → holder concentration
+    Fetch additional token details from multiple APIs:
+    - Nansen labeled top holders → holder concentration WITH labels (replaces Helius)
+    - Helius getTokenLargestAccounts → fallback holder data if Nansen unavailable
     - GeckoTerminal pool data → DEX volume, liquidity
     - Vybe Network + Helius Enhanced Transactions → creator wallet history
+    - Nansen token flow summary → 6-segment flow analysis (P0)
+    - Nansen quant scores → risk/reward indicators for ML (P0)
     """
     details = {}
 
-    # Run independent fetches concurrently
-    results = await asyncio.gather(
-        _fetch_holder_data(session, mint),
+    # Run ALL independent fetches concurrently — Nansen calls are rate-limited
+    # internally via nansen_client._rate_limit so safe to fire in parallel
+    fetch_tasks = [
         _fetch_gecko_pool_data(session, mint),
         _fetch_creator_history(session, mint, redis_conn),
-        return_exceptions=True,
-    )
+    ]
+
+    # Nansen enrichment (P0 + P1) — runs alongside free API fetches
+    if NANSEN_API_KEY:
+        fetch_tasks.append(_fetch_nansen_enrichment(session, mint, redis_conn))
+    else:
+        # Fallback to Helius for holder data when Nansen unavailable
+        fetch_tasks.append(_fetch_holder_data(session, mint))
+
+    results = await asyncio.gather(*fetch_tasks, return_exceptions=True)
 
     for result in results:
         if isinstance(result, dict):
             details.update(result)
 
     return details
+
+
+async def _fetch_nansen_enrichment(session: aiohttp.ClientSession, mint: str, redis_conn: aioredis.Redis | None = None) -> dict:
+    """
+    Fetch all Nansen enrichment data for a token in one coroutine.
+    Runs three Nansen calls sequentially (rate-limited at 1/2s) but the whole
+    block runs concurrently with free API fetches above.
+
+    Returns combined dict of:
+    - Labeled top holders (P1) — replaces Helius getTokenLargestAccounts
+    - Flow summary (P0) — 6-segment smart money flow analysis
+    - Quant scores (P0) — risk/reward indicators for ML
+    """
+    from services.nansen_client import (
+        get_labeled_top_holders, parse_labeled_holders,
+        get_token_flow_summary, parse_flow_summary,
+        get_token_quant_scores, parse_quant_scores,
+    )
+
+    combined = {}
+
+    # 1. Labeled holders (P1) — replaces Helius
+    try:
+        holders_raw = await get_labeled_top_holders(session, mint, redis_conn)
+        holder_features = parse_labeled_holders(holders_raw)
+        combined.update(holder_features)
+    except Exception as e:
+        logger.debug("Nansen holders failed for %s: %s", mint[:12], e)
+
+    # 2. Flow summary (P0) — 6-segment analysis
+    try:
+        flow_raw = await get_token_flow_summary(session, mint, lookback="1h", redis_conn=redis_conn)
+        flow_features = parse_flow_summary(flow_raw)
+        combined.update(flow_features)
+    except Exception as e:
+        logger.debug("Nansen flows failed for %s: %s", mint[:12], e)
+
+    # 3. Quant scores (P0) — risk/reward indicators
+    try:
+        quant_raw = await get_token_quant_scores(session, mint, redis_conn)
+        quant_features = parse_quant_scores(quant_raw)
+        combined.update(quant_features)
+    except Exception as e:
+        logger.debug("Nansen quant scores failed for %s: %s", mint[:12], e)
+
+    if combined:
+        logger.info("Nansen enrichment for %s: flow_signal=%s, perf_score=%.2f, sm_holders=%d",
+                     mint[:12],
+                     combined.get("nansen_flow_signal", "n/a"),
+                     combined.get("nansen_performance_score", 0),
+                     combined.get("nansen_smart_money_holder_count", 0))
+
+    return combined
 
 
 async def _fetch_holder_data(session: aiohttp.ClientSession, mint: str) -> dict:
@@ -728,14 +792,15 @@ async def _process_signals(redis_conn: aioredis.Redis):
                 # --- Confidence score ---
                 confidence = _compute_confidence(_seen_tokens[mint]["sources"])
 
-                # --- Build feature dict for ML scoring ---
+                # --- Build feature dict for ML scoring (37 features) ---
                 raw = signal.get("raw_data", {})
                 features = {
+                    # === Original 26 features ===
                     "liquidity_sol": float(raw.get("vSolInBondingCurve", raw.get("liquidity_sol", 0))),
                     "liquidity_velocity": float(raw.get("liquidity_velocity", 0)),
                     "bonding_curve_progress": float(raw.get("bondingCurveProgress", raw.get("bonding_curve_progress", 0))),
                     "buy_sell_ratio_5min": float(raw.get("buy_sell_ratio_5min", 1.0)),
-                    "holder_count": int(raw.get("holder_count", raw.get("holders", 0))),
+                    "holder_count": int(token_details.get("holder_count", raw.get("holder_count", raw.get("holders", 0)))),
                     "top10_holder_pct": float(token_details.get("top10_holder_pct", raw.get("top10_holder_pct", 0))),
                     "unique_buyers_30min": int(raw.get("unique_buyers_30min", 0)),
                     "volume_acceleration_15min": float(raw.get("volume_acceleration_15min", 0)),
@@ -760,6 +825,17 @@ async def _process_signals(redis_conn: aioredis.Redis):
                     "is_weekend": 1 if datetime.now(timezone.utc).weekday() >= 5 else 0,
                     "signal_source_count": len(_seen_tokens[mint]["sources"]),
                     "whale_wallet_count": int(raw.get("whale_wallet_count", 0)),
+                    # === Nansen flow features (P0) — default 0 if Nansen unavailable ===
+                    "nansen_sm_inflow_ratio": float(token_details.get("nansen_sm_inflow_ratio", 0)),
+                    "nansen_whale_outflow_ratio": float(token_details.get("nansen_whale_outflow_ratio", 0)),
+                    "nansen_exchange_flow": float(token_details.get("nansen_exchange_flow", 0)),
+                    "nansen_fresh_wallet_flow_ratio": float(token_details.get("nansen_fresh_wallet_flow_ratio", 0)),
+                    # === Nansen quant score features (P0) ===
+                    "nansen_performance_score": float(token_details.get("nansen_performance_score", 0)),
+                    "nansen_risk_score": float(token_details.get("nansen_risk_score", 0)),
+                    "nansen_concentration_risk": float(token_details.get("nansen_concentration_risk", 0)),
+                    # === Nansen holder features (P1) ===
+                    "nansen_labeled_exchange_holder_pct": float(token_details.get("nansen_labeled_exchange_holder_pct", 0)),
                 }
 
                 # Fill in market health data
@@ -809,9 +885,26 @@ async def _process_signals(redis_conn: aioredis.Redis):
                         logger.debug("Analyst needs 2+ sources for %s (has %d)", mint[:12], len(_seen_tokens[mint]["sources"]))
                         continue
 
-                    # --- Nansen smart money confirmation (Analyst + Whale Tracker only) ---
-                    # Speed Demon skips this — latency is critical for 30-sec alpha snipes
+                    # --- Nansen smart money confirmation ---
+                    # Flow-based confidence boost applies to ALL personalities (data stored for ML)
+                    # Who-bought-sold API call only for Analyst + Whale Tracker (Speed Demon uses flow data only)
                     nansen_sm_count = 0
+
+                    # P0: Flow-based confidence (from token_details, already fetched)
+                    flow_boost = int(token_details.get("nansen_flow_confidence_boost", 0))
+                    flow_signal = int(token_details.get("nansen_flow_signal", 0))
+                    if flow_boost != 0:
+                        confidence += flow_boost
+                        confidence = max(0, min(100, confidence))
+                        logger.info("Nansen flow boost for %s/%s: %+d (signal=%d, conf=%d)",
+                                     mint[:12], personality, flow_boost, flow_signal, confidence)
+
+                    # Reject on strong bearish flow signal (whale outflow > 3x avg)
+                    if flow_signal == -1 and personality != "speed_demon":
+                        logger.info("Nansen flow BEARISH for %s — rejecting %s", mint[:12], personality)
+                        continue
+
+                    # Who-bought-sold check (Analyst + Whale Tracker only — extra API call)
                     if personality in ("analyst", "whale_tracker") and NANSEN_API_KEY:
                         try:
                             from services.nansen_client import get_smart_money_buyers

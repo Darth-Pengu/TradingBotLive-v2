@@ -225,6 +225,7 @@ Include:
 6. Governance actions needed
 7. One specific recommendation
 8. Smart money snapshot (use Nansen MCP tools)
+9. Nansen credit usage: {json.dumps(context.get('nansen_credits', {}))}
 
 Data: {json.dumps(context, indent=2, default=str)[:3000]}
 
@@ -527,12 +528,199 @@ async def _weekly_meta_report(session: aiohttp.ClientSession):
         except Exception as e:
             logger.warning("GeckoTerminal trending fetch failed: %s", e)
 
-        # Nansen data via MCP (Claude will fetch during reasoning)
-        context = {"trending": trending, "nansen_data": []}
+        # P2: Nansen Score Top Tokens (replaces generic Nansen MCP call)
+        nansen_top = []
+        if NANSEN_API_KEY:
+            try:
+                from services.nansen_client import get_nansen_top_tokens
+                for mcap_group in ("lowcap", "midcap"):
+                    tokens = await get_nansen_top_tokens(session, market_cap_group=mcap_group)
+                    nansen_top.extend(tokens[:10])
+                logger.info("Nansen top tokens: %d results for weekly meta", len(nansen_top))
+            except Exception as e:
+                logger.warning("Nansen top tokens fetch failed: %s", e)
+
+        context = {"trending": trending, "nansen_data": nansen_top}
         await run_governance_task("weekly_meta", context, session, use_nansen_mcp=True)
 
     except Exception as e:
         logger.error("Weekly meta report failed: %s", e)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# FEATURE 8 — SMART MONEY DISCOVERY SCAN (every 4 hours)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def _smart_money_discovery_loop(redis_conn: aioredis.Redis | None):
+    """
+    P1: Proactive signal generation — scan what smart money is accumulating
+    on Solana and inject new tokens as Analyst signals.
+
+    Budget: 6 calls/day (every 4 hours)
+    """
+    if not NANSEN_API_KEY or not redis_conn:
+        logger.info("Smart money discovery disabled (no Nansen API key or Redis)")
+        return
+
+    async with aiohttp.ClientSession() as session:
+        while True:
+            try:
+                from services.nansen_client import get_smart_money_discovery
+
+                accumulating = await get_smart_money_discovery(session, redis_conn)
+
+                if accumulating:
+                    # Check which tokens are already known to the bot
+                    for token in accumulating[:10]:  # Top 10 by default sort
+                        mint = token.get("mint", "")
+                        if not mint:
+                            continue
+
+                        # Check if we've seen this token recently
+                        seen_key = f"seen:discovery:{mint}"
+                        already_seen = await redis_conn.get(seen_key)
+                        if already_seen:
+                            continue
+
+                        # Inject as Analyst signal
+                        discovery_signal = {
+                            "mint": mint,
+                            "source": "nansen_discovery",
+                            "signal_type": "token_trade",  # Routes to Analyst
+                            "age_seconds": 600,  # Treat as 10-min old (post-grad tier)
+                            "raw_data": {
+                                "symbol": token.get("symbol", ""),
+                                "balance_usd": token.get("balance_usd", 0),
+                                "smart_money_change_24h": token.get("change_24h", 0),
+                            },
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        }
+                        await redis_conn.lpush("signals:raw", json.dumps(discovery_signal))
+                        # Mark as seen for 24 hours (don't re-inject)
+                        await redis_conn.set(seen_key, "1", ex=86400)
+                        logger.info("DISCOVERY: injected %s (%s) — smart money accumulating",
+                                     mint[:12], token.get("symbol", "?"))
+
+            except Exception as e:
+                logger.error("Smart money discovery error: %s", e)
+
+            await asyncio.sleep(4 * 3600)  # Every 4 hours
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# FEATURE 9 — WHALE PORTFOLIO + PNL LEADERBOARD DISCOVERY (weekly)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def _whale_discovery_and_portfolio(pool, session: aiohttp.ClientSession, redis_conn: aioredis.Redis | None):
+    """
+    P2+P3: Enhanced whale wallet rescoring with portfolio analysis
+    and automated whale discovery via PnL leaderboard.
+
+    Called during weekly wallet rescore.
+    Budget: ~70 calls/week (50 portfolio + 5 leaderboard + some extras)
+    """
+    if not NANSEN_API_KEY:
+        return
+
+    from services.nansen_client import get_whale_portfolio, get_token_pnl_leaderboard
+
+    # P2: Whale portfolio analysis for top 20 wallets
+    try:
+        wallets_path = Path("data/whale_wallets.json")
+        if wallets_path.exists():
+            with open(wallets_path) as f:
+                wallets = json.load(f)
+        else:
+            wallets = []
+
+        # Sort by score, analyse top 20
+        sorted_wallets = sorted(wallets, key=lambda w: w.get("score", 0) if isinstance(w, dict) else 0, reverse=True)
+        portfolio_insights = []
+
+        for wallet in sorted_wallets[:20]:
+            addr = wallet.get("address", "") if isinstance(wallet, dict) else str(wallet)
+            if not addr:
+                continue
+            try:
+                portfolio = await get_whale_portfolio(session, addr, redis_conn)
+                if portfolio:
+                    portfolio_insights.append({
+                        "address": addr[:12],
+                        "label": wallet.get("label", "") if isinstance(wallet, dict) else "",
+                        "portfolio_summary": str(portfolio)[:300],
+                    })
+            except Exception as e:
+                logger.debug("Portfolio fetch failed for %s: %s", addr[:12], e)
+
+        if portfolio_insights:
+            logger.info("Fetched portfolio data for %d whale wallets", len(portfolio_insights))
+
+    except Exception as e:
+        logger.error("Whale portfolio analysis failed: %s", e)
+
+    # P3: PnL leaderboard whale discovery
+    try:
+        # Get top 5 performing tokens from last week
+        now = time.time()
+        rows = await pool.fetch(
+            """SELECT mint, SUM(pnl_sol) as total_pnl FROM trades
+               WHERE closed_at > $1 AND outcome = 'profit'
+               GROUP BY mint ORDER BY total_pnl DESC LIMIT 5""",
+            now - 7 * 86400,
+        )
+
+        discovered_wallets = []
+        for row in rows:
+            mint = row["mint"]
+            try:
+                leaderboard = await get_token_pnl_leaderboard(session, mint, days=7, redis_conn=redis_conn)
+                for trader in leaderboard[:5]:
+                    addr = trader.get("address", trader.get("traderAddress", ""))
+                    label = trader.get("label", trader.get("fullName", ""))
+                    pnl = trader.get("pnlUsdTotal", trader.get("total_pnl", 0))
+                    roi = trader.get("roiPercentTotal", trader.get("total_roi", 0))
+
+                    if addr and float(pnl or 0) > 1000:
+                        discovered_wallets.append({
+                            "address": addr,
+                            "label": label or "Nansen PnL Leader",
+                            "source_token": mint[:12],
+                            "pnl_usd": float(pnl or 0),
+                            "roi_pct": float(roi or 0),
+                        })
+            except Exception as e:
+                logger.debug("PnL leaderboard failed for %s: %s", mint[:12], e)
+
+        if discovered_wallets:
+            # Deduplicate by address
+            seen_addrs = set()
+            unique = []
+            for w in discovered_wallets:
+                if w["address"] not in seen_addrs:
+                    seen_addrs.add(w["address"])
+                    unique.append(w)
+
+            logger.info("Discovered %d potential whale wallets from PnL leaderboards", len(unique))
+
+            # Save discoveries for governance review
+            discovery_path = Path("data/whale_discoveries.json")
+            existing = []
+            if discovery_path.exists():
+                try:
+                    with open(discovery_path) as f:
+                        existing = json.load(f)
+                except Exception:
+                    pass
+
+            existing.extend(unique)
+            # Keep last 100 discoveries
+            existing = existing[-100:]
+            Path("data").mkdir(exist_ok=True)
+            with open(discovery_path, "w") as f:
+                json.dump(existing, f, indent=2)
+
+    except Exception as e:
+        logger.error("PnL leaderboard whale discovery failed: %s", e)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -559,6 +747,12 @@ async def _gather_context(pool, redis_conn, task_type: str) -> dict:
                         context["market_health"] = json.loads(health)
                 except Exception:
                     pass
+                # Nansen credit usage for daily briefing
+                try:
+                    from services.nansen_client import get_credit_usage
+                    context["nansen_credits"] = await get_credit_usage(redis_conn)
+                except Exception:
+                    context["nansen_credits"] = {}
 
         elif task_type == "wallet_rescore":
             try:
@@ -614,11 +808,13 @@ async def _scheduled_loop(pool, redis_conn):
                 await send_discord(session, f"[ZMN Bot] Daily Briefing -- {syd_header}")
                 last_daily = now_ts
 
-            # Monday 6:00 AM Sydney: wallet rescore + personality weights
+            # Monday 6:00 AM Sydney: wallet rescore + personality weights + whale discovery
             if syd.weekday() == 0 and syd.hour == 6 and syd.minute < 2 and now_ts - last_weekly > 604800:
                 context = await _gather_context(pool, redis_conn, "wallet_rescore")
                 await run_governance_task("wallet_rescore", context, session, use_nansen_mcp=True)
                 await _calculate_personality_weights(pool, session)
+                # P2+P3: Enhanced whale analysis with portfolio + PnL discovery
+                await _whale_discovery_and_portfolio(pool, session, redis_conn)
                 last_weekly = now_ts
 
             # Monday 6:30 AM Sydney: weekly meta report
@@ -791,6 +987,7 @@ async def main():
     tasks = [
         _scheduled_loop(pool, redis_conn),
         _anomaly_loop(pool, redis_conn),
+        _smart_money_discovery_loop(redis_conn),  # P1: every 4h proactive scan
     ]
     if redis_conn:
         tasks.append(_trigger_listener(pool, redis_conn))

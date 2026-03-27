@@ -1281,3 +1281,107 @@ or has access to TRADING_WALLET_PRIVATE_KEY.
 
 All scheduled tasks use Australia/Sydney timezone (auto DST via pytz).
 Daily briefing: 7:00 AM Sydney. Wallet rescore: Monday 6:00 AM Sydney.
+
+## 23. ML Architecture (Current Implementation — March 2026)
+
+### Model ensemble
+Three gradient boosted tree models with equal-weight averaging:
+- CatBoost (ordered boosting, depth=6, 500 iterations,
+  auto_class_weights="Balanced")
+- LightGBM (leaf-wise growth, depth=6, 500 iterations,
+  class_weight="balanced")
+- XGBoost (level-wise growth, depth=4, 500 iterations,
+  scale_pos_weight=dynamic) — added for inductive bias diversity
+
+When FLAML has run (sample_count >= 200), a fourth auto-tuned
+model from FLAML's 60-second search is added to the ensemble.
+
+All models saved as pickle files in data/models/.
+Ensemble score = mean(all available model probabilities) * 100.
+
+### Training schedule
+- Minimum 50 samples for first training
+- Minimum 200 samples for production scoring (65/70/70 thresholds)
+- Below 200 samples: bootstrap thresholds (40/45/45)
+- Incremental update (init_model, 50 new trees): every 50 new
+  labeled trades
+- Full retrain: weekly (7-day sliding window)
+- Emergency retrain: triggered by ADWIN drift detection
+
+### Drift detection
+River ML ADWIN detector (~1MB RAM) monitors rolling prediction
+error rate. When drift detected, publishes to Redis
+"ml:emergency_retrain" channel. Typical sensitivity: detects
+regime change within 20-30 trades after the change occurs.
+
+### Feature set (33 features)
+Original 26 features plus 7 new additions:
+- creator_prev_launches: count of prior token launches by deployer
+- creator_rug_rate: fraction of prior launches that failed (<24h)
+- creator_avg_hold_hours: how long creator typically holds own tokens
+- jito_bundle_count: bundled txs in first 10 trades (0-10)
+- jito_tip_lamports: avg Jito tip in first bundles
+- token_freshness_score: exp(-age_hours / 6) decay function
+- mint_authority_revoked: 1=revoked, 0=active
+
+Creator stats cached in Redis for 1 hour (key: "creator:{wallet}").
+Jito bundle stats fetched via Helius Enhanced Transactions API.
+
+### Haiku enrichment layer (warm path)
+Claude Haiku 4.5 runs async in parallel with ML scoring.
+Returns JSON with risk_score (0-100) and recommendation.
+Latency: 200-400ms. Cost: ~$0.0003/call.
+Hard timeout: 3s — never blocks trade execution.
+
+Score modifiers applied AFTER ML scoring:
+- hard_pass recommendation → score * 0.3 (near-zero)
+- strong_buy + risk_score < 20 → score * 1.15 (15% boost)
+- risk_score > 70 → score * 0.8 (20% penalty)
+- Haiku result cached in Redis 5 minutes (key: "haiku:{mint}")
+
+IMPORTANT: Haiku is a soft modifier only. The ML model makes
+the primary decision. Haiku can veto or boost but not solely
+trigger a trade. Never put Haiku in the synchronous hot path.
+
+### SHAP feature importance
+Computed after each full retrain using shap.TreeExplainer
+on the LightGBM model. Saved to data/models/model_meta.json
+under "feature_importance" key. Rendered in dashboard
+/analytics page as horizontal bar chart.
+
+### Accuracy tracking
+Rolling accuracy tracked in Redis "ml:prediction_history"
+list (last 100 predictions). Metrics:
+- accuracy_last_100: directional accuracy (predicted
+  positive=score>=65, actual outcome matches)
+- win_rate_last_100: of trades taken, % profitable
+Updated on every trade outcome received from bot_core.
+
+### Memory footprint (Railway 512MB)
+- LightGBM: ~50-80MB import + training
+- CatBoost: ~100-200MB training (known memory leak — restart
+  ml_engine service weekly to reset)
+- XGBoost: ~30-50MB
+- River ADWIN: ~1MB
+- FLAML: ~50MB during search (weekly only)
+- SHAP: ~20MB during computation (weekly only)
+Total inference footprint: ~150-250MB
+
+### What NOT to add (documented decisions)
+- PyTorch/deep learning: 200-400MB import alone — exceeds budget
+- TabNet, FT-Transformer: require PyTorch
+- AutoGluon in production: multi-GB RAM
+- Stable Baselines3 / RL: requires 10K+ episodes minimum
+- Social sentiment (Twitter/X/Telegram) in hot path: 1-2 day
+  lag — not predictive for sub-minute memecoin sniping
+- LLMs in synchronous hot path: 200-500ms too slow for
+  sub-second sniping
+
+### TabPFN status (pending evaluation)
+TabPFN-2.5 (Prior Labs, Nov 2025) outperforms all GBT models
+on datasets < 10K samples. 100% win rate vs default XGBoost.
+Zero-shot, no hyperparameter tuning, ~44MB size.
+NOT yet implemented — requires commercial license (priorlabs.ai).
+Evaluate after accumulating 200+ paper trades.
+Recommended approach when licensed: distill into tree ensemble
+for production inference, use as 4th ensemble member.

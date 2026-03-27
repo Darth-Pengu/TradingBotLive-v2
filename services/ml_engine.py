@@ -4,9 +4,10 @@ ZMN Bot ML Scoring Engine
 CatBoost + LightGBM ensemble with auto_class_weights="Balanced".
 - Retrain weekly on 7-day sliding window
 - Min 50 samples before first train, 200 before production scoring
-- 26 features (highest weight: liquidity_velocity, bonding_curve_progress, buy_sell_ratio_5min)
+- 37 features: 26 original + 11 Nansen (flow, quant scores, holder labels)
 - Publishes ML scores to Redis for signal_aggregator consumption
 - Listens on Redis for scoring requests and training triggers
+- Backwards compatible: missing Nansen features default to 0
 """
 
 import asyncio
@@ -57,8 +58,9 @@ MIN_SAMPLES_FIRST_TRAIN = 50
 MIN_SAMPLES_PRODUCTION = 200
 RETRAIN_INTERVAL_SECONDS = 7 * 24 * 3600  # Weekly
 
-# --- Feature definitions (26 features) ---
+# --- Feature definitions (37 features: 26 original + 11 Nansen) ---
 FEATURE_COLUMNS = [
+    # === Original 26 features ===
     "liquidity_sol",
     "liquidity_velocity",          # 2x weight
     "bonding_curve_progress",      # 2x weight
@@ -88,6 +90,17 @@ FEATURE_COLUMNS = [
     "is_weekend",
     "signal_source_count",
     "whale_wallet_count",
+    # === Nansen flow features (P0 — token_recent_flows_summary) ===
+    "nansen_sm_inflow_ratio",      # smart money flow / average (>1 = bullish)
+    "nansen_whale_outflow_ratio",  # whale outflow / average (>1 = bearish)
+    "nansen_exchange_flow",        # exchange net flow (positive = selling)
+    "nansen_fresh_wallet_flow_ratio",  # fresh wallet activity / avg (>5 = suspicious)
+    # === Nansen quant score features (P0 — token_quant_scores) ===
+    "nansen_performance_score",    # -60 to +75 normalized to ~[-0.8, 1.0]
+    "nansen_risk_score",           # -60 to +80 normalized
+    "nansen_concentration_risk",   # 1=low, 0=medium, -1=high
+    # === Nansen holder features (P1 — labeled top holders) ===
+    "nansen_labeled_exchange_holder_pct",  # % held by exchange addresses
 ]
 
 # Weights for feature importance boosting (applied during training)
@@ -99,6 +112,10 @@ FEATURE_WEIGHTS = {
     "dev_sold_pct": 2.0,
     "bundle_detected": 2.0,
     "creator_rug_count": 1.5,
+    # Nansen features with elevated weights — these are alpha signals
+    "nansen_sm_inflow_ratio": 1.5,       # smart money flow is strong predictor
+    "nansen_concentration_risk": 1.5,     # concentration risk predicts dumps
+    "nansen_fresh_wallet_flow_ratio": 1.5,  # fresh wallet spike = botted/rug
 }
 
 MARKET_MODE_ENCODING = {

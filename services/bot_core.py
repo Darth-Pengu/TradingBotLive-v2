@@ -41,6 +41,7 @@ STARTING_CAPITAL_SOL = float(os.getenv("STARTING_CAPITAL_SOL", "20"))
 HELIUS_RPC_URL = os.getenv("HELIUS_RPC_URL", "")
 TRADING_WALLET_ADDRESS = os.getenv("TRADING_WALLET_ADDRESS", "")
 JUPITER_API_KEY = os.getenv("JUPITER_API_KEY", "").strip()
+NANSEN_API_KEY = os.getenv("NANSEN_API_KEY", "")
 
 # Import sibling modules
 from services.execution import execute_trade, Token, ExecutionResult
@@ -254,6 +255,13 @@ class BotCore:
         if size_sol <= 0:
             logger.debug("Risk rejected %s for %s (size=0)", mint[:12], personality)
             return
+
+        # P2: Analyst pre-entry granular flow check (24h smart money accumulation)
+        if personality == "analyst" and NANSEN_API_KEY:
+            flow_ok = await self._analyst_flow_check(mint, self.redis)
+            if not flow_ok:
+                logger.info("Analyst REJECTED %s: smart money distribution pattern", mint[:12])
+                return
 
         # Determine slippage tier
         age = scored_signal.get("signal", {}).get("age_seconds", 0)
@@ -627,6 +635,101 @@ class BotCore:
             except Exception:
                 continue
 
+    # --- Nansen smart money exit monitor ---
+    async def _nansen_exit_monitor(self):
+        """
+        P5: Monitor open positions for smart money sell activity via Nansen.
+        Checks every 60 seconds for each open position. If Fund or All Time
+        Smart Trader is selling, publishes exit alert.
+
+        Budget: ~30 calls/day (one per position per check cycle, max 5 positions)
+        """
+        if not NANSEN_API_KEY:
+            logger.info("Nansen exit monitor disabled (no API key)")
+            return
+
+        from services.nansen_client import get_smart_money_dex_sells
+
+        while True:
+            if self.emergency_stopped or not self.positions:
+                await asyncio.sleep(30)
+                continue
+
+            try:
+                async with aiohttp.ClientSession() as session:
+                    # Check up to 5 positions per cycle to conserve credits
+                    positions_to_check = list(self.positions.items())[:5]
+                    for key, pos in positions_to_check:
+                        try:
+                            redis_conn = self.redis
+                            sells = await get_smart_money_dex_sells(session, pos.mint, redis_conn)
+
+                            if sells and len(sells) > 0:
+                                # Count significant sells (>$1000 USD)
+                                sig_sells = [s for s in sells
+                                             if float(s.get("valueUsd", s.get("value_usd", 0)) or 0) > 1000]
+                                if sig_sells:
+                                    total_sell_usd = sum(
+                                        float(s.get("valueUsd", s.get("value_usd", 0)) or 0)
+                                        for s in sig_sells
+                                    )
+                                    labels = [s.get("trader", s.get("label", "unknown"))
+                                              for s in sig_sells[:3]]
+                                    logger.warning(
+                                        "NANSEN EXIT ALERT: %s %s — %d smart money sells ($%.0f) by %s",
+                                        pos.personality, pos.mint[:12], len(sig_sells),
+                                        total_sell_usd, ", ".join(str(l) for l in labels),
+                                    )
+
+                                    # Publish exit alert for bot_core's _exit_check_listener
+                                    if self.redis:
+                                        await self.redis.publish("alerts:exit_check", json.dumps({
+                                            "mint": pos.mint,
+                                            "reason": f"nansen_smart_money_selling ({len(sig_sells)} sells, ${total_sell_usd:.0f})",
+                                        }))
+                        except Exception as e:
+                            logger.debug("Nansen exit check error for %s: %s", pos.mint[:12], e)
+
+            except Exception as e:
+                logger.error("Nansen exit monitor error: %s", e)
+
+            await asyncio.sleep(60)  # Check every 60 seconds
+
+    # --- Analyst pre-entry granular flow check ---
+    async def _analyst_flow_check(self, mint: str, redis_conn) -> bool:
+        """
+        P2: Before Analyst enters a position, check 24h granular smart money flows.
+        Returns True if accumulation trend is positive (>60% inflow hours).
+        Returns True by default if Nansen unavailable (non-blocking).
+        """
+        if not NANSEN_API_KEY:
+            return True
+
+        try:
+            from services.nansen_client import get_token_flows_granular, parse_granular_flows
+
+            async with aiohttp.ClientSession() as session:
+                flow_data = await get_token_flows_granular(
+                    session, mint, hours_back=24, segment="smart_money", redis_conn=redis_conn,
+                )
+                parsed = parse_granular_flows(flow_data)
+
+                trend = parsed.get("nansen_accumulation_trend", 0)
+                hours = parsed.get("nansen_accumulation_hours", 0)
+
+                if trend == -1:
+                    logger.info("Analyst flow check REJECT %s: distribution trend (%d inflow hours)",
+                                mint[:12], hours)
+                    return False
+
+                logger.info("Analyst flow check PASS %s: trend=%d, inflow_hours=%d",
+                            mint[:12], trend, hours)
+                return True
+
+        except Exception as e:
+            logger.debug("Analyst flow check error for %s: %s — allowing entry", mint[:12], e)
+            return True  # Non-blocking: allow entry if Nansen fails
+
     # --- Daily P/L reset ---
     async def _daily_reset(self):
         """Reset daily P/L at midnight UTC."""
@@ -706,6 +809,7 @@ async def main():
         bot._emergency_listener(),
         bot._exit_check_listener(),
         bot._whale_exit_monitor(),
+        bot._nansen_exit_monitor(),  # P5: Nansen smart money sell detection
         bot._daily_reset(),
         bot._status_publisher(),
     )
