@@ -324,6 +324,105 @@ async def api_status(request):
     return web.json_response(status_data)
 
 
+async def api_stats(request):
+    """Overall performance stats from paper_trades + trades tables."""
+    result = {
+        "total_trades": 0, "winning_trades": 0, "win_rate": 0.0,
+        "total_pnl_sol": 0.0, "total_pnl_pct": 0.0,
+        "best_trade_pnl": 0.0, "worst_trade_pnl": 0.0,
+        "avg_hold_minutes": 0.0,
+        "by_personality": {
+            p: {"trades": 0, "wins": 0, "pnl_sol": 0.0}
+            for p in ["speed_demon", "analyst", "whale_tracker"]
+        },
+    }
+    try:
+        rows = await _query_db(
+            """SELECT COUNT(*) as total,
+                SUM(CASE WHEN realised_pnl_sol > 0 THEN 1 ELSE 0 END) as wins,
+                COALESCE(SUM(realised_pnl_sol), 0) as pnl,
+                COALESCE(MAX(realised_pnl_sol), 0) as best,
+                COALESCE(MIN(realised_pnl_sol), 0) as worst,
+                COALESCE(AVG(hold_seconds), 0) as avg_hold
+            FROM paper_trades WHERE exit_time IS NOT NULL""")
+        if rows and rows[0]["total"] > 0:
+            r = rows[0]
+            result["total_trades"] = r["total"]
+            result["winning_trades"] = r["wins"] or 0
+            result["win_rate"] = round((r["wins"] or 0) / r["total"] * 100, 1) if r["total"] > 0 else 0
+            result["total_pnl_sol"] = round(r["pnl"] or 0, 4)
+            starting = float(os.getenv("STARTING_CAPITAL_SOL", "20"))
+            result["total_pnl_pct"] = round((r["pnl"] or 0) / starting * 100, 2) if starting > 0 else 0
+            result["best_trade_pnl"] = round(r["best"] or 0, 4)
+            result["worst_trade_pnl"] = round(r["worst"] or 0, 4)
+            result["avg_hold_minutes"] = round((r["avg_hold"] or 0) / 60, 1)
+
+        for p in ["speed_demon", "analyst", "whale_tracker"]:
+            prows = await _query_db(
+                """SELECT COUNT(*) as trades,
+                    SUM(CASE WHEN realised_pnl_sol > 0 THEN 1 ELSE 0 END) as wins,
+                    COALESCE(SUM(realised_pnl_sol), 0) as pnl
+                FROM paper_trades WHERE exit_time IS NOT NULL AND personality = $1""", p)
+            if prows and prows[0]["trades"] > 0:
+                result["by_personality"][p] = {
+                    "trades": prows[0]["trades"],
+                    "wins": prows[0]["wins"] or 0,
+                    "pnl_sol": round(prows[0]["pnl"] or 0, 4),
+                }
+    except Exception as e:
+        logger.warning("api_stats error: %s", e)
+    return web.json_response(result)
+
+
+async def api_positions(request):
+    """Return currently open positions from Redis bot:status."""
+    positions = []
+    redis_conn = request.app.get("redis")
+    if redis_conn:
+        try:
+            raw = await redis_conn.get("bot:status")
+            if raw:
+                status = json.loads(raw)
+                for key, pos in status.get("positions", {}).items():
+                    mint = pos.get("mint", "")
+                    positions.append({
+                        "key": key,
+                        "mint": mint,
+                        "mint_short": mint[:6] + "..." if len(mint) > 6 else mint,
+                        "personality": pos.get("personality", ""),
+                        "size_sol": pos.get("size_sol", 0),
+                        "entry_time": pos.get("entry_time", 0),
+                        "remaining_pct": pos.get("remaining_pct", 1.0),
+                    })
+        except Exception:
+            pass
+    return web.json_response(positions)
+
+
+async def api_market(request):
+    """Return current market data from Redis market:health + market:session."""
+    result = {
+        "mode": "UNKNOWN", "sentiment_score": 0, "sol_price": 0,
+        "sol_1h_change": 0, "sol_24h_change": 0, "dex_volume_24h": 0,
+        "cfgi": 50, "session": "UNKNOWN", "session_quality": "unknown",
+        "timestamp": None,
+    }
+    redis_conn = request.app.get("redis")
+    if redis_conn:
+        try:
+            raw = await redis_conn.get("market:health")
+            if raw:
+                result.update(json.loads(raw))
+            sess_raw = await redis_conn.get("market:session")
+            if sess_raw:
+                sess = json.loads(sess_raw)
+                result["session"] = sess.get("session", "UNKNOWN")
+                result["session_quality"] = sess.get("quality", "unknown")
+        except Exception:
+            pass
+    return web.json_response(result)
+
+
 async def api_market_health(request):
     redis_conn = request.app.get("redis")
     if redis_conn:
@@ -337,8 +436,32 @@ async def api_market_health(request):
 
 
 async def api_trades(request):
+    """Return last N closed paper trades with formatted fields."""
     limit = int(request.query.get("limit", "50"))
-    trades = await _query_db("SELECT * FROM trades ORDER BY created_at DESC LIMIT $1", limit)
+    rows = await _query_db(
+        "SELECT * FROM paper_trades WHERE exit_time IS NOT NULL ORDER BY exit_time DESC LIMIT $1", limit)
+    trades = []
+    for r in rows:
+        mint = r.get("mint", "")
+        et = r.get("entry_time")
+        xt = r.get("exit_time")
+        trades.append({
+            "id": r.get("id"),
+            "mint": mint,
+            "mint_short": mint[:6] + "..." if len(mint) > 6 else mint,
+            "personality": r.get("personality", ""),
+            "entry_price": r.get("entry_price", 0),
+            "exit_price": r.get("exit_price", 0),
+            "amount_sol": r.get("amount_sol", 0),
+            "pnl_sol": r.get("realised_pnl_sol", 0),
+            "pnl_pct": r.get("realised_pnl_pct", 0),
+            "exit_reason": r.get("exit_reason", ""),
+            "hold_seconds": r.get("hold_seconds", 0),
+            "ml_score": r.get("ml_score", 0),
+            "signal_source": r.get("signal_source", ""),
+            "entry_time": datetime.fromtimestamp(et, tz=timezone.utc).isoformat() if et else None,
+            "exit_time": datetime.fromtimestamp(xt, tz=timezone.utc).isoformat() if xt else None,
+        })
     return web.json_response(trades)
 
 
@@ -376,11 +499,15 @@ async def api_treasury(request):
     total_swept = await _query_db("SELECT COALESCE(SUM(amount_sol), 0) as total FROM treasury_sweeps WHERE status='success'")
     trading_balance = await _get_sol_balance(TRADING_WALLET_ADDRESS)
     holding_balance = await _get_sol_balance(HOLDING_WALLET_ADDRESS)
+    last_sweep = sweeps[0] if sweeps else None
     return web.json_response({
+        "trading_balance": trading_balance,
+        "holding_balance": holding_balance,
+        "trigger_threshold": 30.0,
+        "target_balance": 25.0,
+        "total_swept": total_swept[0]["total"] if total_swept else 0,
+        "last_sweep": last_sweep,
         "sweeps": sweeps,
-        "total_swept_sol": total_swept[0]["total"] if total_swept else 0,
-        "trading_wallet_balance": trading_balance,
-        "holding_wallet_balance": holding_balance,
     })
 
 
@@ -392,20 +519,31 @@ async def api_governance(request):
 
 
 async def api_ml_status(request):
-    """ML model status from model_meta.json."""
+    """ML model status from model_meta.json + trades table sample count."""
     meta_path = Path("data/models/model_meta.json")
-    result = {"trained": False, "sample_count": 0, "last_train_time": None, "accuracy_last_100": 0}
+    result = {
+        "trained": False, "sample_count": 0, "last_train_time": None,
+        "accuracy_last_100": None, "features": [], "bootstrap_mode": True,
+    }
     if meta_path.exists():
         try:
             with open(meta_path) as f:
                 data = json.load(f)
             result["trained"] = True
+            result["bootstrap_mode"] = False
             result["sample_count"] = data.get("sample_count", data.get("training_samples", 0))
             result["last_train_time"] = data.get("last_trained", data.get("trained_at", None))
             result["accuracy_last_100"] = data.get("accuracy", data.get("accuracy_last_100", 0))
             result["features"] = data.get("feature_importance", data.get("features", {}))
         except Exception:
             pass
+    # Also check DB for pending training samples
+    try:
+        rows = await _query_db("SELECT COUNT(*) as cnt FROM trades WHERE features_json IS NOT NULL AND outcome IS NOT NULL")
+        if rows:
+            result["sample_count"] = max(result["sample_count"], rows[0].get("cnt", 0))
+    except Exception:
+        pass
     return web.json_response(result)
 
 
@@ -674,6 +812,9 @@ async def _periodic_push(app: web.Application):
                 "_type": "periodic_update", "status": status,
                 "market_health": health, "test_mode": TEST_MODE,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
+                "sol_price": health.get("sol_price"),
+                "market_mode": health.get("mode", "UNKNOWN"),
+                "open_positions": status.get("open_positions", 0),
             }
             if tick % 5 == 0:
                 payload["trading_balance"] = await _get_sol_balance(TRADING_WALLET_ADDRESS)
@@ -759,9 +900,12 @@ def create_app() -> web.Application:
     # Dashboard routes (JWT checked by middleware for API, JS redirect for HTML)
     app.router.add_get("/", handle_index)
     app.router.add_get("/api/status", api_status)
+    app.router.add_get("/api/stats", api_stats)
+    app.router.add_get("/api/market", api_market)
     app.router.add_get("/api/market-health", api_market_health)
     app.router.add_get("/api/trades", api_trades)
     app.router.add_get("/api/trades/active", api_trades_active)
+    app.router.add_get("/api/positions", api_positions)
     app.router.add_get("/api/personality-stats", api_personality_stats)
     app.router.add_get("/api/treasury", api_treasury)
     app.router.add_get("/api/governance", api_governance)
