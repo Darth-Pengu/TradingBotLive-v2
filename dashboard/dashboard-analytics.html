@@ -206,15 +206,16 @@ kbd{background:var(--bg-elevated);border:1px solid var(--border-active);border-r
   <div class="grid2">
     <div class="card">
       <div class="card-title">Market Conditions</div>
-      <div style="text-align:center;padding:8px 0"><span class="pill pill-teal" style="font-size:14px;padding:6px 20px" id="mMode">NORMAL</span></div>
-      <div class="info-row"><span class="info-label">Solana DEX Vol 24h</span><span class="info-val">$2.1B</span></div>
-      <div class="info-row"><span class="info-label">Fear &amp; Greed</span><span class="info-val">65 - Greed</span></div>
-      <div class="info-row"><span class="info-label">Priority Fee</span><span class="info-val">~150K uLamports</span></div>
-      <div class="info-row"><span class="info-label">Rugs Last Hour</span><span class="info-val">2</span></div>
-      <div class="info-row"><span class="info-label">Session</span><span class="info-val" id="mSess">Asian (moderate)</span></div>
+      <div style="text-align:center;padding:8px 0"><span class="pill pill-teal" style="font-size:14px;padding:6px 20px" id="mMode">--</span></div>
+      <div class="info-row"><span class="info-label">SOL Price</span><span class="info-val" id="mSolPrice">--</span></div>
+      <div class="info-row"><span class="info-label">SOL 24h Change</span><span class="info-val" id="mSol24h">--</span></div>
+      <div class="info-row"><span class="info-label">Solana DEX Vol 24h</span><span class="info-val" id="mDexVol">--</span></div>
+      <div class="info-row"><span class="info-label">Fear &amp; Greed</span><span class="info-val" id="mCfgi">--</span></div>
+      <div class="info-row"><span class="info-label">Sentiment</span><span class="info-val" id="mSentiment">--</span></div>
+      <div class="info-row"><span class="info-label">Session</span><span class="info-val" id="mSess">--</span></div>
     </div>
     <div class="card">
-      <div class="card-title">ML Model Status <span class="mi" data-tip="CatBoost + LightGBM ensemble. Retrains weekly with new trade data.">i</span></div>
+      <div class="card-title">ML Model Status <span class="mi" data-tip="CatBoost + LightGBM + XGBoost ensemble. Retrains weekly + incremental every 50 trades.">i</span></div>
       <div class="info-row"><span class="info-label">Trained</span><span id="mlTrained"><span class="pill pill-muted">--</span></span></div>
       <div class="info-row"><span class="info-label">Last Trained</span><span class="info-val" id="mlLastTrain">--</span></div>
       <div class="info-row"><span class="info-label">Samples</span><span class="info-val" id="mlSamples">--</span></div>
@@ -226,12 +227,10 @@ kbd{background:var(--bg-elevated);border:1px solid var(--border-active);border-r
   <div class="grid2">
     <div class="card">
       <div class="card-title">Governance Status</div>
-      <div class="info-row"><span class="info-label">Last Briefing</span><span class="info-val">Today 07:00 AEDT</span></div>
-      <div class="info-row"><span class="info-label">Last Rescore</span><span class="info-val">Mon 06:00 AEDT</span></div>
-      <div class="info-row"><span class="info-label">Next Briefing</span><span class="info-val">Tomorrow 07:00 AEDT</span></div>
-      <div class="info-row"><span class="info-label">Pending Review</span><span id="govPend"><span class="pill pill-green">NONE</span></span></div>
+      <div class="info-row"><span class="info-label">Notes Length</span><span class="info-val" id="govLen">--</span></div>
+      <div class="info-row"><span class="info-label">Pending Review</span><span id="govPend"><span class="pill pill-muted">--</span></span></div>
       <div style="margin-top:10px;font-size:11px;color:var(--text-muted);font-weight:500;text-transform:uppercase;letter-spacing:.06em">Notes Preview</div>
-      <div class="gov-notes" id="govNotes">No governance notes yet</div>
+      <div class="gov-notes" id="govNotes">Loading...</div>
     </div>
     <div class="card">
       <div class="card-title">Treasury Sweep History</div>
@@ -260,34 +259,118 @@ function logout(){sessionStorage.removeItem('zmn_token');window.location.href='/
 const $=id=>document.getElementById(id);
 function updateClock(){const s=new Date().toLocaleString('en-AU',{timeZone:'Australia/Sydney',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false,timeZoneName:'short'});$('sydClock').textContent=s}
 setInterval(updateClock,1000);updateClock();
+
+// --- Health check ---
 async function runHC(){const b=$('hcBtn'),o=$('hcOut');b.textContent='Running...';b.style.opacity='.6';o.style.display='block';o.textContent='Starting health check...\n';
 try{const r=await aFetch('/api/trigger-health-check',{method:'POST'});const d=await r.json();if(d.output)o.textContent=d.output}catch(e){o.textContent='Error: '+e.message}
 b.textContent='Run Full Health Check';b.style.opacity='1'}
-async function loadGov(){try{const r=await aFetch('/api/governance');const d=await r.json();if(d.pending_whale_review)$('govPend').innerHTML='<span class="pill pill-amber">PENDING REVIEW</span>';if(d.notes)$('govNotes').textContent=d.notes.slice(-300)}catch(e){}}
-async function loadRedis(){try{const r=await aFetch('/api/status');const d=await r.json();
-if(d._redis_connected){$('redisDot').className='svc-dot ok';$('redisDetail').textContent='connected';$('redisMs').textContent=(d._redis_ping_ms||0)+'ms';$('clRedisIcon').style.color='var(--green)';$('clRedis').textContent='connected'}
-else{$('redisDot').className='svc-dot warn';$('redisDetail').textContent=(d._redis_error||'').substring(0,40);$('clRedis').textContent='not connected'}
-}catch(e){}}
-// Checklist manual items (localStorage)
-function toggleCheck(id){const el=$(id);const key='cl_'+id;const done=localStorage.getItem(key)==='1';localStorage.setItem(key,done?'0':'1');el.querySelector('i').className=done?'bi bi-circle':'bi bi-check-circle-fill';el.querySelector('i').style.color=done?'var(--text-muted)':'var(--green)'}
-['clReview','clEstop'].forEach(id=>{if(localStorage.getItem('cl_'+id)==='1'){const el=$(id);el.querySelector('i').className='bi bi-check-circle-fill';el.querySelector('i').style.color='var(--green)'}});
-// WS
-let ws;function conn(){ws=new WebSocket((location.protocol==='https:'?'wss':'ws')+'://'+location.host+'/ws');ws.onopen=()=>{ws.send(JSON.stringify({token:TOKEN}))};ws.onclose=()=>setTimeout(conn,3000);ws.onmessage=e=>{try{const d=JSON.parse(e.data);if(d._type==='health_check_line'){$('hcOut').style.display='block';$('hcOut').textContent+=d.line+'\n';$('hcOut').scrollTop=$('hcOut').scrollHeight}if(d._type==='health_check_done'){$('hcBtn').textContent='Run Full Health Check';$('hcBtn').style.opacity='1'}}catch(x){}}}
-// Load ML status
-async function loadML(){try{const r=await aFetch('/api/ml-status');const d=await r.json();
-$('mlTrained').innerHTML=d.trained?'<span class="pill pill-green">YES</span>':'<span class="pill pill-red">NO</span>';
-$('mlLastTrain').textContent=d.last_train_time||'Never';
+
+// --- Market Conditions (GET /api/market) ---
+async function loadMarket(){
+try{const r=await aFetch('/api/market');const d=await r.json();
+const mode=d.mode||'UNKNOWN';
+$('mMode').textContent=mode;
+const mc={'HIBERNATE':'pill pill-red','DEFENSIVE':'pill pill-amber','NORMAL':'pill pill-teal','AGGRESSIVE':'pill pill-green','FRENZY':'pill pill-purple'};
+$('mMode').className=(mc[mode]||'pill pill-muted')+' ';$('mMode').style.cssText='font-size:14px;padding:6px 20px';
+$('mSolPrice').textContent=d.sol_price?'$'+Number(d.sol_price).toFixed(2):'--';
+const ch24=d.sol_24h_change||0;$('mSol24h').textContent=(ch24>=0?'+':'')+Number(ch24).toFixed(1)+'%';$('mSol24h').style.color=ch24>=0?'var(--green)':'var(--red)';
+const vol=d.dex_volume_24h||0;$('mDexVol').textContent=vol>=1e9?'$'+(vol/1e9).toFixed(1)+'B':vol>=1e6?'$'+(vol/1e6).toFixed(0)+'M':'$'+vol.toLocaleString();
+const cfgi=d.cfgi||0;const cfgiLabel=cfgi>=75?'Extreme Greed':cfgi>=55?'Greed':cfgi>=45?'Neutral':cfgi>=25?'Fear':'Extreme Fear';
+$('mCfgi').textContent=cfgi+' - '+cfgiLabel;
+$('mSentiment').textContent=d.sentiment_score?d.sentiment_score+'/100':'--';
+const sess=d.session||'UNKNOWN';const sq=d.session_quality||'';
+$('mSess').textContent=sess+(sq?' ('+sq+')':'');
+}catch(e){console.error('loadMarket:',e)}}
+
+// --- ML Model Status (GET /api/ml-status) ---
+async function loadML(){
+try{const r=await aFetch('/api/ml-status');const d=await r.json();
+$('mlTrained').innerHTML=d.trained?'<span class="pill pill-green">YES</span>':d.bootstrap_mode?'<span class="pill pill-amber">BOOTSTRAP</span>':'<span class="pill pill-red">NO</span>';
+if(d.last_train_time){const dt=typeof d.last_train_time==='number'?new Date(d.last_train_time*1000):new Date(d.last_train_time);$('mlLastTrain').textContent=isNaN(dt)?d.last_train_time:dt.toLocaleString('en-AU',{timeZone:'Australia/Sydney',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}else{$('mlLastTrain').textContent='Never'}
 $('mlSamples').textContent=d.sample_count||'0';
-$('mlAccuracy').textContent=d.accuracy_last_100?d.accuracy_last_100+'%':'--';
-if(d.features&&typeof d.features==='object'){const entries=Object.entries(d.features).sort((a,b)=>b[1]-a[1]).slice(0,5);const max=entries[0]?entries[0][1]:1;$('mlFeatures').innerHTML=entries.map(([k,v])=>'<div class="feat-bar"><span class="feat-label">'+k+'</span><div class="feat-track"><div class="feat-fill" style="width:'+Math.round(v/max*100)+'%"></div></div><span class="feat-pct">'+(v*100).toFixed(0)+'%</span></div>').join('')}
+$('mlAccuracy').textContent=(d.accuracy_last_100!=null&&d.accuracy_last_100!==0)?d.accuracy_last_100+'%':'--';
+// Feature importance SHAP bars
+const fi=d.features;
+if(fi&&typeof fi==='object'&&!Array.isArray(fi)&&Object.keys(fi).length>0){
+const entries=Object.entries(fi).sort((a,b)=>b[1]-a[1]).slice(0,5);const max=entries[0]?entries[0][1]:1;
+$('mlFeatures').innerHTML=entries.map(([k,v])=>'<div class="feat-bar"><span class="feat-label">'+k+'</span><div class="feat-track"><div class="feat-fill" style="width:'+Math.round(v/max*100)+'%"></div></div><span class="feat-pct">'+(v*100).toFixed(0)+'%</span></div>').join('')
+}else if(fi&&Array.isArray(fi)){$('mlFeatures').innerHTML='<div style="font-size:11px;color:var(--text-muted)">'+fi.length+' features loaded (train to see SHAP)</div>'}
+}catch(e){console.error('loadML:',e)}}
+
+// --- Governance Status (GET /api/governance) ---
+async function loadGov(){
+try{const r=await aFetch('/api/governance');const d=await r.json();
+if(d.pending_whale_review){$('govPend').innerHTML='<span class="pill pill-amber">PENDING REVIEW</span>'}
+else{$('govPend').innerHTML='<span class="pill pill-green">NONE</span>'}
+if(d.notes&&d.notes.length>0){
+$('govNotes').textContent=d.notes.slice(-400);
+$('govLen').textContent=(d.notes.length/1024).toFixed(1)+' KB';
+}else{$('govNotes').textContent='No governance notes yet';$('govLen').textContent='empty'}
+}catch(e){console.error('loadGov:',e)}}
+
+// --- Treasury Sweep History (GET /api/treasury) ---
+async function loadTreasury(){
+try{const r=await aFetch('/api/treasury');const d=await r.json();
+$('totSwept').textContent=((d.total_swept||d.total_swept_sol||0)).toFixed(4)+' SOL';
+if(d.sweeps&&d.sweeps.length>0){$('sweepTbl').innerHTML=d.sweeps.map(s=>{
+const ts=s.timestamp||s.created_at;const t=ts?new Date(typeof ts==='number'?ts*1000:ts).toLocaleString('en',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}):'--';
+const amt=(s.amount_sol||s.amount||0);
+const st=s.status||'success';const pc=st==='success'?'pill-green':st==='failed'?'pill-red':'pill-amber';
+return '<tr><td>'+t+'</td><td>'+Number(amt).toFixed(4)+' SOL</td><td><span class="pill '+pc+'">'+st.toUpperCase()+'</span></td></tr>'
+}).join('')}
+}catch(e){console.error('loadTreasury:',e)}}
+
+// --- Redis + infrastructure status (GET /api/status) ---
+async function loadRedis(){
+try{const r=await aFetch('/api/status');const d=await r.json();
+if(d._redis_connected){$('redisDot').className='svc-dot ok';$('redisDetail').textContent='connected';$('redisMs').textContent=(d._redis_ping_ms||0)+'ms';$('clRedisIcon').style.color='var(--green)';$('clRedis').textContent='connected'}
+else{$('redisDot').className='svc-dot warn';$('redisDetail').textContent=(d._redis_error||'disconnected').substring(0,40);$('clRedis').textContent='not connected'}
+// Checklist: TEST_MODE + wallet balance
+if(d.status==='RUNNING'||d.status==='EMERGENCY_STOPPED'){
+$('clTestIcon').style.color=d.status==='RUNNING'?'var(--green)':'var(--red)';
+$('clTestIcon').className=d.status==='RUNNING'?'bi bi-check-circle-fill':'bi bi-circle';
+}
+$('clTest').textContent=d.test_mode===false?'LIVE':'PAPER';
+const bal=d.trading_wallet_balance;
+if(bal!=null){$('clFund').textContent=Number(bal).toFixed(2)+' SOL';$('clFundIcon').style.color=bal>1?'var(--green)':'var(--red)'}
+}catch(e){console.error('loadRedis:',e)}}
+
+// --- Bot readiness stats (GET /api/stats) ---
+async function loadStats(){
+try{const r=await aFetch('/api/stats');const d=await r.json();
+$('clApis').textContent=(d.total_trades>0?'active':'waiting')+' ('+d.total_trades+' trades)';
 }catch(e){}}
-// Load treasury sweeps
-async function loadTreasury(){try{const r=await aFetch('/api/treasury');const d=await r.json();
-$('totSwept').textContent=(d.total_swept_sol||0).toFixed(4)+' SOL';
-if(d.sweeps&&d.sweeps.length>0){$('sweepTbl').innerHTML=d.sweeps.map(s=>{const t=s.timestamp?new Date(s.timestamp).toLocaleDateString('en',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}):'--';return '<tr><td>'+t+'</td><td>'+(s.amount_sol||0).toFixed(4)+' SOL</td><td><span class="pill pill-green">'+(s.status||'OK')+'</span></td></tr>'}).join('')}
-}catch(e){}}
-conn();loadGov();loadRedis();loadML();loadTreasury();
-// Keyboard shortcuts + command palette
+
+// --- Checklist progress ---
+function updateChecklist(){
+const items=document.querySelectorAll('.cl-item');let total=0,done=0;
+items.forEach(el=>{total++;const icon=el.querySelector('i.bi-check-circle-fill');if(icon&&getComputedStyle(icon).color!=='rgb(72, 79, 88)')done++});
+const pct=total>0?Math.round(done/total*100):0;
+$('clBar').style.width=pct+'%';
+$('clSummary').textContent=(total-done)+' items remaining ('+pct+'% ready)';
+}
+
+// --- Checklist manual toggles ---
+function toggleCheck(id){const el=$(id);const key='cl_'+id;const done=localStorage.getItem(key)==='1';localStorage.setItem(key,done?'0':'1');el.querySelector('i').className=done?'bi bi-circle':'bi bi-check-circle-fill';el.querySelector('i').style.color=done?'var(--text-muted)':'var(--green)';updateChecklist()}
+['clReview','clEstop'].forEach(id=>{if(localStorage.getItem('cl_'+id)==='1'){const el=$(id);if(el){el.querySelector('i').className='bi bi-check-circle-fill';el.querySelector('i').style.color='var(--green)'}}});
+
+// --- WebSocket for real-time health check output ---
+let ws;function conn(){ws=new WebSocket((location.protocol==='https:'?'wss':'ws')+'://'+location.host+'/ws');ws.onopen=()=>{ws.send(JSON.stringify({token:TOKEN}))};ws.onclose=()=>setTimeout(conn,3000);ws.onmessage=e=>{try{const d=JSON.parse(e.data);
+if(d._type==='health_check_line'){$('hcOut').style.display='block';$('hcOut').textContent+=d.line+'\n';$('hcOut').scrollTop=$('hcOut').scrollHeight}
+if(d._type==='health_check_done'){$('hcBtn').textContent='Run Full Health Check';$('hcBtn').style.opacity='1'}
+// Update market mode from WS push
+if(d.market_mode&&$('mMode')){$('mMode').textContent=d.market_mode}
+}catch(x){}}}
+
+// --- Initial load + 30s auto-refresh ---
+async function loadAll(){
+await Promise.allSettled([loadMarket(),loadML(),loadGov(),loadTreasury(),loadRedis(),loadStats()]);
+updateChecklist();
+}
+conn();loadAll();
+setInterval(loadAll,30000);
+
+// --- Keyboard shortcuts + command palette ---
 function go(u){window.location.href=u}
 function openCmd(){$('cmdBg').classList.add('on');$('cmdIn').value='';$('cmdIn').focus();filterCmd('')}
 function closeCmd(){$('cmdBg').classList.remove('on')}
