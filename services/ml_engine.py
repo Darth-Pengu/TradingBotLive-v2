@@ -1,7 +1,7 @@
 """
 ZMN Bot ML Scoring Engine
 ===========================
-CatBoost + LightGBM ensemble with auto_class_weights="Balanced".
+CatBoost + LightGBM + XGBoost ensemble with class balancing.
 - Retrain weekly on 7-day sliding window
 - Min 50 samples before first train, 200 before production scoring
 - 37 features: 26 original + 11 Nansen (flow, quant scores, holder labels)
@@ -128,11 +128,12 @@ MARKET_MODE_ENCODING = {
 
 
 class MLModel:
-    """CatBoost + LightGBM ensemble."""
+    """CatBoost + LightGBM + XGBoost ensemble."""
 
     def __init__(self):
         self.catboost_model = None
         self.lgbm_model = None
+        self.xgb_model = None
         self.is_trained = False
         self.sample_count = 0
         self.last_train_time = 0.0
@@ -141,14 +142,17 @@ class MLModel:
     def _load_models(self):
         cb_path = MODEL_DIR / "catboost_model.pkl"
         lgbm_path = MODEL_DIR / "lgbm_model.pkl"
+        xgb_path = MODEL_DIR / "xgb_model.pkl"
         meta_path = MODEL_DIR / "model_meta.json"
 
-        if cb_path.exists() and lgbm_path.exists():
+        if cb_path.exists() and lgbm_path.exists() and xgb_path.exists():
             try:
                 with open(cb_path, "rb") as f:
                     self.catboost_model = pickle.load(f)
                 with open(lgbm_path, "rb") as f:
                     self.lgbm_model = pickle.load(f)
+                with open(xgb_path, "rb") as f:
+                    self.xgb_model = pickle.load(f)
                 if meta_path.exists():
                     with open(meta_path, "r") as f:
                         meta = json.load(f)
@@ -166,21 +170,24 @@ class MLModel:
                 pickle.dump(self.catboost_model, f)
             with open(MODEL_DIR / "lgbm_model.pkl", "wb") as f:
                 pickle.dump(self.lgbm_model, f)
+            with open(MODEL_DIR / "xgb_model.pkl", "wb") as f:
+                pickle.dump(self.xgb_model, f)
             with open(MODEL_DIR / "model_meta.json", "w") as f:
                 json.dump({
                     "sample_count": self.sample_count,
                     "last_train_time": self.last_train_time,
                     "features": FEATURE_COLUMNS,
-                }, f)
+                }, f, indent=2)
             logger.info("Models saved to %s", MODEL_DIR)
         except Exception as e:
             logger.error("Failed to save models: %s", e)
 
     async def train(self, pool):
-        """Train on 7-day sliding window of trade outcomes."""
+        """Full train on 7-day sliding window of trade outcomes."""
         try:
             from catboost import CatBoostClassifier
             from lightgbm import LGBMClassifier
+            from xgboost import XGBClassifier
         except ImportError as e:
             logger.error("ML library not installed: %s", e)
             return
@@ -209,8 +216,8 @@ class MLModel:
             outcome = row["outcome"]
             try:
                 features = json.loads(features_json)
-                row = [features.get(col, 0) for col in FEATURE_COLUMNS]
-                features_list.append(row)
+                feature_row = [features.get(col, 0) for col in FEATURE_COLUMNS]
+                features_list.append(feature_row)
                 labels.append(1 if outcome == "profit" else 0)
             except (json.JSONDecodeError, TypeError):
                 continue
@@ -237,6 +244,7 @@ class MLModel:
                 random_seed=42,
             )
             self.catboost_model.fit(X, y, sample_weight=sample_weights)
+            logger.info("CatBoost trained successfully")
         except Exception as e:
             logger.error("CatBoost training failed: %s", e)
             return
@@ -252,15 +260,39 @@ class MLModel:
                 verbose=-1,
             )
             self.lgbm_model.fit(X, y, sample_weight=sample_weights)
+            logger.info("LightGBM trained successfully")
         except Exception as e:
             logger.error("LightGBM training failed: %s", e)
+            return
+
+        # XGBoost — shallower depth for inductive bias diversity
+        try:
+            neg_count = len(y) - y.sum()
+            pos_count = y.sum()
+            scale_pos_weight = neg_count / pos_count if pos_count > 0 else 1.0
+
+            self.xgb_model = XGBClassifier(
+                n_estimators=500,
+                max_depth=4,
+                learning_rate=0.05,
+                scale_pos_weight=scale_pos_weight,
+                subsample=0.8,
+                colsample_bytree=0.8,
+                random_state=42,
+                eval_metric="logloss",
+                verbosity=0,
+            )
+            self.xgb_model.fit(X, y)
+            logger.info("XGBoost trained successfully")
+        except Exception as e:
+            logger.error("XGBoost training failed: %s", e)
             return
 
         self.is_trained = True
         self.sample_count = len(X)
         self.last_train_time = time.time()
         self._save_models()
-        logger.info("Training complete — CatBoost + LightGBM ensemble ready")
+        logger.info("Training complete — CatBoost + LightGBM + XGBoost ensemble ready")
 
     def predict(self, features: dict) -> tuple[float, bool]:
         """
@@ -271,6 +303,21 @@ class MLModel:
         """
         if not self.is_trained:
             return self._heuristic_score(features), False
+
+        try:
+            row = [features.get(col, 0) for col in FEATURE_COLUMNS]
+            X = pd.DataFrame([row], columns=FEATURE_COLUMNS)
+
+            cb_proba = self.catboost_model.predict_proba(X)[0][1]
+            lgbm_proba = self.lgbm_model.predict_proba(X)[0][1]
+            xgb_proba = self.xgb_model.predict_proba(X)[0][1]
+
+            # Ensemble: equal weight average of all three models
+            ensemble_proba = (cb_proba + lgbm_proba + xgb_proba) / 3.0
+            return round(ensemble_proba * 100, 1), True
+        except Exception as e:
+            logger.error("Prediction error: %s", e)
+            return 50.0, False
 
     def _heuristic_score(self, features: dict) -> float:
         """Basic scoring heuristics for cold-start before ML model trains."""
@@ -312,20 +359,6 @@ class MLModel:
             score += 5.0
 
         return max(0.0, min(100.0, round(score, 1)))
-
-        try:
-            row = [features.get(col, 0) for col in FEATURE_COLUMNS]
-            X = pd.DataFrame([row], columns=FEATURE_COLUMNS)
-
-            cb_proba = self.catboost_model.predict_proba(X)[0][1]
-            lgbm_proba = self.lgbm_model.predict_proba(X)[0][1]
-
-            # Ensemble: equal weight average
-            ensemble_proba = (cb_proba + lgbm_proba) / 2.0
-            return round(ensemble_proba * 100, 1), True
-        except Exception as e:
-            logger.error("Prediction error: %s", e)
-            return 50.0, False
 
     def passes_threshold(self, score: float, personality: str, market_mode: str = "NORMAL") -> bool:
         """Check if ML score passes the threshold for a personality."""
