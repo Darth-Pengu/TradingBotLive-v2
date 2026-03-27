@@ -113,8 +113,8 @@ RUGCHECK_REPORT_URL = "https://api.rugcheck.xyz/v1/tokens/{mint}/report"
 # Secondary gate: reject extreme scores only
 # Rugcheck scores are unbounded integers, NOT 0-100.
 # Safe tokens ~100-500, risky ~1000-3000, rugs 5000+, TRUMP scored 18,715.
-# Threshold calibrated per AGENT_CONTEXT Section 21.
-RUGCHECK_REJECT_SCORE = 2000
+# Threshold calibrated per AGENT_CONTEXT Section 21. Overridable via env var.
+RUGCHECK_REJECT_SCORE = int(os.getenv("RUGCHECK_REJECT_THRESHOLD", "2000"))
 
 # --- ML thresholds (Section 12) ---
 # Production thresholds (used when ML model is trained with >= 200 samples)
@@ -892,6 +892,10 @@ def _apply_hard_filters(personality: str, signal: dict, rugcheck: dict) -> tuple
 
     # Also reject if the overall risk score is too high (higher = riskier)
     rugcheck_score = rugcheck.get("score", 0)
+    # Log raw score for calibration (keep last 50 in Redis for /api/debug/rugcheck-scores)
+    logger.debug("Rugcheck score for %s: %s (threshold: %d)",
+                 signal.get("mint", "")[:12], rugcheck_score, RUGCHECK_REJECT_SCORE)
+
     if rugcheck_score >= RUGCHECK_REJECT_SCORE:
         return False, f"rugcheck risk score {rugcheck_score} >= {RUGCHECK_REJECT_SCORE}"
 
@@ -1084,6 +1088,17 @@ async def _process_signals(redis_conn: aioredis.Redis):
                     _fetch_rugcheck(session, mint),
                     _fetch_token_details(session, mint, redis_conn),
                 )
+
+                # Log rugcheck score to Redis for calibration (/api/debug/rugcheck-scores)
+                if rugcheck.get("score") is not None:
+                    try:
+                        await redis_conn.lpush("debug:rugcheck_scores", json.dumps({
+                            "mint": mint[:12], "score": rugcheck["score"],
+                            "ts": datetime.now(timezone.utc).isoformat(),
+                        }))
+                        await redis_conn.ltrim("debug:rugcheck_scores", 0, 49)
+                    except Exception:
+                        pass
 
                 # --- Helius enhanced checks: dev wallet sells + bundle detection ---
                 raw_data = signal.get("raw_data", {})

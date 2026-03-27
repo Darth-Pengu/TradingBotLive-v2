@@ -89,6 +89,15 @@ MARKET_MODE_MULTIPLIERS = {
 # activation_pct: profit % above entry at which trailing stop activates
 # trail_pct: % below peak price at which trailing stop triggers exit
 # Overridable via env vars so governance agent can tune without redeploy
+# Market-adaptive trailing stop distance multipliers
+TRAILING_STOP_MARKET_MULTIPLIERS = {
+    "HIBERNATE":  0.50,   # Very tight — barely active
+    "DEFENSIVE":  0.70,   # Tighter — protect gains quickly
+    "NORMAL":     1.00,
+    "AGGRESSIVE": 1.20,   # Looser — let winners run
+    "FRENZY":     1.50,   # Much looser — extreme volatility expected
+}
+
 TRAILING_STOP_CONFIG = {
     "speed_demon": {
         "activation_pct": float(os.getenv("TS_SPD_ACTIVATION", "15")),

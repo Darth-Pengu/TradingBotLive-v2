@@ -609,12 +609,17 @@ class BotCore:
     async def _evaluate_trailing_stop(self, pos: Position, current_price: float) -> str | None:
         """Evaluate trailing stop for a position. Returns exit reason or None.
         State persisted to PostgreSQL (source of truth), mirrored to Redis for dashboard."""
-        from services.risk_manager import TRAILING_STOP_CONFIG
+        from services.risk_manager import TRAILING_STOP_CONFIG, TRAILING_STOP_MARKET_MULTIPLIERS
         from services.db import update_trailing_stop
 
         config = TRAILING_STOP_CONFIG.get(pos.personality, TRAILING_STOP_CONFIG["analyst"])
         activation_pct = config["activation_pct"]
-        trail_pct = config["trail_pct"]
+        base_trail_pct = config["trail_pct"]
+
+        # Market-adaptive trail distance
+        market_mode = self.portfolio.market_mode or "NORMAL"
+        trail_mult = TRAILING_STOP_MARKET_MULTIPLIERS.get(market_mode, 1.0)
+        trail_pct = base_trail_pct * trail_mult
         entry = pos.entry_price
         table = "paper_trades" if TEST_MODE else "trades"
 
