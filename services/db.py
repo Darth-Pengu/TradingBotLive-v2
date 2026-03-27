@@ -151,6 +151,55 @@ async def _init_tables():
                 except Exception:
                     pass  # Column already exists or table doesn't exist yet
 
+        # --- watched_wallets table (PostgreSQL-backed wallet management) ---
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS watched_wallets (
+                id                  SERIAL PRIMARY KEY,
+                address             TEXT NOT NULL UNIQUE,
+                label               TEXT,
+                personality_route   TEXT NOT NULL,
+                source              TEXT NOT NULL DEFAULT 'nansen',
+                chain               TEXT NOT NULL DEFAULT 'solana',
+                pnl_30d_sol         NUMERIC,
+                pnl_7d_sol          NUMERIC,
+                win_rate_30d        NUMERIC,
+                win_rate_7d         NUMERIC,
+                trade_count_30d     INTEGER,
+                trade_count_7d      INTEGER,
+                avg_hold_minutes    NUMERIC,
+                nansen_labels       TEXT[],
+                qualification_score NUMERIC,
+                first_seen_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                last_refreshed_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                last_active_at      TIMESTAMPTZ,
+                is_active           BOOLEAN NOT NULL DEFAULT TRUE,
+                deactivated_reason  TEXT,
+                refresh_count       INTEGER NOT NULL DEFAULT 0,
+                consecutive_fails   INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_watched_wallets_route
+                ON watched_wallets(personality_route) WHERE is_active = TRUE
+        """)
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_watched_wallets_score
+                ON watched_wallets(qualification_score DESC) WHERE is_active = TRUE
+        """)
+
+        # --- wallet_refresh_log table (governance audit trail) ---
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS wallet_refresh_log (
+                id              SERIAL PRIMARY KEY,
+                refreshed_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                wallets_added   INTEGER NOT NULL DEFAULT 0,
+                wallets_removed INTEGER NOT NULL DEFAULT 0,
+                wallets_total   INTEGER NOT NULL DEFAULT 0,
+                trigger         TEXT NOT NULL,
+                notes           TEXT
+            )
+        """)
+
     logger.info("All database tables verified")
 
 

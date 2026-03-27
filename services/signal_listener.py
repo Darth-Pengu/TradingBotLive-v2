@@ -151,12 +151,27 @@ async def _push_signal(redis_conn: aioredis.Redis | None, signal: dict):
 # 1. PumpPortal WebSocket
 # ---------------------------------------------------------------------------
 async def _load_whale_wallets() -> list[str]:
+    """Load whale tracker wallet addresses from PostgreSQL (source of truth).
+    Falls back to whale_wallets.json only if DB is unavailable."""
+    try:
+        from services.nansen_wallet_fetcher import get_active_wallets
+        wallets = await get_active_wallets(personality_route="whale_tracker")
+        if wallets:
+            addrs = [w["address"] for w in wallets]
+            logger.info("Loaded %d whale wallets from PostgreSQL", len(addrs))
+            return addrs
+    except Exception as e:
+        logger.warning("PostgreSQL wallet load failed, trying JSON fallback: %s", e)
+
+    # Fallback to JSON file (cold start before first DB population)
     try:
         with open("data/whale_wallets.json", "r") as f:
             wallets = json.load(f)
-        return [w["address"] for w in wallets if isinstance(w, dict) and "address" in w]
+        addrs = [w["address"] for w in wallets if isinstance(w, dict) and "address" in w]
+        logger.warning("Using JSON fallback — %d whale wallets", len(addrs))
+        return addrs
     except (FileNotFoundError, json.JSONDecodeError, KeyError):
-        logger.warning("No valid whale_wallets.json found — skipping subscribeAccountTrade")
+        logger.warning("No whale wallets found (DB or JSON) — skipping subscribeAccountTrade")
         return []
 
 
@@ -803,23 +818,12 @@ async def main():
         logger.warning("Redis connection failed: %s — signals will be logged only", e)
         redis_conn = None
 
-    # Auto-seed whale wallets if missing (Railway filesystem is ephemeral)
-    from pathlib import Path
-    whale_path = Path("data/whale_wallets.json")
-    if not whale_path.exists() or whale_path.stat().st_size < 100:
-        logger.info("Auto-seeding whale wallets...")
-        try:
-            import subprocess, sys
-            result = subprocess.run(
-                [sys.executable, "scripts/seed_wallets.py"],
-                capture_output=True, text=True, timeout=60,
-            )
-            if result.returncode == 0:
-                logger.info("Whale wallets seeded: %s", result.stdout.strip()[-200:])
-            else:
-                logger.warning("Seed failed: %s", result.stderr.strip()[-200:])
-        except Exception as e:
-            logger.warning("Auto-seed error: %s", e)
+    # Ensure watched_wallets table is populated (PostgreSQL is source of truth)
+    try:
+        from services.nansen_wallet_fetcher import ensure_wallets_populated
+        await ensure_wallets_populated()
+    except Exception as e:
+        logger.warning("Wallet population check failed: %s — will use JSON fallback", e)
 
     # Register Helius webhook for real-time whale monitoring (non-blocking)
     await _register_helius_webhook(redis_conn)

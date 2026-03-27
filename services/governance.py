@@ -942,9 +942,18 @@ async def handle_discord_command(command: str) -> str:
                 await run_governance_task("drawdown_diagnosis", context, session)
             return "[ZMN Bot] Diagnosis triggered -- check governance_notes.md."
 
+        elif cmd == "refresh-wallets":
+            try:
+                from services.nansen_wallet_fetcher import fetch_and_upsert_wallets
+                result = await fetch_and_upsert_wallets(trigger="manual")
+                return (f"[ZMN Bot] Wallet refresh: +{result['added']} -{result['removed']} "
+                        f"total={result['total']} (whale={result['whale_count']} analyst={result['analyst_count']})")
+            except Exception as ex:
+                return f"[ZMN Bot] Wallet refresh failed: {str(ex)[:100]}"
+
         else:
             return (f"[ZMN Bot] Commands: !zmn status | !zmn today | !zmn best | !zmn worst | "
-                    f"!zmn pause <personality> | !zmn resume <personality> | !zmn meta | !zmn diagnose")
+                    f"!zmn pause <personality> | !zmn resume <personality> | !zmn meta | !zmn diagnose | !zmn refresh-wallets")
 
     except Exception as e:
         return f"[ZMN Bot] Error: {str(e)[:100]}"
@@ -953,6 +962,57 @@ async def handle_discord_command(command: str) -> str:
 # ═══════════════════════════════════════════════════════════════════════════════
 # MAIN
 # ═══════════════════════════════════════════════════════════════════════════════
+
+WALLET_REFRESH_INTERVAL_HOURS = 48
+
+
+async def _wallet_refresh_loop(redis_conn: aioredis.Redis | None):
+    """Governance-managed wallet refresh — runs every 48 hours."""
+    while True:
+        try:
+            pool = await get_pool()
+            last_refresh = await pool.fetchval(
+                "SELECT MAX(refreshed_at) FROM wallet_refresh_log"
+            )
+            now = datetime.now(timezone.utc)
+
+            if last_refresh is None or (now - last_refresh).total_seconds() >= WALLET_REFRESH_INTERVAL_HOURS * 3600:
+                logger.info("Governance: initiating wallet refresh")
+                from services.nansen_wallet_fetcher import fetch_and_upsert_wallets
+                result = await fetch_and_upsert_wallets(trigger="scheduled")
+
+                # Signal signal_listener to re-register Helius webhook
+                if redis_conn:
+                    await redis_conn.publish(
+                        "governance:commands",
+                        json.dumps({"action": "refresh_helius_webhook", "reason": "wallet_list_updated"}),
+                    )
+
+                # Discord notification
+                async with aiohttp.ClientSession() as session:
+                    await send_discord(session,
+                        f"🔄 Wallet list refreshed\n"
+                        f"+{result['added']} added | -{result['removed']} dropped\n"
+                        f"Total: {result['total']} | "
+                        f"Whale: {result['whale_count']} | Smart money: {result['analyst_count']}"
+                    )
+
+                # Append to governance notes
+                DATA_DIR.mkdir(exist_ok=True)
+                with open(GOVERNANCE_NOTES_FILE, "a") as f:
+                    f.write(
+                        f"\n\n---\n## wallet_refresh -- {now.isoformat()}\n\n"
+                        f"+{result['added']} -{result['removed']} total={result['total']}\n"
+                    )
+            else:
+                hours_since = (now - last_refresh).total_seconds() / 3600
+                logger.debug("Wallet refresh not due yet (%.1fh ago)", hours_since)
+
+        except Exception as e:
+            logger.error("Wallet refresh task error: %s", e)
+
+        await asyncio.sleep(3600)  # Check every hour, act every 48h
+
 
 async def main():
     logger.info("Governance v2 starting (TEST_MODE=%s)", TEST_MODE)
@@ -988,6 +1048,7 @@ async def main():
         _scheduled_loop(pool, redis_conn),
         _anomaly_loop(pool, redis_conn),
         _smart_money_discovery_loop(redis_conn),  # P1: every 4h proactive scan
+        _wallet_refresh_loop(redis_conn),          # Every 48h wallet refresh
     ]
     if redis_conn:
         tasks.append(_trigger_listener(pool, redis_conn))

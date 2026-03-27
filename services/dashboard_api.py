@@ -756,6 +756,75 @@ async def api_whale_activity(request):
     return web.json_response(result)
 
 
+async def api_wallets(request):
+    """Return all active wallets from PostgreSQL grouped by personality_route."""
+    try:
+        from services.nansen_wallet_fetcher import get_active_wallets
+        all_wallets = await get_active_wallets()
+        grouped = {"whale_tracker": [], "analyst": [], "both": []}
+        for w in all_wallets:
+            route = w.get("personality_route", "whale_tracker")
+            if route in grouped:
+                grouped[route].append(w)
+            else:
+                grouped["whale_tracker"].append(w)
+        last_refresh = await _query_db("SELECT MAX(refreshed_at) as ts FROM wallet_refresh_log")
+        return web.json_response({
+            **grouped,
+            "total": len(all_wallets),
+            "last_refresh": str(last_refresh[0]["ts"]) if last_refresh and last_refresh[0].get("ts") else None,
+        })
+    except Exception as e:
+        logger.warning("api_wallets error: %s", e)
+        return web.json_response({"whale_tracker": [], "analyst": [], "both": [], "total": 0, "last_refresh": None})
+
+
+async def api_wallets_refresh_log(request):
+    """Return last 10 wallet refresh log entries."""
+    rows = await _query_db("SELECT * FROM wallet_refresh_log ORDER BY refreshed_at DESC LIMIT 10")
+    result = []
+    for r in rows:
+        result.append({
+            "id": r.get("id"),
+            "refreshed_at": str(r.get("refreshed_at", "")),
+            "wallets_added": r.get("wallets_added", 0),
+            "wallets_removed": r.get("wallets_removed", 0),
+            "wallets_total": r.get("wallets_total", 0),
+            "trigger": r.get("trigger", ""),
+            "notes": r.get("notes", ""),
+        })
+    return web.json_response(result)
+
+
+async def api_wallets_refresh(request):
+    """Trigger immediate wallet refresh (manual override)."""
+    try:
+        from services.nansen_wallet_fetcher import fetch_and_upsert_wallets
+        result = await fetch_and_upsert_wallets(trigger="manual")
+        return web.json_response(result)
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def api_wallets_delete(request):
+    """Mark a wallet as permanently excluded (manual_exclusion)."""
+    address = request.match_info.get("address", "")
+    if not address:
+        return web.json_response({"error": "address required"}, status=400)
+    try:
+        pool = await get_pool()
+        await pool.execute(
+            """UPDATE watched_wallets SET
+               is_active = FALSE,
+               deactivated_reason = 'manual_exclusion'
+               WHERE address = $1""",
+            address,
+        )
+        return web.json_response({"status": "excluded", "address": address})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+
 async def api_emergency_stop(request):
     redis_conn = request.app.get("redis")
     if redis_conn:
@@ -1318,6 +1387,10 @@ def create_app() -> web.Application:
     app.router.add_get("/api/sol-price", api_sol_price)
     app.router.add_get("/api/service-health", api_service_health)
     app.router.add_get("/api/whale-activity", api_whale_activity)
+    app.router.add_get("/api/wallets", api_wallets)
+    app.router.add_get("/api/wallets/refresh-log", api_wallets_refresh_log)
+    app.router.add_post("/api/wallets/refresh", api_wallets_refresh)
+    app.router.add_delete("/api/wallets/{address}", api_wallets_delete)
     app.router.add_post("/api/trigger-health-check", api_trigger_health_check)
     app.router.add_get("/ws", ws_handler)
     app.router.add_get("/dashboard/{filename}", handle_static)
