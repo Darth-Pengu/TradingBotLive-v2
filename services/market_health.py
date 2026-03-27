@@ -118,8 +118,8 @@ async def _fetch_json(session: aiohttp.ClientSession, url: str, params: dict | N
 async def _fetch_sol_price(session: aiohttp.ClientSession) -> float | None:
     """Fetch SOL price -- tries multiple sources, no single point of failure."""
     sources = [
-        ("CoinGecko", "https://api.coingecko.com/api/v3/simple/price", {"ids": "solana", "vs_currencies": "usd"}, lambda d: d.get("solana", {}).get("usd")),
         ("Binance", "https://api.binance.com/api/v3/ticker/price", {"symbol": "SOLUSDT"}, lambda d: float(d.get("price", 0)) or None),
+        ("CoinGecko", "https://api.coingecko.com/api/v3/simple/price", {"ids": "solana", "vs_currencies": "usd"}, lambda d: d.get("solana", {}).get("usd")),
     ]
     for name, url, params, extract in sources:
         try:

@@ -3,7 +3,7 @@ ZMN Bot Execution Layer
 ========================
 Two execution paths — no Telegram dependency anywhere:
   1. PumpPortal Local API (bonding curve tokens) — POST https://pumpportal.fun/api/trade-local
-  2. Jupiter Swap API (graduated/AMM tokens) — https://api.jup.ag/swap/v1/
+  2. Jupiter Swap V2 API (graduated/AMM tokens) — https://api.jup.ag/swap/v2/
 
 Features:
 - choose_execution_api() routing
@@ -44,8 +44,8 @@ JUPITER_API_KEY = os.getenv("JUPITER_API_KEY", "").strip()
 
 # --- Endpoints ---
 PUMPPORTAL_TRADE_URL = "https://pumpportal.fun/api/trade-local"
-JUPITER_QUOTE_URL = "https://api.jup.ag/swap/v1/quote"
-JUPITER_SWAP_URL = "https://api.jup.ag/swap/v1/swap"
+JUPITER_ORDER_URL = "https://api.jup.ag/swap/v2/order"
+JUPITER_EXECUTE_URL = "https://api.jup.ag/swap/v2/execute"
 JITO_ENDPOINT = os.getenv("JITO_ENDPOINT", "https://mainnet.block-engine.jito.wtf/api/v1/bundles")
 JITO_DONTFRONT_PUBKEY = "jitodontfront111111111111111111111111111111"
 
@@ -232,7 +232,9 @@ async def _execute_jupiter(
     slippage_bps: int,
     skip_preflight: bool = False,
 ) -> str:
-    """Execute swap via Jupiter Ultra API. Returns tx signature."""
+    """Execute swap via Jupiter Swap V2 API. Returns tx signature.
+    V2 flow: GET /order (quote + assembled tx) → sign → POST /execute (managed landing).
+    No separate Helius confirmation needed — /execute returns only on-chain confirmation."""
 
     if TEST_MODE:
         action = "buy" if input_mint == SOL_MINT else "sell"
@@ -240,50 +242,70 @@ async def _execute_jupiter(
                      action, input_mint[:8], output_mint[:8], amount_lamports, slippage_bps)
         return "TEST_MODE_SIMULATED_TX"
 
-    # Jupiter API headers (api key for api.jup.ag)
-    jup_headers = {}
-    if JUPITER_API_KEY:
-        jup_headers["x-api-key"] = JUPITER_API_KEY
+    jup_headers = {"x-api-key": JUPITER_API_KEY} if JUPITER_API_KEY else {}
 
-    # Step 1: Get quote
+    # Step 1: GET /swap/v2/order — returns quote + pre-assembled unsigned transaction
     params = {
         "inputMint": input_mint,
         "outputMint": output_mint,
-        "amount": amount_lamports,
+        "amount": str(amount_lamports),
+        "taker": TRADING_WALLET_ADDRESS,
         "slippageBps": slippage_bps,
-        "onlyDirectRoutes": False,
     }
-    async with session.get(JUPITER_QUOTE_URL, params=params, headers=jup_headers, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+    async with session.get(JUPITER_ORDER_URL, params=params, headers=jup_headers,
+                           timeout=aiohttp.ClientTimeout(total=15)) as resp:
         if resp.status != 200:
             body = await resp.text()
-            raise ExecutionError(f"Jupiter quote HTTP {resp.status}: {body[:200]}")
-        quote = await resp.json()
+            raise ExecutionError(f"Jupiter /order HTTP {resp.status}: {body[:200]}")
+        order = await resp.json()
 
-    # Step 2: Get swap transaction
-    priority_fee = await _get_dynamic_priority_fee(session)
-    swap_payload = {
-        "quoteResponse": quote,
-        "userPublicKey": TRADING_WALLET_ADDRESS,
-        "wrapAndUnwrapSol": True,
-        "prioritizationFeeLamports": priority_fee,
-    }
-    async with session.post(JUPITER_SWAP_URL, json=swap_payload, headers=jup_headers, timeout=aiohttp.ClientTimeout(total=15)) as resp:
-        if resp.status != 200:
-            body = await resp.text()
-            raise ExecutionError(f"Jupiter swap HTTP {resp.status}: {body[:200]}")
-        swap_data = await resp.json()
+    tx_b64 = order.get("transaction")
+    request_id = order.get("requestId")
+    if not tx_b64:
+        err = order.get("errorMessage") or order.get("error", "no transaction returned")
+        raise ExecutionError(f"Jupiter /order returned no transaction: {err}")
+    if not request_id:
+        raise ExecutionError("Jupiter /order returned no requestId")
 
-    # Step 3: Sign and send
+    out_amount = order.get("outAmount", "0")
+    price_impact = order.get("priceImpact", 0)
+    router = order.get("router", "unknown")
+    logger.info("Jupiter order: outAmount=%s, priceImpact=%.4f, router=%s",
+                out_amount, float(price_impact), router)
+
+    # Step 2: Sign the transaction locally
     from solders.transaction import VersionedTransaction
     from solders.keypair import Keypair
 
-    tx_bytes = base64.b64decode(swap_data["swapTransaction"])
+    tx_bytes = base64.b64decode(tx_b64)
     tx = VersionedTransaction.from_bytes(tx_bytes)
     keypair = Keypair.from_base58_string(TRADING_WALLET_PRIVATE_KEY)
     tx.sign([keypair])
+    signed_b64 = base64.b64encode(bytes(tx)).decode("utf-8")
 
-    # Jupiter Ultra has built-in MEV protection — no Jito wrap needed
-    signature = await _send_transaction(session, bytes(tx), skip_preflight=skip_preflight)
+    # Step 3: POST /swap/v2/execute — managed landing (confirmed on-chain)
+    execute_payload = {
+        "signedTransaction": signed_b64,
+        "requestId": request_id,
+        "lastValidBlockHeight": order.get("lastValidBlockHeight", ""),
+    }
+    async with session.post(JUPITER_EXECUTE_URL, json=execute_payload,
+                            headers={**jup_headers, "Content-Type": "application/json"},
+                            timeout=aiohttp.ClientTimeout(total=60)) as resp:
+        if resp.status != 200:
+            body = await resp.text()
+            raise ExecutionError(f"Jupiter /execute HTTP {resp.status}: {body[:200]}")
+        result = await resp.json()
+
+    status = result.get("status", "")
+    if status != "Success":
+        err = result.get("error") or result.get("errorMessage", "unknown")
+        code = result.get("code", -1)
+        raise ExecutionError(f"Jupiter /execute failed: {err} (code={code})")
+
+    signature = result.get("signature", "")
+    logger.info("Jupiter V2 swap executed: sig=%s slot=%s", signature[:16] if signature else "?",
+                result.get("slot", "?"))
     return signature
 
 

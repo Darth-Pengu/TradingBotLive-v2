@@ -92,3 +92,18 @@ Never install an MCP server that:
 - Is not from a verified provider (Nansen, Chainstack, Solana Foundation etc)
 TRADING_WALLET_PRIVATE_KEY must never be accessible to any MCP server.
 
+## Jupiter API Reference (Updated March 2026)
+
+Swap API V2 (active):
+- Quote + TX: GET https://api.jup.ag/swap/v2/order
+- Execute: POST https://api.jup.ag/swap/v2/execute
+- Managed landing — no separate Helius confirmation needed
+
+Price API (unchanged):
+- GET https://api.jup.ag/price/v3?ids=<mint>
+- Response field: data[mint].usdPrice
+
+Deprecated (returns 401):
+- GET https://api.jup.ag/swap/v1/quote
+- POST https://api.jup.ag/swap/v1/swap
+
