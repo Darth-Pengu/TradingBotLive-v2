@@ -157,9 +157,8 @@ def _save_json_file(path: Path, data):
 
 
 def propose_parameter_change(param_name: str, current_val, proposed_val, reason: str):
-    """Write a parameter change proposal to pending_parameters.json."""
-    pending = _load_json_file(PENDING_PARAMS_FILE, [])
-    pending.append({
+    """Write a parameter change proposal to PostgreSQL bot_state."""
+    new_entry = {
         "parameter": param_name,
         "current_value": current_val,
         "proposed_value": proposed_val,
@@ -167,8 +166,29 @@ def propose_parameter_change(param_name: str, current_val, proposed_val, reason:
         "proposed_by": "governance",
         "date": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M"),
         "status": "pending",
-    })
-    _save_json_file(PENDING_PARAMS_FILE, pending)
+    }
+    async def _write():
+        pool = await get_pool()
+        raw = await pool.fetchval("SELECT value_text FROM bot_state WHERE key = 'pending_parameters'")
+        pending = json.loads(raw) if raw else []
+        pending.append(new_entry)
+        await pool.execute(
+            """INSERT INTO bot_state (key, value_text, updated_at) VALUES ($1, $2, NOW())
+               ON CONFLICT (key) DO UPDATE SET value_text = $2, updated_at = NOW()""",
+            "pending_parameters", json.dumps(pending),
+        )
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            asyncio.create_task(_write())
+        else:
+            loop.run_until_complete(_write())
+    except Exception as e:
+        logger.warning("Parameter proposal write failed: %s — falling back to file", e)
+        # File fallback
+        pending = _load_json_file(PENDING_PARAMS_FILE, [])
+        pending.append(new_entry)
+        _save_json_file(PENDING_PARAMS_FILE, pending)
     logger.info("Parameter proposal: %s %s -> %s", param_name, current_val, proposed_val)
 
 
@@ -455,13 +475,15 @@ async def _check_anomalies(pool, redis_conn, session):
 
         # 2. Exit reason spike >3x
         for reason in ["stop_loss", "emergency_stop", "smart_money_exit_alert"]:
+            # Query paper_trades which has exit_reason column
             row = await pool.fetchval(
-                "SELECT COUNT(*) FROM trades WHERE closed_at > $1 AND outcome='loss' AND "
-                "features_json LIKE $2", now - 86400, f"%{reason}%")
+                "SELECT COUNT(*) FROM paper_trades WHERE exit_time > $1 AND realised_pnl_sol < 0 AND "
+                "exit_reason LIKE $2", now - 86400, f"%{reason}%")
             count_24h = row or 0
             row2 = await pool.fetchval(
-                "SELECT COUNT(*) FROM trades WHERE closed_at > $1 AND closed_at <= $2 AND "
-                "features_json LIKE $3", now - 7 * 86400, now - 86400, f"%{reason}%")
+                "SELECT COUNT(*) FROM paper_trades WHERE exit_time > $1 AND exit_time <= $2 AND "
+                "realised_pnl_sol < 0 AND exit_reason LIKE $3",
+                now - 7 * 86400, now - 86400, f"%{reason}%")
             avg_daily = ((row2 or 0) / 6)
             if avg_daily > 0 and count_24h > avg_daily * 3:
                 anomalies.append(f"Exit reason '{reason}' spiked: {count_24h} today vs {avg_daily:.1f}/day avg")
@@ -643,11 +665,13 @@ async def _whale_discovery_and_portfolio(pool, session: aiohttp.ClientSession, r
 
     # P2: Whale portfolio analysis for top 20 wallets
     try:
-        wallets_path = Path("data/whale_wallets.json")
-        if wallets_path.exists():
-            with open(wallets_path) as f:
-                wallets = json.load(f)
-        else:
+        try:
+            from services.nansen_wallet_fetcher import get_active_wallets
+            wallet_records = await get_active_wallets(personality_route="whale_tracker")
+            wallets = [{"address": w["address"], "score": w.get("qualification_score", 0),
+                        "label": w.get("label", "")} for w in wallet_records]
+        except Exception as e:
+            logger.warning("PostgreSQL wallet load failed for portfolio analysis: %s", e)
             wallets = []
 
         # Sort by score, analyse top 20

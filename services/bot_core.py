@@ -183,6 +183,9 @@ class BotCore:
                     size_sol=float(r.get("amount_sol", 0) or 0),
                     peak_price=float(r.get("peak_price") or entry_price or 0),
                     trade_id=r.get("id", 0),
+                    trades_ml_id=int(r.get("trades_ml_id", 0) or 0),
+                    ml_score=float(r.get("ml_score", r.get("ml_score_at_entry", 0)) or 0),
+                    signal_source=r.get("signal_source", ""),
                     trailing_stop_active=bool(r.get("trailing_stop_active", False)),
                     trailing_stop_price=float(r.get("trailing_stop_price") or 0),
                     trailing_stop_pct=float(r.get("trailing_stop_pct") or 0),
@@ -193,6 +196,17 @@ class BotCore:
                 logger.info("Restored %d open positions from PostgreSQL (trailing stop state preserved)", restored)
         except Exception as e:
             logger.warning("Failed to restore open positions: %s", e)
+
+        # Restore consecutive losses from PostgreSQL
+        try:
+            from services.db import get_bot_state
+            saved_consec = await get_bot_state("consecutive_losses", 0)
+            if saved_consec and isinstance(saved_consec, int) and saved_consec > 0:
+                if self.redis:
+                    await self.redis.set("bot:consecutive_losses", str(saved_consec))
+                logger.info("Restored consecutive_losses=%d from PostgreSQL", saved_consec)
+        except Exception as e:
+            logger.debug("Could not restore consecutive_losses: %s", e)
 
     async def _save_snapshot(self):
         await self.pool.execute(
@@ -408,6 +422,14 @@ class BotCore:
                     ml_score=ml_score,
                     signal_source=signal_source,
                 )
+                # Persist trades_ml_id to paper_trades for restart recovery
+                try:
+                    await self.pool.execute(
+                        "UPDATE paper_trades SET trades_ml_id = $1 WHERE id = $2",
+                        trades_ml_id, paper_trade_id,
+                    )
+                except Exception:
+                    pass
                 key = f"{personality}:{mint}"
                 self.positions[key] = pos
                 logger.info("PAPER ENTERED: %s %s @ $%.8f, %.4f SOL (sig: %s)",
@@ -471,13 +493,6 @@ class BotCore:
                 self.portfolio.daily_pnl_sol += pnl_sol
                 self.portfolio.total_balance_sol += pnl_sol
 
-                # Write outcome to trades table so ML can train on paper results
-                current_price = paper_result.get("exit_price", 0)
-                await self.pool.execute(
-                    """UPDATE trades SET exit_price=$1, pnl_sol=$2, pnl_pct=$3, outcome=$4, closed_at=$5
-                       WHERE id=$6""",
-                    current_price, pnl_sol, pnl_pct, outcome, time.time(), pos.trade_id,
-                )
 
                 if outcome == "loss":
                     self.portfolio.consecutive_losses[pos.personality] = \
@@ -558,7 +573,7 @@ class BotCore:
 
         if pos.remaining_pct <= 0.01:
             pnl_pct = ((current_price - pos.entry_price) / pos.entry_price * 100) if pos.entry_price > 0 else 0
-            pnl_sol = sell_amount * (pnl_pct / 100)
+            pnl_sol = (current_price - pos.entry_price) / pos.entry_price * sell_amount if pos.entry_price > 0 else 0
             outcome = "profit" if pnl_sol > 0 else "loss"
 
             self.portfolio.daily_pnl_sol += pnl_sol
@@ -718,6 +733,7 @@ class BotCore:
             # Batch-fetch all position prices in one API call
             open_mints = [pos.mint for pos in self.positions.values()]
             prices = await self._get_token_prices_batch(open_mints) if open_mints else {}
+            self._last_prices = prices  # Store for status publisher
 
             for key, pos in list(self.positions.items()):
                 try:
@@ -773,9 +789,6 @@ class BotCore:
             triggered = await check_emergency_conditions(self.portfolio, self.redis)
             if triggered:
                 await self.emergency_stop("Risk limits breached")
-
-            # Save periodic snapshot
-            await self._save_snapshot()
 
             await asyncio.sleep(10)  # Check every 10 seconds
 
@@ -1022,6 +1035,9 @@ class BotCore:
                         "remaining_pct": v.remaining_pct,
                         "entry_time": v.entry_time,
                         "entry_price": v.entry_price,
+                        "current_price": getattr(self, "_last_prices", {}).get(v.mint, 0),
+                        "unrealised_pnl_sol": (getattr(self, "_last_prices", {}).get(v.mint, 0) - v.entry_price) / v.entry_price * v.size_sol * v.remaining_pct if v.entry_price > 0 and getattr(self, "_last_prices", {}).get(v.mint, 0) > 0 else None,
+                        "unrealised_pnl_pct": (getattr(self, "_last_prices", {}).get(v.mint, 0) - v.entry_price) / v.entry_price * 100 if v.entry_price > 0 and getattr(self, "_last_prices", {}).get(v.mint, 0) > 0 else None,
                         "peak_price": v.peak_price,
                         "trailing_stop_active": v.trailing_stop_active,
                         "trailing_stop_price": v.trailing_stop_price,

@@ -304,7 +304,15 @@ async def daily_health_check(redis_conn: aioredis.Redis | None):
                 # in signal_listener. For now, estimate pump.fun as ~10-20% of total Solana DEX vol.
                 # This is a reasonable approximation; can be refined with PumpPortal stats API later.
                 pumpfun_vol_estimate = dex_vol * 0.15
-                grad_rate_estimate = 1.0  # Default to NORMAL range — will be refined by signal_aggregator
+                # Read graduation rate from signal_aggregator's Redis tracking
+                grad_rate_estimate = 1.0  # safe default
+                if redis_conn:
+                    try:
+                        grad_raw = await redis_conn.get("market:grad_rate_estimate")
+                        if grad_raw:
+                            grad_rate_estimate = float(grad_raw)
+                    except Exception:
+                        pass
 
                 mode = _determine_market_mode(dex_vol, grad_rate_estimate, pumpfun_vol_estimate)
                 sentiment = _compute_sentiment_score(cfgi, grad_rate_estimate, sol_24h_change, dex_vol, 0)
@@ -360,22 +368,51 @@ async def daily_health_check(redis_conn: aioredis.Redis | None):
 # ---------------------------------------------------------------------------
 async def rug_cascade_monitor(redis_conn: aioredis.Redis | None):
     """
-    Monitors for rug cascade events.
-    In a full implementation, this would track token price drops from the signal stream.
-    For now, it publishes alerts when patterns are detected via market data.
+    Detect rug cascade events by monitoring recent stop-loss exits.
+    If >= 5 tokens hit stop-loss in the last 30 minutes, emit defensive alert.
     """
+    if not redis_conn:
+        return
+
+    RUG_CASCADE_THRESHOLD = 5
+    RUG_CASCADE_WINDOW_MINUTES = 30
+    COOLDOWN_SECONDS = 3600
+    last_alert_time = 0.0
+
     while True:
-        await asyncio.sleep(300)  # Check every 5 minutes
-        # Rug cascade detection will be enhanced when signal_aggregator tracks token prices
-        # For now, this is a placeholder that monitors the health state
-        if redis_conn:
-            try:
-                health = await redis_conn.get("market:health")
-                if health:
-                    data = json.loads(health)
-                    logger.debug("Rug cascade check — mode: %s", data.get("mode"))
-            except Exception as e:
-                logger.warning("Rug cascade check error: %s", e)
+        await asyncio.sleep(300)
+        try:
+            import time as _t
+            now = _t.time()
+            if now - last_alert_time < COOLDOWN_SECONDS:
+                continue
+
+            from services.db import get_pool
+            pool = await get_pool()
+            window_start = now - (RUG_CASCADE_WINDOW_MINUTES * 60)
+
+            count = await pool.fetchval(
+                """SELECT COUNT(*) FROM paper_trades
+                   WHERE exit_time > $1
+                   AND realised_pnl_sol < 0
+                   AND exit_reason LIKE 'stop_loss%'""",
+                window_start,
+            )
+
+            if count and count >= RUG_CASCADE_THRESHOLD:
+                reason = f"Rug cascade detected: {count} stop-loss exits in {RUG_CASCADE_WINDOW_MINUTES}min"
+                logger.warning(reason)
+                await redis_conn.publish("alerts:emergency", json.dumps({
+                    "reason": reason,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }))
+                await redis_conn.set("market:loss_override", "DEFENSIVE", ex=3600)
+                last_alert_time = now
+            else:
+                logger.debug("Rug cascade check: %s stop-loss exits in last %dmin (threshold: %d)",
+                             count or 0, RUG_CASCADE_WINDOW_MINUTES, RUG_CASCADE_THRESHOLD)
+        except Exception as e:
+            logger.warning("Rug cascade check error: %s", e)
 
 
 # ---------------------------------------------------------------------------

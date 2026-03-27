@@ -1004,6 +1004,24 @@ async def _process_signals(redis_conn: aioredis.Redis):
                 sig_type = signal.get("signal_type", "")
                 age_sec = signal.get("age_seconds", 0)
 
+                # Track graduation rate for market_health (FIX 13)
+                if sig_type == "migration":
+                    try:
+                        await redis_conn.incr("market:migration_count_1h")
+                        await redis_conn.expire("market:migration_count_1h", 3600)
+                        migrations = int(await redis_conn.get("market:migration_count_1h") or 0)
+                        new_tokens = int(await redis_conn.get("market:new_token_count_1h") or 1)
+                        grad_est = round(migrations / max(new_tokens, 1), 3)
+                        await redis_conn.set("market:grad_rate_estimate", str(grad_est), ex=3600)
+                    except Exception:
+                        pass
+                if sig_type == "new_token":
+                    try:
+                        await redis_conn.incr("market:new_token_count_1h")
+                        await redis_conn.expire("market:new_token_count_1h", 3600)
+                    except Exception:
+                        pass
+
                 # --- Exit-type Helius signals: fast-track to alerts:exit_check ---
                 if sig_type in ("whale_transfer", "liquidity_remove", "account_closed"):
                     urgency = "high" if sig_type in ("whale_transfer", "liquidity_remove") else "normal"
@@ -1195,7 +1213,8 @@ async def _process_signals(redis_conn: aioredis.Redis):
                     "jito_bundle_count": int(token_details.get("jito_bundle_count", 0)),
                     "jito_tip_lamports": int(token_details.get("jito_tip_lamports", 0)),
                     "token_freshness_score": math.exp(-float(signal.get("age_seconds", 0)) / 3600.0 / 6.0),
-                    "mint_authority_revoked": 0.0 if rugcheck.get("mint", {}).get("mintAuthority") else 1.0,
+                    # Rugcheck risks array contains "mintAuthority" risk if authority is ACTIVE (not revoked = risky)
+                    "mint_authority_revoked": 0.0 if any("mintauthority" in r.lower() for r in rugcheck.get("risk_names", [])) else 1.0,
                 }
 
                 # Fill in market health data

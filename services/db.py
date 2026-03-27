@@ -136,6 +136,12 @@ async def _init_tables():
             )
         """)
 
+        # --- trades_ml_id on paper_trades (links to trades table for ML) ---
+        try:
+            await conn.execute("ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS trades_ml_id INTEGER DEFAULT 0")
+        except Exception:
+            pass
+
         # --- ML training data on paper_trades ---
         for col, coltype in [
             ("features_json", "TEXT"),

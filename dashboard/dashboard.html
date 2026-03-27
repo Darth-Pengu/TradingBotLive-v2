@@ -263,8 +263,8 @@ kbd{background:var(--bg-elevated);border:1px solid var(--border-active);border-r
   <!-- Personalities -->
   <div class="row-3">
     <div class="pcard spd"><div class="pcard-h"><span class="pcard-name"><i class="bi bi-lightning-charge-fill" style="color:var(--accent-teal)"></i> Speed Demon</span><span class="pill pill-green" id="spdSt">ACTIVE</span></div><div class="pcard-grid"><div><div class="pcard-m-label">Trades</div><div class="pcard-m-val" id="spdT">0</div></div><div><div class="pcard-m-label">Win Rate</div><div class="pcard-m-val" id="spdW">--%</div></div><div><div class="pcard-m-label">P/L</div><div class="pcard-m-val" id="spdP">0.00</div></div></div><div class="pcard-footer" id="spdFt">ML threshold: 65%</div></div>
-    <div class="pcard anl"><div class="pcard-h"><span class="pcard-name"><i class="bi bi-search" style="color:var(--accent-purple)"></i> Analyst</span><span class="pill pill-green" id="anlSt">ACTIVE</span></div><div class="pcard-grid"><div><div class="pcard-m-label">Trades</div><div class="pcard-m-val" id="anlT">0</div></div><div><div class="pcard-m-label">Win Rate</div><div class="pcard-m-val" id="anlW">--%</div></div><div><div class="pcard-m-label">P/L</div><div class="pcard-m-val" id="anlP">0.00</div></div></div><div class="pcard-footer">ML threshold: 70%</div></div>
-    <div class="pcard whl"><div class="pcard-h"><span class="pcard-name"><i class="bi bi-water" style="color:var(--accent-amber)"></i> Whale Tracker</span><span class="pill pill-green" id="whlSt">ACTIVE</span></div><div class="pcard-grid"><div><div class="pcard-m-label">Trades</div><div class="pcard-m-val" id="whlT">0</div></div><div><div class="pcard-m-label">Win Rate</div><div class="pcard-m-val" id="whlW">--%</div></div><div><div class="pcard-m-label">P/L</div><div class="pcard-m-val" id="whlP">0.00</div></div></div><div class="pcard-footer">ML threshold: 70%</div></div>
+    <div class="pcard anl"><div class="pcard-h"><span class="pcard-name"><i class="bi bi-search" style="color:var(--accent-purple)"></i> Analyst</span><span class="pill pill-green" id="anlSt">ACTIVE</span></div><div class="pcard-grid"><div><div class="pcard-m-label">Trades</div><div class="pcard-m-val" id="anlT">0</div></div><div><div class="pcard-m-label">Win Rate</div><div class="pcard-m-val" id="anlW">--%</div></div><div><div class="pcard-m-label">P/L</div><div class="pcard-m-val" id="anlP">0.00</div></div></div><div class="pcard-footer" id="mlFt70">ML threshold: 70%</div></div>
+    <div class="pcard whl"><div class="pcard-h"><span class="pcard-name"><i class="bi bi-water" style="color:var(--accent-amber)"></i> Whale Tracker</span><span class="pill pill-green" id="whlSt">ACTIVE</span></div><div class="pcard-grid"><div><div class="pcard-m-label">Trades</div><div class="pcard-m-val" id="whlT">0</div></div><div><div class="pcard-m-label">Win Rate</div><div class="pcard-m-val" id="whlW">--%</div></div><div><div class="pcard-m-label">P/L</div><div class="pcard-m-val" id="whlP">0.00</div></div></div><div class="pcard-footer" id="mlFt70">ML threshold: 70%</div></div>
   </div>
   <!-- Trades + Feed -->
   <div class="row-2e">
@@ -273,7 +273,7 @@ kbd{background:var(--bg-elevated);border:1px solid var(--border-active);border-r
       <div id="tradeList"><div style="text-align:center;padding:20px;color:var(--text-muted);font-size:12px">Waiting for trade data...</div></div>
     </div>
     <div class="card">
-      <div class="card-h"><span class="card-title">Activity</span><span style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--green)"><span class="sb-dot green" style="width:5px;height:5px"></span>LIVE</span></div>
+      <div class="card-h"><span class="card-title">Activity</span><span style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--green)"><span class="sb-dot" id="liveDot" style="width:5px;height:5px;background:var(--text-muted)"></span><span id="liveLabel" style="color:var(--text-muted)">CONNECTING</span></span></div>
       <div class="feed" id="actFeed"><div class="feed-empty" style="text-align:center;padding:20px;color:var(--text-muted);font-size:12px">Waiting for activity...</div></div>
     </div>
   </div>
@@ -361,8 +361,8 @@ const eqChart=new Chart(cx,{type:'line',data:{labels:days,datasets:[{data:cData,
 // WS
 let ws,wsRetry=1000;
 function conn(){ws=new WebSocket((location.protocol==='https:'?'wss':'ws')+'://'+location.host+'/ws');
-ws.onopen=()=>{ws.send(JSON.stringify({token:TOKEN}));$('wsInd').classList.remove('on');wsRetry=1000};
-ws.onclose=()=>{$('wsInd').classList.add('on');setTimeout(conn,wsRetry);wsRetry=Math.min(wsRetry*1.5,10000)};
+ws.onopen=()=>{ws.send(JSON.stringify({token:TOKEN}));$('wsInd').classList.remove('on');if($('liveDot')){$('liveDot').style.background='var(--green)';$('liveDot').style.boxShadow='0 0 6px var(--green)';$('liveLabel').textContent='LIVE';$('liveLabel').style.color='var(--green)'}wsRetry=1000};
+ws.onclose=()=>{$('wsInd').classList.add('on');if($('liveDot')){$('liveDot').style.background='var(--red)';$('liveDot').style.boxShadow='0 0 6px var(--red)';$('liveLabel').textContent='DISCONNECTED';$('liveLabel').style.color='var(--red)'}setTimeout(conn,wsRetry);wsRetry=Math.min(wsRetry*1.5,10000)};
 ws.onmessage=e=>{try{const d=JSON.parse(e.data);if(d._type==='periodic_update')upd(d)}catch(x){}}}
 function upd(d){
 const s=d.status||{},h=d.market_health||{};

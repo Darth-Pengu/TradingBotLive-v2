@@ -819,6 +819,16 @@ async def _update_accuracy_tracking(ml_score: float, outcome: int, redis_conn: a
                 meta["predictions_tracked"] = len(history)
                 with open(meta_path, "w") as f:
                     json.dump(meta, f, indent=2)
+                # Also update PostgreSQL ml_models accuracy
+                try:
+                    pool = await get_pool()
+                    await pool.execute(
+                        """UPDATE ml_models SET accuracy = $1
+                           WHERE is_active = TRUE AND model_name = 'ensemble'""",
+                        round(accuracy * 100, 1),
+                    )
+                except Exception:
+                    pass
         except Exception as e:
             logger.debug("Meta accuracy update failed: %s", e)
 

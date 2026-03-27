@@ -48,6 +48,8 @@ HOLDING_WALLET_ADDRESS = os.getenv("HOLDING_WALLET_ADDRESS", "")
 DASHBOARD_ALLOWED_IPS = os.getenv("DASHBOARD_ALLOWED_IPS", "").strip()
 HELIUS_WEBHOOK_SECRET = os.getenv("HELIUS_WEBHOOK_SECRET", "")
 APP_VERSION = os.getenv("APP_VERSION", "v3.1.0")
+TREASURY_TRIGGER_SOL = float(os.getenv("TREASURY_TRIGGER_SOL", "30.0"))
+TREASURY_TARGET_SOL = float(os.getenv("TREASURY_TARGET_SOL", "25.0"))
 PORT = int(os.getenv("PORT", "8080"))
 
 JWT_EXPIRY_SECONDS = 86400  # 24 hours
@@ -121,14 +123,19 @@ def _get_client_ip(request: web.Request) -> str:
 # Rate limiting
 # ---------------------------------------------------------------------------
 def _check_rate_limit(ip: str) -> bool:
-    """Returns True if the IP is allowed to attempt login."""
+    """Returns True if the IP is allowed to attempt login (not rate-limited)."""
     now = time.time()
-    # Check block list
     if ip in _blocked_ips:
         if now < _blocked_ips[ip]:
             return False
         del _blocked_ips[ip]
-
+    # Sliding window: count attempts in last 10 minutes
+    if ip in _login_attempts:
+        _login_attempts[ip] = [t for t in _login_attempts[ip] if now - t < 600]
+        if len(_login_attempts[ip]) >= 5:
+            _blocked_ips[ip] = now + 3600
+            logger.warning("IP %s rate-limited after 5 attempts in 10 minutes", ip)
+            return False
     return True
 
 
@@ -136,12 +143,10 @@ def _record_failed_attempt(ip: str):
     now = time.time()
     if ip not in _login_attempts:
         _login_attempts[ip] = []
-    # Keep only last hour
-    _login_attempts[ip] = [t for t in _login_attempts[ip] if now - t < 3600]
     _login_attempts[ip].append(now)
-    if len(_login_attempts[ip]) >= 5:
-        _blocked_ips[ip] = now + 3600  # Block for 1 hour
-        logger.warning("IP %s blocked for 1 hour after 5 failed login attempts", ip)
+    if len([t for t in _login_attempts[ip] if now - t < 600]) >= 5:
+        _blocked_ips[ip] = now + 3600
+        logger.warning("IP %s blocked for 1 hour", ip)
 
 
 # ---------------------------------------------------------------------------
@@ -581,8 +586,8 @@ async def api_treasury(request):
     return web.json_response({
         "trading_balance": trading_balance,
         "holding_balance": holding_balance,
-        "trigger_threshold": 30.0,
-        "target_balance": 25.0,
+        "trigger_threshold": TREASURY_TRIGGER_SOL,
+        "target_balance": TREASURY_TARGET_SOL,
         "total_swept": total_swept[0]["total"] if total_swept else 0,
         "last_sweep": last_sweep,
         "sweeps": sweeps,
@@ -809,7 +814,8 @@ async def api_whale_activity(request):
                         continue
                     rd = sig.get("raw_data", {})
                     result.append({
-                        "wallet": rd.get("wallet", rd.get("traderPublicKey", ""))[:12],
+                        "wallet": rd.get("wallet", rd.get("traderPublicKey", "")),
+                        "wallet_short": rd.get("wallet", rd.get("traderPublicKey", ""))[:12],
                         "action": rd.get("action", rd.get("txType", "unknown")),
                         "mint": sig.get("mint", "")[:12],
                         "signal_type": sig_type,
@@ -930,22 +936,20 @@ async def api_emergency_stop(request):
 
 
 async def api_approve_parameter(request):
-    """POST /approve-parameter -- approve a pending parameter change."""
+    """POST /approve-parameter -- approve a pending parameter change (PostgreSQL-backed)."""
     try:
         body = await request.json()
         param_index = body.get("index", -1)
 
-        pending_path = Path("data/pending_parameters.json")
-        active_path = Path("data/active_parameters.json")
+        pool = await get_pool()
+        pending_raw = await pool.fetchval("SELECT value_text FROM bot_state WHERE key = 'pending_parameters'")
+        active_raw = await pool.fetchval("SELECT value_text FROM bot_state WHERE key = 'active_parameters'")
 
-        if not pending_path.exists():
+        pending = json.loads(pending_raw) if pending_raw else []
+        active = json.loads(active_raw) if active_raw else []
+
+        if not pending:
             return web.json_response({"error": "no pending parameters"}, status=404)
-
-        with open(pending_path) as f:
-            pending = json.load(f)
-        with open(active_path) as f:
-            active = json.load(f) if active_path.exists() else []
-
         if param_index < 0 or param_index >= len(pending):
             return web.json_response({"error": "invalid index"}, status=400)
 
@@ -954,12 +958,17 @@ async def api_approve_parameter(request):
         item["approved_at"] = datetime.now(timezone.utc).isoformat()
         active.append(item)
 
-        with open(pending_path, "w") as f:
-            json.dump(pending, f, indent=2)
-        with open(active_path, "w") as f:
-            json.dump(active, f, indent=2)
-
-        logger.info("Parameter approved: %s = %s", item["parameter"], item["proposed_value"])
+        await pool.execute(
+            """INSERT INTO bot_state (key, value_text, updated_at) VALUES ($1, $2, NOW())
+               ON CONFLICT (key) DO UPDATE SET value_text = $2, updated_at = NOW()""",
+            "pending_parameters", json.dumps(pending),
+        )
+        await pool.execute(
+            """INSERT INTO bot_state (key, value_text, updated_at) VALUES ($1, $2, NOW())
+               ON CONFLICT (key) DO UPDATE SET value_text = $2, updated_at = NOW()""",
+            "active_parameters", json.dumps(active),
+        )
+        logger.info("Parameter approved (PostgreSQL): %s = %s", item["parameter"], item["proposed_value"])
         return web.json_response({"status": "approved", "parameter": item})
     except Exception as e:
         return web.json_response({"error": str(e)}, status=500)

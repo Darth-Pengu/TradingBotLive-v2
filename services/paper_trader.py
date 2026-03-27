@@ -215,7 +215,7 @@ async def paper_sell(
 
     if entry_price > 0:
         pnl_pct = ((exit_price - entry_price) / entry_price) * 100
-        pnl_sol = sell_amount * (pnl_pct / 100) - fees
+        pnl_sol = (exit_price - entry_price) / entry_price * sell_amount - fees
     else:
         pnl_pct = 0.0
         pnl_sol = -fees
