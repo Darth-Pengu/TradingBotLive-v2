@@ -130,6 +130,22 @@ class BotCore:
     async def init(self):
         self.pool = await get_pool()
         await self._load_state()
+        await self._reconcile_positions()
+
+    async def _reconcile_positions(self):
+        """Log open positions on startup for manual review."""
+        try:
+            table = "paper_trades" if TEST_MODE else "trades"
+            exit_col = "exit_time" if TEST_MODE else "closed_at"
+            rows = await self.pool.fetch(
+                f"SELECT mint, personality FROM {table} WHERE {exit_col} IS NULL"
+            )
+            db_mints = {r["mint"] for r in rows}
+            logger.info("Startup reconciliation: %d open positions in DB", len(db_mints))
+            if db_mints:
+                logger.info("Open positions: %s", ", ".join(m[:12] for m in db_mints))
+        except Exception as e:
+            logger.warning("Startup reconciliation failed: %s", e)
 
     async def _load_state(self):
         """Load portfolio state + open positions from PostgreSQL (source of truth).
@@ -277,6 +293,14 @@ class BotCore:
                 if pause_until and time.time() < float(pause_until):
                     remaining = int(float(pause_until) - time.time())
                     logger.debug("Loss pause active — %ds remaining, skipping signal", remaining)
+                    return
+            except Exception:
+                pass
+            # Check emergency stop key
+            try:
+                estop = await self.redis.get("bot:emergency_stop")
+                if estop:
+                    logger.warning("Emergency stop active — skipping all new signals")
                     return
             except Exception:
                 pass
@@ -465,7 +489,7 @@ class BotCore:
                     # FIX 18: Add to traded mints set (2h TTL)
                     await self.redis.sadd("traded:mints", pos.mint)
                     await self.redis.expire("traded:mints", 7200)
-                    # FIX 19: Consecutive loss counter
+                    # Consecutive loss counter (Redis + PostgreSQL)
                     if outcome == "loss":
                         consec = await self.redis.incr("bot:consecutive_losses")
                         if consec >= 3:
@@ -475,8 +499,20 @@ class BotCore:
                         if consec >= 5:
                             await self.redis.set("market:loss_override", "DEFENSIVE", ex=3600)
                             logger.warning("5+ consecutive losses — overriding market mode to DEFENSIVE")
+                        try:
+                            from services.db import set_bot_state
+                            await set_bot_state("consecutive_losses", int(consec))
+                            if consec >= 3:
+                                await set_bot_state("loss_pause_until", pause_until)
+                        except Exception:
+                            pass
                     else:
                         await self.redis.set("bot:consecutive_losses", "0")
+                        try:
+                            from services.db import set_bot_state
+                            await set_bot_state("consecutive_losses", 0)
+                        except Exception:
+                            pass
 
                 if outcome == "loss" and self.portfolio.consecutive_losses.get(pos.personality, 0) >= 3:
                     if self.redis:
@@ -535,7 +571,7 @@ class BotCore:
                 # FIX 18: Add to traded mints set (2h TTL)
                 await self.redis.sadd("traded:mints", pos.mint)
                 await self.redis.expire("traded:mints", 7200)
-                # FIX 19: Consecutive loss counter
+                # Consecutive loss counter (Redis + PostgreSQL)
                 if outcome == "loss":
                     consec = await self.redis.incr("bot:consecutive_losses")
                     if consec >= 3:
@@ -545,8 +581,18 @@ class BotCore:
                     if consec >= 5:
                         await self.redis.set("market:loss_override", "DEFENSIVE", ex=3600)
                         logger.warning("5+ consecutive losses — overriding market mode to DEFENSIVE")
+                    try:
+                        from services.db import set_bot_state
+                        await set_bot_state("consecutive_losses", int(consec))
+                    except Exception:
+                        pass
                 else:
                     await self.redis.set("bot:consecutive_losses", "0")
+                    try:
+                        from services.db import set_bot_state
+                        await set_bot_state("consecutive_losses", 0)
+                    except Exception:
+                        pass
 
             # Publish loss streak event for governance
             if outcome == "loss" and self.portfolio.consecutive_losses.get(pos.personality, 0) >= 3:
@@ -921,6 +967,32 @@ class BotCore:
             return True  # Non-blocking: allow entry if Nansen fails
 
     # --- Daily P/L reset ---
+    async def _portfolio_snapshot_task(self):
+        """Write portfolio snapshot every 5 minutes for equity chart."""
+        while True:
+            await asyncio.sleep(300)
+            try:
+                balance = self.portfolio.total_balance_sol
+                table = "paper_trades" if TEST_MODE else "trades"
+                exit_col = "exit_time" if TEST_MODE else "closed_at"
+                pnl_col = "realised_pnl_sol" if TEST_MODE else "pnl_sol"
+                row = await self.pool.fetchrow(
+                    f"""SELECT COUNT(*) as total, COALESCE(SUM({pnl_col}), 0) as pnl
+                        FROM {table} WHERE {exit_col} IS NOT NULL"""
+                )
+                await self.pool.execute(
+                    """INSERT INTO portfolio_snapshots
+                       (timestamp, total_balance_sol, open_positions, daily_pnl_sol, market_mode)
+                       VALUES ($1, $2, $3, $4, $5)""",
+                    datetime.now(timezone.utc).isoformat(),
+                    balance,
+                    len(self.positions),
+                    float(row["pnl"] if row else 0),
+                    self.portfolio.market_mode,
+                )
+            except Exception as e:
+                logger.debug("Portfolio snapshot error: %s", e)
+
     async def _daily_reset(self):
         """Reset daily P/L at midnight UTC."""
         while True:
@@ -1015,6 +1087,7 @@ async def main():
         bot._whale_exit_monitor(),
         bot._nansen_exit_monitor(),  # P5: Nansen smart money sell detection
         bot._daily_reset(),
+        bot._portfolio_snapshot_task(),  # Write snapshots every 5min for equity chart
         bot._status_publisher(),
     )
 
