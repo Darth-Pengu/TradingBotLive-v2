@@ -136,4 +136,39 @@ async def _init_tables():
             )
         """)
 
+        # --- Trailing stop columns (Step 1 migration) ---
+        for table in ("paper_trades", "trades"):
+            for col, coltype in [
+                ("peak_price", "DOUBLE PRECISION DEFAULT NULL"),
+                ("trailing_stop_active", "BOOLEAN DEFAULT FALSE"),
+                ("trailing_stop_price", "DOUBLE PRECISION DEFAULT NULL"),
+                ("trailing_stop_pct", "DOUBLE PRECISION DEFAULT NULL"),
+            ]:
+                try:
+                    await conn.execute(
+                        f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {coltype}"
+                    )
+                except Exception:
+                    pass  # Column already exists or table doesn't exist yet
+
     logger.info("All database tables verified")
+
+
+async def update_trailing_stop(
+    trade_id: int,
+    table: str,
+    peak_price: float,
+    trailing_stop_active: bool,
+    trailing_stop_price: float | None,
+) -> None:
+    """Persist trailing stop state to PostgreSQL (source of truth)."""
+    pool = await get_pool()
+    exit_col = "exit_time" if table == "paper_trades" else "closed_at"
+    await pool.execute(
+        f"""UPDATE {table} SET
+            peak_price = $1,
+            trailing_stop_active = $2,
+            trailing_stop_price = $3
+            WHERE id = $4 AND {exit_col} IS NULL""",
+        peak_price, trailing_stop_active, trailing_stop_price, trade_id,
+    )

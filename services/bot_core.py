@@ -113,6 +113,10 @@ class Position:
     peak_price: float = 0.0
     staged_exits_done: list = field(default_factory=list)
     trade_id: int = 0
+    # Trailing stop state (persisted to PostgreSQL, mirrored to Redis)
+    trailing_stop_active: bool = False
+    trailing_stop_price: float = 0.0
+    trailing_stop_pct: float = 0.0
 
 
 class BotCore:
@@ -128,7 +132,8 @@ class BotCore:
         await self._load_state()
 
     async def _load_state(self):
-        """Load latest portfolio state from DB."""
+        """Load portfolio state + open positions from PostgreSQL (source of truth).
+        Trailing stop state comes from DB, not Redis — survives restarts."""
         try:
             row = await self.pool.fetchrow(
                 "SELECT total_balance_sol, daily_pnl_sol FROM portfolio_snapshots ORDER BY id DESC LIMIT 1"
@@ -140,6 +145,40 @@ class BotCore:
                 logger.info("Loaded portfolio state: %.4f SOL", row["total_balance_sol"])
         except Exception:
             pass
+
+        # Reload open positions from DB (with trailing stop state)
+        try:
+            table = "paper_trades" if TEST_MODE else "trades"
+            exit_col = "exit_time" if TEST_MODE else "closed_at"
+            rows = await self.pool.fetch(
+                f"SELECT * FROM {table} WHERE {exit_col} IS NULL ORDER BY id ASC"
+            )
+            restored = 0
+            for r in rows:
+                mint = r.get("mint", "")
+                personality = r.get("personality", "")
+                key = f"{personality}:{mint}"
+                if key in self.positions:
+                    continue  # Already tracked
+                entry_price = float(r.get("entry_price", 0) or 0)
+                pos = Position(
+                    mint=mint,
+                    personality=personality,
+                    entry_price=entry_price,
+                    entry_time=float(r.get("entry_time", r.get("created_at", 0)) or 0),
+                    size_sol=float(r.get("amount_sol", 0) or 0),
+                    peak_price=float(r.get("peak_price") or entry_price or 0),
+                    trade_id=r.get("id", 0),
+                    trailing_stop_active=bool(r.get("trailing_stop_active", False)),
+                    trailing_stop_price=float(r.get("trailing_stop_price") or 0),
+                    trailing_stop_pct=float(r.get("trailing_stop_pct") or 0),
+                )
+                self.positions[key] = pos
+                restored += 1
+            if restored:
+                logger.info("Restored %d open positions from PostgreSQL (trailing stop state preserved)", restored)
+        except Exception as e:
+            logger.warning("Failed to restore open positions: %s", e)
 
     async def _save_snapshot(self):
         await self.pool.execute(
@@ -521,6 +560,79 @@ class BotCore:
             logger.info("PARTIAL SELL: %s %s %.1f%% (reason=%s, remaining=%.1f%%)",
                          pos.personality, pos.mint[:12], sell_pct * 100, reason, pos.remaining_pct * 100)
 
+    async def _evaluate_trailing_stop(self, pos: Position, current_price: float) -> str | None:
+        """Evaluate trailing stop for a position. Returns exit reason or None.
+        State persisted to PostgreSQL (source of truth), mirrored to Redis for dashboard."""
+        from services.risk_manager import TRAILING_STOP_CONFIG
+        from services.db import update_trailing_stop
+
+        config = TRAILING_STOP_CONFIG.get(pos.personality, TRAILING_STOP_CONFIG["analyst"])
+        activation_pct = config["activation_pct"]
+        trail_pct = config["trail_pct"]
+        entry = pos.entry_price
+        table = "paper_trades" if TEST_MODE else "trades"
+
+        if not current_price or current_price <= 0 or entry <= 0:
+            return None  # Fail safe — never trigger on bad price data
+
+        state_changed = False
+
+        # 1. Update peak price
+        if current_price > pos.peak_price:
+            pos.peak_price = current_price
+            state_changed = True
+
+        # 2. Check activation
+        pnl_pct = (current_price - entry) / entry * 100
+        if not pos.trailing_stop_active and pnl_pct >= activation_pct:
+            pos.trailing_stop_active = True
+            pos.trailing_stop_price = pos.peak_price * (1 - trail_pct / 100)
+            pos.trailing_stop_pct = trail_pct
+            state_changed = True
+            logger.info("Trailing stop ACTIVATED — %s up %.1f%% | peak=%.8f stop=%.8f",
+                         pos.mint[:12], pnl_pct, pos.peak_price, pos.trailing_stop_price)
+            await self._send_discord(
+                f"🎯 Trailing stop ACTIVATED\n"
+                f"Token: {pos.mint[:12]}...\n"
+                f"Up: +{pnl_pct:.1f}%\n"
+                f"Stop set at: {pos.trailing_stop_price:.8f}\n"
+                f"Personality: {pos.personality}"
+            )
+
+        # 3. Update trailing stop level (only moves up, never down)
+        if pos.trailing_stop_active:
+            new_stop = pos.peak_price * (1 - trail_pct / 100)
+            if new_stop > pos.trailing_stop_price:
+                pos.trailing_stop_price = new_stop
+                state_changed = True
+
+        # 4. Persist to PostgreSQL if anything changed
+        if state_changed and pos.trade_id:
+            try:
+                await update_trailing_stop(
+                    pos.trade_id, table, pos.peak_price,
+                    pos.trailing_stop_active,
+                    pos.trailing_stop_price if pos.trailing_stop_active else None,
+                )
+            except Exception as e:
+                logger.debug("Trailing stop DB update error: %s", e)
+
+        # 5. Check if trailing stop is triggered
+        if pos.trailing_stop_active and pos.trailing_stop_price > 0 and current_price <= pos.trailing_stop_price:
+            pnl_sol = (current_price - entry) / entry * pos.size_sol
+            logger.info("Trailing stop HIT — %s | peak=%.8f stop=%.8f current=%.8f",
+                         pos.mint[:12], pos.peak_price, pos.trailing_stop_price, current_price)
+            await self._send_discord(
+                f"📉 Trailing stop HIT\n"
+                f"Token: {pos.mint[:12]}...\n"
+                f"Peak: {pos.peak_price:.8f} | Stop: {pos.trailing_stop_price:.8f} | Exit: {current_price:.8f}\n"
+                f"Est P/L: {'+' if pnl_sol >= 0 else ''}{pnl_sol:.4f} SOL\n"
+                f"Personality: {pos.personality}"
+            )
+            return "TRAILING_STOP"
+
+        return None
+
     async def _check_exits(self):
         """Monitor all open positions for exit conditions."""
         while True:
@@ -548,10 +660,16 @@ class BotCore:
                     elapsed_min = (time.time() - pos.entry_time) / 60
                     elapsed_hrs = elapsed_min / 60
 
-                    # --- Stop loss ---
+                    # --- Hard stop loss (always checked first) ---
                     sl_pct = strategy.get("stop_loss_pct", 0.50)
                     if multiple <= (1 - sl_pct):
                         await self._close_position(pos, f"stop_loss_{sl_pct:.0%}")
+                        continue
+
+                    # --- Trailing stop (Step 4 — persisted to PostgreSQL) ---
+                    ts_exit = await self._evaluate_trailing_stop(pos, current_price)
+                    if ts_exit:
+                        await self._close_position(pos, ts_exit)
                         continue
 
                     # --- Staged exits ---
@@ -842,6 +960,11 @@ class BotCore:
                         "size_sol": v.size_sol,
                         "remaining_pct": v.remaining_pct,
                         "entry_time": v.entry_time,
+                        "entry_price": v.entry_price,
+                        "peak_price": v.peak_price,
+                        "trailing_stop_active": v.trailing_stop_active,
+                        "trailing_stop_price": v.trailing_stop_price,
+                        "trailing_stop_pct": v.trailing_stop_pct,
                     } for k, v in self.positions.items()},
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }

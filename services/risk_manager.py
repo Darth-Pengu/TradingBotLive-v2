@@ -85,6 +85,25 @@ MARKET_MODE_MULTIPLIERS = {
     "FRENZY":     1.50,
 }
 
+# --- Trailing stop configuration (per personality) ---
+# activation_pct: profit % above entry at which trailing stop activates
+# trail_pct: % below peak price at which trailing stop triggers exit
+# Overridable via env vars so governance agent can tune without redeploy
+TRAILING_STOP_CONFIG = {
+    "speed_demon": {
+        "activation_pct": float(os.getenv("TS_SPD_ACTIVATION", "15")),
+        "trail_pct": float(os.getenv("TS_SPD_TRAIL", "8")),
+    },
+    "analyst": {
+        "activation_pct": float(os.getenv("TS_ANL_ACTIVATION", "25")),
+        "trail_pct": float(os.getenv("TS_ANL_TRAIL", "12")),
+    },
+    "whale_tracker": {
+        "activation_pct": float(os.getenv("TS_WHL_ACTIVATION", "20")),
+        "trail_pct": float(os.getenv("TS_WHL_TRAIL", "10")),
+    },
+}
+
 
 @dataclass
 class PortfolioState:

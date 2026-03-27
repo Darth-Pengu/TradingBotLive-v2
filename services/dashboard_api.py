@@ -478,7 +478,10 @@ async def api_trades(request):
 
 async def api_trades_active(request):
     """Return currently open trades with explicit field mapping to avoid serialisation crashes."""
-    rows = await _query_db("SELECT * FROM trades WHERE closed_at IS NULL ORDER BY created_at DESC")
+    # Check paper_trades first (paper mode), fall back to trades
+    rows = await _query_db("SELECT * FROM paper_trades WHERE exit_time IS NULL ORDER BY entry_time DESC")
+    if not rows:
+        rows = await _query_db("SELECT * FROM trades WHERE closed_at IS NULL ORDER BY created_at DESC")
     trades = []
     for r in rows:
         mint = r.get("mint", "")
@@ -498,6 +501,11 @@ async def api_trades_active(request):
             "signal_source": r.get("signal_source", ""),
             "created_at": _safe_isoformat(r.get("created_at")),
             "closed_at": _safe_isoformat(r.get("closed_at")),
+            # Trailing stop state from PostgreSQL
+            "peak_price": float(r.get("peak_price", 0) or 0),
+            "trailing_stop_active": bool(r.get("trailing_stop_active", False)),
+            "trailing_stop_price": float(r.get("trailing_stop_price", 0) or 0),
+            "trailing_stop_pct": float(r.get("trailing_stop_pct", 0) or 0),
         })
     return web.json_response(trades)
 

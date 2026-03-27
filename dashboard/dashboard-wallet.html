@@ -252,9 +252,9 @@ kbd{background:var(--bg-elevated);border:1px solid var(--border-active);border-r
   <div class="panel-row"><span class="label">ML Score</span><span class="val" id="panelMl">--</span></div>
   <div class="panel-row"><span class="label">P/L %</span><span class="val" id="panelPnlPct">--</span></div>
   <div class="panel-sec">Execution Details</div>
-  <div class="panel-row"><span class="label">Entry Slippage</span><span class="val">--</span></div>
-  <div class="panel-row"><span class="label">Exit Slippage</span><span class="val">--</span></div>
-  <div class="panel-row"><span class="label">Total Fees</span><span class="val">--</span></div>
+  <div class="panel-row"><span class="label">Peak Price</span><span class="val" id="panelPeak">--</span></div>
+  <div class="panel-row"><span class="label">Trail Stop</span><span class="val" id="panelTrailStop">--</span></div>
+  <div class="panel-row"><span class="label">Trail Distance</span><span class="val" id="panelTrailDist">--</span></div>
 </div>
 <!-- Command Palette -->
 <div class="cmd-bg" id="cmdBg" onclick="if(event.target===this)closeCmd()"><div class="cmd"><div class="cmd-input"><i class="bi bi-search"></i><input id="cmdIn" placeholder="Search or jump to..." oninput="filterCmd(this.value)"></div><div class="cmd-list"><div class="cmd-sec">Navigation</div><div class="cmd-item" onclick="go('/dashboard/dashboard.html')"><i class="bi bi-grid-1x2-fill"></i><span>Overview</span><small>G O</small></div><div class="cmd-item" onclick="go('/dashboard/dashboard-analytics.html')"><i class="bi bi-activity"></i><span>Status</span><small>G S</small></div><div class="cmd-item" onclick="go('/dashboard/dashboard-wallet.html')"><i class="bi bi-wallet2"></i><span>Wallet</span><small>G W</small></div><div class="cmd-sec">Actions</div><div class="cmd-item" onclick="csvExport();closeCmd()"><i class="bi bi-file-earmark-arrow-down"></i><span>Export CSV</span></div></div></div></div>
@@ -341,7 +341,7 @@ if(closedTrades.length>0){
   const hm=Math.floor(avgHold/60),hs=Math.round(avgHold%60);
   $('kHold').textContent=hm+'m '+hs+'s';
 }
-// FIX 11/12: Populate positions table with hold time + Stop All button
+// Populate positions table with trailing stop + hold time
 if(active.length>0){const icons={speed_demon:'pill-teal',analyst:'pill-purple',whale_tracker:'pill-amber'};const imap={speed_demon:'bi-lightning-charge-fill',analyst:'bi-search',whale_tracker:'bi-water'};
 $('posTbl').innerHTML=active.map(t=>{
   const mint=(t.mint||'').substring(0,6)+'...'+(t.mint||'').slice(-4);
@@ -349,7 +349,8 @@ $('posTbl').innerHTML=active.map(t=>{
   const ca=t.created_at||t.entry_time;
   let holdStr='--';
   if(ca){const entryMs=typeof ca==='number'?ca*1000:new Date(ca).getTime();const mins=Math.floor((Date.now()-entryMs)/60000);holdStr=mins+'m'}
-  return '<tr><td>'+mint+'</td><td><span class="pill '+ic+'" style="font-size:9px"><i class="bi '+im+'"></i></span></td><td>'+(t.entry_price?'$'+Number(t.entry_price).toFixed(8):'--')+'</td><td>--</td><td>--</td><td>--</td><td>'+(t.amount_sol?Number(t.amount_sol).toFixed(4):'--')+'</td><td>'+holdStr+'</td><td><button class="btn-sm" onclick="if(confirm(\'Stop All positions?\'))aFetch(\'/api/emergency-stop\',{method:\'POST\'})">Stop All</button></td></tr>'
+  const tsCell=t.trailing_stop_active?'<span style="color:var(--accent-teal)">▲ $'+Number(t.trailing_stop_price).toFixed(8)+'</span>':'<span style="color:var(--text-muted)">--</span>';
+  return '<tr><td>'+mint+'</td><td><span class="pill '+ic+'" style="font-size:9px"><i class="bi '+im+'"></i></span></td><td>'+(t.entry_price?'$'+Number(t.entry_price).toFixed(8):'--')+'</td><td>--</td><td>--</td><td>--</td><td>'+tsCell+'</td><td>'+(t.amount_sol?Number(t.amount_sol).toFixed(4):'--')+'</td><td>'+holdStr+'</td><td><button class="btn-sm" onclick="if(confirm(\'Stop All positions?\'))aFetch(\'/api/emergency-stop\',{method:\'POST\'})">Stop All</button></td></tr>'
 }).join('')}
 // FIX 7/10: Populate trade history with correct win/loss from pnl_sol + data attribute
 if(trades.length>0){const icons={speed_demon:'pill-teal',analyst:'pill-purple',whale_tracker:'pill-amber'};const imap={speed_demon:'bi-lightning-charge-fill',analyst:'bi-search',whale_tracker:'bi-water'};
@@ -398,6 +399,11 @@ function openPanel(row){
     if(t.signal_source)$('panelSource').textContent=t.signal_source;
     if(t.ml_score!=null)$('panelMl').textContent=(t.ml_score*100).toFixed(0)+'%';
     const pp=t.pnl_pct||0;$('panelPnlPct').textContent=(pp>=0?'+':'')+pp.toFixed(1)+'%';$('panelPnlPct').style.color=pp>=0?'var(--green)':'var(--red)';
+    // Trailing stop fields
+    $('panelPeak').textContent=t.peak_price?'$'+Number(t.peak_price).toFixed(8):'--';
+    if(t.trailing_stop_active){$('panelTrailStop').innerHTML='$'+Number(t.trailing_stop_price).toFixed(8)+' <span class="pill pill-teal" style="font-size:9px">ACTIVE</span>';$('panelTrailStop').style.color='var(--accent-teal)'}
+    else{$('panelTrailStop').textContent='--';$('panelTrailStop').style.color=''}
+    $('panelTrailDist').textContent=t.trailing_stop_pct?(t.trailing_stop_pct+'%'):'--';
   }catch(x){}
   $('panelOverlay').classList.add('on');
   $('tradePanel').classList.add('on');
