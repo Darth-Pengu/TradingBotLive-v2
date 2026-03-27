@@ -583,10 +583,32 @@ async def api_treasury(request):
 
 
 async def api_governance(request):
-    notes_path = Path("data/governance_notes.md")
-    content = notes_path.read_text() if notes_path.exists() else ""
-    pending_exists = Path("data/whale_wallets_pending.json").exists()
-    return web.json_response({"notes": content, "pending_whale_review": pending_exists})
+    """Governance status — reads from PostgreSQL first, file fallback."""
+    result = {"notes": "", "pending_whale_review": False, "recent_decisions": [], "notes_length": 0}
+    try:
+        rows = await _query_db(
+            "SELECT content, appended_at FROM governance_notes_log ORDER BY appended_at DESC LIMIT 50"
+        )
+        if rows:
+            combined = "\n".join(r["content"] for r in reversed(rows))
+            result["notes"] = combined[-2000:]
+            result["notes_length"] = len(combined)
+        decisions = await _query_db(
+            """SELECT decision, reason, created_at, triggered_by
+               FROM governance_state ORDER BY created_at DESC LIMIT 5"""
+        )
+        result["recent_decisions"] = [
+            {k: (str(v) if v else v) for k, v in d.items()} for d in decisions
+        ]
+    except Exception as e:
+        logger.warning("api_governance DB read failed: %s — trying file", e)
+        notes_path = Path("data/governance_notes.md")
+        if notes_path.exists():
+            content = notes_path.read_text()
+            result["notes"] = content[-2000:]
+            result["notes_length"] = len(content)
+    result["pending_whale_review"] = Path("data/whale_wallets_pending.json").exists()
+    return web.json_response(result)
 
 
 async def api_ml_status(request):

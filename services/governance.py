@@ -308,6 +308,24 @@ async def write_governance_output(task_type: str, output: str, context: dict):
     timestamp = datetime.now(timezone.utc).isoformat()
     DATA_DIR.mkdir(exist_ok=True)
 
+    # Write to PostgreSQL (source of truth — survives Railway redeploys)
+    try:
+        pool = await get_pool()
+        content = f"## {task_type} -- {timestamp}\n\n{output}"
+        await pool.execute(
+            "INSERT INTO governance_notes_log (content) VALUES ($1)", content
+        )
+        # Insert decision for structured queries
+        decision = "TRADE" if task_type in ("daily_briefing", "weekly_meta") else task_type.upper()
+        await pool.execute(
+            """INSERT INTO governance_state (decision, reason, notes, triggered_by)
+               VALUES ($1, $2, $3, $4)""",
+            decision, task_type, output[:500], "scheduled",
+        )
+    except Exception as e:
+        logger.warning("Governance DB write failed: %s", e)
+
+    # Also write to file as backup (best-effort)
     if task_type == "wallet_rescore":
         try:
             updated_wallets = json.loads(output)
@@ -316,7 +334,6 @@ async def write_governance_output(task_type: str, output: str, context: dict):
         except json.JSONDecodeError:
             with open(GOVERNANCE_NOTES_FILE, "a") as f:
                 f.write(f"\n\n---\n## {task_type} -- {timestamp}\n\nWARNING: not valid JSON.\n\n{output}\n")
-
     elif task_type == "personality_weights":
         try:
             weights = json.loads(output)
