@@ -22,21 +22,34 @@ _pool: asyncpg.Pool | None = None
 
 
 def _get_dsn() -> str:
-    url = os.getenv("DATABASE_URL", "")
-    if not url:
-        raise RuntimeError(
-            "DATABASE_URL is not set. "
-            "Add a PostgreSQL plugin in Railway or set DATABASE_URL manually."
-        )
-    # Railway provides postgres:// but asyncpg requires postgresql://
-    if url.startswith("postgres://"):
-        url = "postgresql://" + url[len("postgres://"):]
-    if url.startswith("sqlite"):
-        raise RuntimeError(
-            "SQLite is no longer supported — data is lost on every Railway restart. "
-            "Set DATABASE_URL to a PostgreSQL connection string."
-        )
-    return url
+    # Railway PostgreSQL plugin injects DATABASE_URL automatically.
+    # But if a manual DATABASE_URL=sqlite:///... exists, it overrides the plugin.
+    # Check multiple env vars to find the PostgreSQL URL.
+    candidates = [
+        os.getenv("DATABASE_URL", ""),
+        os.getenv("DATABASE_PRIVATE_URL", ""),
+        os.getenv("DATABASE_PUBLIC_URL", ""),
+        os.getenv("POSTGRES_URL", ""),
+    ]
+
+    for url in candidates:
+        if not url:
+            continue
+        if url.startswith("sqlite"):
+            logger.warning("Skipping SQLite URL: %s — looking for PostgreSQL", url[:30])
+            continue
+        # Railway provides postgres:// but asyncpg requires postgresql://
+        if url.startswith("postgres://"):
+            url = "postgresql://" + url[len("postgres://"):]
+        if url.startswith("postgresql://"):
+            return url
+
+    raise RuntimeError(
+        "No PostgreSQL DATABASE_URL found. "
+        "Add a PostgreSQL plugin in Railway (it auto-injects DATABASE_URL). "
+        "If you have a manual DATABASE_URL=sqlite:///... variable, DELETE it "
+        "so the PostgreSQL plugin's URL takes effect."
+    )
 
 
 async def get_pool() -> asyncpg.Pool:
