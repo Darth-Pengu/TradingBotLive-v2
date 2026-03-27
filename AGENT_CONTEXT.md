@@ -1251,6 +1251,20 @@ python-jose[cryptography]>=3.3.0
 - Tip floor: GET https://bundles.jito.wtf/api/v1/bundles/tip_floor
 - Max tip: 0.1 SOL (100M lamports) hard cap
 
+## Connected MCP Servers (Claude Code)
+
+Nansen MCP: https://mcp.nansen.ai/ra/mcp/
+- Auth: authorization_token from NANSEN_API_KEY
+- Integrated in governance.py via NANSEN_MCP_SERVER dict
+- Used for: wallet_rescore, weekly_meta, smart_money_analysis
+
+Gmail MCP: https://gmail.mcp.claude.com/mcp
+Google Calendar MCP: https://gcal.mcp.claude.com/mcp
+Solana Developer MCP: https://mcp.solana.com (pending install)
+
+Security rule: No MCP server ever handles trade execution
+or has access to TRADING_WALLET_PRIVATE_KEY.
+
 ---
 
 ## 22. Governance Agent v2 Features

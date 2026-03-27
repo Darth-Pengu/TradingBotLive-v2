@@ -53,3 +53,42 @@
 
 \- Tell me what was built and what to test
 
+## MCP Servers Available
+
+The following MCP servers are connected in this Claude Code session.
+Use them proactively when relevant.
+
+### Nansen MCP
+URL: https://mcp.nansen.ai/ra/mcp/
+Auth: NANSEN-API-KEY header (env var: NANSEN_API_KEY)
+Already wired in: services/governance.py run_governance_task()
+Use for: Smart money wallet analysis, token screening,
+who-bought-sold queries, wallet PnL lookups, weekly meta reports.
+Prefer this over direct HTTP calls to Nansen API.
+
+### Gmail MCP
+URL: https://gmail.mcp.claude.com/mcp
+Use for: Emailing governance reports or trade summaries to Jay.
+
+### Google Calendar MCP
+URL: https://gcal.mcp.claude.com/mcp
+Use for: Scheduling governance briefings, paper trading review reminders.
+
+### Solana Developer MCP (install with: claude mcp add --transport http solana-dev https://mcp.solana.com)
+Use for: Always query before writing Solana transaction code or RPC calls.
+Provides current Solana and Anchor Framework documentation.
+
+## MCP Usage Rules
+- Prefer Nansen MCP over direct HTTP for governance analysis
+- Query Solana Developer MCP before writing any on-chain code
+- MCPs are for data and analysis only — never for trade execution
+- execution.py handles all real trades — no MCP touches that layer
+
+## MCP Security Policy
+Never install an MCP server that:
+- Has bulk commits from a single date
+- Points to .zip downloads
+- Claims to handle trade execution or wallet signing
+- Is not from a verified provider (Nansen, Chainstack, Solana Foundation etc)
+TRADING_WALLET_PRIVATE_KEY must never be accessible to any MCP server.
+
