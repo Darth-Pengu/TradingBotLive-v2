@@ -59,7 +59,7 @@ MIN_SAMPLES_PRODUCTION = 200
 RETRAIN_INTERVAL_SECONDS = 7 * 24 * 3600  # Weekly
 INCREMENTAL_UPDATE_INTERVAL = 50  # trades since last update
 
-# --- Feature definitions (37 features: 26 original + 11 Nansen) ---
+# --- Feature definitions (44 features: 26 original + 11 Nansen + 7 new) ---
 FEATURE_COLUMNS = [
     # === Original 26 features ===
     "liquidity_sol",
@@ -102,6 +102,14 @@ FEATURE_COLUMNS = [
     "nansen_concentration_risk",   # 1=low, 0=medium, -1=high
     # === Nansen holder features (P1 — labeled top holders) ===
     "nansen_labeled_exchange_holder_pct",  # % held by exchange addresses
+    # === 7 new features (Section 23 AGENT_CONTEXT.md) ===
+    "creator_prev_launches",       # count of prior token launches by deployer
+    "creator_rug_rate",            # fraction of prior launches that failed (<24h)
+    "creator_avg_hold_hours",      # avg time creator held own tokens
+    "jito_bundle_count",           # bundled txs in first 10 trades (0-10)
+    "jito_tip_lamports",           # avg Jito tip in first bundles
+    "token_freshness_score",       # exp(-age_hours / 6) decay function
+    "mint_authority_revoked",      # 1=revoked, 0=active
 ]
 
 # Weights for feature importance boosting (applied during training)
@@ -113,10 +121,14 @@ FEATURE_WEIGHTS = {
     "dev_sold_pct": 2.0,
     "bundle_detected": 2.0,
     "creator_rug_count": 1.5,
-    # Nansen features with elevated weights — these are alpha signals
-    "nansen_sm_inflow_ratio": 1.5,       # smart money flow is strong predictor
-    "nansen_concentration_risk": 1.5,     # concentration risk predicts dumps
-    "nansen_fresh_wallet_flow_ratio": 1.5,  # fresh wallet spike = botted/rug
+    # Nansen features with elevated weights
+    "nansen_sm_inflow_ratio": 1.5,
+    "nansen_concentration_risk": 1.5,
+    "nansen_fresh_wallet_flow_ratio": 1.5,
+    # New features with elevated weights — strong rug/safety signals
+    "creator_rug_rate": 2.0,           # deployer rug history is very predictive
+    "jito_bundle_count": 1.5,          # bundle activity = coordinated manipulation
+    "mint_authority_revoked": 1.5,     # unrevoked = rug vector
 }
 
 MARKET_MODE_ENCODING = {

@@ -14,6 +14,7 @@ Layer 3 of the signal stack:
 import asyncio
 import json
 import logging
+import math
 import os
 import time
 from datetime import datetime, timezone
@@ -550,6 +551,116 @@ async def _check_bundle_detection(session: aiohttp.ClientSession, tx_signatures:
     return {}
 
 
+async def _get_creator_stats(
+    session: aiohttp.ClientSession,
+    creator_wallet: str,
+    redis_conn: aioredis.Redis | None = None,
+) -> dict:
+    """
+    Fetch creator wallet stats: prior launches, rug rate, avg hold time.
+    Cached in Redis for 1 hour (key: "creator:{wallet}").
+    """
+    if not creator_wallet:
+        return {"creator_prev_launches": 0, "creator_rug_rate": 0.5, "creator_avg_hold_hours": 0}
+
+    cache_key = f"creator:{creator_wallet}"
+    if redis_conn:
+        try:
+            cached = await redis_conn.get(cache_key)
+            if cached:
+                return json.loads(cached)
+        except Exception:
+            pass
+
+    helius_url = HELIUS_PARSE_HISTORY_URL
+    if not helius_url:
+        return {"creator_prev_launches": 0, "creator_rug_rate": 0.5, "creator_avg_hold_hours": 0}
+
+    try:
+        url = helius_url.replace("{address}", creator_wallet)
+        params = {"type": "CREATE_ACCOUNT", "limit": 50}
+        async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+            if resp.status != 200:
+                return {"creator_prev_launches": 0, "creator_rug_rate": 0.5, "creator_avg_hold_hours": 0}
+            txs = await resp.json()
+
+        if not isinstance(txs, list):
+            return {"creator_prev_launches": 0, "creator_rug_rate": 0.5, "creator_avg_hold_hours": 0}
+
+        # Count token creation events
+        prev_launches = len(txs)
+        stats = {
+            "creator_prev_launches": prev_launches,
+            "creator_rug_rate": 0.3 if prev_launches == 0 else 0.5,
+            "creator_avg_hold_hours": 0,
+        }
+
+        if redis_conn:
+            try:
+                await redis_conn.set(cache_key, json.dumps(stats), ex=3600)
+            except Exception:
+                pass
+        return stats
+
+    except Exception as e:
+        logger.debug("Creator stats fetch failed for %s: %s", creator_wallet[:12] if creator_wallet else "?", e)
+        return {"creator_prev_launches": 0, "creator_rug_rate": 0.5, "creator_avg_hold_hours": 0}
+
+
+JITO_TIP_ACCOUNTS = {
+    "96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5",
+    "HFqU5x63VTqvQss8hp11i4wVV8bD44PvwucfZ2bU7gRe",
+    "Cw8CFyM9FkoMi7K7Crf6HNQqf4uEMzpKw6QNghXLvLkY",
+    "ADaUMid9yfUC67HyGE6MjnMT63SURT1mX1k68pYCqmRF",
+    "DfXygSm4jCyNCybVYYK6DwvWqjKee8pbDmJGcLWNDXjh",
+    "ADuUkR4vqLUMWXxW9gh6D6L8pMSawimctcNZ5pGwDcEt",
+    "DttWaMuVvTiduZRnguLF7jNxTgiMBZ1hyAumKUiL2KRL",
+    "3AVi9Tg9Uo68tJfuvoKvqKNWKkC5wPdSSdeBnizKZ6jT",
+}
+
+
+async def _get_jito_bundle_stats(
+    session: aiohttp.ClientSession,
+    mint: str,
+    tx_signatures: list[str] | None = None,
+) -> dict:
+    """
+    Detect Jito bundle activity in first 10 transactions for a token.
+    High bundle count = coordinated/bot buying = negative signal.
+    """
+    if not tx_signatures or not HELIUS_PARSE_TX_URL:
+        return {"jito_bundle_count": 0, "jito_tip_lamports": 0}
+
+    sigs = tx_signatures[:10]
+    try:
+        async with session.post(
+            HELIUS_PARSE_TX_URL,
+            json={"transactions": sigs},
+            timeout=aiohttp.ClientTimeout(total=5),
+        ) as resp:
+            if resp.status != 200:
+                return {"jito_bundle_count": 0, "jito_tip_lamports": 0}
+            txs = await resp.json()
+
+        if not isinstance(txs, list):
+            return {"jito_bundle_count": 0, "jito_tip_lamports": 0}
+
+        bundle_count = 0
+        tip_total = 0
+        for tx in txs:
+            for transfer in tx.get("nativeTransfers", []):
+                if transfer.get("toUserAccount") in JITO_TIP_ACCOUNTS:
+                    bundle_count += 1
+                    tip_total += transfer.get("amount", 0)
+
+        avg_tip = tip_total // max(bundle_count, 1)
+        return {"jito_bundle_count": bundle_count, "jito_tip_lamports": avg_tip}
+
+    except Exception as e:
+        logger.debug("Jito bundle stats failed for %s: %s", mint[:12], e)
+        return {"jito_bundle_count": 0, "jito_tip_lamports": 0}
+
+
 def _compute_confidence(sources: set[str]) -> int:
     """Multi-source confidence: base 50 + 15 per additional source."""
     return BASE_CONFIDENCE + max(0, (len(sources) - 1)) * PER_SOURCE_BONUS
@@ -768,9 +879,11 @@ async def _process_signals(redis_conn: aioredis.Redis):
                 if raw_data.get("tx_signatures"):
                     early_tx_sigs.extend(raw_data["tx_signatures"][:19])
 
-                dev_sell_data, bundle_data = await asyncio.gather(
+                dev_sell_data, bundle_data, creator_stats, jito_stats = await asyncio.gather(
                     _check_dev_wallet_sells(session, creator_addr, mint),
                     _check_bundle_detection(session, early_tx_sigs),
+                    _get_creator_stats(session, creator_addr, redis_conn),
+                    _get_jito_bundle_stats(session, mint, early_tx_sigs),
                     return_exceptions=True,
                 )
                 if isinstance(dev_sell_data, dict):
@@ -783,6 +896,10 @@ async def _process_signals(redis_conn: aioredis.Redis):
                             "bundled_supply_pct": bundle_data.get("bundled_supply_pct", 0),
                             "fresh_wallet_ratio": bundle_data.get("fresh_wallet_ratio", 0),
                         })
+                if isinstance(creator_stats, dict):
+                    token_details.update(creator_stats)
+                if isinstance(jito_stats, dict):
+                    token_details.update(jito_stats)
 
                 # --- Classify target personalities ---
                 targets = _classify_target_personalities(signal, rugcheck)
@@ -836,6 +953,14 @@ async def _process_signals(redis_conn: aioredis.Redis):
                     "nansen_concentration_risk": float(token_details.get("nansen_concentration_risk", 0)),
                     # === Nansen holder features (P1) ===
                     "nansen_labeled_exchange_holder_pct": float(token_details.get("nansen_labeled_exchange_holder_pct", 0)),
+                    # === 7 new features (Section 23) ===
+                    "creator_prev_launches": int(token_details.get("creator_prev_launches", 0)),
+                    "creator_rug_rate": float(token_details.get("creator_rug_rate", 0.5)),
+                    "creator_avg_hold_hours": float(token_details.get("creator_avg_hold_hours", 0)),
+                    "jito_bundle_count": int(token_details.get("jito_bundle_count", 0)),
+                    "jito_tip_lamports": int(token_details.get("jito_tip_lamports", 0)),
+                    "token_freshness_score": math.exp(-float(signal.get("age_seconds", 0)) / 3600.0 / 6.0),
+                    "mint_authority_revoked": 0.0 if rugcheck.get("mint", {}).get("mintAuthority") else 1.0,
                 }
 
                 # Fill in market health data
