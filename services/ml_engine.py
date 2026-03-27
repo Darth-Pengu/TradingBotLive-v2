@@ -128,8 +128,53 @@ MARKET_MODE_ENCODING = {
 }
 
 
+class DriftDetector:
+    """
+    ADWIN drift detector using River ML.
+    Monitors rolling prediction error rate.
+    When drift detected, triggers emergency model retrain.
+    """
+
+    def __init__(self):
+        try:
+            from river.drift import ADWIN
+            self.detector = ADWIN(delta=0.002)
+            self.available = True
+            logger.info("ADWIN drift detection enabled (~1MB overhead)")
+        except ImportError:
+            self.detector = None
+            self.available = False
+            logger.warning("River ML not installed — drift detection disabled")
+        self.drift_count = 0
+        self.last_drift_time = 0.0
+
+    def update(self, prediction: float, actual_outcome: int) -> bool:
+        """
+        Update with latest prediction error.
+        Returns True if drift detected (trigger emergency retrain).
+        prediction: ML score 0-100
+        actual_outcome: 1=profit, 0=loss
+        """
+        if not self.available:
+            return False
+        # Error = 1 if prediction was wrong direction
+        predicted_positive = prediction >= 65.0
+        error = int(predicted_positive != bool(actual_outcome))
+        self.detector.update(error)
+        if self.detector.drift_detected:
+            self.drift_count += 1
+            self.last_drift_time = time.time()
+            logger.warning(
+                "ADWIN drift detected! (#%d) — "
+                "market regime may have changed — triggering emergency retrain",
+                self.drift_count,
+            )
+            return True
+        return False
+
+
 class MLModel:
-    """CatBoost + LightGBM + XGBoost ensemble."""
+    """CatBoost + LightGBM + XGBoost ensemble with drift detection."""
 
     def __init__(self):
         self.catboost_model = None
@@ -141,6 +186,7 @@ class MLModel:
         self.last_update_time = 0.0
         self.trades_since_last_update = 0
         self.total_trades_trained = 0
+        self.drift_detector = DriftDetector()
         self._load_models()
 
     def _load_models(self):
@@ -541,6 +587,64 @@ async def _retrain_loop(model: MLModel):
         await asyncio.sleep(3600)
 
 
+# --- Outcome listener for drift detection ---
+async def _outcome_listener(model: MLModel, redis_conn: aioredis.Redis | None):
+    """Listen for trade outcomes and update ADWIN drift detector."""
+    if not redis_conn:
+        return
+    if not model.drift_detector.available:
+        logger.info("Drift detection unavailable — outcome listener disabled")
+        return
+
+    pubsub = redis_conn.pubsub()
+    await pubsub.subscribe("trades:outcome")
+    logger.info("Listening for trade outcomes on trades:outcome (ADWIN drift detection)")
+
+    async for message in pubsub.listen():
+        if message["type"] != "message":
+            continue
+        try:
+            data = json.loads(message["data"])
+            ml_score = float(data.get("ml_score", 50.0))
+            outcome = 1 if data.get("outcome") == "profit" else 0
+
+            drift = model.drift_detector.update(ml_score, outcome)
+            if drift:
+                # Publish emergency retrain signal
+                await redis_conn.publish("ml:emergency_retrain", json.dumps({
+                    "reason": "ADWIN drift detected",
+                    "drift_count": model.drift_detector.drift_count,
+                    "timestamp": time.time(),
+                }))
+        except Exception as e:
+            logger.error("Outcome listener error: %s", e)
+
+
+# --- Emergency retrain listener ---
+async def _emergency_retrain_listener(model: MLModel, redis_conn: aioredis.Redis | None):
+    """Listen for emergency retrain signals (from ADWIN drift or manual trigger)."""
+    if not redis_conn:
+        return
+
+    pubsub = redis_conn.pubsub()
+    await pubsub.subscribe("ml:emergency_retrain")
+    logger.info("Listening for emergency retrain signals")
+
+    async for message in pubsub.listen():
+        if message["type"] != "message":
+            continue
+        try:
+            data = json.loads(message["data"])
+            reason = data.get("reason", "unknown")
+            logger.warning("Emergency retrain triggered: %s", reason)
+
+            pool = await get_pool()
+            await model.train(pool)
+            logger.info("Emergency retrain complete")
+        except Exception as e:
+            logger.error("Emergency retrain error: %s", e)
+
+
 # --- Main ---
 async def main():
     logger.info("ML Engine starting (TEST_MODE=%s)", TEST_MODE)
@@ -563,6 +667,8 @@ async def main():
     await asyncio.gather(
         _scoring_listener(model, redis_conn),
         _retrain_loop(model),
+        _outcome_listener(model, redis_conn),
+        _emergency_retrain_listener(model, redis_conn),
     )
 
 

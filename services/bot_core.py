@@ -393,6 +393,18 @@ class BotCore:
                 self.positions.pop(key, None)
                 logger.info("PAPER CLOSED: %s %s -- %s %.4f SOL (%.1f%%) reason=%s",
                              pos.personality, pos.mint[:12], outcome, pnl_sol, pnl_pct, reason)
+
+                # Publish outcome for ADWIN drift detection
+                if self.redis:
+                    await self.redis.publish("trades:outcome", json.dumps({
+                        "mint": pos.mint,
+                        "ml_score": float(scored_signal.get("ml_score", 50)) if isinstance(locals().get("scored_signal"), dict) else 50.0,
+                        "outcome": outcome,
+                        "pnl_pct": pnl_pct,
+                        "personality": pos.personality,
+                        "timestamp": time.time(),
+                    }))
+
                 if outcome == "loss" and self.portfolio.consecutive_losses.get(pos.personality, 0) >= 3:
                     if self.redis:
                         await self.redis.publish("streak:loss", json.dumps({
@@ -436,6 +448,17 @@ class BotCore:
 
             logger.info("CLOSED: %s %s -- %s %.4f SOL (%.1f%%) reason=%s",
                          pos.personality, pos.mint[:12], outcome, pnl_sol, pnl_pct, reason)
+
+            # Publish outcome for ADWIN drift detection
+            if self.redis:
+                await self.redis.publish("trades:outcome", json.dumps({
+                    "mint": pos.mint,
+                    "ml_score": 50.0,  # ML score not available at exit time
+                    "outcome": outcome,
+                    "pnl_pct": pnl_pct,
+                    "personality": pos.personality,
+                    "timestamp": time.time(),
+                }))
 
             # Publish loss streak event for governance
             if outcome == "loss" and self.portfolio.consecutive_losses.get(pos.personality, 0) >= 3:
