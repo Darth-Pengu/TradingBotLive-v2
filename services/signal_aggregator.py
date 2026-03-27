@@ -40,6 +40,33 @@ HELIUS_PARSE_TX_URL = os.getenv("HELIUS_PARSE_TX_URL", "")
 HELIUS_PARSE_HISTORY_URL = os.getenv("HELIUS_PARSE_HISTORY_URL", "")
 HELIUS_GATEKEEPER_URL = os.getenv("HELIUS_GATEKEEPER_URL", "")
 NANSEN_API_KEY = os.getenv("NANSEN_API_KEY", "")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+
+# Haiku enrichment config
+HAIKU_MODEL = "claude-haiku-4-5-20251001"
+HAIKU_ENABLED = bool(ANTHROPIC_API_KEY)
+HAIKU_CACHE_TTL = 300  # 5 minutes
+
+HAIKU_SYSTEM_PROMPT = """You are a Solana memecoin risk analyst.
+Analyze the token data provided and return ONLY a JSON object.
+No explanation, no markdown, just raw JSON.
+
+Return exactly:
+{
+  "risk_score": 0-100,
+  "confidence": "low"|"medium"|"high",
+  "red_flags": ["flag1", "flag2"],
+  "green_flags": ["flag1"],
+  "recommendation": "strong_buy"|"buy"|"pass"|"hard_pass",
+  "reasoning": "one sentence max"
+}
+
+risk_score: 0=safest, 100=highest risk
+recommendation thresholds:
+- strong_buy: risk_score < 20, multiple green flags
+- buy: risk_score < 40
+- pass: risk_score 40-70
+- hard_pass: risk_score > 70 OR any critical red flag"""
 
 # Nansen smart money confidence boost
 NANSEN_SM_CONFIDENCE_BOOST = 20  # +20 confidence if any smart money bought
@@ -607,6 +634,96 @@ async def _get_creator_stats(
         return {"creator_prev_launches": 0, "creator_rug_rate": 0.5, "creator_avg_hold_hours": 0}
 
 
+async def _haiku_enrichment(
+    mint: str,
+    token_name: str,
+    features: dict,
+    redis_conn: aioredis.Redis | None = None,
+) -> dict:
+    """
+    Call Claude Haiku 4.5 for qualitative token analysis.
+    Runs async — does NOT block primary ML scoring.
+    Average latency: 200-400ms. Cost: ~$0.0003/call.
+    Hard timeout: 3s — never blocks trade execution.
+    """
+    if not HAIKU_ENABLED:
+        return {}
+
+    cache_key = f"haiku:{mint}"
+    if redis_conn:
+        try:
+            cached = await redis_conn.get(cache_key)
+            if cached:
+                return json.loads(cached)
+        except Exception:
+            pass
+
+    prompt = f"""Token: {token_name} ({mint[:8]}...)
+
+On-chain metrics:
+- Liquidity: {features.get('liquidity_sol', 0):.2f} SOL
+- Buy/Sell ratio 5min: {features.get('buy_sell_ratio_5min', 0):.2f}
+- Bonding curve: {features.get('bonding_curve_progress', 0):.1%}
+- Holder count: {features.get('holder_count', 0)}
+- Top 10 holders: {features.get('top10_holder_pct', 0):.1f}%
+- Dev wallet holds: {features.get('dev_wallet_hold_pct', 0):.1f}%
+- Bundle detected: {bool(features.get('bundle_detected', 0))}
+- Fresh wallet ratio: {features.get('fresh_wallet_ratio', 0):.2f}
+- Creator prev launches: {features.get('creator_prev_launches', 0)}
+- Creator rug rate: {features.get('creator_rug_rate', 0):.2f}
+- Mint authority revoked: {bool(features.get('mint_authority_revoked', 0))}
+- Token age: {features.get('token_age_seconds', 0)/60:.1f} minutes
+
+Analyze and return JSON only."""
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": ANTHROPIC_API_KEY,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": HAIKU_MODEL,
+                    "max_tokens": 200,
+                    "system": HAIKU_SYSTEM_PROMPT,
+                    "messages": [{"role": "user", "content": prompt}],
+                },
+                timeout=aiohttp.ClientTimeout(total=3.0),
+            ) as resp:
+                if resp.status != 200:
+                    logger.debug("Haiku API %d for %s", resp.status, mint[:8])
+                    return {}
+                data = await resp.json()
+                text = data["content"][0]["text"].strip()
+
+                result = json.loads(text)
+                result["source"] = "haiku"
+                result["mint"] = mint
+
+                if redis_conn:
+                    try:
+                        await redis_conn.set(cache_key, json.dumps(result), ex=HAIKU_CACHE_TTL)
+                    except Exception:
+                        pass
+
+                logger.debug("Haiku enrichment for %s: risk=%d rec=%s",
+                             mint[:8], result.get("risk_score", 50), result.get("recommendation", "?"))
+                return result
+
+    except asyncio.TimeoutError:
+        logger.debug("Haiku timeout for %s — continuing without enrichment", mint[:8])
+        return {}
+    except json.JSONDecodeError:
+        logger.debug("Haiku JSON parse error for %s", mint[:8])
+        return {}
+    except Exception as e:
+        logger.debug("Haiku enrichment error for %s: %s", mint[:8], e)
+        return {}
+
+
 JITO_TIP_ACCOUNTS = {
     "96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5",
     "HFqU5x63VTqvQss8hp11i4wVV8bD44PvwucfZ2bU7gRe",
@@ -970,8 +1087,38 @@ async def _process_signals(redis_conn: aioredis.Redis):
                     features["sol_price_usd"] = health.get("sol_price", 0)
                     features["cfgi_score"] = health.get("cfgi", 0)
 
-                # --- Request ML score ---
+                # --- Request ML score + Haiku enrichment in parallel ---
+                token_name = signal.get("raw_data", {}).get("name", signal.get("raw_data", {}).get("symbol", mint[:12]))
+                haiku_task = asyncio.create_task(
+                    _haiku_enrichment(mint, token_name, features, redis_conn)
+                ) if HAIKU_ENABLED else None
+
                 ml_score, ml_trained = await _request_ml_score(redis_conn, features)
+
+                # Get Haiku result (should be ready or close to ready)
+                haiku_result = {}
+                if haiku_task is not None:
+                    try:
+                        haiku_result = await asyncio.wait_for(haiku_task, timeout=2.0)
+                    except asyncio.TimeoutError:
+                        haiku_result = {}
+
+                # Apply Haiku modifiers to ML score (soft adjustments only)
+                if haiku_result:
+                    haiku_risk = haiku_result.get("risk_score", 50)
+                    haiku_rec = haiku_result.get("recommendation", "pass")
+
+                    if haiku_rec == "hard_pass":
+                        logger.info("HAIKU VETO: %s — risk=%d flags=%s",
+                                     mint[:12], haiku_risk, haiku_result.get("red_flags", []))
+                        ml_score = max(ml_score * 0.3, 10.0)
+                    elif haiku_rec == "strong_buy" and haiku_risk < 20:
+                        ml_score = min(ml_score * 1.15, 95.0)
+                    elif haiku_risk > 70:
+                        ml_score = ml_score * 0.8
+
+                    logger.info("HAIKU: %s risk=%d rec=%s final_score=%.1f",
+                                 mint[:12], haiku_risk, haiku_rec, ml_score)
 
                 # --- Route to each target personality ---
                 bc_progress = features["bonding_curve_progress"]
@@ -1062,6 +1209,10 @@ async def _process_signals(redis_conn: aioredis.Redis):
                         "signal": signal,
                         "sources": list(_seen_tokens[mint]["sources"]),
                         "timestamp": datetime.now(timezone.utc).isoformat(),
+                        # Haiku enrichment (for dashboard display)
+                        "haiku_risk": haiku_result.get("risk_score", -1),
+                        "haiku_rec": haiku_result.get("recommendation", ""),
+                        "haiku_flags": haiku_result.get("red_flags", []),
                     }
 
                     await redis_conn.lpush("signals:scored", json.dumps(scored_signal))
