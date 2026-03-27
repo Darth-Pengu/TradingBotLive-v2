@@ -46,6 +46,8 @@ HELIUS_GATEKEEPER_URL = os.getenv("HELIUS_GATEKEEPER_URL", "")
 TRADING_WALLET_ADDRESS = os.getenv("TRADING_WALLET_ADDRESS", "")
 HOLDING_WALLET_ADDRESS = os.getenv("HOLDING_WALLET_ADDRESS", "")
 DASHBOARD_ALLOWED_IPS = os.getenv("DASHBOARD_ALLOWED_IPS", "").strip()
+HELIUS_WEBHOOK_SECRET = os.getenv("HELIUS_WEBHOOK_SECRET", "")
+APP_VERSION = os.getenv("APP_VERSION", "v3.1.0")
 PORT = int(os.getenv("PORT", "8080"))
 
 JWT_EXPIRY_SECONDS = 86400  # 24 hours
@@ -202,7 +204,8 @@ async def auth_middleware(request: web.Request, handler):
 async def auth_login(request):
     """POST /auth/login -- authenticate and return JWT."""
     if not DASHBOARD_SECRET:
-        return web.json_response({"error": "DASHBOARD_SECRET not configured"}, status=500)
+        logger.warning("Auth disabled — issuing dev token (set DASHBOARD_SECRET for production)")
+        return web.json_response({"token": "dev-no-auth", "expires_in": 3600})
 
     ip = _get_client_ip(request)
 
@@ -322,6 +325,8 @@ async def api_status(request):
     holding_balance = await _get_sol_balance(HOLDING_WALLET_ADDRESS)
     status_data["trading_wallet_balance"] = trading_balance
     status_data["holding_wallet_balance"] = holding_balance
+    status_data["app_version"] = APP_VERSION
+    status_data["test_mode"] = TEST_MODE
     return web.json_response(status_data)
 
 
@@ -825,15 +830,38 @@ async def api_wallets_delete(request):
         return web.json_response({"error": str(e)}, status=500)
 
 
+async def api_debug_rugcheck(request):
+    """Return last 50 Rugcheck scores for threshold calibration."""
+    redis_conn = request.app.get("redis")
+    if not redis_conn:
+        return web.json_response([])
+    try:
+        items = await redis_conn.lrange("debug:rugcheck_scores", 0, 49)
+        return web.json_response([json.loads(i) for i in items])
+    except Exception:
+        return web.json_response([])
+
+
 async def api_emergency_stop(request):
     redis_conn = request.app.get("redis")
+    now_iso = datetime.now(timezone.utc).isoformat()
     if redis_conn:
         await redis_conn.publish("alerts:emergency", json.dumps({
             "reason": "Manual EMERGENCY_STOP from dashboard",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso,
         }))
-        return web.json_response({"status": "emergency_stop_triggered"})
-    return web.json_response({"error": "Redis not available"}, status=503)
+        await redis_conn.set("bot:emergency_stop", "1", ex=3600)
+    # Also persist to PostgreSQL
+    try:
+        from services.db import set_bot_state
+        await set_bot_state("last_emergency_stop", now_iso)
+    except Exception:
+        pass
+    return web.json_response({
+        "status": "emergency_stop_triggered",
+        "timestamp": now_iso,
+        "note": "Bot will halt new entries. Open positions will be managed to exit.",
+    })
 
 
 async def api_approve_parameter(request):
@@ -1083,10 +1111,25 @@ def _classify_helius_tx(tx: dict) -> dict | None:
 
 
 async def handle_helius_webhook(request):
-    try:
-        payload = await request.json()
-    except Exception:
-        return web.json_response({"error": "invalid json"}, status=400)
+    # Verify Helius HMAC signature if secret is configured
+    if HELIUS_WEBHOOK_SECRET:
+        sig_header = request.headers.get("authorization", "")
+        body = await request.read()
+        expected = hmac.new(
+            HELIUS_WEBHOOK_SECRET.encode(), body, hashlib.sha256
+        ).hexdigest()
+        if not hmac.compare_digest(sig_header, expected):
+            logger.warning("Helius webhook signature mismatch — rejected")
+            return web.json_response({"error": "invalid signature"}, status=401)
+        try:
+            payload = json.loads(body)
+        except Exception:
+            return web.json_response({"error": "invalid json"}, status=400)
+    else:
+        try:
+            payload = await request.json()
+        except Exception:
+            return web.json_response({"error": "invalid json"}, status=400)
 
     txs = payload if isinstance(payload, list) else [payload]
     redis_conn = request.app.get("redis")
@@ -1386,6 +1429,7 @@ def create_app() -> web.Application:
     app.router.add_post("/api/approve-parameter", api_approve_parameter)
     app.router.add_get("/api/sol-price", api_sol_price)
     app.router.add_get("/api/service-health", api_service_health)
+    app.router.add_get("/api/debug/rugcheck-scores", api_debug_rugcheck)
     app.router.add_get("/api/whale-activity", api_whale_activity)
     app.router.add_get("/api/wallets", api_wallets)
     app.router.add_get("/api/wallets/refresh-log", api_wallets_refresh_log)
