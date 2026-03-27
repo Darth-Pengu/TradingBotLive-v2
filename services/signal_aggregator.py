@@ -86,10 +86,18 @@ RUGCHECK_REPORT_URL = "https://api.rugcheck.xyz/v1/tokens/{mint}/report"
 RUGCHECK_REJECT_SCORE = 2000  # Reject tokens with raw risk score >= 2000
 
 # --- ML thresholds (Section 12) ---
+# Production thresholds (used when ML model is trained with >= 200 samples)
 ML_THRESHOLDS = {
     "speed_demon": 65,
     "analyst": 70,
     "whale_tracker": 70,
+}
+# Bootstrap thresholds (used during cold start when model is untrained)
+# Deliberately lower to allow paper trades through for data collection
+ML_BOOTSTRAP_THRESHOLDS = {
+    "speed_demon": 40,
+    "analyst": 45,
+    "whale_tracker": 45,
 }
 
 # --- Market mode encoding for ML features (defined locally to avoid circular import) ---
@@ -780,19 +788,21 @@ async def _process_signals(redis_conn: aioredis.Redis):
                         logger.debug("KOTH reject %s for %s: %s", mint[:12], personality, reason)
                         continue
 
-                    # ML threshold check (bypass when model is untrained to allow data collection)
+                    # ML threshold check — use bootstrap thresholds during cold start
                     if ml_trained:
                         threshold = ML_THRESHOLDS.get(personality, 70)
-                        if market_mode == "FRENZY":
-                            threshold -= 5
-                        elif market_mode == "DEFENSIVE":
-                            threshold += 10
-
-                        if ml_score < threshold:
-                            logger.debug("ML reject %s for %s: %.1f < %d", mint[:12], personality, ml_score, threshold)
-                            continue
                     else:
-                        logger.debug("ML untrained — bypassing threshold for %s (%s)", mint[:12], personality)
+                        threshold = ML_BOOTSTRAP_THRESHOLDS.get(personality, 45)
+
+                    if market_mode == "FRENZY":
+                        threshold -= 5
+                    elif market_mode == "DEFENSIVE" and ml_trained:
+                        threshold += 10  # Only raise in DEFENSIVE when model is trained
+
+                    if ml_score < threshold:
+                        logger.debug("ML reject %s for %s: %.1f < %d (trained=%s)",
+                                     mint[:12], personality, ml_score, threshold, ml_trained)
+                        continue
 
                     # Source count check for Analyst
                     if personality == "analyst" and len(_seen_tokens[mint]["sources"]) < ANALYST_FILTERS.get("min_sources", 2):

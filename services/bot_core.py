@@ -299,13 +299,22 @@ class BotCore:
                 market_mode=market_mode, fear_greed=fgi,
             )
             if paper_result["success"]:
+                # Also write to trades table with features_json so ML can train
+                trade_id = await self.pool.fetchval(
+                    """INSERT INTO trades (mint, personality, action, amount_sol, entry_price,
+                       features_json, ml_score, signal_sources, created_at)
+                       VALUES ($1, $2, 'buy', $3, $4, $5, $6, $7, $8) RETURNING id""",
+                    mint, personality, paper_result["amount_sol"], paper_result["entry_price"],
+                    json.dumps(features), ml_score,
+                    json.dumps(scored_signal.get("sources", [])), time.time(),
+                )
                 pos = Position(
                     mint=mint, personality=personality,
                     entry_price=paper_result["entry_price"],
                     entry_time=time.time(),
                     size_sol=paper_result["amount_sol"],
                     peak_price=paper_result["entry_price"],
-                    trade_id=paper_result["trade_id"],
+                    trade_id=trade_id,
                 )
                 key = f"{personality}:{mint}"
                 self.positions[key] = pos
@@ -358,6 +367,15 @@ class BotCore:
                 outcome = paper_result.get("outcome", "loss")
                 self.portfolio.daily_pnl_sol += pnl_sol
                 self.portfolio.total_balance_sol += pnl_sol
+
+                # Write outcome to trades table so ML can train on paper results
+                current_price = paper_result.get("exit_price", 0)
+                await self.pool.execute(
+                    """UPDATE trades SET exit_price=$1, pnl_sol=$2, pnl_pct=$3, outcome=$4, closed_at=$5
+                       WHERE id=$6""",
+                    current_price, pnl_sol, pnl_pct, outcome, time.time(), pos.trade_id,
+                )
+
                 if outcome == "loss":
                     self.portfolio.consecutive_losses[pos.personality] = \
                         self.portfolio.consecutive_losses.get(pos.personality, 0) + 1

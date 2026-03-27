@@ -248,10 +248,53 @@ class MLModel:
     def predict(self, features: dict) -> tuple[float, bool]:
         """
         Predict probability of profitable trade (0-100 score).
-        Returns (score, is_trained). Score is 50.0 (neutral) if model not trained.
+        Returns (score, is_trained).
+        When untrained, uses basic heuristics to generate meaningful scores
+        so paper trading can collect data for the first real training run.
         """
         if not self.is_trained:
-            return 50.0, False
+            return self._heuristic_score(features), False
+
+    def _heuristic_score(self, features: dict) -> float:
+        """Basic scoring heuristics for cold-start before ML model trains."""
+        score = 55.0  # Base: slightly optimistic to generate data
+
+        # Strong positive signals
+        bsr = features.get("buy_sell_ratio_5min", 1.0)
+        if bsr > 2.0:
+            score += 10.0
+        elif bsr > 1.5:
+            score += 5.0
+        elif bsr < 0.8:
+            score -= 10.0
+
+        # Liquidity health
+        liq = features.get("liquidity_sol", 0)
+        if liq > 20:
+            score += 5.0
+        elif liq < 3:
+            score -= 15.0
+
+        # Red flags — hard reject
+        if features.get("bundle_detected", 0):
+            return 10.0
+        if features.get("fresh_wallet_ratio", 0) > 0.5:
+            score -= 15.0
+        if features.get("bot_transaction_ratio", 0) > 0.5:
+            score -= 15.0
+
+        # Creator history
+        if features.get("creator_rug_count", 0) >= 3:
+            return 10.0
+
+        # Holder diversity
+        top10 = features.get("top10_holder_pct", 0)
+        if top10 > 50:
+            score -= 10.0
+        elif 0 < top10 < 25:
+            score += 5.0
+
+        return max(0.0, min(100.0, round(score, 1)))
 
         try:
             row = [features.get(col, 0) for col in FEATURE_COLUMNS]
@@ -306,18 +349,36 @@ async def _scoring_listener(model: MLModel, redis_conn: aioredis.Redis | None):
             logger.error("Scoring request error: %s", e)
 
 
-# --- Weekly retrain loop ---
+# --- Retrain loop ---
 async def _retrain_loop(model: MLModel):
-    """Retrain model weekly."""
+    """
+    Retrain model:
+    - Every hour if untrained and enough samples exist (>= 50)
+    - Weekly once trained (sliding window refresh)
+    """
     pool = await get_pool()
     while True:
-        elapsed = time.time() - model.last_train_time
-        if elapsed >= RETRAIN_INTERVAL_SECONDS:
-            logger.info("Weekly retrain triggered")
-            try:
+        try:
+            elapsed = time.time() - model.last_train_time
+
+            if not model.is_trained:
+                # Cold start: check every hour for enough samples
+                seven_days_ago = datetime.now(timezone.utc).timestamp() - (7 * 86400)
+                count = await pool.fetchval(
+                    "SELECT COUNT(*) FROM trades WHERE created_at > $1 AND features_json IS NOT NULL AND outcome IS NOT NULL",
+                    seven_days_ago,
+                )
+                if count >= MIN_SAMPLES_FIRST_TRAIN:
+                    logger.info("Cold start: %d samples available (need %d) — training now", count, MIN_SAMPLES_FIRST_TRAIN)
+                    await model.train(pool)
+                else:
+                    logger.info("Cold start: %d/%d samples — waiting for more paper trades", count, MIN_SAMPLES_FIRST_TRAIN)
+            elif elapsed >= RETRAIN_INTERVAL_SECONDS:
+                logger.info("Weekly retrain triggered")
                 await model.train(pool)
-            except Exception as e:
-                logger.error("Retrain failed: %s", e)
+        except Exception as e:
+            logger.error("Retrain loop error: %s", e)
+
         # Check every hour
         await asyncio.sleep(3600)
 
