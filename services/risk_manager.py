@@ -46,7 +46,8 @@ MAX_POSITION_PCT = {
     "analyst":       0.05,   # 5%
     "whale_tracker": 0.04,   # 4%
 }
-MIN_POSITION_SOL = 0.05
+# Per AGENT_CONTEXT: below 0.10 SOL, transaction fees destroy edge
+MIN_POSITION_SOL = float(os.getenv("MIN_POSITION_SOL", "0.10"))
 MAX_CONCURRENT_PER_PERSONALITY = 3
 MAX_CONCURRENT_WHALE = 2
 PORTFOLIO_MAX_EXPOSURE = 0.25   # 25% total — never exceed
@@ -184,8 +185,10 @@ def _personality_position_count(personality: str, portfolio: PortfolioState) -> 
 
 
 def _tokens_with_personality(mint: str, portfolio: PortfolioState) -> list[str]:
-    """Return which personalities already hold a token."""
-    return [pos["personality"] for m, pos in portfolio.open_positions.items() if m == mint]
+    """Return which personalities already hold a token.
+    Keys in open_positions are f'{personality}:{mint}', so compare pos['mint']."""
+    return [pos["personality"] for key, pos in portfolio.open_positions.items()
+            if pos.get("mint") == mint]
 
 
 def calculate_position_size(

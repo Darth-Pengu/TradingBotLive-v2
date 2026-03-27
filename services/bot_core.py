@@ -57,26 +57,23 @@ if TEST_MODE:
     from services.paper_trader import paper_buy, paper_sell
 
 # --- Exit strategies per personality (Section 3) ---
+# --- Exit strategies per personality (Section 3) ---
+# Trailing stop is handled exclusively by _evaluate_trailing_stop() with
+# per-personality config in risk_manager.py TRAILING_STOP_CONFIG.
 EXIT_STRATEGIES = {
     "speed_demon": {
         "staged_exits": [
             {"at_multiple": 2.0, "sell_pct": 0.40},   # Sell 40% at 2x
             {"at_multiple": 3.0, "sell_pct": 0.30},   # Sell 30% at 3x
         ],
-        "moon_bag_pct": 0.30,
-        "moon_bag_trailing_stop": 0.30,
         "time_exit_minutes": 5,       # No movement in 5 min → close all
         "stop_loss_pct": 0.50,        # 50% absolute floor
-        "profit_trailing_stop": 0.30, # Switch to trailing after 30% profit
     },
     "analyst": {
         "staged_exits": [
             {"at_multiple": 1.5, "sell_pct": 0.30},
             {"at_multiple": 2.5, "sell_pct": 0.30},
         ],
-        "trailing_exit_pct": 0.25,    # 25% trailing from peak for 25%
-        "moon_bag_pct": 0.15,
-        "moon_bag_trailing_stop": 0.40,
         "time_exit_minutes": 30,
         "max_hold_hours": 2,
         "stop_loss_pct": 0.30,
@@ -86,8 +83,6 @@ EXIT_STRATEGIES = {
             {"at_multiple": 2.0, "sell_pct": 0.30},
             {"at_multiple": 5.0, "sell_pct": 0.40},
         ],
-        "moon_bag_pct": 0.30,
-        "moon_bag_trailing_stop": 0.25,
         "max_hold_hours": 4,
         "stop_loss_pct": 0.30,
     },
@@ -112,7 +107,10 @@ class Position:
     remaining_pct: float = 1.0
     peak_price: float = 0.0
     staged_exits_done: list = field(default_factory=list)
-    trade_id: int = 0
+    trade_id: int = 0          # paper_trades.id
+    trades_ml_id: int = 0      # trades.id (ML training record)
+    ml_score: float = 0.0      # ML score at entry time
+    signal_source: str = ""    # Signal source for per-source stats
     # Trailing stop state (persisted to PostgreSQL, mirrored to Redis)
     trailing_stop_active: bool = False
     trailing_stop_price: float = 0.0
@@ -315,7 +313,7 @@ class BotCore:
 
         # Update portfolio with current open positions
         self.portfolio.open_positions = {
-            k: {"personality": v.personality, "size_sol": v.size_sol * v.remaining_pct}
+            k: {"personality": v.personality, "size_sol": v.size_sol * v.remaining_pct, "mint": v.mint}
             for k, v in self.positions.items()
         }
 
@@ -381,8 +379,17 @@ class BotCore:
                 market_mode=market_mode, fear_greed=fgi,
             )
             if paper_result["success"]:
-                # Also write to trades table with features_json so ML can train
-                trade_id = await self.pool.fetchval(
+                paper_trade_id = paper_result["trade_id"]
+                # Update paper_trades row with features_json for audit
+                try:
+                    await self.pool.execute(
+                        "UPDATE paper_trades SET features_json=$1, ml_score_at_entry=$2 WHERE id=$3",
+                        json.dumps(features), ml_score, paper_trade_id,
+                    )
+                except Exception:
+                    pass
+                # Write to trades table with features_json for ML training
+                trades_ml_id = await self.pool.fetchval(
                     """INSERT INTO trades (mint, personality, action, amount_sol, entry_price,
                        features_json, ml_score, signal_sources, created_at)
                        VALUES ($1, $2, 'buy', $3, $4, $5, $6, $7, $8) RETURNING id""",
@@ -396,7 +403,10 @@ class BotCore:
                     entry_time=time.time(),
                     size_sol=paper_result["amount_sol"],
                     peak_price=paper_result["entry_price"],
-                    trade_id=trade_id,
+                    trade_id=paper_trade_id,      # paper_trades.id
+                    trades_ml_id=trades_ml_id,    # trades.id for ML training
+                    ml_score=ml_score,
+                    signal_source=signal_source,
                 )
                 key = f"{personality}:{mint}"
                 self.positions[key] = pos
@@ -416,10 +426,12 @@ class BotCore:
 
             if result.success:
                 price = await self._get_token_price(mint)
+                signal_source = scored_signal.get("signal", {}).get("source", "unknown")
                 pos = Position(
                     mint=mint, personality=personality,
                     entry_price=price, entry_time=time.time(),
                     size_sol=size_sol, peak_price=price,
+                    ml_score=ml_score, signal_source=signal_source,
                 )
                 trade_id = await self.pool.fetchval(
                     """INSERT INTO trades (mint, personality, action, amount_sol, entry_price,
@@ -480,12 +492,23 @@ class BotCore:
                 if self.redis:
                     await self.redis.publish("trades:outcome", json.dumps({
                         "mint": pos.mint,
-                        "ml_score": float(scored_signal.get("ml_score", 50)) if isinstance(locals().get("scored_signal"), dict) else 50.0,
+                        "ml_score": pos.ml_score,  # real score from position, not locals()
                         "outcome": outcome,
                         "pnl_pct": pnl_pct,
                         "personality": pos.personality,
                         "timestamp": time.time(),
                     }))
+                    # Write ML outcome to trades table using trades_ml_id
+                    if pos.trades_ml_id:
+                        try:
+                            await self.pool.execute(
+                                """UPDATE trades SET exit_price=$1, pnl_sol=$2, pnl_pct=$3,
+                                   outcome=$4, closed_at=$5 WHERE id=$6""",
+                                current_price, pnl_sol, pnl_pct, outcome,
+                                time.time(), pos.trades_ml_id,
+                            )
+                        except Exception as e:
+                            logger.debug("ML trades update error: %s", e)
                     # FIX 18: Add to traded mints set (2h TTL)
                     await self.redis.sadd("traded:mints", pos.mint)
                     await self.redis.expire("traded:mints", 7200)
@@ -562,7 +585,7 @@ class BotCore:
             if self.redis:
                 await self.redis.publish("trades:outcome", json.dumps({
                     "mint": pos.mint,
-                    "ml_score": 50.0,  # ML score not available at exit time
+                    "ml_score": pos.ml_score,  # real score from position
                     "outcome": outcome,
                     "pnl_pct": pnl_pct,
                     "personality": pos.personality,
@@ -701,7 +724,7 @@ class BotCore:
                     if current_price <= 0:
                         continue
 
-                    pos.peak_price = max(pos.peak_price, current_price)
+                    # peak_price owned by _evaluate_trailing_stop — do NOT update here
                     strategy = EXIT_STRATEGIES.get(pos.personality, {})
                     entry = pos.entry_price
                     if entry <= 0:
@@ -730,15 +753,6 @@ class BotCore:
                             await self._close_position(pos, f"staged_{exit_key}", sell_pct=exit_rule["sell_pct"])
                             pos.staged_exits_done.append(exit_key)
 
-                    # --- Moon bag trailing stop ---
-                    if pos.remaining_pct <= strategy.get("moon_bag_pct", 0.30) + 0.05:
-                        ts_pct = strategy.get("moon_bag_trailing_stop", 0.30)
-                        if pos.peak_price > 0:
-                            drop_from_peak = (pos.peak_price - current_price) / pos.peak_price
-                            if drop_from_peak >= ts_pct:
-                                await self._close_position(pos, "trailing_stop")
-                                continue
-
                     # --- Time-based exit ---
                     time_exit = strategy.get("time_exit_minutes")
                     if time_exit and elapsed_min >= time_exit and multiple <= 1.05:
@@ -750,14 +764,6 @@ class BotCore:
                     if max_hold and elapsed_hrs >= max_hold:
                         await self._close_position(pos, "max_hold_time")
                         continue
-
-                    # --- Profit trailing stop (Speed Demon) ---
-                    profit_ts = strategy.get("profit_trailing_stop")
-                    if profit_ts and multiple > (1 + profit_ts):
-                        drop = (pos.peak_price - current_price) / pos.peak_price if pos.peak_price > 0 else 0
-                        if drop >= profit_ts:
-                            await self._close_position(pos, "profit_trailing_stop")
-                            continue
 
                 except Exception as e:
                     logger.error("Exit check error for %s: %s", key, e)
@@ -849,32 +855,9 @@ class BotCore:
                 logger.error("Exit check listener error: %s", e)
 
     # --- Whale exit monitor ---
-    async def _whale_exit_monitor(self):
-        """Monitor for whale sells on tokens we hold (Whale Tracker exit signal)."""
-        if not self.redis:
-            return
-
-        pubsub = self.redis.pubsub()
-        await pubsub.subscribe("signals:raw")
-
-        async for message in pubsub.listen():
-            if message["type"] != "message":
-                continue
-            try:
-                signal = json.loads(message["data"])
-                if signal.get("signal_type") != "account_trade":
-                    continue
-                raw = signal.get("raw_data", {})
-                if raw.get("txType") != "sell":
-                    continue
-
-                mint = signal.get("mint", "")
-                key = f"whale_tracker:{mint}"
-                if key in self.positions:
-                    logger.info("Whale selling %s — immediate exit for whale_tracker", mint[:12])
-                    await self._close_position(self.positions[key], "whale_selling")
-            except Exception:
-                continue
+    # _whale_exit_monitor REMOVED: subscribed to signals:raw LIST via pubsub
+    # (which never receives data — lists use BRPOP not pubsub). The
+    # _nansen_exit_monitor() covers whale sell detection via Nansen API.
 
     # --- Nansen smart money exit monitor ---
     async def _nansen_exit_monitor(self):
@@ -1089,7 +1072,6 @@ async def main():
         bot._check_exits(),
         bot._emergency_listener(),
         bot._exit_check_listener(),
-        bot._whale_exit_monitor(),
         bot._nansen_exit_monitor(),  # P5: Nansen smart money sell detection
         bot._daily_reset(),
         bot._portfolio_snapshot_task(),  # Write snapshots every 5min for equity chart

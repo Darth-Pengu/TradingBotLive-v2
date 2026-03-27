@@ -482,30 +482,37 @@ async def api_trades(request):
 
 
 async def api_trades_active(request):
-    """Return currently open trades with explicit field mapping to avoid serialisation crashes."""
-    # Check paper_trades first (paper mode), fall back to trades
+    """Return currently open trades with explicit field mapping."""
+    # Try paper_trades first (paper mode), fall back to trades
     rows = await _query_db("SELECT * FROM paper_trades WHERE exit_time IS NULL ORDER BY entry_time DESC")
+    using_paper = bool(rows)
     if not rows:
         rows = await _query_db("SELECT * FROM trades WHERE closed_at IS NULL ORDER BY created_at DESC")
     trades = []
     for r in rows:
         mint = r.get("mint", "")
+        # Field names differ between paper_trades (realised_pnl_sol) and trades (pnl_sol)
+        if using_paper:
+            pnl_sol = float(r.get("realised_pnl_sol", 0) or 0)
+            pnl_pct = float(r.get("realised_pnl_pct", 0) or 0)
+            created_at = _safe_isoformat(r.get("entry_time"))
+        else:
+            pnl_sol = float(r.get("pnl_sol", 0) or 0)
+            pnl_pct = float(r.get("pnl_pct", 0) or 0)
+            created_at = _safe_isoformat(r.get("created_at"))
         trades.append({
             "id": r.get("id"),
             "mint": mint,
             "mint_short": mint[:6] + "..." if len(mint) > 6 else mint,
             "personality": r.get("personality", ""),
             "entry_price": float(r.get("entry_price", 0) or 0),
-            "exit_price": float(r.get("exit_price", 0) or 0),
             "amount_sol": float(r.get("amount_sol", 0) or 0),
-            "pnl_sol": float(r.get("pnl_sol", 0) or 0),
-            "pnl_pct": float(r.get("pnl_pct", 0) or 0),
-            "exit_reason": r.get("exit_reason", ""),
-            "hold_seconds": 0,
-            "ml_score": float(r.get("ml_score", 0) or 0),
+            "pnl_sol": pnl_sol,
+            "pnl_pct": pnl_pct,
+            "ml_score": float(r.get("ml_score", r.get("ml_score_at_entry", 0)) or 0),
             "signal_source": r.get("signal_source", ""),
-            "created_at": _safe_isoformat(r.get("created_at")),
-            "closed_at": _safe_isoformat(r.get("closed_at")),
+            "created_at": created_at,
+            "is_open": True,
             # Trailing stop state from PostgreSQL
             "peak_price": float(r.get("peak_price", 0) or 0),
             "trailing_stop_active": bool(r.get("trailing_stop_active", False)),

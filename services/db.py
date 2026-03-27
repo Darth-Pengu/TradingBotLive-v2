@@ -136,6 +136,18 @@ async def _init_tables():
             )
         """)
 
+        # --- ML training data on paper_trades ---
+        for col, coltype in [
+            ("features_json", "TEXT"),
+            ("ml_score_at_entry", "DOUBLE PRECISION"),
+        ]:
+            try:
+                await conn.execute(
+                    f"ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS {col} {coltype}"
+                )
+            except Exception:
+                pass
+
         # --- Trailing stop columns (Step 1 migration) ---
         for table in ("paper_trades", "trades"):
             for col, coltype in [
