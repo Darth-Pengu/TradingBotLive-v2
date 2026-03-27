@@ -245,15 +245,13 @@ class MLModel:
         self._save_models()
         logger.info("Training complete — CatBoost + LightGBM ensemble ready")
 
-    def predict(self, features: dict) -> float:
+    def predict(self, features: dict) -> tuple[float, bool]:
         """
         Predict probability of profitable trade (0-100 score).
-        Returns 50.0 (neutral) if model not trained.
+        Returns (score, is_trained). Score is 50.0 (neutral) if model not trained.
         """
         if not self.is_trained:
-            # Before model is trained, return neutral score
-            # This lets the system operate in "pass-through" mode during initial data collection
-            return 50.0
+            return 50.0, False
 
         try:
             row = [features.get(col, 0) for col in FEATURE_COLUMNS]
@@ -264,10 +262,10 @@ class MLModel:
 
             # Ensemble: equal weight average
             ensemble_proba = (cb_proba + lgbm_proba) / 2.0
-            return round(ensemble_proba * 100, 1)
+            return round(ensemble_proba * 100, 1), True
         except Exception as e:
             logger.error("Prediction error: %s", e)
-            return 50.0
+            return 50.0, False
 
     def passes_threshold(self, score: float, personality: str, market_mode: str = "NORMAL") -> bool:
         """Check if ML score passes the threshold for a personality."""
@@ -296,11 +294,11 @@ async def _scoring_listener(model: MLModel, redis_conn: aioredis.Redis | None):
             request_id = data.get("request_id", "unknown")
             features = data.get("features", {})
 
-            score = model.predict(features)
+            score, is_trained = model.predict(features)
             response = {
                 "request_id": request_id,
                 "ml_score": score,
-                "model_trained": model.is_trained,
+                "model_trained": is_trained,
                 "sample_count": model.sample_count,
             }
             await redis_conn.publish("ml:score_response", json.dumps(response))

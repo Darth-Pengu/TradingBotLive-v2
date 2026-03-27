@@ -588,8 +588,8 @@ def _check_koth_zone(bc_progress: float, personality: str, ml_score: float) -> t
     return True, ""
 
 
-async def _request_ml_score(redis_conn: aioredis.Redis, features: dict, timeout: float = 5.0) -> float:
-    """Request ML score from ml_engine via Redis pub/sub."""
+async def _request_ml_score(redis_conn: aioredis.Redis, features: dict, timeout: float = 5.0) -> tuple[float, bool]:
+    """Request ML score from ml_engine via Redis pub/sub. Returns (score, is_trained)."""
     request_id = f"req_{time.time()}"
     request = {
         "request_id": request_id,
@@ -613,12 +613,12 @@ async def _request_ml_score(redis_conn: aioredis.Redis, features: dict, timeout:
             data = json.loads(message["data"])
             if data.get("request_id") == request_id:
                 await pubsub.unsubscribe("ml:score_response")
-                return data.get("ml_score", 50.0)
+                return data.get("ml_score", 50.0), data.get("model_trained", False)
     except Exception:
         pass
 
     await pubsub.unsubscribe("ml:score_response")
-    return 50.0  # Default neutral if timeout
+    return 50.0, False  # Default neutral + untrained if timeout
 
 
 async def _cleanup_seen_tokens():
@@ -762,7 +762,7 @@ async def _process_signals(redis_conn: aioredis.Redis):
                     features["cfgi_score"] = health.get("cfgi", 0)
 
                 # --- Request ML score ---
-                ml_score = await _request_ml_score(redis_conn, features)
+                ml_score, ml_trained = await _request_ml_score(redis_conn, features)
 
                 # --- Route to each target personality ---
                 bc_progress = features["bonding_curve_progress"]
@@ -780,16 +780,19 @@ async def _process_signals(redis_conn: aioredis.Redis):
                         logger.debug("KOTH reject %s for %s: %s", mint[:12], personality, reason)
                         continue
 
-                    # ML threshold check
-                    threshold = ML_THRESHOLDS.get(personality, 70)
-                    if market_mode == "FRENZY":
-                        threshold -= 5
-                    elif market_mode == "DEFENSIVE":
-                        threshold += 10
+                    # ML threshold check (bypass when model is untrained to allow data collection)
+                    if ml_trained:
+                        threshold = ML_THRESHOLDS.get(personality, 70)
+                        if market_mode == "FRENZY":
+                            threshold -= 5
+                        elif market_mode == "DEFENSIVE":
+                            threshold += 10
 
-                    if ml_score < threshold:
-                        logger.debug("ML reject %s for %s: %.1f < %d", mint[:12], personality, ml_score, threshold)
-                        continue
+                        if ml_score < threshold:
+                            logger.debug("ML reject %s for %s: %.1f < %d", mint[:12], personality, ml_score, threshold)
+                            continue
+                    else:
+                        logger.debug("ML untrained — bypassing threshold for %s (%s)", mint[:12], personality)
 
                     # Source count check for Analyst
                     if personality == "analyst" and len(_seen_tokens[mint]["sources"]) < ANALYST_FILTERS.get("min_sources", 2):

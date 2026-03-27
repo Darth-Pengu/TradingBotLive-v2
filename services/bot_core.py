@@ -677,8 +677,8 @@ async def main():
                 break
             await asyncio.sleep(1)
         else:
-            logger.warning("market:mode not received after 60s — defaulting to DEFENSIVE")
-            bot.portfolio.market_mode = "DEFENSIVE"
+            logger.warning("market:mode not received after 60s — defaulting to NORMAL")
+            bot.portfolio.market_mode = "NORMAL"
 
     logger.info("Bot Core ready — managing 3 personalities")
 

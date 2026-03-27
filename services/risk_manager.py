@@ -46,7 +46,7 @@ MAX_POSITION_PCT = {
     "analyst":       0.05,   # 5%
     "whale_tracker": 0.04,   # 4%
 }
-MIN_POSITION_SOL = 0.10
+MIN_POSITION_SOL = 0.05
 MAX_CONCURRENT_PER_PERSONALITY = 3
 MAX_CONCURRENT_WHALE = 2
 PORTFOLIO_MAX_EXPOSURE = 0.25   # 25% total — never exceed
