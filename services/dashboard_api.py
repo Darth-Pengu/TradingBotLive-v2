@@ -386,27 +386,69 @@ async def api_stats(request):
 
 
 async def api_positions(request):
-    """Return currently open positions from Redis bot:status."""
+    """Return currently open positions from Redis bot:status, enriched with live price and P/L."""
     positions = []
     redis_conn = request.app.get("redis")
-    if redis_conn:
-        try:
-            raw = await redis_conn.get("bot:status")
-            if raw:
-                status = json.loads(raw)
-                for key, pos in status.get("positions", {}).items():
-                    mint = pos.get("mint", "")
-                    positions.append({
-                        "key": key,
-                        "mint": mint,
-                        "mint_short": mint[:6] + "..." if len(mint) > 6 else mint,
-                        "personality": pos.get("personality", ""),
-                        "size_sol": pos.get("size_sol", 0),
-                        "entry_time": pos.get("entry_time", 0),
-                        "remaining_pct": pos.get("remaining_pct", 1.0),
-                    })
-        except Exception:
-            pass
+    if not redis_conn:
+        return web.json_response(positions)
+    try:
+        raw = await redis_conn.get("bot:status")
+        if not raw:
+            return web.json_response(positions)
+        status = json.loads(raw)
+        now = time.time()
+        for key, pos in status.get("positions", {}).items():
+            mint = pos.get("mint", "")
+            entry_price = float(pos.get("entry_price", 0) or 0)
+            current_price = float(pos.get("current_price", 0) or 0)
+            remaining_pct = float(pos.get("remaining_pct", 1.0))
+            size_sol = float(pos.get("size_sol", 0))
+            entry_time = float(pos.get("entry_time", 0) or 0)
+
+            # Fallback: fetch live price from GeckoTerminal if bot_core hasn't populated it
+            if current_price <= 0 and mint and entry_price > 0:
+                try:
+                    async with aiohttp.ClientSession() as s:
+                        async with s.get(
+                            f"https://api.geckoterminal.com/api/v2/networks/solana/tokens/{mint}",
+                            headers={"Accept": "application/json"},
+                            timeout=aiohttp.ClientTimeout(total=4),
+                        ) as r:
+                            if r.status == 200:
+                                d = await r.json()
+                                price_str = d.get("data", {}).get("attributes", {}).get("price_usd")
+                                if price_str:
+                                    current_price = float(price_str)
+                except Exception:
+                    pass
+
+            unrealised_pnl_sol = None
+            unrealised_pnl_pct = None
+            if entry_price > 0 and current_price > 0:
+                unrealised_pnl_pct = (current_price - entry_price) / entry_price * 100
+                unrealised_pnl_sol = (current_price - entry_price) / entry_price * size_sol * remaining_pct
+
+            hold_seconds = int(now - entry_time) if entry_time > 0 else 0
+
+            positions.append({
+                "key": key,
+                "mint": mint,
+                "mint_short": mint[:6] + "..." + mint[-4:] if len(mint) > 10 else mint,
+                "personality": pos.get("personality", ""),
+                "size_sol": size_sol,
+                "entry_price": entry_price,
+                "current_price": current_price,
+                "remaining_pct": remaining_pct,
+                "entry_time": entry_time,
+                "hold_seconds": hold_seconds,
+                "unrealised_pnl_sol": round(unrealised_pnl_sol, 6) if unrealised_pnl_sol is not None else None,
+                "unrealised_pnl_pct": round(unrealised_pnl_pct, 2) if unrealised_pnl_pct is not None else None,
+                "trailing_stop_active": pos.get("trailing_stop_active", False),
+                "trailing_stop_price": pos.get("trailing_stop_price"),
+                "peak_price": pos.get("peak_price"),
+            })
+    except Exception as e:
+        logger.warning("api_positions error: %s", e)
     return web.json_response(positions)
 
 

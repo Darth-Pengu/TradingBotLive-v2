@@ -45,7 +45,7 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 # Haiku enrichment config
 HAIKU_MODEL = "claude-haiku-4-5-20251001"
 HAIKU_ENABLED = bool(ANTHROPIC_API_KEY)
-HAIKU_CACHE_TTL = 300  # 5 minutes
+HAIKU_CACHE_TTL = 86400  # 24 hours — Redis-backed, survives restarts
 
 HAIKU_SYSTEM_PROMPT = """You are a Solana memecoin risk analyst.
 Analyze the token data provided and return ONLY a JSON object.
@@ -1234,38 +1234,13 @@ async def _process_signals(redis_conn: aioredis.Redis):
                     features["sol_price_usd"] = health.get("sol_price", 0)
                     features["cfgi_score"] = health.get("cfgi", 0)
 
-                # --- Request ML score + Haiku enrichment in parallel ---
+                # ML scoring — always runs
                 token_name = signal.get("raw_data", {}).get("name", signal.get("raw_data", {}).get("symbol", mint[:12]))
-                haiku_task = asyncio.create_task(
-                    _haiku_enrichment(mint, token_name, features, redis_conn)
-                ) if HAIKU_ENABLED else None
-
                 ml_score, ml_trained = await _request_ml_score(redis_conn, features)
 
-                # Get Haiku result (should be ready or close to ready)
+                # Haiku enrichment — lazy, fetched once per signal only after a personality
+                # passes hard filters + ML gate. Reused for subsequent personalities.
                 haiku_result = {}
-                if haiku_task is not None:
-                    try:
-                        haiku_result = await asyncio.wait_for(haiku_task, timeout=2.0)
-                    except asyncio.TimeoutError:
-                        haiku_result = {}
-
-                # Apply Haiku modifiers to ML score (soft adjustments only)
-                if haiku_result:
-                    haiku_risk = haiku_result.get("risk_score", 50)
-                    haiku_rec = haiku_result.get("recommendation", "pass")
-
-                    if haiku_rec == "hard_pass":
-                        logger.info("HAIKU VETO: %s — risk=%d flags=%s",
-                                     mint[:12], haiku_risk, haiku_result.get("red_flags", []))
-                        ml_score = max(ml_score * 0.3, 10.0)
-                    elif haiku_rec == "strong_buy" and haiku_risk < 20:
-                        ml_score = min(ml_score * 1.15, 95.0)
-                    elif haiku_risk > 70:
-                        ml_score = ml_score * 0.8
-
-                    logger.info("HAIKU: %s risk=%d rec=%s final_score=%.1f",
-                                 mint[:12], haiku_risk, haiku_rec, ml_score)
 
                 # --- Route to each target personality ---
                 bc_progress = features["bonding_curve_progress"]
@@ -1308,6 +1283,30 @@ async def _process_signals(redis_conn: aioredis.Redis):
                         logger.debug("ML reject %s for %s: %.1f < %d (trained=%s)",
                                      mint[:12], personality, ml_score, threshold, ml_trained)
                         continue
+
+                    # Lazy Haiku enrichment — only fires once per mint, after all hard gates
+                    if HAIKU_ENABLED and not haiku_result:
+                        try:
+                            haiku_result = await asyncio.wait_for(
+                                _haiku_enrichment(mint, token_name, features, redis_conn),
+                                timeout=2.0,
+                            )
+                        except asyncio.TimeoutError:
+                            haiku_result = {}
+
+                    if haiku_result:
+                        haiku_risk = haiku_result.get("risk_score", 50)
+                        haiku_rec = haiku_result.get("recommendation", "pass")
+                        if haiku_rec == "hard_pass":
+                            logger.info("HAIKU VETO: %s — risk=%d flags=%s",
+                                         mint[:12], haiku_risk, haiku_result.get("red_flags", []))
+                            continue
+                        elif haiku_rec == "strong_buy" and haiku_risk < 20:
+                            ml_score = min(ml_score * 1.15, 95.0)
+                        elif haiku_risk > 70:
+                            ml_score = ml_score * 0.8
+                        logger.info("HAIKU: %s risk=%d rec=%s final_score=%.1f",
+                                     mint[:12], haiku_risk, haiku_rec, ml_score)
 
                     # Source count check for Analyst
                     if personality == "analyst" and len(_seen_tokens[mint]["sources"]) < ANALYST_FILTERS.get("min_sources", 2):

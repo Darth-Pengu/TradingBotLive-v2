@@ -343,6 +343,22 @@ class BotCore:
         market_mode = scored_signal.get("market_mode", "NORMAL")
         features = scored_signal.get("features", {})
 
+        # Guard: skip if position already open for this personality+mint
+        pos_key = f"{personality}:{mint}"
+        if pos_key in self.positions:
+            logger.debug("Already holding %s — skipping duplicate signal", pos_key)
+            return
+
+        # Guard: skip if mint traded within 2h cooldown
+        if self.redis:
+            try:
+                already_traded = await self.redis.sismember("traded:mints", mint)
+                if already_traded:
+                    logger.debug("Skipping recently traded mint %s (cooldown active)", mint[:12])
+                    return
+            except Exception:
+                pass
+
         self.portfolio.market_mode = market_mode
 
         # Update portfolio with current open positions
@@ -764,29 +780,50 @@ class BotCore:
             prices = await self._get_token_prices_batch(open_mints) if open_mints else {}
             self._last_prices = prices  # Store for status publisher
 
+            # Refresh cooldown set so open positions can't be re-entered mid-hold
+            if self.redis and open_mints:
+                try:
+                    pipe = self.redis.pipeline()
+                    for m in open_mints:
+                        pipe.sadd("traded:mints", m)
+                    pipe.expire("traded:mints", 7200)
+                    await pipe.execute()
+                except Exception:
+                    pass
+
             for key, pos in list(self.positions.items()):
                 try:
                     current_price = prices.get(pos.mint, 0.0)
-                    if current_price <= 0:
-                        continue
-
-                    # peak_price owned by _evaluate_trailing_stop — do NOT update here
                     strategy = EXIT_STRATEGIES.get(pos.personality, {})
                     entry = pos.entry_price
-                    if entry <= 0:
-                        continue
-
-                    multiple = current_price / entry
                     elapsed_min = (time.time() - pos.entry_time) / 60
                     elapsed_hrs = elapsed_min / 60
 
-                    # --- Hard stop loss (always checked first) ---
+                    # Time-based and max-hold exits fire regardless of price availability
+                    time_exit = strategy.get("time_exit_minutes")
+                    if time_exit and elapsed_min >= time_exit:
+                        if current_price <= 0 or (entry > 0 and current_price / entry <= 1.05):
+                            await self._close_position(pos, "time_exit_no_movement")
+                            continue
+
+                    max_hold = strategy.get("max_hold_hours")
+                    if max_hold and elapsed_hrs >= max_hold:
+                        await self._close_position(pos, "max_hold_time")
+                        continue
+
+                    # Price-dependent exits require a valid price and entry
+                    if current_price <= 0 or entry <= 0:
+                        continue
+
+                    multiple = current_price / entry
+
+                    # --- Hard stop loss ---
                     sl_pct = strategy.get("stop_loss_pct", 0.50)
                     if multiple <= (1 - sl_pct):
                         await self._close_position(pos, f"stop_loss_{sl_pct:.0%}")
                         continue
 
-                    # --- Trailing stop (Step 4 — persisted to PostgreSQL) ---
+                    # --- Trailing stop ---
                     ts_exit = await self._evaluate_trailing_stop(pos, current_price)
                     if ts_exit:
                         await self._close_position(pos, ts_exit)
@@ -798,18 +835,6 @@ class BotCore:
                         if exit_key not in pos.staged_exits_done and multiple >= exit_rule["at_multiple"]:
                             await self._close_position(pos, f"staged_{exit_key}", sell_pct=exit_rule["sell_pct"])
                             pos.staged_exits_done.append(exit_key)
-
-                    # --- Time-based exit ---
-                    time_exit = strategy.get("time_exit_minutes")
-                    if time_exit and elapsed_min >= time_exit and multiple <= 1.05:
-                        await self._close_position(pos, "time_exit_no_movement")
-                        continue
-
-                    # --- Max hold time ---
-                    max_hold = strategy.get("max_hold_hours")
-                    if max_hold and elapsed_hrs >= max_hold:
-                        await self._close_position(pos, "max_hold_time")
-                        continue
 
                 except Exception as e:
                     logger.error("Exit check error for %s: %s", key, e)
