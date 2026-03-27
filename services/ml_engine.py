@@ -57,6 +57,7 @@ ML_THRESHOLD_ADJUSTMENTS = {
 MIN_SAMPLES_FIRST_TRAIN = 50
 MIN_SAMPLES_PRODUCTION = 200
 RETRAIN_INTERVAL_SECONDS = 7 * 24 * 3600  # Weekly
+INCREMENTAL_UPDATE_INTERVAL = 50  # trades since last update
 
 # --- Feature definitions (37 features: 26 original + 11 Nansen) ---
 FEATURE_COLUMNS = [
@@ -137,6 +138,9 @@ class MLModel:
         self.is_trained = False
         self.sample_count = 0
         self.last_train_time = 0.0
+        self.last_update_time = 0.0
+        self.trades_since_last_update = 0
+        self.total_trades_trained = 0
         self._load_models()
 
     def _load_models(self):
@@ -158,6 +162,9 @@ class MLModel:
                         meta = json.load(f)
                         self.sample_count = meta.get("sample_count", 0)
                         self.last_train_time = meta.get("last_train_time", 0)
+                        self.last_update_time = meta.get("last_update_time", 0)
+                        self.trades_since_last_update = meta.get("trades_since_last_update", 0)
+                        self.total_trades_trained = meta.get("total_trades_trained", 0)
                 self.is_trained = True
                 logger.info("Loaded existing models (samples=%d)", self.sample_count)
             except Exception as e:
@@ -176,6 +183,9 @@ class MLModel:
                 json.dump({
                     "sample_count": self.sample_count,
                     "last_train_time": self.last_train_time,
+                    "last_update_time": self.last_update_time,
+                    "trades_since_last_update": self.trades_since_last_update,
+                    "total_trades_trained": self.total_trades_trained,
                     "features": FEATURE_COLUMNS,
                 }, f, indent=2)
             logger.info("Models saved to %s", MODEL_DIR)
@@ -291,8 +301,62 @@ class MLModel:
         self.is_trained = True
         self.sample_count = len(X)
         self.last_train_time = time.time()
+        self.last_update_time = time.time()
+        self.trades_since_last_update = 0
+        self.total_trades_trained = len(X)
         self._save_models()
         logger.info("Training complete — CatBoost + LightGBM + XGBoost ensemble ready")
+
+    def _incremental_update(self, X_new: pd.DataFrame, y_new: np.ndarray):
+        """Append new boosting rounds to existing models without full retraining.
+        Faster adaptation to recent market changes."""
+        try:
+            from catboost import CatBoostClassifier, Pool as CatPool
+            import lightgbm as lgb
+            from xgboost import XGBClassifier
+
+            # CatBoost incremental — append 50 new trees
+            cb_new = CatBoostClassifier(
+                iterations=50,
+                depth=6,
+                learning_rate=0.05,
+                auto_class_weights="Balanced",
+                verbose=0,
+                random_seed=42,
+            )
+            cb_new.fit(X_new, y_new, init_model=self.catboost_model)
+            self.catboost_model = cb_new
+
+            # LightGBM incremental — append 50 new trees via Booster
+            new_data = lgb.Dataset(X_new, label=y_new)
+            booster = self.lgbm_model.booster_
+            self.lgbm_model._Booster = lgb.train(
+                self.lgbm_model.get_params(),
+                new_data,
+                num_boost_round=50,
+                init_model=booster,
+            )
+
+            # XGBoost incremental — append 50 new trees
+            neg_count = len(y_new) - y_new.sum()
+            pos_count = y_new.sum()
+            spw = neg_count / pos_count if pos_count > 0 else 1.0
+            xgb_new = XGBClassifier(
+                n_estimators=50,
+                max_depth=4,
+                learning_rate=0.05,
+                scale_pos_weight=spw,
+                verbosity=0,
+            )
+            xgb_new.fit(X_new, y_new, xgb_model=self.xgb_model.get_booster())
+            self.xgb_model = xgb_new
+
+            self.trades_since_last_update = 0
+            self.last_update_time = time.time()
+            logger.info("Incremental update complete — appended 50 trees on %d samples", len(X_new))
+            self._save_models()
+        except Exception as e:
+            logger.error("Incremental update failed: %s — will wait for full retrain", e)
 
     def predict(self, features: dict) -> tuple[float, bool]:
         """
@@ -399,20 +463,39 @@ async def _scoring_listener(model: MLModel, redis_conn: aioredis.Redis | None):
             logger.error("Scoring request error: %s", e)
 
 
+def _build_features_from_rows(rows) -> tuple[pd.DataFrame, np.ndarray]:
+    """Convert DB rows to X, y for training/incremental update."""
+    features_list = []
+    labels = []
+    for row in rows:
+        try:
+            features = json.loads(row["features_json"])
+            feature_row = [features.get(col, 0) for col in FEATURE_COLUMNS]
+            features_list.append(feature_row)
+            labels.append(1 if row["outcome"] == "profit" else 0)
+        except (json.JSONDecodeError, TypeError, KeyError):
+            continue
+    if not features_list:
+        return pd.DataFrame(columns=FEATURE_COLUMNS), np.array([])
+    return pd.DataFrame(features_list, columns=FEATURE_COLUMNS), np.array(labels)
+
+
 # --- Retrain loop ---
 async def _retrain_loop(model: MLModel):
     """
-    Retrain model:
-    - Every hour if untrained and enough samples exist (>= 50)
-    - Weekly once trained (sliding window refresh)
+    Two-tier retrain system:
+    - Incremental update every 50 new labeled trades (append 50 trees)
+    - Full retrain weekly (reset to fresh models on 7-day window)
+    - Cold start: check every hour for enough samples (>= 50)
     """
     pool = await get_pool()
     while True:
         try:
-            elapsed = time.time() - model.last_train_time
+            now = time.time()
+            full_retrain_due = (now - model.last_train_time) >= RETRAIN_INTERVAL_SECONDS
 
             if not model.is_trained:
-                # Cold start: check every hour for enough samples
+                # Cold start: check for enough samples
                 seven_days_ago = datetime.now(timezone.utc).timestamp() - (7 * 86400)
                 count = await pool.fetchval(
                     "SELECT COUNT(*) FROM trades WHERE created_at > $1 AND features_json IS NOT NULL AND outcome IS NOT NULL",
@@ -423,9 +506,34 @@ async def _retrain_loop(model: MLModel):
                     await model.train(pool)
                 else:
                     logger.info("Cold start: %d/%d samples — waiting for more paper trades", count, MIN_SAMPLES_FIRST_TRAIN)
-            elif elapsed >= RETRAIN_INTERVAL_SECONDS:
-                logger.info("Weekly retrain triggered")
+
+            elif full_retrain_due:
+                logger.info("Weekly full retrain triggered")
                 await model.train(pool)
+
+            elif model.is_trained:
+                # Check for incremental update: new trades since last update
+                try:
+                    rows = await pool.fetch(
+                        """SELECT features_json, outcome FROM trades
+                           WHERE closed_at > $1 AND features_json IS NOT NULL AND outcome IS NOT NULL
+                           ORDER BY closed_at DESC""",
+                        model.last_update_time,
+                    )
+                except Exception as e:
+                    logger.debug("Incremental check DB error: %s", e)
+                    rows = []
+
+                if len(rows) >= INCREMENTAL_UPDATE_INTERVAL:
+                    logger.info("Incremental update triggered — %d new samples since last update", len(rows))
+                    X_new, y_new = _build_features_from_rows(rows)
+                    if len(X_new) >= 10:
+                        # Run in executor to avoid blocking event loop
+                        loop = asyncio.get_event_loop()
+                        await loop.run_in_executor(None, model._incremental_update, X_new, y_new)
+                        model.total_trades_trained += len(X_new)
+                        logger.info("Total trades trained: %d", model.total_trades_trained)
+
         except Exception as e:
             logger.error("Retrain loop error: %s", e)
 
