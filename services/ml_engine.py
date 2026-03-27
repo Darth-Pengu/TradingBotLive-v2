@@ -237,8 +237,20 @@ class MLModel:
                     except Exception:
                         pass
             except Exception as e:
-                logger.warning("Failed to load models: %s — will retrain", e)
+                logger.warning("Failed to load models from disk: %s — trying PostgreSQL", e)
                 self.is_trained = False
+
+        # If disk load failed, try PostgreSQL (survives Railway redeploys)
+        if not self.is_trained:
+            try:
+                import asyncio
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # Can't await in __init__ — schedule for later
+                    self._needs_db_load = True
+                    logger.info("Will attempt DB model load after event loop starts")
+            except Exception:
+                pass
 
     def _save_models(self):
         try:
@@ -275,9 +287,71 @@ class MLModel:
                     pass
             with open(meta_path, "w") as f:
                 json.dump(meta, f, indent=2)
-            logger.info("Models saved to %s", MODEL_DIR)
+            logger.info("Models saved to disk: %s", MODEL_DIR)
+            # Schedule async DB save (survives Railway redeploys)
+            self._pending_db_save = {
+                "meta": meta,
+                "sample_count": self.sample_count,
+            }
         except Exception as e:
             logger.error("Failed to save models: %s", e)
+
+    async def _load_from_db(self):
+        """Load model ensemble from PostgreSQL if disk models are missing."""
+        if self.is_trained:
+            return
+        try:
+            pool = await get_pool()
+            row = await pool.fetchrow(
+                """SELECT model_data, meta_json, sample_count FROM ml_models
+                   WHERE model_name = 'ensemble' AND is_active = TRUE
+                   ORDER BY trained_at DESC LIMIT 1"""
+            )
+            if row and row["model_data"]:
+                ensemble = pickle.loads(row["model_data"])
+                self.catboost_model = ensemble.get("catboost")
+                self.lgbm_model = ensemble.get("lgbm")
+                self.xgb_model = ensemble.get("xgb")
+                self.flaml_model = ensemble.get("flaml")
+                meta = json.loads(row["meta_json"] or "{}")
+                self.sample_count = row["sample_count"] or meta.get("sample_count", 0)
+                self.last_train_time = meta.get("last_train_time", 0)
+                self.is_trained = True
+                logger.info("Ensemble loaded from PostgreSQL (samples=%d)", self.sample_count)
+        except Exception as e:
+            logger.warning("DB model load failed: %s — will train from scratch", e)
+
+    async def _save_to_db(self):
+        """Persist model ensemble to PostgreSQL (async — call after _save_models)."""
+        pending = getattr(self, "_pending_db_save", None)
+        if not pending:
+            return
+        try:
+            ensemble = {
+                "catboost": self.catboost_model,
+                "lgbm": self.lgbm_model,
+                "xgb": self.xgb_model,
+            }
+            if self.flaml_model:
+                ensemble["flaml"] = self.flaml_model
+            ensemble_bytes = pickle.dumps(ensemble)
+            pool = await get_pool()
+            await pool.execute(
+                """INSERT INTO ml_models
+                   (model_name, model_data, meta_json, sample_count, accuracy, is_active)
+                   VALUES ($1, $2, $3, $4, $5, TRUE)""",
+                "ensemble", ensemble_bytes, json.dumps(pending["meta"]),
+                pending["sample_count"], pending["meta"].get("accuracy_last_100", 0),
+            )
+            await pool.execute(
+                """UPDATE ml_models SET is_active = FALSE
+                   WHERE model_name = 'ensemble'
+                   AND id < (SELECT MAX(id) FROM ml_models WHERE model_name = 'ensemble')"""
+            )
+            logger.info("Ensemble saved to PostgreSQL (%d bytes)", len(ensemble_bytes))
+            self._pending_db_save = None
+        except Exception as e:
+            logger.warning("DB model save failed (disk save ok): %s", e)
 
     async def train(self, pool):
         """Full train on 7-day sliding window of trade outcomes."""
@@ -453,6 +527,8 @@ class MLModel:
         self._save_models()
         ensemble_size = 3 + (1 if self.flaml_model else 0)
         logger.info("Training complete — %d-model ensemble ready", ensemble_size)
+        # Persist to PostgreSQL (async)
+        await self._save_to_db()
 
     def _incremental_update(self, X_new: pd.DataFrame, y_new: np.ndarray):
         """Append new boosting rounds to existing models without full retraining.
@@ -804,9 +880,12 @@ async def main():
 
     model = MLModel()
 
-    # Initialize DB pool + attempt initial training
+    # Initialize DB pool + attempt DB model load if disk failed
     pool = await get_pool()
-    await model.train(pool)
+    if getattr(model, "_needs_db_load", False):
+        await model._load_from_db()
+    if not model.is_trained:
+        await model.train(pool)
 
     # Connect Redis always — ML scoring is read-only, needed for paper trading too
     redis_conn = None
