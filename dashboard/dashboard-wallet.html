@@ -150,7 +150,7 @@ kbd{background:var(--bg-elevated);border:1px solid var(--border-active);border-r
     <a href="/dashboard/dashboard-wallet.html" class="on"><i class="bi bi-wallet2"></i> Wallet</a>
   </div>
   <div class="sb-bottom"><div class="sb-time" id="sydClock">--</div><div class="sb-user"><div class="sb-avatar">JR</div><i class="bi bi-box-arrow-right sb-logout" onclick="logout()"></i></div></div>
-  <div class="sb-ver">v3.0.0</div>
+  <div class="sb-ver" id="sbVer">v3.0.0</div>
 </nav>
 <main class="main">
   <!-- Stats strip -->
@@ -382,6 +382,8 @@ async function loadWhales(){
   }).join('');
   }catch(e){}}
 conn();load();setInterval(load,15000);setInterval(()=>{if(activeWhaleTab)loadWhales()},15000);
+// Sync app version
+aFetch('/api/status').then(r=>r.json()).then(d=>{if(d.app_version){const v=$('sbVer');if(v)v.textContent=d.app_version}}).catch(()=>{});
 // FIX 10: Trade detail panel with real data from data attribute
 function openPanel(row){
   const cells=[...row.querySelectorAll('td')];

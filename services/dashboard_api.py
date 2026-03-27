@@ -783,10 +783,11 @@ async def api_service_health(request):
             pass
     for svc in ["gecko", "defillama", "dexpaprika"]:
         result[svc] = {"status": mh_status, "latency_ms": None, "detail": "via market_health"}
-    # Static services (checked at startup, assumed ok)
+    # Services without cached data — show unknown (real checks run in background task)
     for svc in ["jupiter", "jito", "helius_rpc", "helius_parse", "helius_gatekeeper",
                  "rugcheck", "vybe", "nansen", "anthropic", "discord_webhook", "discord_bot"]:
-        result[svc] = {"status": "ok", "latency_ms": None, "detail": "assumed ok"}
+        if svc not in result:
+            result[svc] = {"status": "unknown", "latency_ms": None, "detail": "waiting for health check"}
     return web.json_response(result)
 
 
@@ -1413,10 +1414,70 @@ async def _service_health_checker(app: web.Application):
                 pass
             for svc in ["gecko", "defillama", "dexpaprika", "rugcheck", "vybe"]:
                 health[svc] = {"status": mh_status, "latency_ms": None, "detail": mh_detail}
-            # Static-assumed services
-            for svc in ["jupiter", "jito", "helius_rpc", "helius_parse", "helius_gatekeeper",
-                         "nansen", "anthropic", "discord_webhook", "discord_bot"]:
-                health[svc] = {"status": "ok", "latency_ms": None, "detail": "assumed ok"}
+            # Real service checks (run concurrently with 5s timeouts)
+            async def _check_url(name, url, method="get", json_body=None, headers=None, ok_codes=(200,)):
+                try:
+                    async with aiohttp.ClientSession() as s:
+                        t0 = time.time()
+                        kw = {"timeout": aiohttp.ClientTimeout(total=5)}
+                        if headers:
+                            kw["headers"] = headers
+                        if method == "post" and json_body:
+                            async with s.post(url, json=json_body, **kw) as resp:
+                                ms = int((time.time() - t0) * 1000)
+                                health[name] = {"status": "ok" if resp.status in ok_codes else "warn",
+                                                "latency_ms": ms, "detail": f"HTTP {resp.status}"}
+                        else:
+                            async with s.get(url, **kw) as resp:
+                                ms = int((time.time() - t0) * 1000)
+                                health[name] = {"status": "ok" if resp.status in ok_codes else "warn",
+                                                "latency_ms": ms, "detail": f"HTTP {resp.status}"}
+                except Exception as e:
+                    health[name] = {"status": "down", "latency_ms": None, "detail": str(e)[:40]}
+
+            jup_key = os.getenv("JUPITER_API_KEY", "")
+            helius_rpc = HELIUS_RPC_URL
+            helius_gk = HELIUS_GATEKEEPER_URL
+            helius_parse = os.getenv("HELIUS_PARSE_TX_URL", "")
+
+            checks = [
+                _check_url("jupiter", "https://api.jup.ag/price/v3?ids=So11111111111111111111111111111111111111112",
+                           headers={"x-api-key": jup_key} if jup_key else None),
+                _check_url("jito", "https://mainnet.block-engine.jito.wtf/api/v1/bundles",
+                           ok_codes=(200, 404, 405)),
+            ]
+            if helius_rpc:
+                checks.append(_check_url("helius_rpc", helius_rpc, method="post",
+                                         json_body={"jsonrpc": "2.0", "id": 1, "method": "getSlot"}))
+            else:
+                health["helius_rpc"] = {"status": "warn", "latency_ms": None, "detail": "not configured"}
+            if helius_gk:
+                checks.append(_check_url("helius_gatekeeper", helius_gk, method="post",
+                                         json_body={"jsonrpc": "2.0", "id": 1, "method": "getSlot"}))
+            else:
+                health["helius_gatekeeper"] = {"status": "warn", "latency_ms": None, "detail": "not configured"}
+            if helius_parse:
+                checks.append(_check_url("helius_parse", helius_parse, ok_codes=(200, 400, 404, 405)))
+            else:
+                health["helius_parse"] = {"status": "warn", "latency_ms": None, "detail": "not configured"}
+
+            nansen_key = os.getenv("NANSEN_API_KEY", "")
+            if nansen_key:
+                checks.append(_check_url("nansen", "https://api.nansen.ai/api/v1/token-screener",
+                                         headers={"apikey": nansen_key}))
+            else:
+                health["nansen"] = {"status": "warn", "latency_ms": None, "detail": "API key not set"}
+
+            await asyncio.gather(*checks, return_exceptions=True)
+
+            # Config-only checks (no live ping)
+            health["anthropic"] = {"status": "ok" if os.getenv("ANTHROPIC_API_KEY") else "warn",
+                                   "latency_ms": None, "detail": "key configured" if os.getenv("ANTHROPIC_API_KEY") else "not set"}
+            health["discord_webhook"] = {"status": "ok" if os.getenv("DISCORD_WEBHOOK_URL") else "warn",
+                                         "latency_ms": None, "detail": "configured" if os.getenv("DISCORD_WEBHOOK_URL") else "not set"}
+            health["discord_bot"] = {"status": "ok" if os.getenv("DISCORD_BOT_TOKEN") else "warn",
+                                     "latency_ms": None, "detail": "configured" if os.getenv("DISCORD_BOT_TOKEN") else "not set"}
+
             await redis_conn.set("service:health", json.dumps(health), ex=120)
         except Exception as e:
             logger.debug("Service health check error: %s", e)

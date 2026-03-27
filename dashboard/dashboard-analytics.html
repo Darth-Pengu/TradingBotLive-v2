@@ -141,7 +141,7 @@ kbd{background:var(--bg-elevated);border:1px solid var(--border-active);border-r
     <a href="/dashboard/dashboard-wallet.html"><i class="bi bi-wallet2"></i> Wallet</a>
   </div>
   <div class="sb-bottom"><div class="sb-time" id="sydClock">--</div><div class="sb-user"><div class="sb-avatar">JR</div><i class="bi bi-box-arrow-right sb-logout" onclick="logout()"></i></div></div>
-  <div class="sb-ver">v3.0.0</div>
+  <div class="sb-ver" id="sbVer">v3.0.0</div>
 </nav>
 <main class="main">
   <div class="status-bar ok" id="statusBar"><span>&#9679; ALL SYSTEMS OPERATIONAL</span><button class="hc-btn" onclick="runHC()">Run Health Check</button></div>
@@ -346,6 +346,8 @@ $('clTestIcon').className=d.status==='RUNNING'?'bi bi-check-circle-fill':'bi bi-
 $('clTest').textContent=d.test_mode===false?'LIVE':'PAPER';
 const bal=d.trading_wallet_balance;
 if(bal!=null){$('clFund').textContent=Number(bal).toFixed(2)+' SOL';$('clFundIcon').style.color=bal>1?'var(--green)':'var(--red)'}
+// Sync app version from API
+if(d.app_version){const v=$('sbVer');if(v)v.textContent=d.app_version}
 }catch(e){console.error('loadRedis:',e)}}
 
 // --- Bot readiness stats (GET /api/stats) ---
