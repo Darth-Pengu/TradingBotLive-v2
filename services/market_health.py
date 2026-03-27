@@ -166,15 +166,44 @@ async def _fetch_defillama(session: aiohttp.ClientSession) -> float:
 
 
 async def _fetch_cfgi(session: aiohttp.ClientSession) -> float:
-    """Returns Solana Fear & Greed Index (0-100)."""
-    data = await _fetch_json(session, CFGI_URL)
-    if data:
-        # CFGI returns various formats — try common ones
-        if isinstance(data, dict):
-            return float(data.get("value", data.get("score", 50)))
-        if isinstance(data, list) and data:
-            return float(data[0].get("value", 50))
-    return 50.0  # neutral default
+    """Returns Solana Fear & Greed Index (0-100). Multi-URL probe + Alternative.me fallback."""
+    cfgi_urls = [
+        "https://cfgi.io/api/solana-fear-greed-index/",
+        "https://cfgi.io/api/solana-fear-greed-index/1d",
+        "https://cfgi.io/api/solana-fear-greed-index",
+    ]
+    for url in cfgi_urls:
+        try:
+            data = await _fetch_json(session, url)
+            if data:
+                if isinstance(data, dict):
+                    for key in ("value", "score", "fgi", "index"):
+                        val = data.get(key)
+                        if val is None and "data" in data and isinstance(data["data"], dict):
+                            val = data["data"].get(key)
+                        if val is not None:
+                            return float(val)
+                if isinstance(data, list) and data:
+                    for key in ("value", "score", "fgi"):
+                        val = data[0].get(key)
+                        if val is not None:
+                            return float(val)
+        except Exception:
+            continue
+    # Fallback: Alternative.me crypto fear & greed (not Solana-specific but better than 50)
+    try:
+        data = await _fetch_json(session, "https://api.alternative.me/fng/?limit=1")
+        if data and isinstance(data, dict):
+            entries = data.get("data", [])
+            if entries and isinstance(entries, list):
+                val = entries[0].get("value")
+                if val is not None:
+                    logger.info("CFGI: using Alternative.me crypto F&G index: %s", val)
+                    return float(val)
+    except Exception:
+        pass
+    logger.warning("All CFGI sources failed — defaulting to neutral 50")
+    return 50.0
 
 
 async def _fetch_priority_fee(session: aiohttp.ClientSession) -> dict:

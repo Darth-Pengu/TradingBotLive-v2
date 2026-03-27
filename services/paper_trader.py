@@ -64,8 +64,10 @@ def _paper_log(message: str):
 
 
 async def _get_token_price(mint: str) -> float:
-    """Get current token price via Jupiter V3 (with auth) or Binance fallback."""
+    """Get current token price. Jupiter V3 primary, GeckoTerminal fallback (free, no auth)."""
     jup_key = os.getenv("JUPITER_API_KEY", "").strip()
+
+    # Primary: Jupiter V3
     try:
         headers = {"x-api-key": jup_key} if jup_key else {}
         async with aiohttp.ClientSession() as session:
@@ -77,13 +79,33 @@ async def _get_token_price(mint: str) -> float:
             ) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    price = data.get("data", {}).get(mint, {}).get("usdPrice") or data.get("data", {}).get(mint, {}).get("price")
+                    price = (data.get("data", {}).get(mint, {}).get("usdPrice") or
+                             data.get("data", {}).get(mint, {}).get("price"))
                     if price:
                         return float(price)
+                elif resp.status == 401:
+                    logger.warning("Jupiter 401 — API key invalid/missing, trying GeckoTerminal")
     except Exception:
         pass
-    # Price fetch failed — return 0.0, caller must check and skip trade
-    logger.warning("Could not fetch price for %s — returning 0.0", mint[:12])
+
+    # Fallback: GeckoTerminal (free, no auth needed)
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"https://api.geckoterminal.com/api/v2/networks/solana/tokens/{mint}",
+                headers={"Accept": "application/json"},
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    price_str = data.get("data", {}).get("attributes", {}).get("price_usd")
+                    if price_str:
+                        logger.debug("GeckoTerminal price for %s: $%s", mint[:12], price_str)
+                        return float(price_str)
+    except Exception:
+        pass
+
+    logger.warning("Could not fetch price for %s from Jupiter or GeckoTerminal", mint[:12])
     return 0.0
 
 

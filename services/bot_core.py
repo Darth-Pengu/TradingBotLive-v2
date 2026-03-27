@@ -269,6 +269,25 @@ class BotCore:
                             result[sol_mint] = float(data.get("price", 0))
             except Exception:
                 pass
+        # GeckoTerminal fallback for non-SOL mints still at 0.0
+        zero_mints = [m for m in mints if result.get(m, 0.0) == 0.0
+                      and m != "So11111111111111111111111111111111111111112"]
+        if zero_mints:
+            for mint in zero_mints[:5]:  # cap at 5 to avoid rate limiting
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(
+                            f"https://api.geckoterminal.com/api/v2/networks/solana/tokens/{mint}",
+                            headers={"Accept": "application/json"},
+                            timeout=aiohttp.ClientTimeout(total=8),
+                        ) as resp:
+                            if resp.status == 200:
+                                data = await resp.json()
+                                price_str = data.get("data", {}).get("attributes", {}).get("price_usd")
+                                if price_str:
+                                    result[mint] = float(price_str)
+                except Exception:
+                    pass
         return result
 
     # --- EMERGENCY STOP ---

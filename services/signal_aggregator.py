@@ -696,6 +696,16 @@ Analyze and return JSON only."""
                 },
                 timeout=aiohttp.ClientTimeout(total=3.0),
             ) as resp:
+                if resp.status == 400:
+                    try:
+                        err_body = await resp.json()
+                        err_msg = (err_body.get("error", {}).get("message", "unknown")
+                                   if isinstance(err_body, dict) else str(err_body)[:100])
+                    except Exception:
+                        err_msg = "could not parse error body"
+                    logger.warning("Haiku 400 for %s: %s — check ANTHROPIC_API_KEY and model name",
+                                   mint[:8], err_msg)
+                    return {}
                 if resp.status != 200:
                     logger.debug("Haiku API %d for %s", resp.status, mint[:8])
                     return {}

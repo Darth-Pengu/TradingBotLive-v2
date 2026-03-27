@@ -412,6 +412,13 @@ async def dexpaprika_listener(redis_conn: aioredis.Redis | None):
                     headers={"Accept": "text/event-stream"},
                     timeout=aiohttp.ClientTimeout(total=0, sock_read=300),
                 ) as resp:
+                    if resp.status == 404:
+                        logger.warning(
+                            "DexPaprika SSE 404 — endpoint may have moved. "
+                            "Backing off 10 minutes. Check streaming.dexpaprika.com for updates."
+                        )
+                        await asyncio.sleep(600)
+                        continue
                     if resp.status != 200:
                         logger.warning("DexPaprika SSE HTTP %d", resp.status)
                         await asyncio.sleep(backoff)
