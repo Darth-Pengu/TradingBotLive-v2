@@ -699,17 +699,55 @@ async def _retrain_loop(model: MLModel):
 
 
 # --- Outcome listener for drift detection ---
+async def _update_accuracy_tracking(ml_score: float, outcome: int, redis_conn: aioredis.Redis):
+    """Track rolling accuracy of last 100 predictions."""
+    entry = json.dumps({
+        "score": ml_score,
+        "outcome": outcome,
+        "timestamp": time.time(),
+    })
+    await redis_conn.lpush("ml:prediction_history", entry)
+    await redis_conn.ltrim("ml:prediction_history", 0, 99)
+
+    # Recompute accuracy
+    history_raw = await redis_conn.lrange("ml:prediction_history", 0, -1)
+    history = [json.loads(h) for h in history_raw]
+
+    if len(history) >= 10:
+        correct = sum(
+            1 for h in history
+            if (h["score"] >= 65) == bool(h["outcome"])
+        )
+        accuracy = correct / len(history)
+
+        taken = [h for h in history if h["score"] >= 65]
+        win_rate = (
+            sum(1 for h in taken if h["outcome"] == 1) / len(taken)
+            if taken else 0
+        )
+
+        try:
+            meta_path = MODEL_DIR / "model_meta.json"
+            if meta_path.exists():
+                with open(meta_path, "r") as f:
+                    meta = json.load(f)
+                meta["accuracy_last_100"] = round(accuracy * 100, 1)
+                meta["win_rate_last_100"] = round(win_rate * 100, 1)
+                meta["predictions_tracked"] = len(history)
+                with open(meta_path, "w") as f:
+                    json.dump(meta, f, indent=2)
+        except Exception as e:
+            logger.debug("Meta accuracy update failed: %s", e)
+
+
 async def _outcome_listener(model: MLModel, redis_conn: aioredis.Redis | None):
-    """Listen for trade outcomes and update ADWIN drift detector."""
+    """Listen for trade outcomes: update drift detector + accuracy tracking."""
     if not redis_conn:
-        return
-    if not model.drift_detector.available:
-        logger.info("Drift detection unavailable — outcome listener disabled")
         return
 
     pubsub = redis_conn.pubsub()
     await pubsub.subscribe("trades:outcome")
-    logger.info("Listening for trade outcomes on trades:outcome (ADWIN drift detection)")
+    logger.info("Listening for trade outcomes on trades:outcome (drift + accuracy)")
 
     async for message in pubsub.listen():
         if message["type"] != "message":
@@ -719,6 +757,10 @@ async def _outcome_listener(model: MLModel, redis_conn: aioredis.Redis | None):
             ml_score = float(data.get("ml_score", 50.0))
             outcome = 1 if data.get("outcome") == "profit" else 0
 
+            # Update accuracy tracking
+            await _update_accuracy_tracking(ml_score, outcome, redis_conn)
+
+            # Update drift detector
             drift = model.drift_detector.update(ml_score, outcome)
             if drift:
                 # Publish emergency retrain signal
