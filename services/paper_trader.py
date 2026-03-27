@@ -82,8 +82,9 @@ async def _get_token_price(mint: str) -> float:
                         return float(price)
     except Exception:
         pass
-    # Fallback: random micro-cap price for simulation
-    return random.uniform(0.000001, 0.0001)
+    # Price fetch failed — return 0.0, caller must check and skip trade
+    logger.warning("Could not fetch price for %s — returning 0.0", mint[:12])
+    return 0.0
 
 
 def _simulate_slippage(tier: str) -> float:
@@ -114,8 +115,11 @@ async def paper_buy(
     fear_greed: float = 50.0,
 ) -> dict:
     """Simulate a paper buy trade. Returns result dict with fake signature."""
-    # Get real price
+    # Get real price — skip trade if price fetch fails
     price = await _get_token_price(mint)
+    if price <= 0:
+        logger.warning("PAPER: price fetch failed for %s — skipping", mint[:12])
+        return {"success": False, "error": "price_fetch_failed", "simulated": True}
 
     # Simulate slippage (buying pushes price up)
     slippage = _simulate_slippage(slippage_tier)
@@ -190,11 +194,15 @@ async def paper_sell(
     entry_price: float = 0.0,
     entry_time: float = 0.0,
     amount_sol: float = 0.0,
+    signal_source: str = "",
 ) -> dict:
     """Simulate a paper sell trade. Returns result dict with P/L."""
 
-    # Get current real price
+    # Get current real price — use entry price if fetch fails (neutral P/L)
     current_price = await _get_token_price(mint)
+    if current_price <= 0:
+        logger.warning("PAPER SELL: price fetch failed for %s — using entry price", mint[:12])
+        current_price = entry_price
 
     # Simulate exit slippage (selling pushes price down)
     slippage = _simulate_slippage("sell")
@@ -230,7 +238,8 @@ async def paper_sell(
             await redis_conn.delete(f"paper:positions:{mint}")
             if pnl_sol > 0:
                 await redis_conn.hincrby("paper:stats", "winning_trades", 1)
-                await redis_conn.hincrby(f"paper:stats:source:{''}", "wins", 1)
+                if signal_source:
+                    await redis_conn.hincrby(f"paper:stats:source:{signal_source}", "wins", 1)
             await redis_conn.hincrbyfloat("paper:stats", "total_pnl_sol", pnl_sol)
             await redis_conn.hincrbyfloat(f"paper:stats:personality:{personality}", "pnl", pnl_sol)
             today = datetime.now(timezone.utc).strftime("%Y-%m-%d")

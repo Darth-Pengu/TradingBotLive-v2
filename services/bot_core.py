@@ -461,6 +461,7 @@ class BotCore:
                 self.pool, self.redis, pos.mint, sell_pct, reason, pos.personality,
                 trade_id=pos.trade_id, entry_price=pos.entry_price,
                 entry_time=pos.entry_time, amount_sol=pos.size_sol * pos.remaining_pct,
+                signal_source=pos.signal_source,
             )
             pos.remaining_pct *= (1 - sell_pct)
             if pos.remaining_pct <= 0.01:

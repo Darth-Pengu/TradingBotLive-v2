@@ -619,43 +619,78 @@ async def api_governance(request):
 
 
 async def api_ml_status(request):
-    """ML model status from model_meta.json + trades table sample count."""
-    meta_path = Path("data/models/model_meta.json")
+    """ML model status — PostgreSQL primary, file fallback."""
     result = {
         "trained": False, "sample_count": 0, "last_train_time": None,
         "accuracy_last_100": None, "features": [], "bootstrap_mode": True,
+        "labelled_samples_for_training": 0, "samples_needed_for_first_train": 50,
+        "cold_start_progress_pct": 0,
     }
-    if meta_path.exists():
-        try:
-            with open(meta_path) as f:
-                data = json.load(f)
-            sc = data.get("sample_count", 0)
+    # PRIMARY: PostgreSQL ml_models table
+    try:
+        pool = await get_pool()
+        row = await pool.fetchrow(
+            """SELECT meta_json, trained_at, sample_count, accuracy
+               FROM ml_models WHERE is_active = TRUE
+               ORDER BY trained_at DESC LIMIT 1"""
+        )
+        if row:
+            meta = json.loads(row["meta_json"] or "{}")
+            sc = row["sample_count"] or 0
             result["trained"] = sc >= 50
             result["bootstrap_mode"] = sc < 200
             result["sample_count"] = sc
-            result["last_train_time"] = data.get("last_train_time", data.get("last_trained", None))
-            result["accuracy_last_100"] = data.get("accuracy_last_100", None)
-            result["win_rate_last_100"] = data.get("win_rate_last_100", None)
-            result["feature_count"] = data.get("feature_count", len(data.get("features", [])))
-            result["top_5_features"] = data.get("top_5_features", [])
-            # feature_importance is a dict of name->value; features is a list of names
-            fi = data.get("feature_importance", {})
-            result["features"] = fi if isinstance(fi, dict) and fi else data.get("features", [])
-        except Exception:
-            pass
-    # Also check DB for pending training samples
+            result["last_train_time"] = row["trained_at"].isoformat() if row["trained_at"] else None
+            result["accuracy_last_100"] = float(row["accuracy"] or 0) or meta.get("accuracy_last_100")
+            fi = meta.get("feature_importance", {})
+            result["features"] = fi if isinstance(fi, dict) and fi else meta.get("features", [])
+    except Exception as e:
+        logger.debug("api_ml_status DB read: %s — trying file", e)
+        # FALLBACK: meta file
+        meta_path = Path("data/models/model_meta.json")
+        if meta_path.exists():
+            try:
+                with open(meta_path) as f:
+                    data = json.load(f)
+                sc = data.get("sample_count", 0)
+                result["trained"] = sc >= 50
+                result["bootstrap_mode"] = sc < 200
+                result["sample_count"] = sc
+                result["last_train_time"] = data.get("last_train_time", data.get("last_trained"))
+                result["accuracy_last_100"] = data.get("accuracy_last_100")
+                fi = data.get("feature_importance", {})
+                result["features"] = fi if isinstance(fi, dict) and fi else data.get("features", [])
+            except Exception:
+                pass
+    # Count labelled samples ready for training (cold-start progress)
     try:
-        rows = await _query_db("SELECT COUNT(*) as cnt FROM trades WHERE features_json IS NOT NULL AND outcome IS NOT NULL")
+        rows = await _query_db(
+            "SELECT COUNT(*) as cnt FROM trades WHERE features_json IS NOT NULL AND outcome IS NOT NULL"
+        )
         if rows:
-            result["sample_count"] = max(result["sample_count"], rows[0].get("cnt", 0))
+            labelled = rows[0].get("cnt", 0) or 0
+            result["labelled_samples_for_training"] = labelled
+            result["sample_count"] = max(result["sample_count"], labelled)
+            result["cold_start_progress_pct"] = min(100, round(labelled / 50 * 100, 1))
     except Exception:
         pass
     return web.json_response(result)
 
 
 async def api_portfolio_history(request):
-    snapshots = await _query_db("SELECT * FROM portfolio_snapshots ORDER BY id DESC LIMIT 288")
-    return web.json_response(list(reversed(snapshots)))
+    """Portfolio snapshots with explicit field mapping to avoid serialisation crashes."""
+    rows = await _query_db("SELECT * FROM portfolio_snapshots ORDER BY id DESC LIMIT 288")
+    result = []
+    for r in rows:
+        result.append({
+            "id": r.get("id"),
+            "timestamp": str(r.get("timestamp", "")),
+            "total_balance_sol": float(r.get("total_balance_sol", 0) or 0),
+            "open_positions": int(r.get("open_positions", 0) or 0),
+            "daily_pnl_sol": float(r.get("daily_pnl_sol", 0) or 0),
+            "market_mode": r.get("market_mode", "NORMAL"),
+        })
+    return web.json_response(list(reversed(result)))
 
 
 async def api_paper_stats(request):

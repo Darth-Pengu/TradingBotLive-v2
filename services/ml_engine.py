@@ -57,7 +57,7 @@ ML_THRESHOLD_ADJUSTMENTS = {
 MIN_SAMPLES_FIRST_TRAIN = 50
 MIN_SAMPLES_PRODUCTION = 200
 RETRAIN_INTERVAL_SECONDS = 7 * 24 * 3600  # Weekly
-INCREMENTAL_UPDATE_INTERVAL = 50  # trades since last update
+INCREMENTAL_UPDATE_INTERVAL = int(os.getenv("ML_INCREMENTAL_INTERVAL", "20"))  # faster adaptation
 
 # --- Feature definitions (44 features: 26 original + 11 Nansen + 7 new) ---
 FEATURE_COLUMNS = [
@@ -617,45 +617,52 @@ class MLModel:
             return 50.0, False
 
     def _heuristic_score(self, features: dict) -> float:
-        """Basic scoring heuristics for cold-start before ML model trains."""
-        score = 55.0  # Base: slightly optimistic to generate data
+        """Bootstrap scoring: generates wide spread across 0-100 range so the
+        trained model inherits a useful starting distribution. Every output here
+        becomes a data point — wide spread = better trained model."""
+        import random as _r
+        score = 50.0  # Neutral base
 
-        # Strong positive signals
-        bsr = features.get("buy_sell_ratio_5min", 1.0)
-        if bsr > 2.0:
-            score += 10.0
-        elif bsr > 1.5:
-            score += 5.0
-        elif bsr < 0.8:
-            score -= 10.0
-
-        # Liquidity health
-        liq = features.get("liquidity_sol", 0)
-        if liq > 20:
-            score += 5.0
-        elif liq < 3:
-            score -= 15.0
-
-        # Red flags — hard reject
+        # --- HARD REJECT signals (score -> 5-15) ---
         if features.get("bundle_detected", 0):
-            return 10.0
-        if features.get("fresh_wallet_ratio", 0) > 0.5:
-            score -= 15.0
-        if features.get("bot_transaction_ratio", 0) > 0.5:
-            score -= 15.0
-
-        # Creator history
+            return _r.uniform(5.0, 15.0)
         if features.get("creator_rug_count", 0) >= 3:
-            return 10.0
+            return _r.uniform(5.0, 15.0)
+        if features.get("fresh_wallet_ratio", 0) > 0.6:
+            return _r.uniform(10.0, 20.0)
+        if features.get("dev_sold_pct", 0) > 20:
+            return _r.uniform(10.0, 20.0)
 
-        # Holder diversity
-        top10 = features.get("top10_holder_pct", 0)
-        if top10 > 50:
-            score -= 10.0
-        elif 0 < top10 < 25:
-            score += 5.0
+        # --- STRONG BUY pattern (score -> 72-88) ---
+        bsr = features.get("buy_sell_ratio_5min", 1.0)
+        liq = features.get("liquidity_sol", 0)
+        top10 = features.get("top10_holder_pct", 50)
+        nansen_flow = features.get("nansen_sm_inflow_ratio", 1.0)
+        strong = sum([bsr > 2.5, liq > 15, top10 < 20, nansen_flow > 1.5])
+        if strong >= 3:
+            return _r.uniform(72.0, 88.0)
 
-        return max(0.0, min(100.0, round(score, 1)))
+        # --- LINEAR ADJUSTMENTS ---
+        if bsr < 0.9:       score -= 15.0
+        elif bsr > 1.8:     score += 12.0
+        elif bsr > 1.3:     score += 6.0
+
+        if liq < 3:         score -= 20.0
+        elif liq < 7:       score -= 8.0
+        elif liq > 20:      score += 8.0
+
+        if top10 > 60:      score -= 15.0
+        elif top10 > 40:    score -= 7.0
+        elif top10 < 20:    score += 10.0
+
+        if features.get("bot_transaction_ratio", 0) > 0.4: score -= 12.0
+        if features.get("mint_authority_revoked", 0) == 0:  score -= 8.0
+        if nansen_flow > 1.3:  score += 10.0
+        elif nansen_flow < 0.7: score -= 8.0
+
+        # Small noise to prevent identical scores
+        score += _r.uniform(-3.0, 3.0)
+        return max(5.0, min(95.0, round(score, 1)))
 
     def passes_threshold(self, score: float, personality: str, market_mode: str = "NORMAL") -> bool:
         """Check if ML score passes the threshold for a personality."""
@@ -717,28 +724,29 @@ def _build_features_from_rows(rows) -> tuple[pd.DataFrame, np.ndarray]:
 async def _retrain_loop(model: MLModel):
     """
     Two-tier retrain system:
-    - Incremental update every 50 new labeled trades (append 50 trees)
+    - Incremental update every 20 new labeled trades (append trees)
     - Full retrain weekly (reset to fresh models on 7-day window)
-    - Cold start: check every hour for enough samples (>= 50)
+    - Cold start: check every 5 minutes for enough samples (>= 50)
     """
     pool = await get_pool()
     while True:
+        check_interval = 3600  # Default: 1 hour
         try:
             now = time.time()
             full_retrain_due = (now - model.last_train_time) >= RETRAIN_INTERVAL_SECONDS
 
             if not model.is_trained:
-                # Cold start: check for enough samples
+                # Cold start: check every 5 minutes for faster first training
                 seven_days_ago = datetime.now(timezone.utc).timestamp() - (7 * 86400)
                 count = await pool.fetchval(
                     "SELECT COUNT(*) FROM trades WHERE created_at > $1 AND features_json IS NOT NULL AND outcome IS NOT NULL",
                     seven_days_ago,
                 )
+                logger.info("Cold start: %d/%d labelled samples", count, MIN_SAMPLES_FIRST_TRAIN)
                 if count >= MIN_SAMPLES_FIRST_TRAIN:
-                    logger.info("Cold start: %d samples available (need %d) — training now", count, MIN_SAMPLES_FIRST_TRAIN)
+                    logger.info("COLD START TRAINING: %d samples ready — training now!", count)
                     await model.train(pool)
-                else:
-                    logger.info("Cold start: %d/%d samples — waiting for more paper trades", count, MIN_SAMPLES_FIRST_TRAIN)
+                check_interval = 300  # 5 min during cold start
 
             elif full_retrain_due:
                 logger.info("Weekly full retrain triggered")
@@ -761,7 +769,6 @@ async def _retrain_loop(model: MLModel):
                     logger.info("Incremental update triggered — %d new samples since last update", len(rows))
                     X_new, y_new = _build_features_from_rows(rows)
                     if len(X_new) >= 10:
-                        # Run in executor to avoid blocking event loop
                         loop = asyncio.get_event_loop()
                         await loop.run_in_executor(None, model._incremental_update, X_new, y_new)
                         model.total_trades_trained += len(X_new)
@@ -769,9 +776,9 @@ async def _retrain_loop(model: MLModel):
 
         except Exception as e:
             logger.error("Retrain loop error: %s", e)
+            check_interval = 300
 
-        # Check every hour
-        await asyncio.sleep(3600)
+        await asyncio.sleep(check_interval)
 
 
 # --- Outcome listener for drift detection ---
