@@ -186,6 +186,8 @@ class MLModel:
         self.last_update_time = 0.0
         self.trades_since_last_update = 0
         self.total_trades_trained = 0
+        self.flaml_model = None
+        self.best_flaml_config = None
         self.drift_detector = DriftDetector()
         self._load_models()
 
@@ -213,6 +215,15 @@ class MLModel:
                         self.total_trades_trained = meta.get("total_trades_trained", 0)
                 self.is_trained = True
                 logger.info("Loaded existing models (samples=%d)", self.sample_count)
+                # Load optional FLAML model
+                flaml_path = MODEL_DIR / "flaml_model.pkl"
+                if flaml_path.exists():
+                    try:
+                        with open(flaml_path, "rb") as f:
+                            self.flaml_model = pickle.load(f)
+                        logger.info("FLAML model loaded (4th ensemble member)")
+                    except Exception:
+                        pass
             except Exception as e:
                 logger.warning("Failed to load models: %s — will retrain", e)
                 self.is_trained = False
@@ -350,8 +361,44 @@ class MLModel:
         self.last_update_time = time.time()
         self.trades_since_last_update = 0
         self.total_trades_trained = len(X)
+
+        # FLAML auto-tuning when enough samples (4th ensemble member)
+        if len(X) >= MIN_SAMPLES_PRODUCTION:
+            logger.info("Running FLAML auto-tuning (60s budget, %d samples)...", len(X))
+            try:
+                from flaml import AutoML
+                automl = AutoML()
+                automl.fit(
+                    X_train=X,
+                    y_train=y,
+                    task="classification",
+                    metric="roc_auc",
+                    time_budget=60,
+                    estimator_list=["lgbm", "catboost", "xgboost"],
+                    log_file_name=str(MODEL_DIR / "flaml_log.json"),
+                    seed=42,
+                    verbose=0,
+                )
+                best_estimator = automl.best_estimator
+                best_config = automl.best_config
+                logger.info(
+                    "FLAML best estimator: %s | AUC: %.4f | config: %s",
+                    best_estimator,
+                    1.0 - automl.best_loss,
+                    json.dumps(best_config, default=str)[:200],
+                )
+                self.flaml_model = automl.model.estimator
+                self.best_flaml_config = best_config
+                with open(MODEL_DIR / "flaml_model.pkl", "wb") as f:
+                    pickle.dump(self.flaml_model, f)
+            except ImportError:
+                logger.info("FLAML not installed — skipping auto-tuning")
+            except Exception as e:
+                logger.warning("FLAML tuning failed: %s — using default configs", e)
+
         self._save_models()
-        logger.info("Training complete — CatBoost + LightGBM + XGBoost ensemble ready")
+        ensemble_size = 3 + (1 if self.flaml_model else 0)
+        logger.info("Training complete — %d-model ensemble ready", ensemble_size)
 
     def _incremental_update(self, X_new: pd.DataFrame, y_new: np.ndarray):
         """Append new boosting rounds to existing models without full retraining.
@@ -418,12 +465,22 @@ class MLModel:
             row = [features.get(col, 0) for col in FEATURE_COLUMNS]
             X = pd.DataFrame([row], columns=FEATURE_COLUMNS)
 
-            cb_proba = self.catboost_model.predict_proba(X)[0][1]
-            lgbm_proba = self.lgbm_model.predict_proba(X)[0][1]
-            xgb_proba = self.xgb_model.predict_proba(X)[0][1]
+            probas = []
+            for m in (self.catboost_model, self.lgbm_model, self.xgb_model):
+                if m is not None:
+                    probas.append(m.predict_proba(X)[0][1])
 
-            # Ensemble: equal weight average of all three models
-            ensemble_proba = (cb_proba + lgbm_proba + xgb_proba) / 3.0
+            # Add FLAML as 4th ensemble member if available
+            if self.flaml_model is not None:
+                try:
+                    probas.append(self.flaml_model.predict_proba(X)[0][1])
+                except Exception:
+                    pass
+
+            if not probas:
+                return 50.0, False
+
+            ensemble_proba = sum(probas) / len(probas)
             return round(ensemble_proba * 100, 1), True
         except Exception as e:
             logger.error("Prediction error: %s", e)
