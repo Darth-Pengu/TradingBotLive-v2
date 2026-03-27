@@ -791,6 +791,7 @@ def _classify_target_personalities(signal: dict, rugcheck: dict) -> list[str]:
     targets = []
     age = signal.get("age_seconds", 0)
     sig_type = signal.get("signal_type", "")
+    raw = signal.get("raw_data", {})
 
     # Speed Demon: new tokens, 0-30s (alpha), 30s-3min (confirmation), 5-15min post-grad
     if sig_type in ("new_token", "new_pool") and age <= 180:
@@ -805,6 +806,27 @@ def _classify_target_personalities(signal: dict, rugcheck: dict) -> list[str]:
     # Whale Tracker: account trades from tracked wallets
     if sig_type == "account_trade":
         targets.append("whale_tracker")
+
+    # --- Expanded Helius webhook signal types ---
+
+    # pool_created: strong insider signal → ALL three personalities
+    if sig_type == "pool_created":
+        targets = ["speed_demon", "analyst", "whale_tracker"]
+
+    # liquidity_add: whale accumulating → whale_tracker
+    if sig_type == "liquidity_add":
+        if "whale_tracker" not in targets:
+            targets.append("whale_tracker")
+
+    # new_token with whale_created: same as regular new_token (already handled above)
+    # but ensure it routes to whale_tracker as well
+    if sig_type == "new_token" and raw.get("whale_created"):
+        if "whale_tracker" not in targets:
+            targets.append("whale_tracker")
+
+    # Exit-type signals (whale_transfer, liquidity_remove, token_burn, account_closed)
+    # are NOT routed to personalities — they are handled separately as exit alerts
+    # in _process_signals() below
 
     return targets
 
@@ -975,9 +997,48 @@ async def _process_signals(redis_conn: aioredis.Redis):
                     "signal_data": signal,
                 }
 
-                # --- FIX 15: Token age hard gate ---
                 sig_type = signal.get("signal_type", "")
                 age_sec = signal.get("age_seconds", 0)
+
+                # --- Exit-type Helius signals: fast-track to alerts:exit_check ---
+                if sig_type in ("whale_transfer", "liquidity_remove", "account_closed"):
+                    urgency = "high" if sig_type in ("whale_transfer", "liquidity_remove") else "normal"
+                    reason_map = {
+                        "whale_transfer": "whale_cex_transfer",
+                        "liquidity_remove": "whale_liquidity_remove",
+                        "account_closed": "whale_account_closed",
+                    }
+                    await redis_conn.publish("alerts:exit_check", json.dumps({
+                        "mint": mint,
+                        "reason": reason_map.get(sig_type, sig_type),
+                        "urgency": urgency,
+                        "source": "helius_webhook",
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    }))
+                    logger.info("EXIT ALERT: %s %s from %s", sig_type, mint[:12], source)
+                    continue  # Don't route exit signals through ML scoring
+
+                # token_burn: only alert if we hold the mint (check bot:status)
+                if sig_type == "token_burn":
+                    try:
+                        bot_raw = await redis_conn.get("bot:status")
+                        if bot_raw:
+                            bot_status = json.loads(bot_raw)
+                            held_mints = {p.get("mint", "") for p in bot_status.get("positions", {}).values()}
+                            if mint in held_mints:
+                                await redis_conn.publish("alerts:exit_check", json.dumps({
+                                    "mint": mint,
+                                    "reason": "token_burn_while_held",
+                                    "urgency": "high",
+                                    "source": "helius_webhook",
+                                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                                }))
+                                logger.info("EXIT ALERT: token_burn %s (held position)", mint[:12])
+                    except Exception:
+                        pass
+                    continue
+
+                # --- FIX 15: Token age hard gate ---
                 if sig_type == "new_token" and age_sec > 180:
                     logger.debug("Age reject %s: %ds > 180s", mint[:12], age_sec)
                     continue
@@ -988,7 +1049,7 @@ async def _process_signals(redis_conn: aioredis.Redis):
                     bsr_val = float(bsr_raw)
                 except (TypeError, ValueError):
                     bsr_val = 1.0
-                if bsr_val < 0.8 and sig_type not in ("whale_entry", "smart_money_inflow", "account_trade", "whale_trade"):
+                if bsr_val < 0.8 and sig_type not in ("whale_entry", "smart_money_inflow", "account_trade", "whale_trade", "liquidity_add", "pool_created", "new_token"):
                     logger.debug("BSR reject %s: %.2f < 0.8", mint[:12], bsr_val)
                     continue
 
@@ -1061,6 +1122,12 @@ async def _process_signals(redis_conn: aioredis.Redis):
 
                 # --- Confidence score ---
                 confidence = _compute_confidence(_seen_tokens[mint]["sources"])
+
+                # Apply confidence_boost from Helius webhook raw_data (pool_created=+40, liquidity_add=+20)
+                webhook_boost = int(signal.get("raw_data", {}).get("confidence_boost", 0))
+                if webhook_boost:
+                    confidence = min(100, confidence + webhook_boost)
+                    logger.info("Helius boost %s: +%d confidence (now %d)", mint[:12], webhook_boost, confidence)
 
                 # --- Build feature dict for ML scoring (37 features) ---
                 raw = signal.get("raw_data", {})

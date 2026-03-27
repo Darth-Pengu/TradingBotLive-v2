@@ -27,6 +27,7 @@ import redis.asyncio as aioredis
 from dotenv import load_dotenv
 
 from services.db import get_pool
+from services.constants import CEX_ADDRESSES, SOL_MINT
 
 load_dotenv()
 
@@ -836,6 +837,174 @@ async def api_trigger_health_check(request):
 
 
 # --- Helius Webhook Receiver (no auth -- Helius calls directly) ---
+
+def _classify_helius_tx(tx: dict) -> dict | None:
+    """
+    Classify a Helius enhanced webhook transaction into a signal dict.
+    Returns None if not actionable.
+    Each returned dict follows the signals:raw format consumed by signal_aggregator.
+    """
+    tx_type = tx.get("type", "UNKNOWN")
+    fee_payer = tx.get("feePayer", "")
+    signature = tx.get("signature", "")
+
+    def first_token_mint():
+        for transfer in tx.get("tokenTransfers", []):
+            mint = transfer.get("mint", "")
+            if mint and mint != SOL_MINT:
+                return mint, transfer
+        return None, None
+
+    # ── SWAP ──
+    if tx_type == "SWAP":
+        mint, transfer = first_token_mint()
+        if not mint:
+            return None
+        to_addr = transfer.get("toUserAccount", "")
+        action = "buy" if to_addr == fee_payer else "sell"
+        return {
+            "mint": mint, "source": "helius_webhook",
+            "signal_type": "whale_trade",
+            "raw_data": {
+                "wallet": fee_payer, "action": action,
+                "token_amount": float(transfer.get("tokenAmount", 0) or 0),
+                "signature": signature, "txType": action,
+                "helius_webhook": True, "tx_type": "SWAP",
+            },
+        }
+
+    # ── TRANSFER ──
+    if tx_type == "TRANSFER":
+        mint, transfer = first_token_mint()
+        if not mint:
+            return None
+        to_addr = transfer.get("toUserAccount", "")
+        from_addr = transfer.get("fromUserAccount", "")
+        is_cex = to_addr in CEX_ADDRESSES
+        if from_addr != fee_payer:
+            return None
+        action = "cex_transfer" if is_cex else "send"
+        return {
+            "mint": mint, "source": "helius_webhook",
+            "signal_type": "whale_transfer",
+            "raw_data": {
+                "wallet": fee_payer, "action": action,
+                "to": to_addr, "from": from_addr,
+                "token_amount": float(transfer.get("tokenAmount", 0) or 0),
+                "is_cex_transfer": is_cex,
+                "signature": signature,
+                "txType": "sell",
+                "helius_webhook": True, "tx_type": "TRANSFER",
+            },
+        }
+
+    # ── TOKEN_MINT ──
+    if tx_type == "TOKEN_MINT":
+        mint, transfer = first_token_mint()
+        if not mint:
+            return None
+        return {
+            "mint": mint, "source": "helius_webhook",
+            "signal_type": "new_token",
+            "raw_data": {
+                "wallet": fee_payer, "action": "mint",
+                "token_amount": float(transfer.get("tokenAmount", 0) or 0) if transfer else 0,
+                "signature": signature,
+                "helius_webhook": True, "tx_type": "TOKEN_MINT",
+                "whale_created": True,
+            },
+        }
+
+    # ── ADD_LIQUIDITY ──
+    if tx_type == "ADD_LIQUIDITY":
+        mint, transfer = first_token_mint()
+        if not mint:
+            return None
+        return {
+            "mint": mint, "source": "helius_webhook",
+            "signal_type": "liquidity_add",
+            "raw_data": {
+                "wallet": fee_payer, "action": "add_liquidity",
+                "token_amount": float(transfer.get("tokenAmount", 0) or 0),
+                "signature": signature,
+                "helius_webhook": True, "tx_type": "ADD_LIQUIDITY",
+                "confidence_boost": 20,
+            },
+        }
+
+    # ── WITHDRAW_LIQUIDITY ──
+    if tx_type == "WITHDRAW_LIQUIDITY":
+        mint, transfer = first_token_mint()
+        if not mint:
+            return None
+        return {
+            "mint": mint, "source": "helius_webhook",
+            "signal_type": "liquidity_remove",
+            "raw_data": {
+                "wallet": fee_payer, "action": "withdraw_liquidity",
+                "token_amount": float(transfer.get("tokenAmount", 0) or 0),
+                "signature": signature,
+                "helius_webhook": True, "tx_type": "WITHDRAW_LIQUIDITY",
+                "txType": "sell",
+            },
+        }
+
+    # ── CREATE_POOL ──
+    if tx_type == "CREATE_POOL":
+        mint, transfer = first_token_mint()
+        if not mint:
+            logger.info("CREATE_POOL from %s — no token mint found in transfers", fee_payer[:12])
+            return None
+        logger.info("CREATE_POOL detected — wallet=%s mint=%s sig=%s",
+                     fee_payer[:12], mint[:12], signature[:16])
+        return {
+            "mint": mint, "source": "helius_webhook",
+            "signal_type": "pool_created",
+            "raw_data": {
+                "wallet": fee_payer, "action": "create_pool",
+                "signature": signature,
+                "helius_webhook": True, "tx_type": "CREATE_POOL",
+                "confidence_boost": 40,
+            },
+        }
+
+    # ── BURN ──
+    if tx_type == "BURN":
+        mint, transfer = first_token_mint()
+        if not mint:
+            return None
+        return {
+            "mint": mint, "source": "helius_webhook",
+            "signal_type": "token_burn",
+            "raw_data": {
+                "wallet": fee_payer, "action": "burn",
+                "token_amount": float(transfer.get("tokenAmount", 0) or 0),
+                "signature": signature,
+                "helius_webhook": True, "tx_type": "BURN",
+                "txType": "sell",
+            },
+        }
+
+    # ── CLOSE_ACCOUNT ──
+    if tx_type == "CLOSE_ACCOUNT":
+        for account in tx.get("accountData", []):
+            mint = account.get("mint", "")
+            if mint and mint != SOL_MINT:
+                return {
+                    "mint": mint, "source": "helius_webhook",
+                    "signal_type": "account_closed",
+                    "raw_data": {
+                        "wallet": fee_payer, "action": "close_account",
+                        "signature": signature,
+                        "helius_webhook": True, "tx_type": "CLOSE_ACCOUNT",
+                        "txType": "sell",
+                    },
+                }
+        return None
+
+    return None
+
+
 async def handle_helius_webhook(request):
     try:
         payload = await request.json()
@@ -848,30 +1017,22 @@ async def handle_helius_webhook(request):
 
     for tx in txs:
         try:
-            fee_payer = tx.get("feePayer", "")
-            for transfer in tx.get("tokenTransfers", []):
-                mint = transfer.get("mint", "")
-                if not mint or mint == "So11111111111111111111111111111111111111112":
-                    continue
-                to_addr = transfer.get("toUserAccount", "")
-                from_addr = transfer.get("fromUserAccount", "")
-                action = "buy" if to_addr == fee_payer else "sell"
-                signal = {
-                    "mint": mint, "source": "helius_webhook",
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "age_seconds": 0.0, "signal_type": "whale_trade",
-                    "raw_data": {"wallet": fee_payer, "action": action,
-                                 "token_amount": float(transfer.get("tokenAmount", 0) or 0),
-                                 "signature": tx.get("signature", ""),
-                                 "txType": action, "helius_webhook": True},
-                }
+            signal = _classify_helius_tx(tx)
+            if signal:
+                signal["timestamp"] = datetime.now(timezone.utc).isoformat()
+                signal["age_seconds"] = 0.0
                 if redis_conn:
                     await redis_conn.lpush("signals:raw", json.dumps(signal))
                     if TEST_MODE:
-                        logger.info("Helius webhook [TEST→Redis]: %s %s", action, mint[:12])
+                        logger.info(
+                            "Helius webhook [%s→Redis]: %s %s",
+                            tx.get("type", "?"),
+                            signal["signal_type"],
+                            signal["mint"][:12],
+                        )
                 processed += 1
         except Exception as e:
-            logger.warning("Helius webhook parse error: %s", e)
+            logger.warning("Helius webhook parse error [%s]: %s", tx.get("type", "?"), e)
 
     return web.json_response({"processed": processed})
 

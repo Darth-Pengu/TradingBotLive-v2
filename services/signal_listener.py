@@ -192,13 +192,13 @@ async def _register_helius_webhook(redis_conn: aioredis.Redis | None):
                 update_url = f"https://api-mainnet.helius-rpc.com/v0/webhooks/{existing_webhook_id}?api-key={HELIUS_API_KEY}"
                 payload = {
                     "webhookURL": webhook_url,
-                    "transactionTypes": ["SWAP"],
+                    "transactionTypes": HELIUS_WEBHOOK_TX_TYPES,
                     "accountAddresses": whale_wallets[:100],  # Helius limit
                     "webhookType": "enhanced",
                 }
                 async with session.put(update_url, json=payload, timeout=aiohttp.ClientTimeout(total=15)) as resp:
                     if resp.status == 200:
-                        logger.info("Helius webhook updated: %s (%d wallets)", existing_webhook_id, len(whale_wallets[:100]))
+                        logger.info("Helius webhook updated: %s (%d wallets, %d tx types)", existing_webhook_id, len(whale_wallets[:100]), len(HELIUS_WEBHOOK_TX_TYPES))
                         return
                     else:
                         logger.warning("Helius webhook update failed (HTTP %d) — creating new one", resp.status)
@@ -206,7 +206,7 @@ async def _register_helius_webhook(redis_conn: aioredis.Redis | None):
             # Create new webhook
             payload = {
                 "webhookURL": webhook_url,
-                "transactionTypes": ["SWAP"],
+                "transactionTypes": HELIUS_WEBHOOK_TX_TYPES,
                 "accountAddresses": whale_wallets[:100],
                 "webhookType": "enhanced",
             }
@@ -613,12 +613,7 @@ async def discord_nansen_poller(redis_conn: aioredis.Redis | None):
 WHALE_POLL_INTERVAL = 30  # seconds between full poll cycles
 WHALE_POLL_BATCH_SIZE = 5  # wallets per batch to stay within rate limits
 
-# Known CEX deposit addresses (non-exhaustive — extend as needed)
-CEX_ADDRESSES = {
-    "5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9",  # Binance
-    "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",  # FTX
-    "ASTyfSima4LLAdDgoFGkgqoKowG1LZFDr9fAQrg7iaJZ",  # Bybit
-}
+from services.constants import CEX_ADDRESSES, SOL_MINT, HELIUS_WEBHOOK_TX_TYPES
 
 
 async def helius_whale_poller(redis_conn: aioredis.Redis | None):
