@@ -91,6 +91,7 @@ DISCORD_ALERT_MAP = {
 
 PUMPPORTAL_WS_URL = "wss://pumpportal.fun/api/data"
 GECKO_NEW_POOLS_URL = "https://api.geckoterminal.com/api/v2/networks/solana/new_pools"
+GECKO_TRENDING_URL = "https://api.geckoterminal.com/api/v2/networks/solana/trending_pools?include=base_token,quote_token,dex"
 DEXPAPRIKA_SSE_URL = "https://streaming.dexpaprika.com/stream"
 
 # Reconnect config: exponential backoff 1s base, x2 each attempt, 60s max
@@ -440,6 +441,88 @@ async def gecko_poller(redis_conn: aioredis.Redis | None):
 
         except Exception as e:
             logger.error("GeckoTerminal poller error: %s — restarting in %.1fs", e, backoff)
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * BACKOFF_FACTOR, BACKOFF_MAX)
+
+
+# ---------------------------------------------------------------------------
+# 2b. GeckoTerminal Trending Pools (analyst signal source)
+# Polls trending pools every 60s — tokens with confirmed volume + momentum.
+# ---------------------------------------------------------------------------
+async def gecko_trending_poller(redis_conn: aioredis.Redis | None):
+    """Poll GeckoTerminal trending pools for analyst personality signals."""
+    backoff = BACKOFF_BASE
+    while True:
+        try:
+            async with aiohttp.ClientSession() as session:
+                while True:
+                    try:
+                        async with session.get(
+                            GECKO_TRENDING_URL,
+                            headers={"Accept": "application/json"},
+                            timeout=aiohttp.ClientTimeout(total=10),
+                        ) as resp:
+                            if resp.status == 200:
+                                body = await resp.json()
+                                pools = body.get("data", [])
+                                pushed = 0
+                                for pool in pools:
+                                    attrs = pool.get("attributes", {})
+                                    rels = pool.get("relationships", {})
+                                    base_token = rels.get("base_token", {}).get("data", {}).get("id", "")
+                                    mint = base_token.replace("solana_", "") if base_token.startswith("solana_") else ""
+                                    pool_addr = attrs.get("address", "")
+
+                                    if not mint or mint in GECKO_SEEN:
+                                        continue
+                                    # Don't add to GECKO_SEEN — trending tokens can re-appear and should re-signal
+
+                                    vol_1h = float(attrs.get("volume_usd", {}).get("h1", 0) or 0)
+                                    vol_24h = float(attrs.get("volume_usd", {}).get("h24", 0) or 0)
+                                    txns = attrs.get("transactions", {}).get("h1", {})
+                                    buys_1h = int(txns.get("buys", 0) or 0)
+                                    sells_1h = int(txns.get("sells", 0) or 0)
+                                    price_change_1h = float(attrs.get("price_change_percentage", {}).get("h1", 0) or 0)
+                                    mcap = float(attrs.get("market_cap_usd") or attrs.get("fdv_usd") or 0)
+                                    liq = float(attrs.get("reserve_in_usd", 0) or 0)
+
+                                    if vol_1h < 1000:
+                                        continue
+
+                                    buy_sell_ratio = buys_1h / sells_1h if sells_1h > 0 else float(buys_1h)
+
+                                    signal = _build_signal(mint, "geckoterminal_trending", "trending", {
+                                        "pool_address": pool_addr,
+                                        "volume_1h_usd": vol_1h,
+                                        "volume_24h_usd": vol_24h,
+                                        "buy_count_1h": buys_1h,
+                                        "sell_count_1h": sells_1h,
+                                        "price_change_1h_pct": price_change_1h,
+                                        "market_cap_usd": mcap,
+                                        "liquidity_usd": liq,
+                                        "buy_sell_ratio_5min": buy_sell_ratio,
+                                        "name": attrs.get("name", ""),
+                                        "base_token_price_usd": attrs.get("base_token_price_usd"),
+                                    })
+                                    await _push_signal(redis_conn, signal)
+                                    pushed += 1
+
+                                if pushed:
+                                    logger.info("GeckoTerminal trending: pushed %d/%d pools", pushed, len(pools))
+                                backoff = BACKOFF_BASE
+                            elif resp.status == 429:
+                                logger.warning("GeckoTerminal trending rate limited — backing off")
+                                await asyncio.sleep(backoff)
+                                backoff = min(backoff * BACKOFF_FACTOR, BACKOFF_MAX)
+                            else:
+                                logger.warning("GeckoTerminal trending HTTP %d", resp.status)
+                    except aiohttp.ClientError as e:
+                        logger.warning("GeckoTerminal trending request error: %s", e)
+
+                    await asyncio.sleep(60)
+
+        except Exception as e:
+            logger.error("GeckoTerminal trending poller error: %s — restarting in %.1fs", e, backoff)
             await asyncio.sleep(backoff)
             backoff = min(backoff * BACKOFF_FACTOR, BACKOFF_MAX)
 
@@ -888,6 +971,7 @@ async def main():
     await asyncio.gather(
         pumpportal_listener(redis_conn),
         gecko_poller(redis_conn),
+        gecko_trending_poller(redis_conn),
         dexpaprika_listener(redis_conn),
         nansen_screener_poller(redis_conn),
         discord_nansen_poller(redis_conn),

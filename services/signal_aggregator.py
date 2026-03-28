@@ -777,6 +777,10 @@ def _classify_target_personalities(signal: dict, rugcheck: dict) -> list[str]:
     elif sig_type == "migration" and 300 <= age <= 900:
         targets.append("speed_demon")  # Post-grad dip tier
 
+    # GeckoTerminal trending: confirmed volume + momentum — analyst only
+    if sig_type == "trending" or signal.get("source") == "geckoterminal_trending":
+        return ["analyst"]
+
     # Nansen screener: graduated tokens — analyst only (no bonding curve)
     if sig_type == "analyst" or signal.get("source") == "nansen_screener":
         return ["analyst"]
@@ -1202,7 +1206,22 @@ async def _process_signals(redis_conn: aioredis.Redis):
                     "token_freshness_score": math.exp(-float(signal.get("age_seconds", 0)) / 3600.0 / 6.0),
                     # Rugcheck risks array contains "mintAuthority" risk if authority is ACTIVE (not revoked = risky)
                     "mint_authority_revoked": 0.0 if any("mintauthority" in r.lower() for r in rugcheck.get("risk_names", [])) else 1.0,
+                    # === Trending / multi-source features ===
+                    "volume_1h_usd": float(raw.get("volume_1h_usd", 0)),
+                    "trending_strength": float(raw.get("trending_strength", 0)),
+                    "source_count": len(_seen_tokens.get(mint, {}).get("sources", set())),
                 }
+
+                # Compute trending_strength if source is trending
+                if signal.get("source") == "geckoterminal_trending":
+                    v1h = features["volume_1h_usd"]
+                    pch = features["price_change_1h_pct"]
+                    bsr = features["buy_sell_ratio_5min"]
+                    features["trending_strength"] = min(100, int(
+                        (min(v1h, 100000) / 100000 * 40) +
+                        (min(max(pch, 0), 50) / 50 * 30) +
+                        (min(bsr, 3) / 3 * 30)
+                    ))
 
                 # Fill in market health data
                 health_str = await redis_conn.get("market:health")
