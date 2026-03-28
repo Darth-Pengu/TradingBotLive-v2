@@ -890,8 +890,15 @@ class BotCore:
         await pubsub.subscribe("alerts:emergency")
         logger.info("Listening for emergency alerts")
 
+        _startup_time = time.time()
+
         async for message in pubsub.listen():
             if message["type"] != "message":
+                continue
+            # Ignore messages in first 10s — prevents stale pub/sub replay
+            # from triggering false emergency stop on restart
+            if time.time() - _startup_time < 10:
+                logger.info("Ignoring pre-startup emergency message (grace period)")
                 continue
             try:
                 data = json.loads(message["data"])
