@@ -1415,3 +1415,42 @@ for production inference, use as 4th ensemble member.
 6. ML training record INSERT audit logging
 7. MIN_SAMPLES_FIRST_TRAIN: 50 → 15 (bootstrap threshold)
 8. Haiku enrichment: gated behind HAIKU_ENRICHMENT_ENABLED env var (default off)
+
+## 25. Nansen Integration Status (March 2026)
+
+### Discord listener (signal_listener.py)
+- Channel: DISCORD_NANSEN_CHANNEL_ID env var
+- Bot: DISCORD_BOT_TOKEN (Toxibot Listener)
+- Poll interval: 15 seconds
+- Alert types wired (case-insensitive matching):
+  - "Whale Entry" → whale_tracker, confidence_boost=30
+  - "Smart Money Inflow" → analyst, confidence_boost=25
+  - "Smart Money Concentration" → analyst, confidence_boost=35
+  - "Smart Money Sell/Exit" → alerts:exit_check (high urgency)
+  - "Fund Activity" → whale_tracker, confidence_boost=30
+  - "Netflow Spike" → market:netflow_boost Redis key (1.2x multiplier)
+- Prerequisite: bot needs Read Messages + Read Message History + View Channel
+
+### watched_wallets (PostgreSQL source of truth)
+- Table: watched_wallets with qualification_score, personality_route, nansen_labels
+- Source: nansen_wallet_fetcher.fetch_and_upsert_wallets() (every 48h via governance)
+- Fallback: whale_wallets.json → auto-seeded with 8 known addresses
+- Dashboard: GET /api/wallets, POST /api/wallets/refresh
+
+### Token screener (signal_listener.py)
+- Endpoint: POST https://api.nansen.ai/api/v1/token-screener
+- Poll interval: 10 minutes
+- Filters: Solana, max 1 day old, top 20 by market cap
+- Routes to: analyst personality via "nansen_screener" source
+- Dedup: NANSEN_SCREENER_SEEN set (in-memory, clears at 2000)
+
+### Nansen MCP (governance.py only)
+- Server: https://mcp.nansen.ai/ra/mcp/
+- Auth: NANSEN-API-KEY header
+- Used by: wallet_rescore, daily_briefing, weekly_meta tasks
+- NOT used in signal_aggregator or signal_listener (latency-sensitive → REST only)
+
+### Which personalities consume Nansen data
+- Speed Demon: indirect (confidence_boost from Nansen Discord alerts)
+- Analyst: direct (nansen_screener + smart_money_inflow + sm_concentration alerts)
+- Whale Tracker: direct (whale_entry + fund_activity alerts + watched_wallets)

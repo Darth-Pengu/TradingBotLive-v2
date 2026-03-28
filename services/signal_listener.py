@@ -50,6 +50,7 @@ DISCORD_POLL_INTERVAL = 15  # seconds
 SOLANA_ADDRESS_RE = re.compile(r"[1-9A-HJ-NP-Za-km-z]{32,44}")
 
 DISCORD_ALERT_MAP = {
+    # Nansen webhook alerts forwarded to Discord channel
     "ToxiBot Whale Entry": {
         "signal_type": "whale_entry",
         "route": "whale_tracker",
@@ -60,6 +61,11 @@ DISCORD_ALERT_MAP = {
         "route": "analyst",
         "confidence_boost": 25,
     },
+    "ToxiBot Smart Money Concentration": {
+        "signal_type": "sm_concentration",
+        "route": "analyst",
+        "confidence_boost": 35,
+    },
     "ToxiBot Smart Money Sell": {
         "signal_type": "smart_money_exit",
         "publish_channel": "alerts:exit_check",
@@ -68,7 +74,7 @@ DISCORD_ALERT_MAP = {
     "ToxiBot Fund Activity": {
         "signal_type": "fund_activity",
         "route": "whale_tracker",
-        "confidence_boost": 20,
+        "confidence_boost": 30,
     },
     "ToxiBot Netflow Spike": {
         "signal_type": "netflow_spike",
@@ -76,6 +82,11 @@ DISCORD_ALERT_MAP = {
         "boost_ttl": 7200,
         "position_limit_multiplier": 1.2,
     },
+    # Generic Nansen alert patterns (if webhook format differs)
+    "whale entry": {"signal_type": "whale_entry", "route": "whale_tracker", "confidence_boost": 25},
+    "smart money": {"signal_type": "smart_money_inflow", "route": "analyst", "confidence_boost": 25},
+    "fund activity": {"signal_type": "fund_activity", "route": "whale_tracker", "confidence_boost": 30},
+    "smart money exit": {"signal_type": "smart_money_exit", "publish_channel": "alerts:exit_check", "urgency": "high"},
 }
 
 PUMPPORTAL_WS_URL = "wss://pumpportal.fun/api/data"
@@ -489,11 +500,12 @@ async def dexpaprika_listener(redis_conn: aioredis.Redis | None):
 # ---------------------------------------------------------------------------
 
 def _parse_discord_alert(content: str) -> tuple[str | None, dict | None]:
-    """Match message content to a known Nansen alert type.
+    """Match message content to a known Nansen alert type (case-insensitive).
     Returns (alert_name, config) or (None, None) if no match.
     """
+    content_lower = content.lower()
     for alert_name, config in DISCORD_ALERT_MAP.items():
-        if alert_name in content:
+        if alert_name.lower() in content_lower:
             return alert_name, config
     return None, None
 

@@ -53,7 +53,7 @@ NANSEN_MCP_SERVER = {
     "type": "url",
     "url": "https://mcp.nansen.ai/ra/mcp/",
     "name": "nansen-mcp",
-    "authorization_token": NANSEN_API_KEY,
+    "headers": {"NANSEN-API-KEY": NANSEN_API_KEY},
 } if NANSEN_API_KEY else None
 
 SYDNEY_TZ = pytz.timezone("Australia/Sydney")
@@ -216,7 +216,9 @@ Remove wallets below thresholds. Suggest new wallets to add.
 Current wallets: {json.dumps(context.get('current_wallets', [])[:20], indent=2)}
 Wallet addresses for lookup: {json.dumps(wallet_addrs, indent=2)}
 
-Use Nansen MCP tools to get PnL summaries and smart money rankings.
+Use the Nansen MCP server to look up current PnL and activity for each wallet.
+Query Nansen for Solana smart money activity in the last 48 hours and identify
+any wallets we should add or remove from our watchlist.
 Scoring: win_rate (25%), avg_roi (20%), trade_frequency (15%), realized_pnl (15%), consistency (15%), hold_period (10%).
 
 Output: Valid JSON array with schema:

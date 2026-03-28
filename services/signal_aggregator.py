@@ -1081,7 +1081,7 @@ async def _process_signals(redis_conn: aioredis.Redis):
                     bsr_val = float(bsr_raw)
                 except (TypeError, ValueError):
                     bsr_val = 1.0
-                if bsr_val < 0.8 and sig_type not in ("whale_entry", "smart_money_inflow", "account_trade", "whale_trade", "liquidity_add", "pool_created", "new_token"):
+                if bsr_val < 0.8 and sig_type not in ("whale_entry", "smart_money_inflow", "sm_concentration", "fund_activity", "account_trade", "whale_trade", "liquidity_add", "pool_created", "new_token", "analyst"):
                     logger.debug("BSR reject %s: %.2f < 0.8", mint[:12], bsr_val)
                     continue
 
