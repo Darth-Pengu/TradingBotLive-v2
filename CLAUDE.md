@@ -107,3 +107,14 @@ Deprecated (returns 401):
 - GET https://api.jup.ag/swap/v1/quote
 - POST https://api.jup.ag/swap/v1/swap
 
+## Direct Service Access (for Claude Code agent sessions)
+
+The agent can connect directly to Railway services via public proxy URLs.
+See AGENT_CONTEXT.md Section 26 for the full connectivity baseline.
+
+Key access pattern:
+- PostgreSQL: asyncpg.connect(dsn) for DB queries and state inspection
+- Redis: redis.from_url(url) for queue inspection and key manipulation
+- Dashboard API: blocked by IP whitelist — use Redis/PostgreSQL directly
+- Never commit connection passwords to files — use in-memory only
+

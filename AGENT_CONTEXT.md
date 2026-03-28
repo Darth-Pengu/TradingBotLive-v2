@@ -1454,3 +1454,44 @@ for production inference, use as 4th ensemble member.
 - Speed Demon: indirect (confidence_boost from Nansen Discord alerts)
 - Analyst: direct (nansen_screener + smart_money_inflow + sm_concentration alerts)
 - Whale Tracker: direct (whale_entry + fund_activity alerts + watched_wallets)
+
+## 26. Service Connectivity Baseline (March 2026)
+
+### Public access URLs for Claude Code agent sessions
+```
+PostgreSQL: postgresql://postgres:<PASSWORD>@gondola.proxy.rlwy.net:29062/railway
+Redis:      redis://default:<PASSWORD>@crossover.proxy.rlwy.net:36328
+Dashboard:  https://zmnbot.com (IP-whitelisted — 403 from external)
+```
+
+### Connectivity test results (2026-03-29)
+| Service | Status | Latency | Notes |
+|---------|--------|---------|-------|
+| PostgreSQL | REACHABLE | ~2900ms | v18.3, public proxy |
+| Redis | REACHABLE | ~1450ms | v8.2.1, public proxy |
+| Dashboard API | BLOCKED | 403 | IP whitelist (DASHBOARD_ALLOWED_IPS) |
+| PumpPortal WS | LIVE | <1s | Signals flowing (308 in queue) |
+| Jupiter | OK | 100ms | v2 /order endpoint |
+| Jito | OK | 83ms | Bundles endpoint |
+| Helius RPC | WARN | 31ms | HTTP 429 (rate limited) |
+| Nansen | WARN | 105ms | HTTP 405 (method/endpoint issue) |
+| GeckoTerminal | OK | via market_health | Data fresh |
+| DefiLlama | OK | via market_health | Data fresh |
+| Anthropic | OK | -- | Key configured |
+| Discord | OK | -- | Bot + webhook configured |
+
+### Key system state at time of baseline
+- Portfolio balance: 19.54 SOL
+- Paper trades completed: 130 (all speed_demon)
+- Analyst/Whale Tracker: 0 trades (routing fixes deployed, pending restart)
+- ML training: 117 trades rows with features_json, 0 with outcome (outcome write path broken pre-fix)
+- ML status: UNTRAINED (0/15 ready samples — needs new trades with fixed pipeline)
+- Market mode: NORMAL (via override — natural mode is HIBERNATE)
+- bot:status: EMERGENCY_STOPPED (needs bot_core restart after reset)
+- watched_wallets: 0 active (Nansen fetch not populating)
+- All 10 DB tables present and accessible
+
+### How to use these URLs in future sessions
+Agent can connect directly to PostgreSQL and Redis using the public proxy URLs.
+Dashboard API requires IP whitelisting — use Redis/PostgreSQL for direct data access.
+Store passwords in memory only — never commit to files.
