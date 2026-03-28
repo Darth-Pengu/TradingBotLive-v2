@@ -54,7 +54,9 @@ ML_THRESHOLD_ADJUSTMENTS = {
     "DEFENSIVE": 10,
 }
 
-MIN_SAMPLES_FIRST_TRAIN = 50
+# Bootstrap threshold — fit immediately with minimal data, quality improves with more
+# Raise to 50+ after first real trading session
+MIN_SAMPLES_FIRST_TRAIN = 15
 MIN_SAMPLES_PRODUCTION = 200
 RETRAIN_INTERVAL_SECONDS = 7 * 24 * 3600  # Weekly
 INCREMENTAL_UPDATE_INTERVAL = int(os.getenv("ML_INCREMENTAL_INTERVAL", "20"))  # faster adaptation

@@ -436,8 +436,9 @@ class BotCore:
                         "UPDATE paper_trades SET features_json=$1, ml_score_at_entry=$2 WHERE id=$3",
                         json.dumps(features), ml_score, paper_trade_id,
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("AUDIT: features_json write failed for paper_trade_id=%d: %s",
+                                   paper_trade_id, e)
                 # Write to trades table with features_json for ML training
                 trades_ml_id = await self.pool.fetchval(
                     """INSERT INTO trades (mint, personality, action, amount_sol, entry_price,
@@ -447,6 +448,8 @@ class BotCore:
                     json.dumps(features), ml_score,
                     json.dumps(scored_signal.get("sources", [])), time.time(),
                 )
+                logger.info("AUDIT: ML training record written trades.id=%d mint=%s personality=%s score=%.1f",
+                            trades_ml_id, mint[:12], personality, ml_score)
                 pos = Position(
                     mint=mint, personality=personality,
                     entry_price=paper_result["entry_price"],

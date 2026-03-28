@@ -168,7 +168,8 @@ async def _load_whale_wallets() -> list[str]:
         with open("data/whale_wallets.json", "r") as f:
             wallets = json.load(f)
         addrs = [w["address"] for w in wallets if isinstance(w, dict) and "address" in w]
-        logger.warning("Using JSON fallback — %d whale wallets", len(addrs))
+        logger.warning("Using JSON fallback — %d whale wallets: %s",
+                        len(addrs), [a[:8] for a in addrs[:5]])
         return addrs
     except (FileNotFoundError, json.JSONDecodeError, KeyError):
         pass

@@ -809,12 +809,12 @@ def _classify_target_personalities(signal: dict, rugcheck: dict) -> list[str]:
     elif sig_type == "migration" and 300 <= age <= 900:
         targets.append("speed_demon")  # Post-grad dip tier
 
-    # Analyst: confirmed tokens, multi-source signals
-    if sig_type in ("new_pool", "token_trade", "sse_event", "migration"):
+    # Analyst: confirmed tokens, multi-source signals, AND new_token (for bootstrap data collection)
+    if sig_type in ("new_token", "new_pool", "token_trade", "sse_event", "migration"):
         targets.append("analyst")
 
-    # Whale Tracker: account trades from tracked wallets
-    if sig_type == "account_trade":
+    # Whale Tracker: account trades from tracked wallets + Helius webhook whale signals
+    if sig_type in ("account_trade", "whale_trade", "whale_transfer"):
         targets.append("whale_tracker")
 
     # --- Expanded Helius webhook signal types ---
@@ -1160,6 +1160,11 @@ async def _process_signals(redis_conn: aioredis.Redis):
 
                 # --- Classify target personalities ---
                 targets = _classify_target_personalities(signal, rugcheck)
+                raw_data = signal.get("raw_data", {})
+                bc_val = raw_data.get("bondingCurveProgress", raw_data.get("bonding_curve_progress", 0))
+                logger.info("TARGETS for %s: %s (type=%s, bc=%.2f, age=%ds, sources=%s)",
+                            mint[:12], targets, sig_type, float(bc_val or 0),
+                            age_sec, list(_seen_tokens[mint]["sources"]))
                 if not targets:
                     continue
 
@@ -1309,8 +1314,11 @@ async def _process_signals(redis_conn: aioredis.Redis):
                                      mint[:12], haiku_risk, haiku_rec, ml_score)
 
                     # Source count check for Analyst
-                    if personality == "analyst" and len(_seen_tokens[mint]["sources"]) < ANALYST_FILTERS.get("min_sources", 2):
-                        logger.debug("Analyst needs 2+ sources for %s (has %d)", mint[:12], len(_seen_tokens[mint]["sources"]))
+                    # Source count gate — relaxed to 1 during bootstrap (untrained model)
+                    min_sources_required = 1 if not ml_trained else ANALYST_FILTERS.get("min_sources", 2)
+                    if personality == "analyst" and len(_seen_tokens[mint]["sources"]) < min_sources_required:
+                        logger.debug("Analyst source gate: %s has %d/%d sources (ml_trained=%s)",
+                                     mint[:12], len(_seen_tokens[mint]["sources"]), min_sources_required, ml_trained)
                         continue
 
                     # --- Nansen smart money confirmation ---

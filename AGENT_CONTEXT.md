@@ -1385,3 +1385,33 @@ NOT yet implemented — requires commercial license (priorlabs.ai).
 Evaluate after accumulating 200+ paper trades.
 Recommended approach when licensed: distill into tree ensemble
 for production inference, use as 4th ensemble member.
+
+## 24. Current Bootstrap Status (March 2026 Audit)
+
+**Date:** 2026-03-28
+**Audit tool:** scripts/audit.py (reads Redis + PostgreSQL only)
+
+### Personality status
+- **Speed Demon:** ACTIVE — generating paper trades from PumpPortal new_token signals
+- **Analyst:** WAS INACTIVE — root cause: `_classify_target_personalities()` excluded
+  `new_token` from analyst routing AND source gate required 2+ sources (only PumpPortal active).
+  **Fix:** added `new_token` to analyst signal types, relaxed source gate to 1 during bootstrap.
+- **Whale Tracker:** WAS INACTIVE — root cause: only routed `account_trade` signal type.
+  Helius webhook `whale_trade` and `whale_transfer` signals were not included.
+  **Fix:** added `whale_trade` and `whale_transfer` to whale_tracker routing.
+
+### ML training status at time of audit
+- Labelled training samples: 12 (need 15 for bootstrap, 200 for production)
+- MIN_SAMPLES_FIRST_TRAIN lowered from 50 to 15 for immediate bootstrap fit
+- features_json write to paper_trades now logs failures explicitly
+- ML training record INSERT to trades table now logged for audit trail
+
+### Fixes applied
+1. Analyst routing: added `new_token` to `_classify_target_personalities`
+2. Analyst source gate: relaxed to 1 source during bootstrap (untrained model)
+3. Whale Tracker routing: added `whale_trade` + `whale_transfer` signal types
+4. Target classification debug logging: TARGETS line in signal_aggregator logs
+5. features_json write failure logging (was silent `pass`)
+6. ML training record INSERT audit logging
+7. MIN_SAMPLES_FIRST_TRAIN: 50 → 15 (bootstrap threshold)
+8. Haiku enrichment: gated behind HAIKU_ENRICHMENT_ENABLED env var (default off)
