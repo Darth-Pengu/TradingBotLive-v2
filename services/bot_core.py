@@ -155,9 +155,14 @@ class BotCore:
             )
             if row:
                 self.portfolio.total_balance_sol = row["total_balance_sol"]
-                self.portfolio.daily_pnl_sol = row["daily_pnl_sol"]
-                self.portfolio.peak_balance_sol = max(self.portfolio.peak_balance_sol, row["total_balance_sol"])
-                logger.info("Loaded portfolio state: %.4f SOL", row["total_balance_sol"])
+                # Reset daily P&L on startup — stale negative values
+                # from previous session trigger false emergency stops
+                self.portfolio.daily_pnl_sol = 0.0
+                self.portfolio.peak_balance_sol = max(
+                    self.portfolio.peak_balance_sol,
+                    self.portfolio.total_balance_sol
+                )
+                logger.info("Loaded portfolio state: %.4f SOL (daily P&L reset to 0.0)", row["total_balance_sol"])
         except Exception:
             pass
 
@@ -302,9 +307,6 @@ class BotCore:
         """Halt ALL three personalities simultaneously."""
         if self.emergency_stopped:
             return
-        import traceback
-        logger.critical("EMERGENCY STOP called from:\n%s",
-                       ''.join(traceback.format_stack()))
         self.emergency_stopped = True
         logger.critical("EMERGENCY STOP: %s", reason)
 
@@ -851,10 +853,16 @@ class BotCore:
                 except Exception as e:
                     logger.error("Exit check error for %s: %s", key, e)
 
-            # Check emergency conditions
-            triggered = await check_emergency_conditions(self.portfolio, self.redis)
-            if triggered:
-                await self.emergency_stop("Risk limits breached")
+            # Skip emergency check on first 3 iterations (30s grace)
+            # Prevents stale portfolio state from triggering false stop
+            if not hasattr(self, '_exit_check_count'):
+                self._exit_check_count = 0
+            self._exit_check_count += 1
+
+            if self._exit_check_count > 3:
+                triggered = await check_emergency_conditions(self.portfolio, self.redis)
+                if triggered:
+                    await self.emergency_stop("Risk limits breached")
 
             await asyncio.sleep(10)  # Check every 10 seconds
 
