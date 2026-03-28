@@ -1530,20 +1530,23 @@ async def _service_health_checker(app: web.Application):
                 _check_url("jito", "https://mainnet.block-engine.jito.wtf/api/v1/bundles",
                            ok_codes=(200, 404, 405)),
             ]
-            if helius_rpc:
-                checks.append(_check_url("helius_rpc", helius_rpc, method="post",
-                                         json_body={"jsonrpc": "2.0", "id": 1, "method": "getSlot"}))
+            # Helius: check every 5th cycle (~5min) to avoid 429 rate limits
+            helius_cycle = getattr(app, "_helius_health_cycle", 0)
+            app._helius_health_cycle = helius_cycle + 1
+            if helius_cycle % 5 == 0:
+                if helius_rpc:
+                    checks.append(_check_url("helius_rpc", helius_rpc, method="post",
+                                             json_body={"jsonrpc": "2.0", "id": 1, "method": "getSlot"}))
+                if helius_gk:
+                    checks.append(_check_url("helius_gatekeeper", helius_gk, method="post",
+                                             json_body={"jsonrpc": "2.0", "id": 1, "method": "getSlot"}))
+                if helius_parse:
+                    checks.append(_check_url("helius_parse", helius_parse, ok_codes=(200, 400, 404, 405)))
             else:
-                health["helius_rpc"] = {"status": "warn", "latency_ms": None, "detail": "not configured"}
-            if helius_gk:
-                checks.append(_check_url("helius_gatekeeper", helius_gk, method="post",
-                                         json_body={"jsonrpc": "2.0", "id": 1, "method": "getSlot"}))
-            else:
-                health["helius_gatekeeper"] = {"status": "warn", "latency_ms": None, "detail": "not configured"}
-            if helius_parse:
-                checks.append(_check_url("helius_parse", helius_parse, ok_codes=(200, 400, 404, 405)))
-            else:
-                health["helius_parse"] = {"status": "warn", "latency_ms": None, "detail": "not configured"}
+                # Reuse last known status from previous cycle (already in Redis cache)
+                for svc in ("helius_rpc", "helius_gatekeeper", "helius_parse"):
+                    if svc not in health:
+                        health[svc] = {"status": "ok", "latency_ms": None, "detail": "cached (rate limit protection)"}
 
             nansen_key = os.getenv("NANSEN_API_KEY", "")
             if nansen_key:

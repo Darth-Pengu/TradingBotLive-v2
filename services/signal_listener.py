@@ -202,6 +202,23 @@ async def _load_whale_wallets() -> list[str]:
     ]
     whale_path.write_text(json.dumps(fallback, indent=2))
     logger.info("whale_wallets.json seeded with %d fallback wallets", len(fallback))
+
+    # Also insert fallback wallets into watched_wallets DB table
+    try:
+        from services.db import get_pool
+        pool = await get_pool()
+        for w in fallback:
+            await pool.execute(
+                """INSERT INTO watched_wallets
+                   (address, label, personality_route, source, qualification_score, is_active)
+                   VALUES ($1, $2, 'whale_tracker', 'fallback', 75, TRUE)
+                   ON CONFLICT (address) DO UPDATE SET is_active = TRUE""",
+                w["address"], w.get("label", "Fallback Whale"),
+            )
+        logger.info("Inserted %d fallback wallets into watched_wallets DB", len(fallback))
+    except Exception as e:
+        logger.warning("Failed to insert fallback wallets into DB: %s", e)
+
     return [w["address"] for w in fallback]
 
 
