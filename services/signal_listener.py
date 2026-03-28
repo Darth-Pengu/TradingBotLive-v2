@@ -882,7 +882,7 @@ async def main():
     except Exception as e:
         logger.warning("Wallet population check failed: %s — will use JSON fallback", e)
 
-    # Register Helius webhook for real-time whale monitoring (non-blocking)
+    # Register Helius webhook with updated wallet list (after population)
     await _register_helius_webhook(redis_conn)
 
     await asyncio.gather(
