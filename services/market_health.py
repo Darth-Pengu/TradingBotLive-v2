@@ -166,31 +166,8 @@ async def _fetch_defillama(session: aiohttp.ClientSession) -> float:
 
 
 async def _fetch_cfgi(session: aiohttp.ClientSession) -> float:
-    """Returns Solana Fear & Greed Index (0-100). Multi-URL probe + Alternative.me fallback."""
-    cfgi_urls = [
-        "https://cfgi.io/api/solana-fear-greed-index/",
-        "https://cfgi.io/api/solana-fear-greed-index/1d",
-        "https://cfgi.io/api/solana-fear-greed-index",
-    ]
-    for url in cfgi_urls:
-        try:
-            data = await _fetch_json(session, url)
-            if data:
-                if isinstance(data, dict):
-                    for key in ("value", "score", "fgi", "index"):
-                        val = data.get(key)
-                        if val is None and "data" in data and isinstance(data["data"], dict):
-                            val = data["data"].get(key)
-                        if val is not None:
-                            return float(val)
-                if isinstance(data, list) and data:
-                    for key in ("value", "score", "fgi"):
-                        val = data[0].get(key)
-                        if val is not None:
-                            return float(val)
-        except Exception:
-            continue
-    # Fallback: Alternative.me crypto fear & greed (not Solana-specific but better than 50)
+    """Returns crypto Fear & Greed Index (0-100) from Alternative.me.
+    cfgi.io is defunct (404 confirmed) — removed to stop noisy log spam."""
     try:
         data = await _fetch_json(session, "https://api.alternative.me/fng/?limit=1")
         if data and isinstance(data, dict):
@@ -198,11 +175,9 @@ async def _fetch_cfgi(session: aiohttp.ClientSession) -> float:
             if entries and isinstance(entries, list):
                 val = entries[0].get("value")
                 if val is not None:
-                    logger.info("CFGI: using Alternative.me crypto F&G index: %s", val)
                     return float(val)
-    except Exception:
-        pass
-    logger.warning("All CFGI sources failed — defaulting to neutral 50")
+    except Exception as e:
+        logger.debug("Alternative.me F&G fetch failed: %s", e)
     return 50.0
 
 
@@ -343,7 +318,18 @@ async def daily_health_check(redis_conn: aioredis.Redis | None):
                     except Exception:
                         pass
 
-                mode = _determine_market_mode(dex_vol, grad_rate_estimate, pumpfun_vol_estimate)
+                # Check for manual override (set via POST /api/market-mode-override)
+                override = None
+                if redis_conn:
+                    try:
+                        override = await redis_conn.get("market:mode:override")
+                    except Exception:
+                        pass
+                if override and override.upper() in ("NORMAL", "AGGRESSIVE", "DEFENSIVE", "FRENZY", "HIBERNATE"):
+                    mode = override.upper()
+                    logger.info("Market mode OVERRIDE active: %s", mode)
+                else:
+                    mode = _determine_market_mode(dex_vol, grad_rate_estimate, pumpfun_vol_estimate)
                 sentiment = _compute_sentiment_score(cfgi, grad_rate_estimate, sol_24h_change, dex_vol, 0)
 
                 state = {

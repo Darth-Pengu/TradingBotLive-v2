@@ -943,6 +943,28 @@ async def api_wallets_delete(request):
         return web.json_response({"error": str(e)}, status=500)
 
 
+async def api_market_mode_override(request):
+    """POST /api/market-mode-override — set or clear manual market mode override."""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "invalid json"}, status=400)
+    mode = str(body.get("mode", "")).upper()
+    redis_conn = request.app.get("redis")
+    if not redis_conn:
+        return web.json_response({"error": "Redis not available"}, status=503)
+    if mode == "CLEAR":
+        await redis_conn.delete("market:mode:override")
+        logger.info("Market mode override CLEARED")
+        return web.json_response({"status": "cleared"})
+    valid = ["HIBERNATE", "DEFENSIVE", "NORMAL", "AGGRESSIVE", "FRENZY"]
+    if mode not in valid:
+        return web.json_response({"error": f"must be one of {valid} or CLEAR"}, status=400)
+    await redis_conn.set("market:mode:override", mode, ex=86400)
+    logger.info("Market mode override SET: %s (24h TTL)", mode)
+    return web.json_response({"status": "override set", "mode": mode, "expires_in": 86400})
+
+
 async def api_audit_snapshot(request):
     """Return latest continuous audit snapshot from logs/audit_snapshot.json."""
     try:
@@ -1618,6 +1640,7 @@ def create_app() -> web.Application:
     app.router.add_get("/api/service-health", api_service_health)
     app.router.add_get("/api/debug/rugcheck-scores", api_debug_rugcheck)
     app.router.add_get("/api/audit-snapshot", api_audit_snapshot)
+    app.router.add_post("/api/market-mode-override", api_market_mode_override)
     app.router.add_get("/api/whale-activity", api_whale_activity)
     app.router.add_get("/api/wallets", api_wallets)
     app.router.add_get("/api/wallets/refresh-log", api_wallets_refresh_log)

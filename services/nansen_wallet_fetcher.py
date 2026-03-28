@@ -133,6 +133,14 @@ async def _fetch_nansen_top_traders(session: aiohttp.ClientSession, redis_conn=N
     # Source 1: Smart money holdings (top 50 by value)
     try:
         holdings = await get_smart_money_holdings(session, redis_conn)
+        # Debug logging for Nansen response structure
+        if holdings:
+            logger.info("Nansen holdings: %d items returned", len(holdings))
+            if isinstance(holdings[0], dict):
+                logger.info("First holding keys: %s", list(holdings[0].keys()))
+                logger.info("First holding sample: %s", str(holdings[0])[:500])
+        else:
+            logger.warning("Nansen holdings returned empty list")
         for h in holdings:
             addr = h.get("owner", h.get("address", h.get("wallet_address", "")))
             if not addr:
@@ -168,7 +176,9 @@ async def _fetch_nansen_top_traders(session: aiohttp.ClientSession, redis_conn=N
         except Exception:
             pass
 
-    logger.info("Fetched %d wallets from Nansen smart money", len(wallets))
+    if holdings and len(wallets) == 0:
+        logger.warning("Nansen holdings returned %d items but 0 wallets mapped — field names may have changed", len(holdings))
+    logger.info("Fetched %d wallets from Nansen smart money (from %d holdings)", len(wallets), len(holdings))
     return wallets
 
 
@@ -177,6 +187,31 @@ async def fetch_and_upsert_wallets(trigger: str = "scheduled") -> dict:
     Main entry point. Fetches wallets from Nansen, scores them,
     upserts to watched_wallets table in PostgreSQL.
     """
+    # Distributed lock — only one service runs wallet fetch at a time
+    import redis.asyncio as _aioredis
+    try:
+        _redis = _aioredis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"), decode_responses=True)
+        lock_key = f"nansen:fetch:lock:{trigger}"
+        lock_acquired = await _redis.set(lock_key, "1", ex=300, nx=True)
+        if not lock_acquired:
+            logger.info("Nansen fetch lock held by another service — skipping")
+            return {"added": 0, "removed": 0, "total": 0, "whale_count": 0, "analyst_count": 0, "skipped": True}
+    except Exception:
+        _redis = None  # No Redis — proceed without lock
+
+    try:
+        return await _fetch_and_upsert_inner(trigger)
+    finally:
+        if _redis:
+            try:
+                await _redis.delete(f"nansen:fetch:lock:{trigger}")
+                await _redis.aclose()
+            except Exception:
+                pass
+
+
+async def _fetch_and_upsert_inner(trigger: str) -> dict:
+    """Inner implementation of wallet fetch — called under distributed lock."""
     pool = await get_pool()
     added = removed = 0
 

@@ -242,8 +242,9 @@ async def _register_helius_webhook(redis_conn: aioredis.Redis | None):
                     "webhookType": "enhanced",
                 }
                 async with session.put(update_url, json=payload, timeout=aiohttp.ClientTimeout(total=15)) as resp:
-                    if resp.status == 200:
-                        logger.info("Helius webhook updated: %s (%d wallets, %d tx types)", existing_webhook_id, len(whale_wallets[:100]), len(HELIUS_WEBHOOK_TX_TYPES))
+                    if resp.status in (200, 201):
+                        logger.info("Helius webhook updated (HTTP %d): %s (%d wallets, %d tx types)",
+                                    resp.status, existing_webhook_id, len(whale_wallets[:100]), len(HELIUS_WEBHOOK_TX_TYPES))
                         return
                     else:
                         logger.warning("Helius webhook update failed (HTTP %d) — creating new one", resp.status)
@@ -256,10 +257,11 @@ async def _register_helius_webhook(redis_conn: aioredis.Redis | None):
                 "webhookType": "enhanced",
             }
             async with session.post(api_url, json=payload, timeout=aiohttp.ClientTimeout(total=15)) as resp:
-                if resp.status == 200:
+                if resp.status in (200, 201):
                     data = await resp.json()
                     webhook_id = data.get("webhookID", "")
-                    logger.info("Helius webhook created: %s → %s (%d wallets)", webhook_id, webhook_url, len(whale_wallets[:100]))
+                    logger.info("Helius webhook created (HTTP %d): %s → %s (%d wallets)",
+                                resp.status, webhook_id, webhook_url, len(whale_wallets[:100]))
                     if redis_conn and webhook_id:
                         await redis_conn.set("helius:webhook_id", webhook_id)
                 else:

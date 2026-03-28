@@ -203,9 +203,15 @@ class BotCore:
             from services.db import get_bot_state
             saved_consec = await get_bot_state("consecutive_losses", 0)
             if saved_consec and isinstance(saved_consec, int) and saved_consec > 0:
+                # Safety cap — prevent stale loss counter from triggering crash loop
+                if saved_consec > 10:
+                    logger.warning("AUDIT: consecutive_losses=%d in DB — resetting to 0 (stale value)", saved_consec)
+                    saved_consec = 0
+                    await set_bot_state("consecutive_losses", 0)
                 if self.redis:
                     await self.redis.set("bot:consecutive_losses", str(saved_consec))
-                logger.info("Restored consecutive_losses=%d from PostgreSQL", saved_consec)
+                if saved_consec > 0:
+                    logger.info("Restored consecutive_losses=%d from PostgreSQL", saved_consec)
         except Exception as e:
             logger.debug("Could not restore consecutive_losses: %s", e)
 
