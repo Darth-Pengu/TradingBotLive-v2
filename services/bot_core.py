@@ -302,6 +302,9 @@ class BotCore:
         """Halt ALL three personalities simultaneously."""
         if self.emergency_stopped:
             return
+        import traceback
+        logger.critical("EMERGENCY STOP called from:\n%s",
+                       ''.join(traceback.format_stack()))
         self.emergency_stopped = True
         logger.critical("EMERGENCY STOP: %s", reason)
 
