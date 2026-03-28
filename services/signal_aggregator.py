@@ -44,7 +44,7 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 
 # Haiku enrichment config
 HAIKU_MODEL = "claude-haiku-4-5-20251001"
-HAIKU_ENABLED = bool(ANTHROPIC_API_KEY)
+HAIKU_ENABLED = os.getenv("HAIKU_ENRICHMENT_ENABLED", "false").lower() == "true" and bool(ANTHROPIC_API_KEY)
 HAIKU_CACHE_TTL = 86400  # 24 hours — Redis-backed, survives restarts
 
 HAIKU_SYSTEM_PROMPT = """You are a Solana memecoin risk analyst.

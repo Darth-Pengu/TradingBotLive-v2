@@ -171,8 +171,26 @@ async def _load_whale_wallets() -> list[str]:
         logger.warning("Using JSON fallback — %d whale wallets", len(addrs))
         return addrs
     except (FileNotFoundError, json.JSONDecodeError, KeyError):
-        logger.warning("No whale wallets found (DB or JSON) — skipping subscribeAccountTrade")
-        return []
+        pass
+
+    # Auto-seed with known active whales if both DB and JSON are empty
+    logger.warning("whale_wallets.json not found — seeding from fallback list")
+    from pathlib import Path
+    whale_path = Path("data/whale_wallets.json")
+    whale_path.parent.mkdir(parents=True, exist_ok=True)
+    fallback = [
+        {"address": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM", "score": 75, "label": "Fallback Whale", "source": "fallback", "active": True},
+        {"address": "HN7cABqLq46Es1jh92dQQisAq662SmxELLLsHHe4YWrH", "score": 75, "label": "Fallback Whale", "source": "fallback", "active": True},
+        {"address": "GUfCR9mK6azb9vcpsxgXyj7XRPAaGa35swRPRRKenTFG", "score": 75, "label": "Fallback Whale", "source": "fallback", "active": True},
+        {"address": "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1", "score": 75, "label": "Fallback Whale", "source": "fallback", "active": True},
+        {"address": "CuieVDEDtLo7FypA9SbLM9saXFdb1dsshEkyErMqkRQq", "score": 75, "label": "Fallback Whale", "source": "fallback", "active": True},
+        {"address": "ArAQfbzsdwTAeDovfS7M3KFnbQRoBwFHhFzDt4PiABMa", "score": 75, "label": "Fallback Whale", "source": "fallback", "active": True},
+        {"address": "DfXygSm4jCyNCybVYYK6DwvWqjKee8pbDmJGcLWNDXjh", "score": 75, "label": "Fallback Whale", "source": "fallback", "active": True},
+        {"address": "Hax9LTgsQkze8VnNSCKdRzMSCBQBYhGPVxFHJQjfMGQe", "score": 75, "label": "Fallback Whale", "source": "fallback", "active": True},
+    ]
+    whale_path.write_text(json.dumps(fallback, indent=2))
+    logger.info("whale_wallets.json seeded with %d fallback wallets", len(fallback))
+    return [w["address"] for w in fallback]
 
 
 async def _register_helius_webhook(redis_conn: aioredis.Redis | None):
