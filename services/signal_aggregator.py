@@ -213,55 +213,13 @@ async def _fetch_token_details(session: aiohttp.ClientSession, mint: str, redis_
 
 async def _fetch_nansen_enrichment(session: aiohttp.ClientSession, mint: str, redis_conn: aioredis.Redis | None = None) -> dict:
     """
-    Fetch all Nansen enrichment data for a token in one coroutine.
-    Runs three Nansen calls sequentially (rate-limited at 1/2s) but the whole
-    block runs concurrently with free API fetches above.
-
-    Returns combined dict of:
-    - Labeled top holders (P1) — replaces Helius getTokenLargestAccounts
-    - Flow summary (P0) — 6-segment smart money flow analysis
-    - Quant scores (P0) — risk/reward indicators for ML
+    Nansen per-token enrichment DISABLED — endpoints return 404 on current plan:
+    /nansen-scores/token, /tgm/token-current-top-holders, /tgm/token-recent-flows-summary
+    These were burning ~158K credits/day for zero value.
+    Re-enable when Nansen plan supports these endpoints.
+    ML features default to 0 when this returns empty (backwards compatible).
     """
-    from services.nansen_client import (
-        get_labeled_top_holders, parse_labeled_holders,
-        get_token_flow_summary, parse_flow_summary,
-        get_token_quant_scores, parse_quant_scores,
-    )
-
-    combined = {}
-
-    # 1. Labeled holders (P1) — replaces Helius
-    try:
-        holders_raw = await get_labeled_top_holders(session, mint, redis_conn)
-        holder_features = parse_labeled_holders(holders_raw)
-        combined.update(holder_features)
-    except Exception as e:
-        logger.debug("Nansen holders failed for %s: %s", mint[:12], e)
-
-    # 2. Flow summary (P0) — 6-segment analysis
-    try:
-        flow_raw = await get_token_flow_summary(session, mint, lookback="1h", redis_conn=redis_conn)
-        flow_features = parse_flow_summary(flow_raw)
-        combined.update(flow_features)
-    except Exception as e:
-        logger.debug("Nansen flows failed for %s: %s", mint[:12], e)
-
-    # 3. Quant scores (P0) — risk/reward indicators
-    try:
-        quant_raw = await get_token_quant_scores(session, mint, redis_conn)
-        quant_features = parse_quant_scores(quant_raw)
-        combined.update(quant_features)
-    except Exception as e:
-        logger.debug("Nansen quant scores failed for %s: %s", mint[:12], e)
-
-    if combined:
-        logger.info("Nansen enrichment for %s: flow_signal=%s, perf_score=%.2f, sm_holders=%d",
-                     mint[:12],
-                     combined.get("nansen_flow_signal", "n/a"),
-                     combined.get("nansen_performance_score", 0),
-                     combined.get("nansen_smart_money_holder_count", 0))
-
-    return combined
+    return {}
 
 
 async def _fetch_holder_data(session: aiohttp.ClientSession, mint: str) -> dict:
@@ -808,6 +766,10 @@ def _classify_target_personalities(signal: dict, rugcheck: dict) -> list[str]:
         targets.append("speed_demon")
     elif sig_type == "migration" and 300 <= age <= 900:
         targets.append("speed_demon")  # Post-grad dip tier
+
+    # Nansen screener: graduated tokens — analyst only (no bonding curve)
+    if sig_type == "analyst" or signal.get("source") == "nansen_screener":
+        return ["analyst"]
 
     # Analyst: confirmed tokens, multi-source signals, AND new_token (for bootstrap data collection)
     if sig_type in ("new_token", "new_pool", "token_trade", "sse_event", "migration"):

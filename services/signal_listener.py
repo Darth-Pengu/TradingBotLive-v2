@@ -682,7 +682,7 @@ async def discord_nansen_poller(redis_conn: aioredis.Redis | None):
 # from Helius Enhanced Transactions API — detects buys, sells, CEX transfers.
 # Cache per wallet in Redis with 5min TTL to avoid redundant API calls.
 
-WHALE_POLL_INTERVAL = 30  # seconds between full poll cycles
+WHALE_POLL_INTERVAL = 300  # seconds between full poll cycles (was 30 — too frequent)
 WHALE_POLL_BATCH_SIZE = 5  # wallets per batch to stay within rate limits
 
 from services.constants import CEX_ADDRESSES, SOL_MINT, HELIUS_WEBHOOK_TX_TYPES
