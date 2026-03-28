@@ -917,8 +917,13 @@ class BotCore:
         await pubsub.subscribe("alerts:exit_check")
         logger.info("Listening for smart money exit alerts on alerts:exit_check")
 
+        _startup_time = time.time()
+
         async for message in pubsub.listen():
             if message["type"] != "message":
+                continue
+            if time.time() - _startup_time < 10:
+                logger.info("Startup grace — ignoring stale exit_check message")
                 continue
             try:
                 data = json.loads(message["data"])
