@@ -130,6 +130,16 @@ ML_BOOTSTRAP_THRESHOLDS = {
     "analyst": 45,
     "whale_tracker": 45,
 }
+# Aggressive paper trading mode: set AGGRESSIVE_PAPER_TRADING=true to drop
+# all ML thresholds to 1, letting every signal through for data collection.
+# Retrain the accelerated model every 500 new samples.
+AGGRESSIVE_PAPER = os.getenv("AGGRESSIVE_PAPER_TRADING", "false").lower() == "true"
+if AGGRESSIVE_PAPER:
+    ML_THRESHOLDS = {"speed_demon": 1, "analyst": 1, "whale_tracker": 1}
+    ML_BOOTSTRAP_THRESHOLDS = {"speed_demon": 1, "analyst": 1, "whale_tracker": 1}
+    logging.getLogger("signal_aggregator").warning(
+        "AGGRESSIVE PAPER TRADING active — ML thresholds set to 1 for all personalities"
+    )
 
 # --- Market mode encoding for ML features (defined locally to avoid circular import) ---
 MARKET_MODE_ENCODING = {

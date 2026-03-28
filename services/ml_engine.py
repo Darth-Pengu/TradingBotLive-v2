@@ -895,8 +895,39 @@ async def _emergency_retrain_listener(model: MLModel, redis_conn: aioredis.Redis
 
 # --- Main ---
 async def main():
-    logger.info("ML Engine starting (TEST_MODE=%s)", TEST_MODE)
+    # ML_ENGINE env var selects engine: "accelerated" uses TabPFN phased engine,
+    # anything else uses the original CatBoost+LightGBM+XGBoost ensemble.
+    engine_mode = os.getenv("ML_ENGINE", "original")
+    logger.info("ML Engine starting (TEST_MODE=%s, engine=%s)", TEST_MODE, engine_mode)
 
+    if engine_mode == "accelerated":
+        from services.ml_model_accelerator import (
+            AcceleratedMLEngine,
+            _scoring_listener as accel_scoring_listener,
+            _retrain_loop as accel_retrain_loop,
+            _outcome_listener as accel_outcome_listener,
+        )
+        engine = AcceleratedMLEngine()
+        pool = await get_pool()
+        if not engine.is_trained:
+            await engine.train(pool)
+
+        redis_conn = None
+        try:
+            redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True)
+            await redis_conn.ping()
+            logger.info("Redis connected (accelerated engine)")
+        except Exception as e:
+            logger.warning("Redis connection failed: %s -- scoring disabled", e)
+
+        await asyncio.gather(
+            accel_scoring_listener(engine, redis_conn),
+            accel_retrain_loop(engine),
+            accel_outcome_listener(engine, redis_conn),
+        )
+        return
+
+    # Original engine
     model = MLModel()
 
     # Initialize DB pool + attempt DB model load if disk failed
