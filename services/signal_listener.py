@@ -486,7 +486,7 @@ async def gecko_trending_poller(redis_conn: aioredis.Redis | None):
                                     mcap = float(attrs.get("market_cap_usd") or attrs.get("fdv_usd") or 0)
                                     liq = float(attrs.get("reserve_in_usd", 0) or 0)
 
-                                    if vol_1h < 1000:
+                                    if vol_1h < 10000:
                                         continue
 
                                     buy_sell_ratio = buys_1h / sells_1h if sells_1h > 0 else float(buys_1h)
