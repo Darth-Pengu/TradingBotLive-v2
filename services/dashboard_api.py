@@ -943,6 +943,17 @@ async def api_wallets_delete(request):
         return web.json_response({"error": str(e)}, status=500)
 
 
+async def api_audit_snapshot(request):
+    """Return latest continuous audit snapshot from logs/audit_snapshot.json."""
+    try:
+        snap_path = Path("logs/audit_snapshot.json")
+        if snap_path.exists():
+            return web.json_response(json.loads(snap_path.read_text()))
+        return web.json_response({"error": "no audit snapshot yet — continuous_audit may not be running"})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+
 async def api_debug_rugcheck(request):
     """Return last 50 Rugcheck scores for threshold calibration."""
     redis_conn = request.app.get("redis")
@@ -1606,6 +1617,7 @@ def create_app() -> web.Application:
     app.router.add_get("/api/sol-price", api_sol_price)
     app.router.add_get("/api/service-health", api_service_health)
     app.router.add_get("/api/debug/rugcheck-scores", api_debug_rugcheck)
+    app.router.add_get("/api/audit-snapshot", api_audit_snapshot)
     app.router.add_get("/api/whale-activity", api_whale_activity)
     app.router.add_get("/api/wallets", api_wallets)
     app.router.add_get("/api/wallets/refresh-log", api_wallets_refresh_log)
