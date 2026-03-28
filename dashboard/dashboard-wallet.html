@@ -266,6 +266,7 @@ if(!TOKEN)window.location.href='/login.html';
 function aFetch(u,o={}){o.headers={...(o.headers||{}),Authorization:'Bearer '+TOKEN};return fetch(u,o).then(r=>{if(r.status===401){sessionStorage.removeItem('zmn_token');window.location.href='/login.html'}return r})}
 function logout(){sessionStorage.removeItem('zmn_token');window.location.href='/login.html'}
 const $=id=>document.getElementById(id);
+function copyAddress(addr){navigator.clipboard.writeText(addr);event.target.textContent='\u2713';setTimeout(()=>event.target.textContent='\u238C',1500)}
 function updateClock(){const s=new Date().toLocaleString('en-AU',{timeZone:'Australia/Sydney',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false,timeZoneName:'short'});$('sydClock').textContent=s}
 setInterval(updateClock,1000);updateClock();
 // Tabs
@@ -344,13 +345,17 @@ if(closedTrades.length>0){
 // Populate positions table with trailing stop + hold time
 if(active.length>0){const icons={speed_demon:'pill-teal',analyst:'pill-purple',whale_tracker:'pill-amber'};const imap={speed_demon:'bi-lightning-charge-fill',analyst:'bi-search',whale_tracker:'bi-water'};
 $('posTbl').innerHTML=active.map(t=>{
-  const mint=(t.mint||'').substring(0,6)+'...'+(t.mint||'').slice(-4);
+  const fullMint=t.mint_full||t.mint||'';
+  const mint=fullMint.substring(0,8)+'...'+fullMint.slice(-4);
   const ic=icons[t.personality]||'pill-teal';const im=imap[t.personality]||'bi-circle';
   const ca=t.created_at||t.entry_time;
-  let holdStr='--';
-  if(ca){const entryMs=typeof ca==='number'?ca*1000:new Date(ca).getTime();const mins=Math.floor((Date.now()-entryMs)/60000);holdStr=mins+'m'}
+  let holdStr='--';let entryTimeStr='';
+  if(ca){const entryMs=typeof ca==='number'?ca*1000:new Date(ca).getTime();const mins=Math.floor((Date.now()-entryMs)/60000);const secs=Math.round(((Date.now()-entryMs)/1000)%60);holdStr=mins+'m '+secs+'s';const entryDate=new Date(entryMs);entryTimeStr=entryDate.toLocaleString('en-AU',{timeZone:'Australia/Sydney',hour:'2-digit',minute:'2-digit',second:'2-digit',day:'2-digit',month:'2-digit'})}
+  const curPrice=t.current_price||t.entry_price||0;
+  const pnlPct=t.unrealised_pnl_pct;const pnlSol=t.unrealised_pnl_sol;
+  const pnlClr=pnlPct!=null&&pnlPct>=0?'var(--green)':'var(--red)';
   const tsCell=t.trailing_stop_active?'<span style="color:var(--accent-teal)">▲ $'+Number(t.trailing_stop_price).toFixed(8)+'</span>':'<span style="color:var(--text-muted)">--</span>';
-  return '<tr><td>'+mint+'</td><td><span class="pill '+ic+'" style="font-size:9px"><i class="bi '+im+'"></i></span></td><td>'+(t.entry_price?'$'+Number(t.entry_price).toFixed(8):'--')+'</td><td>--</td><td>--</td><td>--</td><td>'+tsCell+'</td><td>'+(t.amount_sol?Number(t.amount_sol).toFixed(4):'--')+'</td><td>'+holdStr+'</td><td><button class="btn-sm" onclick="if(confirm(\'Stop All positions?\'))aFetch(\'/api/emergency-stop\',{method:\'POST\'})">Stop All</button></td></tr>'
+  return '<tr><td><span title="'+fullMint+'">'+mint+'</span> <button class="copy-btn" onclick="copyAddress(\''+fullMint+'\')" title="Copy full address" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:11px">⎘</button></td><td><span class="pill '+ic+'" style="font-size:9px"><i class="bi '+im+'"></i></span></td><td>'+(t.entry_price?'$'+Number(t.entry_price).toFixed(8):'--')+'</td><td>'+(curPrice>0?'$'+Number(curPrice).toFixed(8):'--')+'</td><td style="color:'+pnlClr+'">'+(pnlSol!=null?(pnlSol>=0?'+':'')+Number(pnlSol).toFixed(4):'--')+'</td><td style="color:'+pnlClr+'">'+(pnlPct!=null?(pnlPct>=0?'+':'')+Number(pnlPct).toFixed(1)+'%':'--')+'</td><td>'+tsCell+'</td><td>'+(t.amount_sol?Number(t.amount_sol).toFixed(4):'--')+'</td><td>'+holdStr+(entryTimeStr?'<br><span style="font-size:10px;color:var(--text-muted)">'+entryTimeStr+' AEDT</span>':'')+'</td><td><button class="btn-sm" onclick="if(confirm(\'Stop All positions?\'))aFetch(\'/api/emergency-stop\',{method:\'POST\'})">Stop All</button></td></tr>'
 }).join('')}
 // FIX 7/10: Populate trade history with correct win/loss from pnl_sol + data attribute
 if(trades.length>0){const icons={speed_demon:'pill-teal',analyst:'pill-purple',whale_tracker:'pill-amber'};const imap={speed_demon:'bi-lightning-charge-fill',analyst:'bi-search',whale_tracker:'bi-water'};

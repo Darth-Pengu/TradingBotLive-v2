@@ -350,6 +350,7 @@ function addActivity(type,msg){
   feed.prepend(item);
   while(feed.children.length>20)feed.lastChild.remove();
 }
+function copyAddress(addr){navigator.clipboard.writeText(addr);event.target.textContent='\u2713';setTimeout(()=>event.target.textContent='\u238C',1500)}
 // Sydney clock
 function updateClock(){const d=new Date();const s=d.toLocaleString('en-AU',{timeZone:'Australia/Sydney',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false,timeZoneName:'short'});$('sydClock').textContent=s}
 setInterval(updateClock,1000);updateClock();

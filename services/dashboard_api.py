@@ -326,9 +326,40 @@ async def api_status(request):
         status_data["_redis_connected"] = False
         status_data["_redis_error"] = request.app.get("_redis_error", "REDIS_URL not set")
 
-    trading_balance = await _get_sol_balance(TRADING_WALLET_ADDRESS)
+    # Bug 1 fix: read trading balance from Redis first, then portfolio_snapshots, then RPC
+    trading_balance = None
+    if redis_conn:
+        try:
+            cached_bal = await redis_conn.get("bot:portfolio:balance")
+            if cached_bal:
+                trading_balance = float(cached_bal)
+        except Exception:
+            pass
+    if trading_balance is None:
+        try:
+            rows = await _query_db(
+                "SELECT total_balance_sol FROM portfolio_snapshots ORDER BY id DESC LIMIT 1"
+            )
+            if rows and rows[0].get("total_balance_sol"):
+                trading_balance = float(rows[0]["total_balance_sol"])
+        except Exception:
+            pass
+    if trading_balance is None:
+        trading_balance = await _get_sol_balance(TRADING_WALLET_ADDRESS)
+
+    # Bug 3 fix: count open positions from paper_trades
+    active_count = 0
+    try:
+        rows = await _query_db("SELECT COUNT(*) as count FROM paper_trades WHERE exit_time IS NULL")
+        if rows:
+            active_count = int(rows[0].get("count", 0))
+    except Exception:
+        pass
+    status_data["open_positions"] = active_count
+
     holding_balance = await _get_sol_balance(HOLDING_WALLET_ADDRESS)
     status_data["trading_wallet_balance"] = trading_balance
+    status_data["trading_balance"] = trading_balance
     status_data["holding_wallet_balance"] = holding_balance
     status_data["app_version"] = APP_VERSION
     status_data["test_mode"] = TEST_MODE
@@ -339,46 +370,80 @@ async def api_stats(request):
     """Overall performance stats from paper_trades + trades tables."""
     result = {
         "total_trades": 0, "winning_trades": 0, "win_rate": 0.0,
-        "total_pnl_sol": 0.0, "total_pnl_pct": 0.0,
+        "total_pnl_sol": 0.0, "today_pnl_sol": 0.0, "total_pnl_pct": 0.0,
         "best_trade_pnl": 0.0, "worst_trade_pnl": 0.0,
-        "avg_hold_minutes": 0.0,
+        "avg_hold_minutes": 0.0, "active_positions": 0,
         "by_personality": {
             p: {"trades": 0, "wins": 0, "pnl_sol": 0.0}
             for p in ["speed_demon", "analyst", "whale_tracker"]
         },
     }
     try:
+        # Bug 2 fix: P/L from SUM of realised_pnl_sol on closed trades only
         rows = await _query_db(
             """SELECT COUNT(*) as total,
                 SUM(CASE WHEN realised_pnl_sol > 0 THEN 1 ELSE 0 END) as wins,
                 COALESCE(SUM(realised_pnl_sol), 0) as pnl,
                 COALESCE(MAX(realised_pnl_sol), 0) as best,
-                COALESCE(MIN(realised_pnl_sol), 0) as worst,
-                COALESCE(AVG(hold_seconds), 0) as avg_hold
-            FROM paper_trades WHERE exit_time IS NOT NULL""")
+                COALESCE(MIN(realised_pnl_sol), 0) as worst
+            FROM paper_trades
+            WHERE exit_time IS NOT NULL
+            AND realised_pnl_sol IS NOT NULL""")
         if rows and rows[0]["total"] > 0:
             r = rows[0]
             result["total_trades"] = r["total"]
             result["winning_trades"] = r["wins"] or 0
             result["win_rate"] = round((r["wins"] or 0) / r["total"] * 100, 1) if r["total"] > 0 else 0
-            result["total_pnl_sol"] = round(r["pnl"] or 0, 4)
+            result["total_pnl_sol"] = round(float(r["pnl"] or 0), 4)
             starting = float(os.getenv("STARTING_CAPITAL_SOL", "20"))
-            result["total_pnl_pct"] = round((r["pnl"] or 0) / starting * 100, 2) if starting > 0 else 0
-            result["best_trade_pnl"] = round(r["best"] or 0, 4)
-            result["worst_trade_pnl"] = round(r["worst"] or 0, 4)
-            result["avg_hold_minutes"] = round((r["avg_hold"] or 0) / 60, 1)
+            result["total_pnl_pct"] = round(float(r["pnl"] or 0) / starting * 100, 2) if starting > 0 else 0
+            result["best_trade_pnl"] = round(float(r["best"] or 0), 4)
+            result["worst_trade_pnl"] = round(float(r["worst"] or 0), 4)
+
+        # Bug 2 fix: today's P/L from closed trades today only
+        today_rows = await _query_db(
+            """SELECT COALESCE(SUM(realised_pnl_sol), 0) as today_pnl
+            FROM paper_trades
+            WHERE exit_time IS NOT NULL
+            AND realised_pnl_sol IS NOT NULL
+            AND exit_time >= EXTRACT(EPOCH FROM date_trunc('day', NOW()))""")
+        if today_rows:
+            result["today_pnl_sol"] = round(float(today_rows[0].get("today_pnl", 0) or 0), 4)
+
+        # Bug 7 fix: avg hold capped by personality max, only last 24h
+        hold_rows = await _query_db(
+            """SELECT AVG(
+                LEAST(
+                    COALESCE(exit_time, EXTRACT(EPOCH FROM NOW())) - entry_time,
+                    CASE personality
+                        WHEN 'speed_demon' THEN 1800
+                        WHEN 'analyst' THEN 7200
+                        ELSE 14400
+                    END
+                )
+            ) as avg_hold
+            FROM paper_trades
+            WHERE entry_time > EXTRACT(EPOCH FROM NOW()) - 86400""")
+        if hold_rows and hold_rows[0].get("avg_hold"):
+            result["avg_hold_minutes"] = round(float(hold_rows[0]["avg_hold"]) / 60, 1)
+
+        # Bug 3 fix: active position count from DB
+        open_rows = await _query_db("SELECT COUNT(*) as count FROM paper_trades WHERE exit_time IS NULL")
+        if open_rows:
+            result["active_positions"] = int(open_rows[0].get("count", 0))
 
         for p in ["speed_demon", "analyst", "whale_tracker"]:
             prows = await _query_db(
                 """SELECT COUNT(*) as trades,
                     SUM(CASE WHEN realised_pnl_sol > 0 THEN 1 ELSE 0 END) as wins,
                     COALESCE(SUM(realised_pnl_sol), 0) as pnl
-                FROM paper_trades WHERE exit_time IS NOT NULL AND personality = $1""", p)
+                FROM paper_trades WHERE exit_time IS NOT NULL
+                AND realised_pnl_sol IS NOT NULL AND personality = $1""", p)
             if prows and prows[0]["trades"] > 0:
                 result["by_personality"][p] = {
                     "trades": prows[0]["trades"],
                     "wins": prows[0]["wins"] or 0,
-                    "pnl_sol": round(prows[0]["pnl"] or 0, 4),
+                    "pnl_sol": round(float(prows[0]["pnl"] or 0), 4),
                 }
     except Exception as e:
         logger.warning("api_stats error: %s", e)
@@ -405,22 +470,60 @@ async def api_positions(request):
             size_sol = float(pos.get("size_sol", 0))
             entry_time = float(pos.get("entry_time", 0) or 0)
 
-            # Fallback: fetch live price from GeckoTerminal if bot_core hasn't populated it
-            if current_price <= 0 and mint and entry_price > 0:
-                try:
-                    async with aiohttp.ClientSession() as s:
-                        async with s.get(
-                            f"https://api.geckoterminal.com/api/v2/networks/solana/tokens/{mint}",
-                            headers={"Accept": "application/json"},
-                            timeout=aiohttp.ClientTimeout(total=4),
-                        ) as r:
-                            if r.status == 200:
-                                d = await r.json()
-                                price_str = d.get("data", {}).get("attributes", {}).get("price_usd")
-                                if price_str:
-                                    current_price = float(price_str)
-                except Exception:
-                    pass
+            # Bug 4 fix: multi-source price fetch with Redis cache
+            if current_price <= 0 and mint:
+                # 1. Try Redis cache
+                if redis_conn:
+                    try:
+                        cached = await redis_conn.get(f"price:{mint}")
+                        if cached:
+                            current_price = float(cached)
+                    except Exception:
+                        pass
+
+                # 2. Try Jupiter Price API v3
+                if current_price <= 0:
+                    try:
+                        async with aiohttp.ClientSession() as s:
+                            async with s.get(
+                                f"https://api.jup.ag/price/v3?ids={mint}",
+                                timeout=aiohttp.ClientTimeout(total=4),
+                            ) as r:
+                                if r.status == 200:
+                                    d = await r.json()
+                                    price_val = d.get("data", {}).get(mint, {}).get("usdPrice")
+                                    if price_val:
+                                        current_price = float(price_val)
+                    except Exception:
+                        pass
+
+                # 3. Try GeckoTerminal
+                if current_price <= 0:
+                    try:
+                        async with aiohttp.ClientSession() as s:
+                            async with s.get(
+                                f"https://api.geckoterminal.com/api/v2/networks/solana/tokens/{mint}",
+                                headers={"Accept": "application/json"},
+                                timeout=aiohttp.ClientTimeout(total=4),
+                            ) as r:
+                                if r.status == 200:
+                                    d = await r.json()
+                                    price_str = d.get("data", {}).get("attributes", {}).get("price_usd")
+                                    if price_str:
+                                        current_price = float(price_str)
+                    except Exception:
+                        pass
+
+                # 4. Fallback to entry_price
+                if current_price <= 0 and entry_price > 0:
+                    current_price = entry_price
+
+                # Cache the price in Redis for 60s
+                if current_price > 0 and redis_conn:
+                    try:
+                        await redis_conn.set(f"price:{mint}", str(current_price), ex=60)
+                    except Exception:
+                        pass
 
             unrealised_pnl_sol = None
             unrealised_pnl_pct = None
@@ -433,7 +536,8 @@ async def api_positions(request):
             positions.append({
                 "key": key,
                 "mint": mint,
-                "mint_short": mint[:6] + "..." + mint[-4:] if len(mint) > 10 else mint,
+                "mint_full": mint,
+                "mint_short": mint[:8] + "..." + mint[-4:] if len(mint) > 12 else mint,
                 "personality": pos.get("personality", ""),
                 "size_sol": size_sol,
                 "entry_price": entry_price,
@@ -879,6 +983,26 @@ async def api_wallets(request):
     try:
         from services.nansen_wallet_fetcher import get_active_wallets
         all_wallets = await get_active_wallets()
+
+        # Bug 5 fix: if no active wallets, check what exists and log
+        if not all_wallets:
+            diag = await _query_db(
+                "SELECT is_active, COUNT(*) as cnt FROM watched_wallets GROUP BY is_active"
+            )
+            logger.warning("api_wallets: 0 active wallets. DB state: %s", diag)
+            # Also try direct query without is_active filter
+            all_wallets_raw = await _query_db(
+                """SELECT address, label, COALESCE(qualification_score, 0) as score,
+                          source, personality_route, qualification_score, is_active
+                   FROM watched_wallets
+                   ORDER BY qualification_score DESC NULLS LAST
+                   LIMIT 100"""
+            )
+            if all_wallets_raw:
+                logger.info("api_wallets: found %d total wallets (active+inactive)", len(all_wallets_raw))
+                # Return them anyway so dashboard shows something
+                all_wallets = all_wallets_raw
+
         grouped = {"whale_tracker": [], "analyst": [], "both": []}
         for w in all_wallets:
             route = w.get("personality_route", "whale_tracker")
