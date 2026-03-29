@@ -18,6 +18,8 @@ pyvenv.cfg
 .railway/
 .claude/
 data/whale_wallets.json
+data/memetrans/
+data/models/*.pkl
 data/whale_wallets_pending.json
 data/models/
 node_modules/

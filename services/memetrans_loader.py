@@ -1,6 +1,14 @@
 """
-MemeTrans dataset loader — 41,470 labeled pump.fun tokens, 122 features.
+MemeTrans dataset loader — 41,470 labeled pump.fun tokens, 131 features.
 Downloads from GitHub and maps to ZMN Bot's 25-feature schema.
+
+MemeTrans columns are grouped:
+  group1: price/timing features
+  group2: early holder distribution (at bonding curve)
+  group3: transaction activity features
+  group4: post-graduation holder distribution
+  label: high/medium/low risk
+  return_ratio: actual price return
 """
 
 import logging
@@ -26,128 +34,105 @@ def download_memetrans(target_dir="data/memetrans") -> Path:
     return target
 
 
-def find_data_files(repo_dir: Path) -> list[Path]:
-    """Find CSV/parquet files in the MemeTrans repo."""
-    files = list(repo_dir.rglob("*.csv")) + list(repo_dir.rglob("*.parquet"))
-    # Sort by size descending — largest file is likely the main dataset
-    files.sort(key=lambda f: f.stat().st_size, reverse=True)
-    return files
-
-
 def map_features(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Map MemeTrans features -> ZMN Bot 25-feature schema.
-    Column names are matched best-effort; inspect actual columns first.
+    Map MemeTrans 131 features -> ZMN Bot 25-feature schema.
+    Uses verified column names from the actual dataset.
     """
     from services.ml_model_accelerator import FEATURE_SCHEMA
 
     mapped = pd.DataFrame(index=df.index)
-    actual_cols = set(df.columns)
 
-    # Mapping: ZMN feature -> list of candidate MemeTrans column names
-    candidates = {
-        "liquidity_sol": ["sol_raised", "total_sol", "bonding_curve_sol", "liquidity_sol"],
-        "buy_sell_ratio_5min": ["buy_count_5min", "trade_ratio_early", "buy_sell_ratio_5min", "buy_sell_ratio"],
-        "bonding_curve_progress": ["bonding_progress", "curve_completion_pct", "bonding_curve_progress"],
-        "holder_count": ["unique_buyers", "holder_count", "num_unique_wallets"],
-        "top10_holder_pct": ["top10_concentration", "hhi_index", "top10_holder_pct"],
-        "dev_wallet_hold_pct": ["creator_holding_pct", "deployer_balance_pct", "dev_wallet_hold_pct"],
-        "bundle_detected": ["has_bundle", "jito_bundle_detected", "bundle_ratio", "bundle_detected"],
-        "fresh_wallet_ratio": ["new_wallet_pct", "fresh_wallet_ratio"],
-        "creator_prev_launches": ["creator_token_count", "deployer_history_count", "creator_prev_launches"],
-        "creator_rug_rate": ["creator_fail_rate", "deployer_rug_rate", "creator_rug_rate"],
-        "token_age_seconds": ["age_at_snapshot", "time_since_creation", "token_age_seconds"],
-        "market_cap_usd": ["market_cap", "mcap_usd", "market_cap_usd"],
-        "mint_authority_revoked": ["mint_authority_revoked"],
-        "cfgi_score": ["cfgi_score"],
-        "sol_price_usd": ["sol_price_usd", "sol_price"],
-        "nansen_sm_count": ["nansen_sm_count"],
-        "liquidity_velocity": ["liquidity_velocity"],
-        "unique_buyers_30min": ["unique_buyers_30min"],
-        "volume_acceleration_15min": ["volume_acceleration_15min"],
-        "dev_sold_pct": ["dev_sold_pct"],
-        "bot_transaction_ratio": ["bot_transaction_ratio"],
-        "bundled_supply_pct": ["bundled_supply_pct"],
-        "creator_rug_count": ["creator_rug_count"],
-        "nansen_sm_inflow_ratio": ["nansen_sm_inflow_ratio"],
-        "nansen_concentration_risk": ["nansen_concentration_risk"],
-    }
+    # Direct mappings from MemeTrans -> ZMN schema
+    # group2 = early (bonding curve) holder data, group3 = tx activity, group4 = post-grad
+    mapped["top10_holder_pct"] = df.get("group2_top10_pct", pd.Series(-1, index=df.index)) * 100
+    mapped["dev_wallet_hold_pct"] = df.get("group2_dev_hold_pct", pd.Series(-1, index=df.index)) * 100
+    mapped["fresh_wallet_ratio"] = df.get("group2_sniper_0s_ratio", pd.Series(-1, index=df.index))
+    mapped["holder_count"] = df.get("group3_holder_num", df.get("group2_holder_gini", pd.Series(-1, index=df.index)))
 
-    matched = 0
-    for zmn_col, candidate_names in candidates.items():
-        found = False
-        for cand in candidate_names:
-            if cand in actual_cols:
-                mapped[zmn_col] = df[cand]
-                found = True
-                matched += 1
-                break
-        if not found:
-            mapped[zmn_col] = -1  # Sentinel for missing features
+    # Transaction-derived features
+    buy_num = df.get("group3_buy_num", pd.Series(0, index=df.index))
+    sell_num = df.get("group3_sell_num", pd.Series(1, index=df.index))
+    mapped["buy_sell_ratio_5min"] = (buy_num / sell_num.replace(0, 1)).clip(0, 10)
 
-    logger.info("Mapped %d/%d features from MemeTrans (%d columns in source)",
-                matched, len(FEATURE_SCHEMA), len(actual_cols))
+    mapped["market_cap_usd"] = df.get("group3_buy_vol", pd.Series(0, index=df.index))
+    mapped["token_age_seconds"] = df.get("group3_time_span", pd.Series(0, index=df.index))
+    mapped["bot_transaction_ratio"] = df.get("group3_wash_ratio", pd.Series(0, index=df.index))
+    mapped["bundled_supply_pct"] = df.get("group2_sniper_0s_hold_pct", pd.Series(0, index=df.index)) * 100
 
-    # Log which features are missing
-    missing = [col for col in FEATURE_SCHEMA if col not in mapped.columns or (mapped[col] == -1).all()]
-    if missing:
-        logger.info("Missing features (filled with -1): %s", missing)
+    # Bonding curve progress: if group1_price exists and is > 0, token graduated
+    mapped["bonding_curve_progress"] = (df.get("group1_price", pd.Series(0, index=df.index)) > 0).astype(float)
 
+    # Liquidity: use buy volume as proxy for SOL liquidity
+    mapped["liquidity_sol"] = df.get("group3_buy_vol", pd.Series(0, index=df.index)) / 1e9  # normalize
+
+    # Sniper/bundle detection
+    sniper_ratio = df.get("group2_sniper_0s_ratio", pd.Series(0, index=df.index))
+    mapped["bundle_detected"] = (sniper_ratio > 0.1).astype(int)
+
+    # Concentration metrics
+    mapped["nansen_concentration_risk"] = df.get("group4_holder_gini", pd.Series(0, index=df.index))
+
+    # Creator features — derive from dev hold patterns
+    dev_hold = df.get("group2_dev_hold_ratio", pd.Series(1, index=df.index))
+    mapped["creator_rug_rate"] = (1 - dev_hold).clip(0, 1)  # Low hold ratio = higher rug chance
+    mapped["creator_rug_count"] = (mapped["creator_rug_rate"] > 0.5).astype(int)
+
+    # Features with no MemeTrans equivalent — fill with -1 sentinel
+    for col in FEATURE_SCHEMA:
+        if col not in mapped.columns:
+            mapped[col] = -1
+
+    # Reorder to match schema
+    mapped = mapped[FEATURE_SCHEMA]
+
+    matched = sum(1 for col in FEATURE_SCHEMA if not (mapped[col] == -1).all())
+    logger.info("Mapped %d/%d features from MemeTrans (%d rows)", matched, len(FEATURE_SCHEMA), len(df))
     return mapped
 
 
-def construct_outcome_labels(df: pd.DataFrame) -> pd.Series | None:
+def construct_outcome_labels(df: pd.DataFrame) -> pd.Series:
     """
     Construct win/loss labels from MemeTrans data.
-    Uses risk_level annotations if available, else reconstructs from price data.
+    MemeTrans labels: high=rug/loss, medium=breakeven, low=win
+    return_ratio: actual price return (negative = loss)
     """
-    if "risk_level" in df.columns:
-        labels = df["risk_level"].map({
-            "high_risk": "loss",
-            "medium_risk": "breakeven",
-            "low_risk": "win",
-        })
-        logger.info("Labels from risk_level: %s", labels.value_counts().to_dict())
-        return labels
-
-    if "peak_price_ratio" in df.columns:
-        labels = pd.Series("loss", index=df.index)
-        labels[df["peak_price_ratio"] >= 2.0] = "win"
-        labels[(df["peak_price_ratio"] >= 0.8) & (df["peak_price_ratio"] < 2.0)] = "breakeven"
-        logger.info("Labels from peak_price_ratio: %s", labels.value_counts().to_dict())
-        return labels
-
-    # Try label column directly
     if "label" in df.columns:
-        logger.info("Labels from 'label' column: %s", df["label"].value_counts().to_dict())
-        return df["label"].map(lambda v: "win" if v == 1 or v == "win" else "loss")
+        labels = df["label"].map({
+            "high": "loss",
+            "medium": "loss",  # medium risk = still a loss for our purposes
+            "low": "win",
+        })
+        logger.info("Labels from MemeTrans risk_level: %s", labels.value_counts().to_dict())
+        return labels
 
-    logger.warning("No label column found in MemeTrans data")
-    return None
+    if "return_ratio" in df.columns:
+        labels = pd.Series("loss", index=df.index)
+        labels[df["return_ratio"] > 0] = "win"
+        logger.info("Labels from return_ratio: %s", labels.value_counts().to_dict())
+        return labels
+
+    logger.warning("No label column found")
+    return pd.Series("loss", index=df.index)
 
 
 def load_memetrans(target_dir="data/memetrans") -> tuple[pd.DataFrame, pd.Series] | None:
     """Full pipeline: download, load, map, label."""
     repo = download_memetrans(target_dir)
-    files = find_data_files(repo)
-    if not files:
-        logger.error("No data files found in MemeTrans repo")
-        return None
+    main_file = repo / "dataset" / "feat_label.csv"
 
-    logger.info("Found %d data files: %s", len(files), [f.name for f in files[:5]])
-    main_file = files[0]
+    if not main_file.exists():
+        # Fallback: find largest CSV
+        files = sorted(repo.rglob("*.csv"), key=lambda f: f.stat().st_size, reverse=True)
+        if not files:
+            logger.error("No CSV files found in MemeTrans repo")
+            return None
+        main_file = files[0]
 
-    if main_file.suffix == ".parquet":
-        df = pd.read_parquet(main_file)
-    else:
-        df = pd.read_csv(main_file)
-
-    logger.info("Loaded %d rows, %d columns from %s", len(df), len(df.columns), main_file.name)
-    logger.info("Columns: %s", df.columns.tolist()[:30])
+    logger.info("Loading %s...", main_file.name)
+    df = pd.read_csv(main_file)
+    logger.info("Loaded %d rows, %d columns", len(df), len(df.columns))
 
     X = map_features(df)
     y = construct_outcome_labels(df)
-    if y is None:
-        return None
-
     return X, y
