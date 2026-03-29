@@ -41,6 +41,8 @@ HELIUS_PARSE_HISTORY_URL = os.getenv("HELIUS_PARSE_HISTORY_URL", "")
 HELIUS_GATEKEEPER_URL = os.getenv("HELIUS_GATEKEEPER_URL", "")
 NANSEN_API_KEY = os.getenv("NANSEN_API_KEY", "")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+SOCIALDATA_API_KEY = os.getenv("SOCIALDATA_API_KEY", "")
+SPEED_DEMON_FILTERS_ENABLED = os.getenv("SPEED_DEMON_FILTERS_ENABLED", "true").lower() == "true"
 
 # Haiku enrichment config
 HAIKU_MODEL = "claude-haiku-4-5-20251001"
@@ -184,6 +186,155 @@ async def _fetch_rugcheck(session: aiohttp.ClientSession, mint: str) -> dict:
     except Exception as e:
         logger.debug("Rugcheck error for %s: %s", mint[:12], e)
     return {}
+
+
+async def _get_rugcheck_enriched(session: aiohttp.ClientSession, mint: str, redis_conn: aioredis.Redis | None = None) -> dict:
+    """Fetch rugcheck with Redis cache (5 min TTL). Adds bundle_pct, is_copycat etc."""
+    if redis_conn:
+        try:
+            cached = await redis_conn.get(f"rugcheck:{mint}")
+            if cached:
+                return json.loads(cached)
+        except Exception:
+            pass
+
+    rc = await _fetch_rugcheck(session, mint)
+    if not rc:
+        return rc
+
+    # Enrich with bundle percentage and copycat detection
+    risks = rc.get("risks", [])
+    risk_names = rc.get("risk_names", [])
+    bundle_pct = 0.0
+    for risk in risks:
+        name = (risk.get("name", "") or "").lower()
+        if "bundle" in name:
+            val = str(risk.get("value", "0"))
+            try:
+                bundle_pct = float(val.replace("%", "").strip() or 0)
+            except (ValueError, TypeError):
+                pass
+    rc["bundle_pct"] = bundle_pct
+    rc["is_copycat"] = any("copycat" in r.lower() or "clone" in r.lower() for r in risk_names)
+    rc["freeze_authority"] = any("freeze" in r.lower() for r in risk_names)
+    rc["rugcheck_risks"] = [r.lower() for r in risk_names]
+
+    if redis_conn:
+        try:
+            await redis_conn.set(f"rugcheck:{mint}", json.dumps(rc), ex=300)
+        except Exception:
+            pass
+    return rc
+
+
+async def _get_twitter_followers(session: aiohttp.ClientSession, twitter_url: str,
+                                  redis_conn: aioredis.Redis | None = None) -> int:
+    """Look up Twitter follower count via SocialData.tools. Returns -1 if unknown."""
+    if not SOCIALDATA_API_KEY or not twitter_url:
+        return -1
+
+    username = twitter_url.rstrip("/").split("/")[-1]
+    username = username.replace("@", "").split("?")[0]
+    if not username or len(username) < 2:
+        return -1
+
+    if redis_conn:
+        try:
+            cached = await redis_conn.get(f"twitter:followers:{username}")
+            if cached:
+                return int(cached)
+        except Exception:
+            pass
+
+    try:
+        url = f"https://api.socialdata.tools/twitter/user/{username}"
+        async with session.get(url, headers={"Authorization": f"Bearer {SOCIALDATA_API_KEY}"},
+                               timeout=aiohttp.ClientTimeout(total=5)) as resp:
+            if resp.status != 200:
+                return -1
+            data = await resp.json()
+            followers = int(data.get("followers_count", data.get("public_metrics", {}).get("followers_count", -1)))
+            if redis_conn and followers >= 0:
+                await redis_conn.set(f"twitter:followers:{username}", str(followers), ex=86400)
+            return followers
+    except Exception as e:
+        logger.debug("SocialData error: %s", e)
+        return -1
+
+
+def _apply_speed_demon_prefilters(signal: dict, rugcheck: dict) -> tuple[bool, str, float]:
+    """
+    Speed Demon pre-filters based on owner's manual trading criteria.
+    Returns (passes, reject_reason, position_size_multiplier).
+    multiplier: 1.0 = normal (0.45 SOL), 1.67 = high confidence (0.75 SOL).
+    """
+    if not SPEED_DEMON_FILTERS_ENABLED:
+        return True, "", 1.0
+
+    raw = signal.get("raw_data", {})
+    score = 1.0
+
+    # --- HARD REJECT ---
+
+    # 1. No social links
+    if not signal.get("has_social", False):
+        return False, "no_social_links", 0
+
+    # 2. Token too old (over 11 minutes = 660s)
+    age = signal.get("age_seconds", raw.get("age_seconds", 999))
+    if age > 660:
+        return False, "token_too_old", 0
+
+    # 3. Bundle concentration too high (>10% of supply)
+    bundle_pct = rugcheck.get("bundle_pct", 0)
+    if bundle_pct > 10:
+        return False, f"bundle_{bundle_pct:.0f}pct", 0
+
+    # 4. Known rug patterns from RugCheck
+    rc_risks = rugcheck.get("rugcheck_risks", [])
+    for pattern in ("honeypot", "rug pull", "scam", "blacklist"):
+        if any(pattern in r for r in rc_risks):
+            return False, f"rugcheck_{pattern.replace(' ', '_')}", 0
+
+    # 5. Copycat/clone token
+    if rugcheck.get("is_copycat", False):
+        return False, "copycat", 0
+
+    # 6. Insufficient liquidity/fees (< 0.5 SOL real buying)
+    liq = float(raw.get("vSolInBondingCurve", raw.get("liquidity_sol", 0)) or 0)
+    if liq < 0.5:
+        return False, "low_liquidity", 0
+
+    # --- SOFT SCORING (increases position size) ---
+
+    # Twitter followers
+    followers = signal.get("twitter_followers", -1)
+    if followers >= 2000:
+        score *= 1.5
+    elif followers >= 500:
+        score *= 1.2
+    elif followers == 0:
+        score *= 0.7
+
+    # Low market cap (under $20K = early entry)
+    mc = float(raw.get("usdMarketCap", raw.get("market_cap_usd", 999999)) or 999999)
+    if mc < 20000:
+        score *= 1.3
+
+    # Low bundle (under 5%)
+    if 0 < bundle_pct < 5:
+        score *= 1.2
+
+    # Multiple social links
+    social_count = sum([
+        signal.get("has_twitter", False),
+        signal.get("has_telegram", False),
+        signal.get("has_website", False),
+    ])
+    if social_count >= 2:
+        score *= 1.2
+
+    return True, "", min(score, 1.67)
 
 
 async def _fetch_token_details(session: aiohttp.ClientSession, mint: str, redis_conn: aioredis.Redis | None = None) -> dict:
@@ -1087,9 +1238,9 @@ async def _process_signals(redis_conn: aioredis.Redis):
                     logger.debug("HIBERNATE mode — skipping %s", mint[:12])
                     continue
 
-                # --- Enrich with Rugcheck + token details (concurrent) ---
+                # --- Enrich with Rugcheck (cached) + token details (concurrent) ---
                 rugcheck, token_details = await asyncio.gather(
-                    _fetch_rugcheck(session, mint),
+                    _get_rugcheck_enriched(session, mint, redis_conn),
                     _fetch_token_details(session, mint, redis_conn),
                 )
 
@@ -1143,6 +1294,29 @@ async def _process_signals(redis_conn: aioredis.Redis):
                             age_sec, list(_seen_tokens[mint]["sources"]))
                 if not targets:
                     continue
+
+                # --- Speed Demon pre-filters (before ML scoring) ---
+                position_size_multiplier = 1.0
+                if "speed_demon" in targets:
+                    # Twitter follower lookup (non-blocking, skipped if no API key)
+                    tw_url = signal.get("twitter_url", "")
+                    if tw_url:
+                        followers = await _get_twitter_followers(session, tw_url, redis_conn)
+                        signal["twitter_followers"] = followers
+
+                    passes, reason, position_size_multiplier = _apply_speed_demon_prefilters(signal, rugcheck)
+                    logger.info(
+                        "FILTER: %s %s reason=%s mult=%.2f social=%s followers=%d bundle=%.1f%% mc=$%.0f liq=%.1f",
+                        "PASS" if passes else "REJECT", mint[:12], reason or "passed_all",
+                        position_size_multiplier, signal.get("has_social", "?"),
+                        signal.get("twitter_followers", -1), rugcheck.get("bundle_pct", 0),
+                        float(raw_data.get("usdMarketCap", raw_data.get("market_cap_usd", 0)) or 0),
+                        float(raw_data.get("vSolInBondingCurve", raw_data.get("liquidity_sol", 0)) or 0),
+                    )
+                    if not passes:
+                        targets = [t for t in targets if t != "speed_demon"]
+                        if not targets:
+                            continue
 
                 # --- Confidence score ---
                 confidence = _compute_confidence(_seen_tokens[mint]["sources"])
@@ -1210,6 +1384,12 @@ async def _process_signals(redis_conn: aioredis.Redis):
                     "volume_1h_usd": float(raw.get("volume_1h_usd", 0)),
                     "trending_strength": float(raw.get("trending_strength", 0)),
                     "source_count": len(_seen_tokens.get(mint, {}).get("sources", set())),
+                    # === Speed Demon pre-filter features ===
+                    "has_social": int(signal.get("has_social", False)),
+                    "twitter_followers": signal.get("twitter_followers", -1),
+                    "bundle_pct": rugcheck.get("bundle_pct", 0),
+                    "rugcheck_score": rugcheck.get("score", 0),
+                    "pre_filter_score": position_size_multiplier,
                 }
 
                 # Compute trending_strength if source is trending
@@ -1368,6 +1548,7 @@ async def _process_signals(redis_conn: aioredis.Redis):
                         "haiku_risk": haiku_result.get("risk_score", -1),
                         "haiku_rec": haiku_result.get("recommendation", ""),
                         "haiku_flags": haiku_result.get("red_flags", []),
+                        "position_size_multiplier": position_size_multiplier,
                     }
 
                     await redis_conn.lpush("signals:scored", json.dumps(scored_signal))

@@ -358,6 +358,16 @@ async def pumpportal_listener(redis_conn: aioredis.Redis | None):
                             pass
 
                     signal = _build_signal(mint, "pumpportal", sig_type, data, age)
+
+                    # Extract social metadata from PumpPortal create events
+                    if sig_type == "new_token":
+                        socials = data.get("social_links", {})
+                        signal["has_twitter"] = bool(data.get("twitter") or socials.get("twitter"))
+                        signal["has_telegram"] = bool(data.get("telegram") or socials.get("telegram"))
+                        signal["has_website"] = bool(data.get("website") or socials.get("website") or data.get("uri"))
+                        signal["has_social"] = signal["has_twitter"] or signal["has_telegram"] or signal["has_website"]
+                        signal["twitter_url"] = data.get("twitter") or socials.get("twitter", "")
+
                     await _push_signal(redis_conn, signal)
 
         except (websockets.ConnectionClosed, ConnectionError, OSError) as e:

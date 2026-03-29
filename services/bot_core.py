@@ -378,12 +378,19 @@ class BotCore:
             for k, v in self.positions.items()
         }
 
-        # Calculate position size
+        # Calculate position size (with pre-filter multiplier for speed_demon)
         size_sol = calculate_position_size(
             personality, mint, self.portfolio,
             ml_score=ml_score,
             volatility_ratio=1.0,
         )
+        multiplier = scored_signal.get("position_size_multiplier", 1.0)
+        if personality == "speed_demon" and multiplier > 1.0:
+            size_sol = min(
+                size_sol * multiplier,
+                self.portfolio.total_balance_sol * 0.10,  # never > 10% of balance
+            )
+            logger.info("Speed Demon size boost: %.4f SOL (mult=%.2f)", size_sol, multiplier)
 
         if size_sol <= 0:
             logger.debug("Risk rejected %s for %s (size=0)", mint[:12], personality)
