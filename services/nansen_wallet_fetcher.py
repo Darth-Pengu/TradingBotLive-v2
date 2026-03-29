@@ -230,23 +230,25 @@ async def fetch_vybe_top_traders(session: aiohttp.ClientSession, redis_conn=None
 
             wallets = []
             for t in traders:
-                address = (t.get("ownerAddress") or t.get("accountAddress")
+                # Vybe uses accountAddress as primary field
+                address = (t.get("accountAddress") or t.get("ownerAddress")
                            or t.get("address") or t.get("wallet") or "")
                 if not address or len(address) < 32:
                     continue
                 metrics = t.get("metrics", t)
                 win_rate = float(metrics.get("winRate", 0) or 0)
-                pnl = float(metrics.get("realizedPnlUsd", metrics.get("pnl", 0)) or 0)
-                trade_count = int(metrics.get("tradeCount", metrics.get("totalTrades", 0)) or 0)
-                # Normalize win_rate: if > 1 assume it's a percentage, else fraction
+                pnl = float(metrics.get("realizedPnlUsd", 0) or 0)
+                trade_count = int(metrics.get("tradesCount", metrics.get("tradeCount", 0)) or 0)
+                # Normalize win_rate: Vybe returns 0-100 scale
                 if win_rate > 1:
                     wr_frac = win_rate / 100.0
                 else:
                     wr_frac = win_rate
                 score = min(100, int(wr_frac * 100))
+                name = t.get("accountName") or "Vybe Top Trader"
                 wallets.append({
                     "address": address,
-                    "label": t.get("label", "Vybe Top Trader"),
+                    "label": f"{name} ({wr_frac:.0%} WR)" if name != "Vybe Top Trader" else f"Vybe Top Trader ({wr_frac:.0%} WR)",
                     "nansen_labels": ["Vybe Top Trader"],
                     "pnl_30d_sol": round(pnl / 150.0, 2),  # rough USD->SOL conversion
                     "pnl_7d_sol": 0,
