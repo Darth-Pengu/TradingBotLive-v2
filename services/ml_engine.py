@@ -685,24 +685,28 @@ async def _scoring_listener(model: MLModel, redis_conn: aioredis.Redis | None):
     await pubsub.subscribe("ml:score_request")
     logger.info("Listening for ML score requests on ml:score_request")
 
-    async for message in pubsub.listen():
-        if message["type"] != "message":
-            continue
-        try:
-            data = json.loads(message["data"])
-            request_id = data.get("request_id", "unknown")
-            features = data.get("features", {})
+    try:
+        async for message in pubsub.listen():
+            if message["type"] != "message":
+                continue
+            try:
+                data = json.loads(message["data"])
+                request_id = data.get("request_id", "unknown")
+                features = data.get("features", {})
 
-            score, is_trained = model.predict(features)
-            response = {
-                "request_id": request_id,
-                "ml_score": score,
-                "model_trained": is_trained,
-                "sample_count": model.sample_count,
-            }
-            await redis_conn.publish("ml:score_response", json.dumps(response))
-        except Exception as e:
-            logger.error("Scoring request error: %s", e)
+                score, is_trained = model.predict(features)
+                response = {
+                    "request_id": request_id,
+                    "ml_score": score,
+                    "model_trained": is_trained,
+                    "sample_count": model.sample_count,
+                }
+                await redis_conn.publish("ml:score_response", json.dumps(response))
+            except Exception as e:
+                logger.error("Scoring request error: %s", e)
+    finally:
+        await pubsub.unsubscribe()
+        await pubsub.aclose()
 
 
 def _build_features_from_rows(rows) -> tuple[pd.DataFrame, np.ndarray]:
@@ -844,28 +848,29 @@ async def _outcome_listener(model: MLModel, redis_conn: aioredis.Redis | None):
     await pubsub.subscribe("trades:outcome")
     logger.info("Listening for trade outcomes on trades:outcome (drift + accuracy)")
 
-    async for message in pubsub.listen():
-        if message["type"] != "message":
-            continue
-        try:
-            data = json.loads(message["data"])
-            ml_score = float(data.get("ml_score", 50.0))
-            outcome = 1 if data.get("outcome") == "profit" else 0
+    try:
+        async for message in pubsub.listen():
+            if message["type"] != "message":
+                continue
+            try:
+                data = json.loads(message["data"])
+                ml_score = float(data.get("ml_score", 50.0))
+                outcome = 1 if data.get("outcome") == "profit" else 0
 
-            # Update accuracy tracking
-            await _update_accuracy_tracking(ml_score, outcome, redis_conn)
+                await _update_accuracy_tracking(ml_score, outcome, redis_conn)
 
-            # Update drift detector
-            drift = model.drift_detector.update(ml_score, outcome)
-            if drift:
-                # Publish emergency retrain signal
-                await redis_conn.publish("ml:emergency_retrain", json.dumps({
-                    "reason": "ADWIN drift detected",
-                    "drift_count": model.drift_detector.drift_count,
-                    "timestamp": time.time(),
-                }))
-        except Exception as e:
-            logger.error("Outcome listener error: %s", e)
+                drift = model.drift_detector.update(ml_score, outcome)
+                if drift:
+                    await redis_conn.publish("ml:emergency_retrain", json.dumps({
+                        "reason": "ADWIN drift detected",
+                        "drift_count": model.drift_detector.drift_count,
+                        "timestamp": time.time(),
+                    }))
+            except Exception as e:
+                logger.error("Outcome listener error: %s", e)
+    finally:
+        await pubsub.unsubscribe()
+        await pubsub.aclose()
 
 
 # --- Emergency retrain listener ---
@@ -878,19 +883,23 @@ async def _emergency_retrain_listener(model: MLModel, redis_conn: aioredis.Redis
     await pubsub.subscribe("ml:emergency_retrain")
     logger.info("Listening for emergency retrain signals")
 
-    async for message in pubsub.listen():
-        if message["type"] != "message":
-            continue
-        try:
-            data = json.loads(message["data"])
-            reason = data.get("reason", "unknown")
-            logger.warning("Emergency retrain triggered: %s", reason)
+    try:
+        async for message in pubsub.listen():
+            if message["type"] != "message":
+                continue
+            try:
+                data = json.loads(message["data"])
+                reason = data.get("reason", "unknown")
+                logger.warning("Emergency retrain triggered: %s", reason)
 
-            pool = await get_pool()
-            await model.train(pool)
-            logger.info("Emergency retrain complete")
-        except Exception as e:
-            logger.error("Emergency retrain error: %s", e)
+                pool = await get_pool()
+                await model.train(pool)
+                logger.info("Emergency retrain complete")
+            except Exception as e:
+                logger.error("Emergency retrain error: %s", e)
+    finally:
+        await pubsub.unsubscribe()
+        await pubsub.aclose()
 
 
 # --- Main ---
@@ -914,7 +923,7 @@ async def main():
 
         redis_conn = None
         try:
-            redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True)
+            redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True, max_connections=5)
             await redis_conn.ping()
             logger.info("Redis connected (accelerated engine)")
         except Exception as e:
@@ -940,7 +949,7 @@ async def main():
     # Connect Redis always — ML scoring is read-only, needed for paper trading too
     redis_conn = None
     try:
-        redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True)
+        redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True, max_connections=5)
         await redis_conn.ping()
         logger.info("Redis connected")
     except Exception as e:

@@ -1704,7 +1704,7 @@ async def on_startup(app: web.Application):
         logger.error("PostgreSQL connection failed: %s", e)
 
     try:
-        redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True)
+        redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True, max_connections=5)
         await redis_conn.ping()
         app["redis"] = redis_conn
         logger.info("Redis connected")

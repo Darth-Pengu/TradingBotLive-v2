@@ -1388,7 +1388,7 @@ async def main():
         logger.info("TEST_MODE — aggregator will process signals but not route to execution")
 
     try:
-        redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True)
+        redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True, max_connections=5)
         await redis_conn.ping()
         logger.info("Redis connected: %s", REDIS_URL)
     except Exception as e:

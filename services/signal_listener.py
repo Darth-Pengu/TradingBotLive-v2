@@ -951,7 +951,7 @@ async def main():
     # Connect Redis always — signals must flow for paper trading too
     redis_conn = None
     try:
-        redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True)
+        redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True, max_connections=5)
         await redis_conn.ping()
         logger.info("Redis connected: %s", REDIS_URL)
     except Exception as e:

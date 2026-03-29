@@ -192,7 +192,7 @@ async def run_treasury_sweep():
 
     redis_conn = None
     try:
-        redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True)
+        redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True, max_connections=5)
         await redis_conn.ping()
     except Exception as e:
         logger.warning("Redis connection failed: %s", e)

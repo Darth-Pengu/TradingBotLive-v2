@@ -903,20 +903,22 @@ class BotCore:
 
         _startup_time = time.time()
 
-        async for message in pubsub.listen():
-            if message["type"] != "message":
-                continue
-            # Ignore messages in first 10s — prevents stale pub/sub replay
-            # from triggering false emergency stop on restart
-            if time.time() - _startup_time < 10:
-                logger.info("Ignoring pre-startup emergency message (grace period)")
-                continue
-            try:
-                data = json.loads(message["data"])
-                reason = data.get("reason", "Unknown emergency")
-                await self.emergency_stop(reason)
-            except Exception as e:
-                logger.error("Emergency listener error: %s", e)
+        try:
+            async for message in pubsub.listen():
+                if message["type"] != "message":
+                    continue
+                if time.time() - _startup_time < 10:
+                    logger.info("Ignoring pre-startup emergency message (grace period)")
+                    continue
+                try:
+                    data = json.loads(message["data"])
+                    reason = data.get("reason", "Unknown emergency")
+                    await self.emergency_stop(reason)
+                except Exception as e:
+                    logger.error("Emergency listener error: %s", e)
+        finally:
+            await pubsub.unsubscribe()
+            await pubsub.aclose()
 
     # --- Smart money exit check subscriber ---
     async def _exit_check_listener(self):
@@ -930,29 +932,32 @@ class BotCore:
 
         _startup_time = time.time()
 
-        async for message in pubsub.listen():
-            if message["type"] != "message":
-                continue
-            if time.time() - _startup_time < 10:
-                logger.info("Startup grace — ignoring stale exit_check message")
-                continue
-            try:
-                data = json.loads(message["data"])
-                mint = data.get("mint", "")
-                reason = data.get("reason", "smart_money_exit_alert")
-                if not mint:
+        try:
+            async for message in pubsub.listen():
+                if message["type"] != "message":
                     continue
+                if time.time() - _startup_time < 10:
+                    logger.info("Startup grace — ignoring stale exit_check message")
+                    continue
+                try:
+                    data = json.loads(message["data"])
+                    mint = data.get("mint", "")
+                    reason = data.get("reason", "smart_money_exit_alert")
+                    if not mint:
+                        continue
 
-                # Check all three personalities for this token
-                for key, pos in list(self.positions.items()):
-                    if pos.mint == mint:
-                        logger.warning(
-                            "FORCED EXIT: %s %s — reason=%s (smart money selling)",
-                            pos.personality, mint[:12], reason,
-                        )
-                        await self._close_position(pos, reason)
-            except Exception as e:
-                logger.error("Exit check listener error: %s", e)
+                    for key, pos in list(self.positions.items()):
+                        if pos.mint == mint:
+                            logger.warning(
+                                "FORCED EXIT: %s %s — reason=%s (smart money selling)",
+                                pos.personality, mint[:12], reason,
+                            )
+                            await self._close_position(pos, reason)
+                except Exception as e:
+                    logger.error("Exit check listener error: %s", e)
+        finally:
+            await pubsub.unsubscribe()
+            await pubsub.aclose()
 
     # --- Whale exit monitor ---
     # _whale_exit_monitor REMOVED: subscribed to signals:raw LIST via pubsub
@@ -1147,7 +1152,7 @@ async def main():
 
     # Connect Redis
     try:
-        bot.redis = aioredis.from_url(REDIS_URL, decode_responses=True)
+        bot.redis = aioredis.from_url(REDIS_URL, decode_responses=True, max_connections=5)
         await bot.redis.ping()
         logger.info("Redis connected")
     except Exception as e:

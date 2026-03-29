@@ -274,7 +274,7 @@ async def fetch_and_upsert_wallets(trigger: str = "scheduled") -> dict:
     # Distributed lock — only one service runs wallet fetch at a time
     import redis.asyncio as _aioredis
     try:
-        _redis = _aioredis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"), decode_responses=True)
+        _redis = _aioredis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"), decode_responses=True, max_connections=2)
         lock_key = f"nansen:fetch:lock:{trigger}"
         lock_acquired = await _redis.set(lock_key, "1", ex=300, nx=True)
         if not lock_acquired:
@@ -315,7 +315,7 @@ async def _fetch_and_upsert_inner(trigger: str) -> dict:
     redis_conn = None
     try:
         import redis.asyncio as aioredis
-        redis_conn = aioredis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"), decode_responses=True)
+        redis_conn = aioredis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"), decode_responses=True, max_connections=2)
         await redis_conn.ping()
     except Exception:
         redis_conn = None

@@ -517,25 +517,29 @@ async def _scoring_listener(engine: AcceleratedMLEngine, redis_conn: aioredis.Re
     await pubsub.subscribe("ml:score_request")
     logger.info("Accelerated ML listening for score requests on ml:score_request")
 
-    async for message in pubsub.listen():
-        if message["type"] != "message":
-            continue
-        try:
-            data = json.loads(message["data"])
-            request_id = data.get("request_id", "unknown")
-            features = data.get("features", {})
+    try:
+        async for message in pubsub.listen():
+            if message["type"] != "message":
+                continue
+            try:
+                data = json.loads(message["data"])
+                request_id = data.get("request_id", "unknown")
+                features = data.get("features", {})
 
-            score, is_trained = engine.predict(features)
-            response = {
-                "request_id": request_id,
-                "ml_score": score,
-                "model_trained": is_trained,
-                "sample_count": engine.sample_count,
-                "phase": engine.phase,
-            }
-            await redis_conn.publish("ml:score_response", json.dumps(response))
-        except Exception as e:
-            logger.error("Scoring request error: %s", e)
+                score, is_trained = engine.predict(features)
+                response = {
+                    "request_id": request_id,
+                    "ml_score": score,
+                    "model_trained": is_trained,
+                    "sample_count": engine.sample_count,
+                    "phase": engine.phase,
+                }
+                await redis_conn.publish("ml:score_response", json.dumps(response))
+            except Exception as e:
+                logger.error("Scoring request error: %s", e)
+    finally:
+        await pubsub.unsubscribe()
+        await pubsub.aclose()
 
 
 # --- Retrain loop ---
@@ -571,24 +575,27 @@ async def _outcome_listener(engine: AcceleratedMLEngine, redis_conn: aioredis.Re
     await pubsub.subscribe("trades:outcome")
     logger.info("Listening for trade outcomes on trades:outcome")
 
-    async for message in pubsub.listen():
-        if message["type"] != "message":
-            continue
-        try:
-            data = json.loads(message["data"])
-            ml_score = float(data.get("ml_score", 50.0))
-            outcome = 1 if data.get("outcome") == "profit" else 0
+    try:
+        async for message in pubsub.listen():
+            if message["type"] != "message":
+                continue
+            try:
+                data = json.loads(message["data"])
+                ml_score = float(data.get("ml_score", 50.0))
+                outcome = 1 if data.get("outcome") == "profit" else 0
 
-            # Track rolling accuracy
-            entry = json.dumps({
-                "score": ml_score,
-                "outcome": outcome,
-                "timestamp": time.time(),
-            })
-            await redis_conn.lpush("ml:prediction_history", entry)
-            await redis_conn.ltrim("ml:prediction_history", 0, 99)
-        except Exception as e:
-            logger.error("Outcome listener error: %s", e)
+                entry = json.dumps({
+                    "score": ml_score,
+                    "outcome": outcome,
+                    "timestamp": time.time(),
+                })
+                await redis_conn.lpush("ml:prediction_history", entry)
+                await redis_conn.ltrim("ml:prediction_history", 0, 99)
+            except Exception as e:
+                logger.error("Outcome listener error: %s", e)
+    finally:
+        await pubsub.unsubscribe()
+        await pubsub.aclose()
 
 
 # --- Main entry point ---
@@ -605,7 +612,7 @@ async def main():
     # Connect Redis
     redis_conn = None
     try:
-        redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True)
+        redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True, max_connections=5)
         await redis_conn.ping()
         logger.info("Redis connected")
     except Exception as e:
