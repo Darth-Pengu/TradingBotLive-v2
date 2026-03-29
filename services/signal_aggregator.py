@@ -227,9 +227,14 @@ async def _get_rugcheck_enriched(session: aiohttp.ClientSession, mint: str, redi
     return rc
 
 
+_socialdata_last_call = 0.0
+
+
 async def _get_twitter_followers(session: aiohttp.ClientSession, twitter_url: str,
                                   redis_conn: aioredis.Redis | None = None) -> int:
     """Look up Twitter follower count via SocialData.tools. Returns -1 if unknown."""
+    global _socialdata_last_call
+
     if not SOCIALDATA_API_KEY or not twitter_url:
         return -1
 
@@ -238,24 +243,48 @@ async def _get_twitter_followers(session: aiohttp.ClientSession, twitter_url: st
     if not username or len(username) < 2:
         return -1
 
+    cache_key = f"twitter:followers:{username.lower()}"
     if redis_conn:
         try:
-            cached = await redis_conn.get(f"twitter:followers:{username}")
+            cached = await redis_conn.get(cache_key)
             if cached:
                 return int(cached)
         except Exception:
             pass
 
+    # Rate limit: 120 req/min = 0.5s between calls
+    elapsed = time.time() - _socialdata_last_call
+    if elapsed < 0.5:
+        await asyncio.sleep(0.5 - elapsed)
+    _socialdata_last_call = time.time()
+
     try:
         url = f"https://api.socialdata.tools/twitter/user/{username}"
         async with session.get(url, headers={"Authorization": f"Bearer {SOCIALDATA_API_KEY}"},
                                timeout=aiohttp.ClientTimeout(total=5)) as resp:
-            if resp.status != 200:
+            if resp.status == 401:
+                logger.error("SocialData API key invalid — check SOCIALDATA_API_KEY env var")
                 return -1
+            if resp.status == 402:
+                logger.error("SocialData out of credits")
+                return -1
+            if resp.status == 429:
+                logger.warning("SocialData rate limited")
+                await asyncio.sleep(2)
+                return -1
+            if resp.status == 404:
+                # Account doesn't exist or is suspended — cache as 0
+                if redis_conn:
+                    await redis_conn.set(cache_key, "0", ex=86400)
+                return 0
+            if resp.status != 200:
+                logger.debug("SocialData HTTP %d for %s", resp.status, username)
+                return -1
+
             data = await resp.json()
-            followers = int(data.get("followers_count", data.get("public_metrics", {}).get("followers_count", -1)))
+            followers = int(data.get("followers_count", -1))
             if redis_conn and followers >= 0:
-                await redis_conn.set(f"twitter:followers:{username}", str(followers), ex=86400)
+                await redis_conn.set(cache_key, str(followers), ex=86400)
             return followers
     except Exception as e:
         logger.debug("SocialData error: %s", e)
