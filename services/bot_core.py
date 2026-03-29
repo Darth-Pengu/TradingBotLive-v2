@@ -1111,9 +1111,16 @@ class BotCore:
                     consec_losses = int(cl) if cl else 0
                 except Exception:
                     pass
+                # Write balance to dedicated Redis key for dashboard fallback
+                try:
+                    await self.redis.set("bot:portfolio:balance", str(self.portfolio.total_balance_sol))
+                except Exception:
+                    pass
+
                 status = {
                     "status": "EMERGENCY_STOPPED" if self.emergency_stopped else "RUNNING",
                     "portfolio_balance": self.portfolio.total_balance_sol,
+                    "trading_balance": self.portfolio.total_balance_sol,
                     "daily_pnl": self.portfolio.daily_pnl_sol,
                     "open_positions": len(self.positions),
                     "market_mode": self.portfolio.market_mode,

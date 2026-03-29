@@ -845,37 +845,44 @@ async def api_portfolio_history(request):
 
 
 async def api_paper_stats(request):
-    """Paper trading stats from Redis."""
-    redis_conn = request.app.get("redis")
+    """Paper trading stats — PostgreSQL is source of truth for P/L."""
     stats = {"total_trades": 0, "winning_trades": 0, "total_pnl_sol": 0, "win_rate": 0, "by_personality": {}}
-    if redis_conn:
-        try:
-            raw = await redis_conn.hgetall("paper:stats")
-            if raw:
-                stats["total_trades"] = int(raw.get("total_trades", 0))
-                stats["winning_trades"] = int(raw.get("winning_trades", 0))
-                stats["total_pnl_sol"] = float(raw.get("total_pnl_sol", 0))
-                if stats["total_trades"] > 0:
-                    stats["win_rate"] = round(stats["winning_trades"] / stats["total_trades"] * 100, 1)
-            for p in ["speed_demon", "analyst", "whale_tracker"]:
-                praw = await redis_conn.hgetall(f"paper:stats:personality:{p}")
+
+    # PostgreSQL is authoritative for P/L — Redis paper:stats hash can be stale
+    try:
+        rows = await _query_db(
+            """SELECT COUNT(*) as cnt,
+                COALESCE(SUM(realised_pnl_sol), 0) as pnl,
+                SUM(CASE WHEN realised_pnl_sol > 0 THEN 1 ELSE 0 END) as wins
+            FROM paper_trades
+            WHERE exit_time IS NOT NULL AND realised_pnl_sol IS NOT NULL"""
+        )
+        if rows and rows[0].get("cnt", 0) > 0:
+            stats["total_trades"] = rows[0]["cnt"]
+            stats["winning_trades"] = rows[0].get("wins", 0) or 0
+            stats["total_pnl_sol"] = round(float(rows[0].get("pnl", 0) or 0), 4)
+            stats["win_rate"] = round(stats["winning_trades"] / stats["total_trades"] * 100, 1) if stats["total_trades"] > 0 else 0
+
+        for p in ["speed_demon", "analyst", "whale_tracker"]:
+            prows = await _query_db(
+                """SELECT COUNT(*) as trades,
+                    SUM(CASE WHEN realised_pnl_sol > 0 THEN 1 ELSE 0 END) as wins,
+                    COALESCE(SUM(realised_pnl_sol), 0) as pnl
+                FROM paper_trades
+                WHERE exit_time IS NOT NULL AND realised_pnl_sol IS NOT NULL
+                AND personality = $1""", p)
+            if prows and prows[0].get("trades", 0) > 0:
                 stats["by_personality"][p] = {
-                    "trades": int(praw.get("trades", 0)),
-                    "pnl": float(praw.get("pnl", 0)),
-                } if praw else {"trades": 0, "pnl": 0}
-        except Exception:
-            pass
-    # Also check PostgreSQL paper_trades table
-    if stats["total_trades"] == 0:
-        try:
-            rows = await _query_db("SELECT COUNT(*) as cnt, COALESCE(SUM(realised_pnl_sol),0) as pnl, SUM(CASE WHEN realised_pnl_sol>0 THEN 1 ELSE 0 END) as wins FROM paper_trades WHERE exit_time IS NOT NULL")
-            if rows and rows[0].get("cnt", 0) > 0:
-                stats["total_trades"] = rows[0]["cnt"]
-                stats["winning_trades"] = rows[0].get("wins", 0) or 0
-                stats["total_pnl_sol"] = rows[0].get("pnl", 0) or 0
-                stats["win_rate"] = round(stats["winning_trades"] / stats["total_trades"] * 100, 1) if stats["total_trades"] > 0 else 0
-        except Exception:
-            pass
+                    "trades": prows[0]["trades"],
+                    "wins": prows[0].get("wins", 0) or 0,
+                    "total_pnl_sol": round(float(prows[0].get("pnl", 0) or 0), 4),
+                    "pnl": round(float(prows[0].get("pnl", 0) or 0), 4),
+                }
+            else:
+                stats["by_personality"][p] = {"trades": 0, "wins": 0, "total_pnl_sol": 0, "pnl": 0}
+    except Exception as e:
+        logger.warning("api_paper_stats DB error: %s", e)
+
     return web.json_response(stats)
 
 
@@ -1533,21 +1540,39 @@ async def _periodic_push(app: web.Application):
                 "open_positions": status.get("open_positions", 0),
             }
             if tick % 5 == 0:
-                payload["trading_balance"] = await _get_sol_balance(TRADING_WALLET_ADDRESS)
+                # Read trading balance from bot:status first, then Redis key, then RPC
+                tb = status.get("trading_balance") or status.get("portfolio_balance")
+                if not tb and redis_conn:
+                    try:
+                        cached_bal = await redis_conn.get("bot:portfolio:balance")
+                        if cached_bal:
+                            tb = float(cached_bal)
+                    except Exception:
+                        pass
+                if not tb:
+                    tb = await _get_sol_balance(TRADING_WALLET_ADDRESS)
+                payload["trading_balance"] = tb
                 payload["holding_balance"] = await _get_sol_balance(HOLDING_WALLET_ADDRESS)
 
-            # Paper stats + signals every 3rd tick (~6s)
-            if redis_conn and tick % 3 == 0:
+            # Paper stats + signals every 3rd tick (~6s) — DB is source of truth
+            if tick % 3 == 0:
                 try:
-                    ps = await redis_conn.hgetall("paper:stats")
-                    total = int(ps.get("total_trades", 0))
-                    wins = int(ps.get("winning_trades", 0))
-                    payload["paper_stats"] = {
-                        "total_trades": total,
-                        "winning_trades": wins,
-                        "total_pnl_sol": float(ps.get("total_pnl_sol", 0)),
-                        "win_rate": round(wins / total * 100, 1) if total > 0 else 0,
-                    }
+                    rows = await _query_db(
+                        """SELECT COUNT(*) as cnt,
+                            COALESCE(SUM(realised_pnl_sol), 0) as pnl,
+                            SUM(CASE WHEN realised_pnl_sol > 0 THEN 1 ELSE 0 END) as wins
+                        FROM paper_trades
+                        WHERE exit_time IS NOT NULL AND realised_pnl_sol IS NOT NULL"""
+                    )
+                    if rows and rows[0].get("cnt", 0) > 0:
+                        total = rows[0]["cnt"]
+                        wins = rows[0].get("wins", 0) or 0
+                        payload["paper_stats"] = {
+                            "total_trades": total,
+                            "winning_trades": wins,
+                            "total_pnl_sol": round(float(rows[0].get("pnl", 0) or 0), 4),
+                            "win_rate": round(wins / total * 100, 1) if total > 0 else 0,
+                        }
                 except Exception:
                     pass
                 try:
