@@ -19,8 +19,7 @@ pyvenv.cfg
 .claude/
 data/whale_wallets.json
 data/memetrans/
-data/models/*.pkl
 data/whale_wallets_pending.json
-data/models/
+# data/models/ tracked via git LFS for ML model persistence
 node_modules/
 .DS_Store

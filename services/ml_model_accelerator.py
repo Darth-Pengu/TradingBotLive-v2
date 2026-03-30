@@ -182,6 +182,13 @@ class AcceleratedMLEngine:
 
         y_encoded = self.le.fit_transform(y)
 
+        # Guard: need both classes for boosting models
+        unique_classes = len(set(y_encoded))
+        if unique_classes < 2:
+            logger.warning("Cannot train: only %d class in %d samples — need wins + losses",
+                          unique_classes, len(y_encoded))
+            return {"error": "single_class", "n_samples": len(y_encoded)}
+
         # Build feature matrix from schema — missing features default to -1
         X_clean = pd.DataFrame()
         for col in FEATURE_SCHEMA:
@@ -255,7 +262,12 @@ class AcceleratedMLEngine:
         }
 
     async def train(self, pool):
-        """Train from PostgreSQL trades table — compatible with existing ml_engine.py."""
+        """Train from PostgreSQL trades table — compatible with existing ml_engine.py.
+        Will not overwrite a pre-loaded model with fewer or single-class samples."""
+        if self.is_trained and self.n_samples > 1000:
+            logger.info("Pre-trained model loaded (%d samples) — skipping DB retrain", self.n_samples)
+            return
+
         from datetime import datetime, timezone
         seven_days_ago = datetime.now(timezone.utc).timestamp() - (7 * 86400)
 
@@ -491,6 +503,21 @@ class AcceleratedMLEngine:
 
     def _load(self):
         path = self.model_dir / "accelerated_model.pkl"
+        if not path.exists():
+            # Try git LFS pull in case the file is a pointer
+            try:
+                import subprocess
+                logger.info("Model not found locally, attempting git LFS pull...")
+                result = subprocess.run(
+                    ["git", "lfs", "pull", "--include", "data/models/accelerated_model.pkl"],
+                    capture_output=True, text=True, timeout=30,
+                )
+                if result.returncode == 0:
+                    logger.info("Git LFS pull succeeded")
+                else:
+                    logger.warning("Git LFS pull failed: %s", result.stderr[:200])
+            except Exception as e:
+                logger.debug("Git LFS pull not available: %s", e)
         if not path.exists():
             return
         try:

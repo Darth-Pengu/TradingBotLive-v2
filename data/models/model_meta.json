@@ -1,0 +1,40 @@
+{
+  "engine": "accelerated",
+  "phase": 3,
+  "sample_count": 41470,
+  "cv_auc_mean": 0.8113038051774619,
+  "cv_auc_std": 0.005592553402861754,
+  "last_train_time": 1774786335.1911304,
+  "models_active": [
+    "catboost",
+    "lightgbm"
+  ],
+  "features": [
+    "liquidity_sol",
+    "buy_sell_ratio_5min",
+    "bonding_curve_progress",
+    "holder_count",
+    "top10_holder_pct",
+    "dev_wallet_hold_pct",
+    "bundle_detected",
+    "fresh_wallet_ratio",
+    "creator_prev_launches",
+    "creator_rug_rate",
+    "mint_authority_revoked",
+    "token_age_seconds",
+    "market_cap_usd",
+    "cfgi_score",
+    "sol_price_usd",
+    "nansen_sm_count",
+    "liquidity_velocity",
+    "unique_buyers_30min",
+    "volume_acceleration_15min",
+    "dev_sold_pct",
+    "bot_transaction_ratio",
+    "bundled_supply_pct",
+    "creator_rug_count",
+    "nansen_sm_inflow_ratio",
+    "nansen_concentration_risk"
+  ],
+  "feature_count": 25
+}
