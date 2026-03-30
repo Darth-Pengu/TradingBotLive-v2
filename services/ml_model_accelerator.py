@@ -296,6 +296,12 @@ class AcceleratedMLEngine:
         if len(features_list) < MIN_SAMPLES_FIRST_TRAIN:
             return
 
+        # Guard: need both classes for training — single-class data crashes boosting models
+        unique_labels = set(labels)
+        if len(unique_labels) < 2:
+            logger.warning("Only one class in training data (%s) — skipping (need wins + losses)", unique_labels)
+            return
+
         X = pd.DataFrame(features_list)
         y = pd.Series(labels)
 
