@@ -251,22 +251,18 @@ async def run_treasury_sweep():
                                     await _log_sweep(pool, transfer_amount, balance, balance, None, "failed", str(e))
                                     consecutive_failures += 1
 
-                # 3 consecutive failures → EMERGENCY alert (rate-limited, no halt)
+                # 3 consecutive failures → warning (rate-limited, never halt trading)
+                # Treasury balance check failures should NOT stop trading —
+                # they just mean we can't sweep profits, which is non-critical.
                 if consecutive_failures >= TREASURY_RULES["max_retries"]:
                     now = datetime.now(timezone.utc).timestamp()
                     if now - last_emergency_alert_time > EMERGENCY_COOLDOWN:
                         msg = (f"Treasury: {consecutive_failures} consecutive balance check failures. "
                                f"Check Helius RPC connectivity.")
-                        logger.critical(msg)
-                        if redis_conn:
-                            await redis_conn.publish("alerts:emergency", json.dumps({
-                                "reason": msg,
-                                "timestamp": datetime.now(timezone.utc).isoformat(),
-                            }))
-                        await _send_discord_notification(session, f"⚠ TREASURY ALERT: {msg}")
+                        logger.warning(msg)
+                        await _send_discord_notification(session, f"⚠ TREASURY WARNING: {msg}")
                         last_emergency_alert_time = now
-                    # Don't halt — keep retrying. Reset failure count to avoid
-                    # spamming but let it re-trigger if still failing next cycle.
+                    # Reset failure count to avoid spamming
                     consecutive_failures = 0
 
             except Exception as e:
