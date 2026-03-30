@@ -984,6 +984,13 @@ async def main():
     # Register Helius webhook with updated wallet list (after population)
     await _register_helius_webhook(redis_conn)
 
+    # Import telegram listener (separate service file, lazy import to avoid Telethon dep)
+    try:
+        from services.telegram_listener import telegram_listener
+    except ImportError:
+        async def telegram_listener(r):
+            logger.debug("Telegram listener not available (telethon not installed)")
+
     await asyncio.gather(
         pumpportal_listener(redis_conn),
         gecko_poller(redis_conn),
@@ -992,6 +999,7 @@ async def main():
         nansen_screener_poller(redis_conn),
         discord_nansen_poller(redis_conn),
         helius_whale_poller(redis_conn),
+        telegram_listener(redis_conn),
     )
 
 

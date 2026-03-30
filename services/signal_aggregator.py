@@ -966,6 +966,10 @@ def _classify_target_personalities(signal: dict, rugcheck: dict) -> list[str]:
     if sig_type == "analyst" or signal.get("source") == "nansen_screener":
         return ["analyst"]
 
+    # Telegram alpha calls: route to analyst with boosted position sizing
+    if sig_type == "telegram_call" or signal.get("source") == "telegram_alpha":
+        return ["analyst"]
+
     # Analyst: confirmed tokens, multi-source signals, AND new_token (for bootstrap data collection)
     if sig_type in ("new_token", "new_pool", "token_trade", "sse_event", "migration"):
         targets.append("analyst")
@@ -1328,8 +1332,13 @@ async def _process_signals(redis_conn: aioredis.Redis):
                 if not targets:
                     continue
 
-                # --- Speed Demon pre-filters (before ML scoring) ---
+                # --- Telegram alpha boost ---
                 position_size_multiplier = 1.0
+                if signal.get("source") == "telegram_alpha":
+                    position_size_multiplier = 1.5
+                    logger.info("TELEGRAM CALL: %s — position mult=1.5x", mint[:12])
+
+                # --- Speed Demon pre-filters (before ML scoring) ---
                 if "speed_demon" in targets:
                     # Twitter follower lookup (non-blocking, skipped if no API key)
                     tw_url = signal.get("twitter_url", "")
