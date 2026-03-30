@@ -1455,7 +1455,8 @@ async def _process_signals(redis_conn: aioredis.Redis):
                     features["cfgi_score"] = health.get("cfgi", 0)
                     # Derive market_cap_usd from liquidity if not available
                     if features["market_cap_usd"] == 0 and features["liquidity_sol"] > 0:
-                        features["market_cap_usd"] = features["liquidity_sol"] * 2 * features["sol_price_usd"]
+                        sol_px = features.get("sol_price_usd") or 0
+                        features["market_cap_usd"] = features["liquidity_sol"] * 2 * sol_px
 
                 # ML scoring — always runs
                 token_name = signal.get("raw_data", {}).get("name", signal.get("raw_data", {}).get("symbol", mint[:12]))
