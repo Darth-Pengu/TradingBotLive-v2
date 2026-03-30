@@ -543,6 +543,9 @@ async def gecko_trending_poller(redis_conn: aioredis.Redis | None):
 # Useful for monitoring price changes on tokens we're already watching.
 # ---------------------------------------------------------------------------
 async def dexpaprika_listener(redis_conn: aioredis.Redis | None):
+    if os.getenv("DEXPAPRIKA_ENABLED", "false").lower() != "true":
+        logger.info("DexPaprika disabled — skipping")
+        return
     backoff = BACKOFF_BASE
     while True:
         try:
