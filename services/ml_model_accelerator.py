@@ -320,6 +320,19 @@ class AcceleratedMLEngine:
         X = pd.DataFrame([{col: features.get(col, -1) for col in FEATURE_SCHEMA}])
         X = X.fillna(-1)
 
+        # Log feature coverage for diagnosis (every 50th call to avoid spam)
+        if not hasattr(self, '_predict_count'):
+            self._predict_count = 0
+        self._predict_count += 1
+        if self._predict_count % 50 == 1:
+            populated = sum(1 for col in FEATURE_SCHEMA if features.get(col, -1) not in (-1, 0, 0.0))
+            logger.info("ML feature coverage: %d/%d populated (%.0f%%), liq=%.1f bc=%.2f age=%ds",
+                        populated, len(FEATURE_SCHEMA),
+                        populated / len(FEATURE_SCHEMA) * 100,
+                        features.get("liquidity_sol", 0),
+                        features.get("bonding_curve_progress", 0),
+                        int(features.get("token_age_seconds", 0)))
+
         try:
             if self.phase == 1 and "tabpfn" in self.models:
                 proba = self.models["tabpfn"].predict_proba(X.values)[0]
@@ -619,7 +632,8 @@ async def main():
     try:
         redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True, max_connections=5)
         await redis_conn.ping()
-        logger.info("Redis connected")
+        await redis_conn.set("ml:engine:mode", "accelerated")
+        logger.info("Redis connected, ml:engine:mode=accelerated")
     except Exception as e:
         logger.warning("Redis connection failed: %s — scoring disabled", e)
 

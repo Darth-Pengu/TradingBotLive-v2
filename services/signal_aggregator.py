@@ -1361,7 +1361,8 @@ async def _process_signals(redis_conn: aioredis.Redis):
                     # === Original 26 features ===
                     "liquidity_sol": float(raw.get("vSolInBondingCurve", raw.get("liquidity_sol", 0))),
                     "liquidity_velocity": float(raw.get("liquidity_velocity", 0)),
-                    "bonding_curve_progress": float(raw.get("bondingCurveProgress", raw.get("bonding_curve_progress", 0))),
+                    "bonding_curve_progress": float(raw.get("bondingCurveProgress", raw.get("bonding_curve_progress", 0))) or
+                        (float(raw.get("vSolInBondingCurve", 0)) / 85.0 if float(raw.get("vSolInBondingCurve", 0)) > 0 else 0),
                     "buy_sell_ratio_5min": float(raw.get("buy_sell_ratio_5min", 1.0)),
                     "holder_count": int(token_details.get("holder_count", raw.get("holder_count", raw.get("holders", 0)))),
                     "top10_holder_pct": float(token_details.get("top10_holder_pct", raw.get("top10_holder_pct", 0))),
@@ -1397,6 +1398,7 @@ async def _process_signals(redis_conn: aioredis.Redis):
                     "nansen_performance_score": float(token_details.get("nansen_performance_score", 0)),
                     "nansen_risk_score": float(token_details.get("nansen_risk_score", 0)),
                     "nansen_concentration_risk": float(token_details.get("nansen_concentration_risk", 0)),
+                    "nansen_sm_count": int(token_details.get("nansen_sm_count", 0)),
                     # === Nansen holder features (P1) ===
                     "nansen_labeled_exchange_holder_pct": float(token_details.get("nansen_labeled_exchange_holder_pct", 0)),
                     # === 7 new features (Section 23) ===
@@ -1437,6 +1439,9 @@ async def _process_signals(redis_conn: aioredis.Redis):
                     health = json.loads(health_str)
                     features["sol_price_usd"] = health.get("sol_price", 0)
                     features["cfgi_score"] = health.get("cfgi", 0)
+                    # Derive market_cap_usd from liquidity if not available
+                    if features["market_cap_usd"] == 0 and features["liquidity_sol"] > 0:
+                        features["market_cap_usd"] = features["liquidity_sol"] * 2 * features["sol_price_usd"]
 
                 # ML scoring — always runs
                 token_name = signal.get("raw_data", {}).get("name", signal.get("raw_data", {}).get("symbol", mint[:12]))
