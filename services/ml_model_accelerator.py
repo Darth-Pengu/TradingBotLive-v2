@@ -503,22 +503,19 @@ class AcceleratedMLEngine:
 
     def _load(self):
         path = self.model_dir / "accelerated_model.pkl"
+        logger.info("Looking for model at %s (exists=%s)", path, path.exists())
+        if path.exists():
+            size = path.stat().st_size
+            logger.info("Model file size: %d bytes", size)
+            # Detect LFS pointer (small text file ~130 bytes starting with "version")
+            if size < 500:
+                with open(path, "r", errors="ignore") as f:
+                    header = f.read(20)
+                if header.startswith("version"):
+                    logger.warning("Model file is an LFS pointer (%d bytes) — not a real pickle", size)
+                    return  # Skip loading, will use heuristic
         if not path.exists():
-            # Try git LFS pull in case the file is a pointer
-            try:
-                import subprocess
-                logger.info("Model not found locally, attempting git LFS pull...")
-                result = subprocess.run(
-                    ["git", "lfs", "pull", "--include", "data/models/accelerated_model.pkl"],
-                    capture_output=True, text=True, timeout=30,
-                )
-                if result.returncode == 0:
-                    logger.info("Git LFS pull succeeded")
-                else:
-                    logger.warning("Git LFS pull failed: %s", result.stderr[:200])
-            except Exception as e:
-                logger.debug("Git LFS pull not available: %s", e)
-        if not path.exists():
+            logger.warning("Model file not found at %s — using heuristic scorer", path)
             return
         try:
             with open(path, "rb") as f:
@@ -532,8 +529,8 @@ class AcceleratedMLEngine:
             self.cv_auc_std = data.get("cv_auc_std", 0.0)
             self.last_train_time = data.get("last_train_time", 0.0)
             self.is_trained = bool(self.models)
-            logger.info("Loaded accelerated model: phase=%d, n=%d, AUC=%.4f",
-                        self.phase, self.n_samples, self.cv_auc_mean)
+            logger.info("Loaded accelerated model: phase=%d, n=%d, AUC=%.4f, models=%s",
+                        self.phase, self.n_samples, self.cv_auc_mean, list(self.models.keys()))
         except Exception as e:
             logger.warning("Failed to load accelerated model: %s", e)
 
@@ -666,7 +663,15 @@ async def main():
         redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True, max_connections=5)
         await redis_conn.ping()
         await redis_conn.set("ml:engine:mode", "accelerated")
-        logger.info("Redis connected, ml:engine:mode=accelerated")
+        # Publish model state to Redis for dashboard
+        status = "TRAINED" if engine.is_trained else "HEURISTIC"
+        await redis_conn.set("ml:model:status", status)
+        await redis_conn.set("ml:model:phase", str(engine.phase))
+        await redis_conn.set("ml:model:sample_count", str(engine.n_samples))
+        if engine.cv_auc_mean > 0:
+            await redis_conn.set("ml:model:cv_auc", f"{engine.cv_auc_mean:.4f}")
+        logger.info("Redis connected, ml:engine:mode=accelerated, status=%s, phase=%d, n=%d",
+                    status, engine.phase, engine.n_samples)
     except Exception as e:
         logger.warning("Redis connection failed: %s — scoring disabled", e)
 
