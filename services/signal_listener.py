@@ -786,6 +786,9 @@ from services.constants import CEX_ADDRESSES, SOL_MINT, HELIUS_WEBHOOK_TX_TYPES
 
 async def helius_whale_poller(redis_conn: aioredis.Redis | None):
     """Poll tracked whale wallets via Helius Enhanced Transactions API."""
+    if os.getenv("HELIUS_POLL_WALLETS", "false").lower() != "true":
+        logger.info("Whale wallet polling disabled (HELIUS_POLL_WALLETS=false) — using webhooks only")
+        return
     if not HELIUS_PARSE_HISTORY_URL:
         logger.info("HELIUS_PARSE_HISTORY_URL not set — Helius whale poller disabled")
         return

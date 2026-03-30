@@ -39,6 +39,7 @@ HELIUS_RPC_URL = os.getenv("HELIUS_RPC_URL", "")
 HELIUS_PARSE_TX_URL = os.getenv("HELIUS_PARSE_TX_URL", "")
 HELIUS_PARSE_HISTORY_URL = os.getenv("HELIUS_PARSE_HISTORY_URL", "")
 HELIUS_GATEKEEPER_URL = os.getenv("HELIUS_GATEKEEPER_URL", "")
+HELIUS_ENRICHMENT_ENABLED = os.getenv("HELIUS_ENRICHMENT_ENABLED", "true").lower() == "true"
 NANSEN_API_KEY = os.getenv("NANSEN_API_KEY", "")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 SOCIALDATA_API_KEY = os.getenv("SOCIALDATA_API_KEY", "")
@@ -1291,13 +1292,17 @@ async def _process_signals(redis_conn: aioredis.Redis):
                 if raw_data.get("tx_signatures"):
                     early_tx_sigs.extend(raw_data["tx_signatures"][:19])
 
-                dev_sell_data, bundle_data, creator_stats, jito_stats = await asyncio.gather(
-                    _check_dev_wallet_sells(session, creator_addr, mint),
-                    _check_bundle_detection(session, early_tx_sigs),
-                    _get_creator_stats(session, creator_addr, redis_conn),
-                    _get_jito_bundle_stats(session, mint, early_tx_sigs),
-                    return_exceptions=True,
-                )
+                # Helius enrichment — gated by HELIUS_ENRICHMENT_ENABLED (default true)
+                if HELIUS_ENRICHMENT_ENABLED:
+                    dev_sell_data, bundle_data, creator_stats, jito_stats = await asyncio.gather(
+                        _check_dev_wallet_sells(session, creator_addr, mint),
+                        _check_bundle_detection(session, early_tx_sigs),
+                        _get_creator_stats(session, creator_addr, redis_conn),
+                        _get_jito_bundle_stats(session, mint, early_tx_sigs),
+                        return_exceptions=True,
+                    )
+                else:
+                    dev_sell_data, bundle_data, creator_stats, jito_stats = {}, {}, {}, {}
                 if isinstance(dev_sell_data, dict):
                     token_details.update(dev_sell_data)
                 if isinstance(bundle_data, dict):
