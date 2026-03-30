@@ -1526,8 +1526,8 @@ async def _process_signals(redis_conn: aioredis.Redis):
                         threshold += 10  # Only raise in DEFENSIVE when model is trained
 
                     if ml_score < threshold:
-                        logger.debug("ML reject %s for %s: %.1f < %d (trained=%s)",
-                                     mint[:12], personality, ml_score, threshold, ml_trained)
+                        logger.info("ML reject %s for %s: %.1f < %d (trained=%s)",
+                                    mint[:12], personality, ml_score, threshold, ml_trained)
                         continue
 
                     # Lazy Haiku enrichment — only fires once per mint, after all hard gates
