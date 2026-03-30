@@ -1091,28 +1091,27 @@ async def _request_ml_score(redis_conn: aioredis.Redis, features: dict, timeout:
         "features": features,
     }
 
-    # Subscribe to response channel before publishing request
     pubsub = redis_conn.pubsub()
-    await pubsub.subscribe("ml:score_response")
-
-    await redis_conn.publish("ml:score_request", json.dumps(request))
-
-    # Wait for response
-    deadline = time.time() + timeout
     try:
+        await pubsub.subscribe("ml:score_response")
+        await redis_conn.publish("ml:score_request", json.dumps(request))
+
+        # Wait for response
+        deadline = time.time() + timeout
         async for message in pubsub.listen():
             if time.time() > deadline:
+                logger.debug("ml:score_response timeout for %s", request_id)
                 break
             if message["type"] != "message":
                 continue
             data = json.loads(message["data"])
             if data.get("request_id") == request_id:
-                await pubsub.unsubscribe("ml:score_response")
                 return data.get("ml_score", 50.0), data.get("model_trained", False)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("ML score request error: %s", e)
+    finally:
+        await pubsub.aclose()  # Always release the connection back to pool
 
-    await pubsub.unsubscribe("ml:score_response")
     return 50.0, False  # Default neutral + untrained if timeout
 
 
@@ -1598,7 +1597,7 @@ async def main():
         logger.info("TEST_MODE — aggregator will process signals but not route to execution")
 
     try:
-        redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True, max_connections=5)
+        redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True, max_connections=20)
         await redis_conn.ping()
         logger.info("Redis connected: %s", REDIS_URL)
     except Exception as e:
