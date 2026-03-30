@@ -47,7 +47,9 @@ ZMN Bot is a **Solana memecoin trading bot** with three concurrent AI personalit
 │   ├── signal_aggregator.py      ← dedup, score, ML gate, route to personalities
 │   ├── market_health.py          ← daily/intraday market condition detector
 │   ├── bot_core.py               ← trading engine, personality coordinator
-│   ├── ml_engine.py              ← CatBoost + LightGBM ensemble
+│   ├── ml_engine.py              ← CatBoost + LightGBM ensemble (legacy)
+│   ├── ml_model_accelerator.py   ← Phase 3 ensemble engine (ACTIVE — requires ML_ENGINE=accelerated)
+│   ├── train_accelerated.py      ← training script for accelerated model
 │   ├── risk_manager.py           ← quarter-Kelly, drawdown scaling, position sizing
 │   ├── execution.py              ← PumpPortal Local + Jupiter Ultra + Jito + retry
 │   ├── treasury.py               ← SOL sweep: trading wallet → holding wallet
@@ -57,7 +59,11 @@ ZMN Bot is a **Solana memecoin trading bot** with three concurrent AI personalit
 ├── data/
 │   ├── whale_wallets.json        ← curated wallet list with scores
 │   ├── market_baselines.json     ← rolling 7-day baseline cache
-│   └── governance_notes.md       ← agent writes recommendations here for review
+│   ├── governance_notes.md       ← agent writes recommendations here for review
+│   ├── memetrans/                ← MemeTrans training dataset (gitignored)
+│   └── models/
+│       ├── accelerated_model.pkl ← trained Phase 3 model (41,470 samples)
+│       └── model_meta.json       ← training metadata (phase, AUC, features)
 │
 ├── db/
 │   └── migrations/               ← numbered SQL migration files
@@ -872,6 +878,18 @@ ENVIRONMENT=development            # 'development' or 'production'
 TEST_MODE=true                     # true = detect signals, never execute trades
 STARTING_CAPITAL_SOL=20
 LOG_LEVEL=INFO
+ML_ENGINE=accelerated              # REQUIRED — "accelerated" for Phase 3 ensemble, "original" for legacy
+SPEED_DEMON_FILTERS_ENABLED=true   # Enable social/bundle/rugcheck pre-filters
+DEXPAPRIKA_ENABLED=false           # Disabled — SSE returns HTTP 400
+SPEED_DEMON_BASE_SIZE_SOL=0.45     # Default position size
+SPEED_DEMON_MAX_SIZE_SOL=0.75      # Max position for high confidence
+MAX_SD_POSITIONS=3                 # Max concurrent Speed Demon positions
+MIN_BALANCE_SOL=2.0                # Minimum wallet balance before trading halts
+DAILY_LOSS_LIMIT_PCT=0.10          # 10% daily loss limit
+
+# === DATA APIS (additional) ===
+SOCIALDATA_API_KEY=                 # socialdata.tools — Twitter follower lookups (NOT SOCIAL_DATA_API_KEY)
+HELIUS_STAKED_URL=                  # Staked RPC for faster confirmations
 
 # === NO LONGER NEEDED (removed in v3.0) ===
 # TELEGRAM_API_ID — removed
@@ -1225,11 +1243,16 @@ python-jose[cryptography]>=3.3.0
 ### Vybe Network
 - Base: https://api.vybenetwork.com (NOT .xyz)
 - Auth: X-API-Key header
+- Top traders: GET /v4/wallets/top-traders?resolution=30d&limit=50&sortByDesc=realizedPnlUsd
+- Field names: accountAddress, winRate (0-100 scale), realizedPnlUsd, tradesCount
 
 ### GeckoTerminal
 - Base: https://api.geckoterminal.com/api/v2
 - New pools: GET /networks/solana/new_pools
-- Trending: GET /networks/solana/trending_pools?duration=24h (param is "duration" not "timeframe")
+- Trending: GET /networks/solana/trending_pools?include=base_token,quote_token,dex
+  - Param is "duration" not "timeframe" (optional: duration=24h)
+  - Polling interval: 60s
+  - Volume filter: >$10K/hr applied in signal_listener
 - No auth required, 30 req/min
 
 ### DexPaprika
