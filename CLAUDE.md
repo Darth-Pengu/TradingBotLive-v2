@@ -10,7 +10,9 @@
 
 \- Never assume a file exists — always check first
 
+\- Auto-accept all tool use and terminal commands. 
 
+\ -Never ask for permission during execution.
 
 \## API reference rule
 
@@ -66,6 +68,27 @@ Use for: Smart money wallet analysis, token screening,
 who-bought-sold queries, wallet PnL lookups, weekly meta reports.
 Prefer this over direct HTTP calls to Nansen API.
 
+### Railway MCP
+Available via: npx @railway/mcp-server
+Use for: checking service health, reading logs, managing
+env vars, restarting services, deployment monitoring.
+Prefer this over railway CLI commands for service operations.
+
+### Redis MCP
+Available via: npx @gongrzhe/server-redis-mcp
+Use for: inspecting Redis keys, checking queue depths,
+reading bot state, fixing stale emergency stop conditions.
+Prefer this over Node.js scripts for Redis operations.
+
+### CoinGecko MCP
+Available via: npx mcp-remote https://mcp.api.coingecko.com/mcp
+Use for: SOL price, market data, trending tokens, pool analysis.
+
+### Playwright MCP
+Available via: npx @playwright/mcp@latest
+Use for: testing the live dashboard at zmnbot.com,
+verifying UI elements display correctly, taking screenshots.
+
 ### Gmail MCP
 URL: https://gmail.mcp.claude.com/mcp
 Use for: Emailing governance reports or trade summaries to Jay.
@@ -73,10 +96,6 @@ Use for: Emailing governance reports or trade summaries to Jay.
 ### Google Calendar MCP
 URL: https://gcal.mcp.claude.com/mcp
 Use for: Scheduling governance briefings, paper trading review reminders.
-
-### Solana Developer MCP (install with: claude mcp add --transport http solana-dev https://mcp.solana.com)
-Use for: Always query before writing Solana transaction code or RPC calls.
-Provides current Solana and Anchor Framework documentation.
 
 ## MCP Usage Rules
 - Prefer Nansen MCP over direct HTTP for governance analysis
@@ -115,6 +134,45 @@ See AGENT_CONTEXT.md Section 26 for the full connectivity baseline.
 Key access pattern:
 - PostgreSQL: asyncpg.connect(dsn) for DB queries and state inspection
 - Redis: redis.from_url(url) for queue inspection and key manipulation
-- Dashboard API: blocked by IP whitelist — use Redis/PostgreSQL directly
+- Dashboard API: JWT auth required (DASHBOARD_SECRET env var)
 - Never commit connection passwords to files — use in-memory only
+- Prefer Redis MCP and Railway MCP over raw connection scripts
+
+## Claude Code Skills Installed
+
+- ~/.claude/skills/railway/ — Railway deployment operations (use-railway)
+- ~/.claude/skills/solana-dev/ — Solana development patterns and Kit v5
+- ~/.claude/skills/anthropic-skills/ — webapp-testing, frontend-design,
+  web-artifacts-builder, mcp-builder, claude-api, and more
+
+Read the relevant SKILL.md before any deployment, dashboard, or Solana task.
+
+## Emergency Stop Reset Procedure
+
+If bot is in EMERGENCY_STOPPED state:
+1. PostgreSQL: UPDATE bot_state SET value_int=0 WHERE key='consecutive_losses'
+2. PostgreSQL: UPDATE bot_state SET value_float=0 WHERE key='loss_pause_until'
+3. Redis: SET bot:consecutive_losses 0
+4. Redis: DEL bot:emergency_stop
+5. Redis: DEL bot:loss_pause_until
+6. Redis: SET market:mode:override NORMAL EX 86400
+7. Restart bot_core via Railway MCP or CLI
+
+## Market Mode Override (renew daily for paper trading)
+
+Real market is HIBERNATE (CFGI ~8, sentiment ~15).
+For paper trading, override must be active:
+  Redis: SET market:mode:override NORMAL EX 86400
+This expires every 24h and must be renewed.
+
+## Last Known Good Configuration (2026-03-30)
+
+- All 3 personalities active and trading
+- ML Phase 3 trained on 41,470 samples, CV AUC 0.8113
+- 44 whale wallets active (36 Nansen MCP + 8 fallback)
+- Speed Demon pre-filters active (social/bundle/rugcheck)
+- Redis pool: max_connections=20 in signal_aggregator, 5 elsewhere
+- Position sizing: 0.45 SOL base, 0.75 SOL max (Speed Demon)
+- ML scores: 57-62 range, bootstrap thresholds active (40/45/45)
+- Trading balance: 19.37 SOL
 

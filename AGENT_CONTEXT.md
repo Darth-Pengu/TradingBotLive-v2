@@ -1197,9 +1197,10 @@ python-jose[cryptography]>=3.3.0
 - denominatedInSol: STRING "true"/"false" not boolean
 - Fee: 0.5% (Local API), 1% (Lightning API)
 
-### Jupiter
-- Quote: GET https://api.jup.ag/swap/v1/quote
-- Swap: POST https://api.jup.ag/swap/v1/swap
+### Jupiter (V2 — active since March 2026)
+- Order: GET https://api.jup.ag/swap/v2/order
+- Execute: POST https://api.jup.ag/swap/v2/execute
+- V1 DEPRECATED (returns 401): /swap/v1/quote, /swap/v1/swap
 - Price: GET https://api.jup.ag/price/v3?ids=<mints>
 - Auth: x-api-key header (free key at portal.jup.ag)
 - Price field: "usdPrice" (not "price")
@@ -1242,9 +1243,19 @@ python-jose[cryptography]>=3.3.0
 
 ### Rugcheck
 - Report: GET https://api.rugcheck.xyz/v1/tokens/{mint}/report (no auth)
+- Summary: GET https://api.rugcheck.xyz/v1/tokens/{mint}/report/summary (no auth)
 - Score: UNBOUNDED INTEGER (not 0-100). Higher = more risky.
 - Reject threshold: score >= 2000 OR has_danger/critical in risks[]
 - Real examples: safe ~100-500, risky ~1000-3000, rugs 5000+, TRUMP scored 18,715
+- Returns: score, result, risks[], topHolders[], graphInsidersDetected
+
+### SocialData.tools
+- User lookup: GET https://api.socialdata.tools/twitter/user/{username}
+- Auth: Authorization: Bearer {SOCIALDATA_API_KEY}
+- Returns: followers_count, friends_count, verified
+- Rate limit: 120 req/min, 0.5s minimum between calls
+- Cache: 24h per username in Redis
+- ENV VAR NAME: SOCIALDATA_API_KEY (not SOCIAL_DATA_API_KEY)
 
 ### Jito
 - Bundles: POST https://mainnet.block-engine.jito.wtf/api/v1/bundles
@@ -1258,9 +1269,20 @@ Nansen MCP: https://mcp.nansen.ai/ra/mcp/
 - Integrated in governance.py via NANSEN_MCP_SERVER dict
 - Used for: wallet_rescore, weekly_meta, smart_money_analysis
 
+Railway MCP: npx @railway/mcp-server
+- Use for: service health, logs, env vars, restarts, deployments
+
+Redis MCP: npx @gongrzhe/server-redis-mcp@1.0.0
+- Use for: inspecting keys, queue depths, bot state, emergency resets
+
+CoinGecko MCP: npx mcp-remote https://mcp.api.coingecko.com/mcp
+- Use for: SOL price, market data, trending tokens, pool analysis
+
+Playwright MCP: npx @playwright/mcp@latest
+- Use for: testing live dashboard at zmnbot.com, screenshots
+
 Gmail MCP: https://gmail.mcp.claude.com/mcp
 Google Calendar MCP: https://gcal.mcp.claude.com/mcp
-Solana Developer MCP: https://mcp.solana.com (pending install)
 
 Security rule: No MCP server ever handles trade execution
 or has access to TRADING_WALLET_PRIVATE_KEY.
@@ -1377,44 +1399,77 @@ Total inference footprint: ~150-250MB
 - LLMs in synchronous hot path: 200-500ms too slow for
   sub-second sniping
 
-### TabPFN status (pending evaluation)
-TabPFN-2.5 (Prior Labs, Nov 2025) outperforms all GBT models
-on datasets < 10K samples. 100% win rate vs default XGBoost.
-Zero-shot, no hyperparameter tuning, ~44MB size.
-NOT yet implemented — requires commercial license (priorlabs.ai).
-Evaluate after accumulating 200+ paper trades.
-Recommended approach when licensed: distill into tree ensemble
-for production inference, use as 4th ensemble member.
+### Accelerated ML Engine (ml_model_accelerator.py) — ACTIVE
+Drop-in replacement for ml_engine.py. 3-phase model:
+- Phase 1 (n < 250): TabPFN only
+- Phase 2 (250-999): TabPFN + CatBoost ensemble
+- Phase 3 (n >= 1000): TabPFN + CatBoost + LightGBM ensemble
+
+Current state (2026-03-30):
+- Phase 3 active, trained on 41,470 MemeTrans samples + 187 live trades
+- CV AUC: 0.8113
+- TabPFN: installed (tabpfn>=0.1.10) but may fail on Railway —
+  graceful fallback to CatBoost+LightGBM 50/50 weighting
+- Model file: data/models/accelerated_model.pkl
+- Meta file: data/models/model_meta.json
+- Requires: ML_ENGINE=accelerated env var
+
+### TabPFN status
+TabPFN is in requirements.txt (tabpfn>=0.1.10) and wrapped
+with ImportError handling in ml_model_accelerator.py.
+If TabPFN fails to import, the engine falls back to
+CatBoost+LightGBM without it. Check logs for:
+"TabPFN not installed — running without it"
 
 ## 24. Current Bootstrap Status (March 2026 Audit)
 
-**Date:** 2026-03-28
-**Audit tool:** scripts/audit.py (reads Redis + PostgreSQL only)
+**Date:** 2026-03-30 (updated)
+**Audit tool:** Railway CLI + Redis MCP + PostgreSQL direct
 
 ### Personality status
-- **Speed Demon:** ACTIVE — generating paper trades from PumpPortal new_token signals
-- **Analyst:** WAS INACTIVE — root cause: `_classify_target_personalities()` excluded
-  `new_token` from analyst routing AND source gate required 2+ sources (only PumpPortal active).
-  **Fix:** added `new_token` to analyst signal types, relaxed source gate to 1 during bootstrap.
-- **Whale Tracker:** WAS INACTIVE — root cause: only routed `account_trade` signal type.
-  Helius webhook `whale_trade` and `whale_transfer` signals were not included.
-  **Fix:** added `whale_trade` and `whale_transfer` to whale_tracker routing.
+- **Speed Demon:** ACTIVE — generating paper trades, pre-filters active (social, bundle, rugcheck, age, liquidity)
+- **Analyst:** ACTIVE — routing fixed, receives new_token + trending signals. Source gate relaxed to 1 during bootstrap.
+- **Whale Tracker:** ACTIVE — 44 watched wallets (36 Nansen MCP, 8 fallback). Receives whale_trade + whale_transfer.
 
-### ML training status at time of audit
-- Labelled training samples: 12 (need 15 for bootstrap, 200 for production)
-- MIN_SAMPLES_FIRST_TRAIN lowered from 50 to 15 for immediate bootstrap fit
-- features_json write to paper_trades now logs failures explicitly
-- ML training record INSERT to trades table now logged for audit trail
+### ML training status
+- Accelerated engine (ml_model_accelerator.py): Phase 3, 41,470 MemeTrans samples
+- Live trades in DB: 187 paper trades (all Speed Demon), 174 in trades table (117 labelled)
+- CV AUC: 0.8113
+- ML scores in production: 57-62 range (bootstrap thresholds letting these through)
+- Thresholds: speed_demon=65/40, analyst=70/45, whale_tracker=70/45 (trained/bootstrap)
 
-### Fixes applied
-1. Analyst routing: added `new_token` to `_classify_target_personalities`
-2. Analyst source gate: relaxed to 1 source during bootstrap (untrained model)
-3. Whale Tracker routing: added `whale_trade` + `whale_transfer` signal types
-4. Target classification debug logging: TARGETS line in signal_aggregator logs
-5. features_json write failure logging (was silent `pass`)
-6. ML training record INSERT audit logging
-7. MIN_SAMPLES_FIRST_TRAIN: 50 → 15 (bootstrap threshold)
-8. Haiku enrichment: gated behind HAIKU_ENRICHMENT_ENABLED env var (default off)
+### Position sizing
+- Speed Demon: 0.45 SOL base, up to 0.75 SOL high confidence
+- MAX_SD_POSITIONS=3 (enforced by risk_manager)
+- Position size multiplier from pre-filters: 0.5x-1.5x
+
+### Trading performance (187 paper trades)
+- Win rate: 0.5% (1/187)
+- Total PnL: -6.97 SOL (-34.8%)
+- Exit reasons: emergency_stop (122), time_exit_no_movement (65)
+- Average hold: 3.7 minutes
+
+### Known issues fixed (2026-03-30)
+1. Redis pubsub connection leak in signal_aggregator (pubsub.aclose() added)
+2. Redis max_connections bumped 5→20 in signal_aggregator
+3. DexPaprika SSE HTTP 400 — disabled via DEXPAPRIKA_ENABLED=false
+4. TabPFN silent failure — ImportError now caught with graceful fallback
+5. nixpacks.toml install phase was overriding pip install -r requirements.txt
+6. Emergency stop reset: consecutive_losses=84 cleared in PostgreSQL + Redis
+7. ML_ENGINE=accelerated env var added to Railway
+8. market:mode:override set to NORMAL for paper trading (expires 24h)
+
+### Gotchas / known issues
+- consecutive_losses in bot_state PostgreSQL can accumulate and trigger false emergency stops.
+  Fix: UPDATE bot_state SET value_int=0 WHERE key='consecutive_losses'
+- market:mode:override Redis key expires every 24h — real market is HIBERNATE (CFGI ~8).
+  Must renew daily for paper trading: SET market:mode:override NORMAL EX 86400
+- ML_ENGINE defaults to "original" if env var not set — accelerated model sits unused
+- SOCIALDATA_API_KEY naming: code reads SOCIALDATA_API_KEY (not SOCIAL_DATA_API_KEY)
+- DexPaprika SSE returns HTTP 400 — disabled via DEXPAPRIKA_ENABLED=false
+- Nansen direct API returns 405 on some endpoints — use MCP tools instead
+- Anthropic API credits exhausted — governance agent failing (needs credit top-up)
+- Nansen credits at 510% of monthly limit (50974/10000)
 
 ## 25. Nansen Integration Status (March 2026)
 
@@ -1462,6 +1517,11 @@ for production inference, use as 4th ensemble member.
 Use DATABASE_URL and REDIS_URL environment variables directly — do not hardcode credentials.
 Railway rotates passwords on redeploy; hardcoded values go stale.
 
+**IMPORTANT:** DATABASE_URL is internal only (postgres.railway.internal).
+For external access from Claude Code, use DATABASE_PUBLIC_URL from the
+Postgres service variables (gondola.proxy.rlwy.net:29062).
+Similarly, REDIS_URL is internal — use REDIS_PUBLIC_URL (crossover.proxy.rlwy.net:36328).
+
 ```python
 # PostgreSQL (via services/db.py — uses DATABASE_PUBLIC_URL or DATABASE_URL)
 import asyncpg
@@ -1473,17 +1533,23 @@ import redis
 r = redis.from_url(os.getenv("REDIS_URL"))
 ```
 
-Dashboard: https://zmnbot.com (IP-whitelisted — use Redis/PostgreSQL for direct data access)
+**Preferred: Use MCP servers instead of raw connections.**
+Redis MCP and Railway MCP are connected and provide direct access
+without managing connection strings.
+
+Dashboard: https://zmnbot.com (JWT auth required — DASHBOARD_SECRET env var)
 
 ### External service status (reference)
 | Service | Notes |
 |---------|-------|
-| PumpPortal WS | Primary signal source |
-| Jupiter | v2 /order + v3 /price endpoints |
-| Jito | Bundles endpoint |
+| PumpPortal WS | Primary signal source — working |
+| Jupiter | V2 /order + /execute + V3 /price endpoints |
+| Jito | Bundles endpoint — working |
 | Helius RPC | Rate limited — use sparingly |
-| Nansen | Direct API returns 405 — use MCP tools instead |
+| Nansen | Direct API returns 405 on some endpoints — use MCP tools |
 | GeckoTerminal | new_pools + trending_pools working |
-| DefiLlama | Market health data |
-| Anthropic | Governance agent |
-| Discord | Bot + webhook configured |
+| DexPaprika | SSE HTTP 400 — disabled (DEXPAPRIKA_ENABLED=false) |
+| DefiLlama | Market health data — working |
+| SocialData | Twitter follower lookups — working (SOCIALDATA_API_KEY) |
+| Anthropic | Governance agent — credits exhausted, needs top-up |
+| Discord | Bot configured, 403 on Nansen channel (needs permission fix) |
