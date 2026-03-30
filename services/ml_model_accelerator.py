@@ -139,7 +139,7 @@ class AcceleratedMLEngine:
             return 3
 
     def _make_tabpfn(self):
-        from tabpfn import TabPFNClassifier
+        from tabpfn import TabPFNClassifier  # noqa: may not be installed
         return TabPFNClassifier()
 
     def _make_catboost(self, n_samples):
@@ -196,9 +196,14 @@ class AcceleratedMLEngine:
                 tabpfn = self._make_tabpfn()
                 tabpfn.fit(X_clean.values, y_encoded)
                 self.models["tabpfn"] = tabpfn
-                logger.info("TabPFN trained successfully")
+                logger.info("TabPFN fitted successfully on %d samples", len(X_clean))
+            except ImportError:
+                logger.warning(
+                    "TabPFN not installed — running without it. "
+                    "Install with: pip install tabpfn"
+                )
             except Exception as e:
-                logger.error("TabPFN training failed: %s", e)
+                logger.warning("TabPFN training failed: %s", e)
 
         if self.phase >= 2:
             try:
@@ -320,36 +325,36 @@ class AcceleratedMLEngine:
                 proba = self.models["tabpfn"].predict_proba(X.values)[0]
                 method = "tabpfn"
             elif self.phase == 2:
-                probas = []
-                weights = []
-                if "tabpfn" in self.models:
-                    probas.append(self.models["tabpfn"].predict_proba(X.values)[0])
-                    weights.append(0.6)
-                if "catboost" in self.models:
-                    probas.append(self.models["catboost"].predict_proba(X.values)[0])
-                    weights.append(0.4)
-                if not probas:
+                if "tabpfn" in self.models and "catboost" in self.models:
+                    p_tabpfn = self.models["tabpfn"].predict_proba(X.values)[0]
+                    p_cb = self.models["catboost"].predict_proba(X.values)[0]
+                    proba = 0.60 * p_tabpfn + 0.40 * p_cb
+                    method = "tabpfn+catboost"
+                elif "catboost" in self.models:
+                    proba = self.models["catboost"].predict_proba(X.values)[0]
+                    method = "catboost"
+                    logger.debug("Phase 2 scoring without TabPFN")
+                elif "tabpfn" in self.models:
+                    proba = self.models["tabpfn"].predict_proba(X.values)[0]
+                    method = "tabpfn"
+                else:
                     return 50.0, False
-                total_w = sum(weights)
-                proba = sum(w / total_w * p for w, p in zip(weights, probas))
-                method = "tabpfn+catboost"
             else:
-                probas = []
-                weights = []
                 if "tabpfn" in self.models:
-                    probas.append(self.models["tabpfn"].predict_proba(X.values)[0])
-                    weights.append(0.35)
-                if "catboost" in self.models:
-                    probas.append(self.models["catboost"].predict_proba(X.values)[0])
-                    weights.append(0.35)
-                if "lightgbm" in self.models:
-                    probas.append(self.models["lightgbm"].predict_proba(X.values)[0])
-                    weights.append(0.30)
-                if not probas:
-                    return 50.0, False
-                total_w = sum(weights)
-                proba = sum(w / total_w * p for w, p in zip(weights, probas))
-                method = "tabpfn+catboost+lightgbm"
+                    p_tabpfn = self.models["tabpfn"].predict_proba(X.values)[0]
+                    p_cb = self.models["catboost"].predict_proba(X.values)[0]
+                    p_lgbm = self.models["lightgbm"].predict_proba(X.values)[0]
+                    proba = (0.35 * p_tabpfn +
+                             0.35 * p_cb +
+                             0.30 * p_lgbm)
+                    method = "tabpfn+catboost+lightgbm"
+                else:
+                    # TabPFN unavailable — equal weight remaining models
+                    p_cb = self.models["catboost"].predict_proba(X.values)[0]
+                    p_lgbm = self.models["lightgbm"].predict_proba(X.values)[0]
+                    proba = 0.50 * p_cb + 0.50 * p_lgbm
+                    method = "catboost+lightgbm"
+                    logger.debug("Phase 3 scoring without TabPFN")
 
             # For binary classification: proba[1] is P(win)
             if len(proba) == 2:

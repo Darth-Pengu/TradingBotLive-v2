@@ -3,3 +3,6 @@ PYTHONPATH = "/app"
 
 [phases.setup]
 nixPkgs = ["python311"]
+
+[phases.install]
+cmds = ["pip install tabpfn --break-system-packages"]
