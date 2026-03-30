@@ -1088,24 +1088,46 @@ def _check_koth_zone(bc_progress: float, personality: str, ml_score: float) -> t
     return True, ""
 
 
-async def _request_ml_score(redis_conn: aioredis.Redis, features: dict, timeout: float = 5.0) -> tuple[float, bool]:
-    """Request ML score from ml_engine via Redis pub/sub. Returns (score, is_trained)."""
-    request_id = f"req_{time.time()}"
-    request = {
-        "request_id": request_id,
-        "features": features,
-    }
+# Direct ML engine reference — all services run in one process,
+# so we can score inline without pubsub round-trip.
+_ml_engine_instance = None
 
+
+def _get_ml_engine():
+    """Lazy-load the ML engine singleton from ml_model_accelerator."""
+    global _ml_engine_instance
+    if _ml_engine_instance is None:
+        try:
+            from services.ml_model_accelerator import AcceleratedMLEngine
+            _ml_engine_instance = AcceleratedMLEngine()
+            logger.info("ML engine loaded inline: phase=%d, n=%d, trained=%s",
+                       _ml_engine_instance.phase, _ml_engine_instance.n_samples,
+                       _ml_engine_instance.is_trained)
+        except Exception as e:
+            logger.warning("Failed to load ML engine inline: %s", e)
+    return _ml_engine_instance
+
+
+async def _request_ml_score(redis_conn: aioredis.Redis, features: dict, timeout: float = 5.0) -> tuple[float, bool]:
+    """Score using inline ML engine (same process). Falls back to pubsub if inline fails."""
+    engine = _get_ml_engine()
+    if engine:
+        try:
+            score, is_trained = engine.predict(features)
+            return score, is_trained
+        except Exception as e:
+            logger.debug("Inline ML score error: %s", e)
+
+    # Fallback: pubsub (for when services run in separate processes)
+    request_id = f"req_{time.time()}"
+    request = {"request_id": request_id, "features": features}
     pubsub = redis_conn.pubsub()
     try:
         await pubsub.subscribe("ml:score_response")
         await redis_conn.publish("ml:score_request", json.dumps(request))
-
-        # Wait for response
         deadline = time.time() + timeout
         async for message in pubsub.listen():
             if time.time() > deadline:
-                logger.debug("ml:score_response timeout for %s", request_id)
                 break
             if message["type"] != "message":
                 continue
@@ -1113,11 +1135,11 @@ async def _request_ml_score(redis_conn: aioredis.Redis, features: dict, timeout:
             if data.get("request_id") == request_id:
                 return data.get("ml_score", 50.0), data.get("model_trained", False)
     except Exception as e:
-        logger.debug("ML score request error: %s", e)
+        logger.debug("ML pubsub score error: %s", e)
     finally:
-        await pubsub.aclose()  # Always release the connection back to pool
+        await pubsub.aclose()
 
-    return 50.0, False  # Default neutral + untrained if timeout
+    return 50.0, False
 
 
 async def _cleanup_seen_tokens():
