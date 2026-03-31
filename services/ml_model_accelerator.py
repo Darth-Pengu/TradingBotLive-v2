@@ -263,19 +263,42 @@ class AcceleratedMLEngine:
 
     async def train(self, pool):
         """Train from PostgreSQL trades table — compatible with existing ml_engine.py.
-        Will not overwrite a pre-loaded model with fewer or single-class samples."""
-        if self.is_trained and self.n_samples > 1000:
-            logger.info("Pre-trained model loaded (%d samples) — skipping DB retrain", self.n_samples)
-            return
-
+        Will retrain on live data when 100+ mixed-class samples are available,
+        even if a pretrained model is loaded."""
         from datetime import datetime, timezone
-        seven_days_ago = datetime.now(timezone.utc).timestamp() - (7 * 86400)
+
+        # Check if live data is available and should override pretrained model
+        if self.is_trained and self.n_samples > 1000:
+            try:
+                live_count = await pool.fetchval(
+                    "SELECT COUNT(*) FROM trades WHERE features_json IS NOT NULL AND outcome IS NOT NULL"
+                )
+                win_count = await pool.fetchval(
+                    "SELECT COUNT(*) FROM trades WHERE outcome = 'profit' AND features_json IS NOT NULL"
+                )
+                if live_count >= 100 and win_count >= 5:
+                    logger.warning(
+                        "LIVE DATA RETRAIN: %d live trades (%d wins) available — "
+                        "retraining on live data instead of %d-sample pretrained model",
+                        live_count, win_count, self.n_samples,
+                    )
+                    # Allow retrain to proceed
+                else:
+                    logger.info("Pre-trained model loaded (%d samples), live=%d wins=%d — keeping pretrained",
+                               self.n_samples, live_count, win_count)
+                    return
+            except Exception as e:
+                logger.debug("Live data check failed: %s — keeping pretrained", e)
+                return
+
+        # Use 30-day window for live data (we need all available samples)
+        thirty_days_ago = datetime.now(timezone.utc).timestamp() - (30 * 86400)
 
         try:
             rows = await pool.fetch(
                 """SELECT features_json, outcome FROM trades
                    WHERE created_at > $1 AND features_json IS NOT NULL AND outcome IS NOT NULL""",
-                seven_days_ago,
+                thirty_days_ago,
             )
         except Exception:
             rows = []
@@ -652,10 +675,9 @@ async def main():
 
     engine = AcceleratedMLEngine()
 
-    # Attempt initial training if not yet trained
+    # Always attempt training — checks for live data to override pretrained model
     pool = await get_pool()
-    if not engine.is_trained:
-        await engine.train(pool)
+    await engine.train(pool)
 
     # Connect Redis
     redis_conn = None
