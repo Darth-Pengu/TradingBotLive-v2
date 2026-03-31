@@ -1494,7 +1494,7 @@ async def _process_signals(redis_conn: aioredis.Redis):
                 for personality in targets:
                     # FIX 15: Speed demon age tightening (60s max)
                     if personality == "speed_demon" and age_sec > 60:
-                        logger.debug("Speed demon age reject %s: %ds > 60s", mint[:12], age_sec)
+                        logger.info("AGE REJECT %s for speed_demon: %ds > 60s", mint[:12], age_sec)
                         continue
 
                     # FIX 17: Graduation zone — Speed Demon skips entirely
@@ -1505,7 +1505,7 @@ async def _process_signals(redis_conn: aioredis.Redis):
                     # Hard filters
                     passed, reason = _apply_hard_filters(personality, signal, rugcheck)
                     if not passed:
-                        logger.debug("Rejected %s for %s: %s", mint[:12], personality, reason)
+                        logger.info("HARD REJECT %s for %s: %s", mint[:12], personality, reason)
                         continue
 
                     # KOTH zone check
