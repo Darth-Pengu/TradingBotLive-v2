@@ -276,19 +276,26 @@ class AcceleratedMLEngine:
                 win_count = await pool.fetchval(
                     "SELECT COUNT(*) FROM trades WHERE outcome = 'profit' AND features_json IS NOT NULL"
                 )
+                logger.info("Live data check: %d labeled trades, %d wins (model has %d samples)",
+                           live_count, win_count, self.n_samples)
                 if live_count >= 100 and win_count >= 5:
                     logger.warning(
-                        "LIVE DATA RETRAIN: %d live trades (%d wins) available — "
-                        "retraining on live data instead of %d-sample pretrained model",
+                        "LIVE DATA RETRAIN TRIGGERED: %d live trades (%d wins) — "
+                        "overriding %d-sample pretrained model",
                         live_count, win_count, self.n_samples,
                     )
-                    # Allow retrain to proceed
+                    # Reset model state to force fresh training on live data
+                    self.models = {}
+                    self.is_trained = False
+                    self.n_samples = 0
+                    self.phase = 0
+                    # Fall through to training code below
                 else:
-                    logger.info("Pre-trained model loaded (%d samples), live=%d wins=%d — keeping pretrained",
-                               self.n_samples, live_count, win_count)
+                    logger.info("Keeping pretrained model: live=%d wins=%d (need 100+ trades, 5+ wins)",
+                               live_count, win_count)
                     return
             except Exception as e:
-                logger.debug("Live data check failed: %s — keeping pretrained", e)
+                logger.warning("Live data check failed: %s — keeping pretrained", e)
                 return
 
         # Use 30-day window for live data (we need all available samples)
