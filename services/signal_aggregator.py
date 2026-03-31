@@ -1250,6 +1250,14 @@ async def _process_signals(redis_conn: aioredis.Redis):
                 if not mint:
                     continue
 
+                # Track total signals received
+                try:
+                    today_key = f"filter:stats:{datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
+                    await redis_conn.hincrby(today_key, "total_signals", 1)
+                    await redis_conn.expire(today_key, 172800)
+                except Exception:
+                    pass
+
                 now = time.time()
 
                 # --- Deduplication ---
@@ -1546,16 +1554,59 @@ async def _process_signals(redis_conn: aioredis.Redis):
                         (min(bsr, 3) / 3 * 30)
                     ))
 
+                # === NEW FEATURES — academic research top predictors ===
+                bc_sol = features["liquidity_sol"]
+                tx_count = int(raw.get("trxns", token_details.get("trade_count_24h", 0)) or 0)
+                features["liquidity_accumulation_speed"] = round(bc_sol / max(tx_count, 1), 6)
+                features["buy_sell_ratio_derivative"] = float(raw.get("buy_sell_ratio_derivative", 0) or 0)
+                ub_30 = features.get("unique_buyers_30min", 0)
+                age_min = max(features.get("token_age_seconds", 60) / 60, 0.1)
+                features["unique_wallet_velocity"] = round(ub_30 / age_min, 2)
+                features["graduation_proximity"] = round(min(bc_sol / 85.0, 1.0), 4) if bc_sol > 0 else 0
+                features["bundle_organic_ratio"] = round(float(rugcheck.get("bundle_pct", 0) or 0) / 100.0, 4)
+
+                # === Feature coverage — fill ALL nulls with sensible defaults ===
+                features.setdefault("token_age_seconds", 0)
+                features.setdefault("bonding_curve_progress", 0.5)
+                features.setdefault("liquidity_sol", 0.5)
+                features.setdefault("buy_sell_ratio_5min", 1.0)
+                features.setdefault("holder_count", 10)
+                features.setdefault("top10_holder_pct", 40)
+                features.setdefault("bundle_detected", 0)
+                features.setdefault("fresh_wallet_ratio", 0.3)
+                features.setdefault("bot_transaction_ratio", 0.3)
+                features.setdefault("creator_prev_launches", 0)
+                features.setdefault("creator_rug_rate", 0.1)
+                features.setdefault("creator_rug_count", 0)
+                features.setdefault("mint_authority_revoked", 1)
+                features.setdefault("dev_wallet_hold_pct", 5.0)
+                features.setdefault("dev_sold_pct", 0)
+                features.setdefault("sol_price_usd", 84.0)
+                features.setdefault("cfgi_score", 50.0)
+                features.setdefault("nansen_sm_count", 0)
+                features.setdefault("nansen_sm_inflow_ratio", 1.0)
+                features.setdefault("nansen_concentration_risk", 0)
+
                 # Fill in market health data
                 health_str = await redis_conn.get("market:health")
                 if health_str:
                     health = json.loads(health_str)
-                    features["sol_price_usd"] = health.get("sol_price", 0)
-                    features["cfgi_score"] = health.get("cfgi", 0)
-                    # Derive market_cap_usd from liquidity if not available
+                    features["sol_price_usd"] = float(health.get("sol_price", features["sol_price_usd"]) or features["sol_price_usd"])
+                    features["cfgi_score"] = float(health.get("cfgi", features["cfgi_score"]) or features["cfgi_score"])
                     if features["market_cap_usd"] == 0 and features["liquidity_sol"] > 0:
-                        sol_px = features.get("sol_price_usd") or 0
-                        features["market_cap_usd"] = features["liquidity_sol"] * 2 * sol_px
+                        features["market_cap_usd"] = features["liquidity_sol"] * 2 * features["sol_price_usd"]
+
+                # Log feature coverage
+                filled = sum(1 for v in features.values() if v is not None and v != 0 and v != -1)
+                logger.info("ML FEATURES: %d/%d filled (%.0f%%)", filled, len(features), filled / max(len(features), 1) * 100)
+
+                # Track filter stats in Redis
+                try:
+                    today_key = f"filter:stats:{datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
+                    await redis_conn.hincrby(today_key, "passed_prefilter", 1)
+                    await redis_conn.expire(today_key, 172800)
+                except Exception:
+                    pass
 
                 # ML scoring — always runs
                 token_name = signal.get("raw_data", {}).get("name", signal.get("raw_data", {}).get("symbol", mint[:12]))
