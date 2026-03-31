@@ -918,8 +918,8 @@ async def main():
         )
         engine = AcceleratedMLEngine()
         pool = await get_pool()
-        if not engine.is_trained:
-            await engine.train(pool)
+        # Always call train() — it checks for live data to override pretrained model
+        await engine.train(pool)
 
         redis_conn = None
         try:
