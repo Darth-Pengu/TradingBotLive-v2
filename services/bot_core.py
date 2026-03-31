@@ -637,20 +637,21 @@ class BotCore:
                     await self.redis.sadd("traded:mints", pos.mint)
                     await self.redis.expire("traded:mints", 7200)
                     # Consecutive loss counter (Redis + PostgreSQL)
+                    aggressive_paper = os.getenv("AGGRESSIVE_PAPER_TRADING", "").lower() == "true"
                     if outcome == "loss":
                         consec = await self.redis.incr("bot:consecutive_losses")
-                        if consec >= 3:
-                            pause_until = time.time() + 900
-                            await self.redis.set("bot:loss_pause_until", str(pause_until), ex=1800)
-                            logger.warning("3+ consecutive losses (%d) — pausing entries 15min", consec)
-                        if consec >= 5:
-                            await self.redis.set("market:loss_override", "DEFENSIVE", ex=3600)
-                            logger.warning("5+ consecutive losses — overriding market mode to DEFENSIVE")
+                        if not aggressive_paper:
+                            # Only pause entries in non-aggressive mode
+                            if consec >= 3:
+                                pause_until = time.time() + 900
+                                await self.redis.set("bot:loss_pause_until", str(pause_until), ex=1800)
+                                logger.warning("3+ consecutive losses (%d) — pausing entries 15min", consec)
+                            if consec >= 5:
+                                await self.redis.set("market:loss_override", "DEFENSIVE", ex=3600)
+                                logger.warning("5+ consecutive losses — overriding market mode to DEFENSIVE")
                         try:
                             from services.db import set_bot_state
                             await set_bot_state("consecutive_losses", int(consec))
-                            if consec >= 3:
-                                await set_bot_state("loss_pause_until", pause_until)
                         except Exception:
                             pass
                     else:
@@ -722,15 +723,17 @@ class BotCore:
                 await self.redis.sadd("traded:mints", pos.mint)
                 await self.redis.expire("traded:mints", 7200)
                 # Consecutive loss counter (Redis + PostgreSQL)
+                aggressive_paper = os.getenv("AGGRESSIVE_PAPER_TRADING", "").lower() == "true"
                 if outcome == "loss":
                     consec = await self.redis.incr("bot:consecutive_losses")
-                    if consec >= 3:
-                        pause_until = time.time() + 900
-                        await self.redis.set("bot:loss_pause_until", str(pause_until), ex=1800)
-                        logger.warning("3+ consecutive losses (%d) — pausing entries 15min", consec)
-                    if consec >= 5:
-                        await self.redis.set("market:loss_override", "DEFENSIVE", ex=3600)
-                        logger.warning("5+ consecutive losses — overriding market mode to DEFENSIVE")
+                    if not aggressive_paper:
+                        if consec >= 3:
+                            pause_until = time.time() + 900
+                            await self.redis.set("bot:loss_pause_until", str(pause_until), ex=1800)
+                            logger.warning("3+ consecutive losses (%d) — pausing entries 15min", consec)
+                        if consec >= 5:
+                            await self.redis.set("market:loss_override", "DEFENSIVE", ex=3600)
+                            logger.warning("5+ consecutive losses — overriding market mode to DEFENSIVE")
                     try:
                         from services.db import set_bot_state
                         await set_bot_state("consecutive_losses", int(consec))
