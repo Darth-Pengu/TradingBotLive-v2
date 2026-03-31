@@ -1167,14 +1167,14 @@ def _check_koth_zone(bc_progress: float, personality: str, ml_score: float) -> t
     return True, ""
 
 
-# Direct ML engine reference — all services run in one process,
-# so we can score inline without pubsub round-trip.
+# Direct ML engine reference — lazy-loaded and retrained on live data
 _ml_engine_instance = None
+_ml_engine_trained = False
 
 
-def _get_ml_engine():
-    """Lazy-load the ML engine singleton from ml_model_accelerator."""
-    global _ml_engine_instance
+async def _get_ml_engine_async(pool=None):
+    """Lazy-load ML engine and retrain on live data if available."""
+    global _ml_engine_instance, _ml_engine_trained
     if _ml_engine_instance is None:
         try:
             from services.ml_model_accelerator import AcceleratedMLEngine
@@ -1184,12 +1184,30 @@ def _get_ml_engine():
                        _ml_engine_instance.is_trained)
         except Exception as e:
             logger.warning("Failed to load ML engine inline: %s", e)
+            return None
+
+    # Attempt live retrain once (not on every call)
+    if not _ml_engine_trained and pool is not None:
+        _ml_engine_trained = True
+        try:
+            await _ml_engine_instance.train(pool)
+            logger.info("ML engine retrained inline: phase=%d, n=%d, AUC=%.4f",
+                       _ml_engine_instance.phase, _ml_engine_instance.n_samples,
+                       _ml_engine_instance.cv_auc_mean)
+        except Exception as e:
+            logger.warning("Inline ML retrain failed: %s", e)
+
     return _ml_engine_instance
 
 
-async def _request_ml_score(redis_conn: aioredis.Redis, features: dict, timeout: float = 5.0) -> tuple[float, bool]:
+def _get_ml_engine():
+    """Sync wrapper — returns cached instance or None."""
+    return _ml_engine_instance
+
+
+async def _request_ml_score(redis_conn: aioredis.Redis, features: dict, timeout: float = 5.0, pool=None) -> tuple[float, bool]:
     """Score using inline ML engine (same process). Falls back to pubsub if inline fails."""
-    engine = _get_ml_engine()
+    engine = await _get_ml_engine_async(pool)
     if engine:
         try:
             score, is_trained = engine.predict(features)
@@ -1234,7 +1252,7 @@ async def _cleanup_seen_tokens():
             logger.debug("Cleaned %d expired tokens from dedup cache", len(expired))
 
 
-async def _process_signals(redis_conn: aioredis.Redis):
+async def _process_signals(redis_conn: aioredis.Redis, pool=None):
     """Main processing loop: read raw signals, aggregate, score, and route."""
     async with aiohttp.ClientSession() as session:
         while True:
@@ -1612,7 +1630,7 @@ async def _process_signals(redis_conn: aioredis.Redis):
 
                 # ML scoring — always runs
                 token_name = signal.get("raw_data", {}).get("name", signal.get("raw_data", {}).get("symbol", mint[:12]))
-                ml_score, ml_trained = await _request_ml_score(redis_conn, features)
+                ml_score, ml_trained = await _request_ml_score(redis_conn, features, pool=pool)
 
                 logger.info("ML SCORE %s: %.1f (trained=%s) targets=%s age=%ds",
                            mint[:12], ml_score, ml_trained, targets, age_sec)
@@ -1805,8 +1823,17 @@ async def main():
         logger.error("Signal aggregator cannot run without Redis — exiting")
         return
 
+    # Get DB pool for inline ML training
+    pool = None
+    try:
+        from services.db import get_pool
+        pool = await get_pool()
+        logger.info("DB pool connected for inline ML training")
+    except Exception as e:
+        logger.warning("DB pool not available for inline ML: %s", e)
+
     await asyncio.gather(
-        _process_signals(redis_conn),
+        _process_signals(redis_conn, pool=pool),
         _cleanup_seen_tokens(),
     )
 
