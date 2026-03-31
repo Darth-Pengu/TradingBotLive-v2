@@ -550,6 +550,7 @@ async def api_positions(request):
                 "trailing_stop_active": pos.get("trailing_stop_active", False),
                 "trailing_stop_price": pos.get("trailing_stop_price"),
                 "peak_price": pos.get("peak_price"),
+                "rugcheck_risk": pos.get("rugcheck_risk_level", "unknown"),
             })
     except Exception as e:
         logger.warning("api_positions error: %s", e)
@@ -628,6 +629,7 @@ async def api_trades(request):
             "signal_source": r.get("signal_source", ""),
             "entry_time": _safe_isoformat(r.get("entry_time")),
             "exit_time": _safe_isoformat(r.get("exit_time")),
+            "rugcheck_risk": r.get("rugcheck_risk", "unknown"),
         })
     return web.json_response(trades)
 
@@ -669,6 +671,7 @@ async def api_trades_active(request):
             "trailing_stop_active": bool(r.get("trailing_stop_active", False)),
             "trailing_stop_price": float(r.get("trailing_stop_price", 0) or 0),
             "trailing_stop_pct": float(r.get("trailing_stop_pct", 0) or 0),
+            "rugcheck_risk": r.get("rugcheck_risk", "unknown"),
         })
     return web.json_response(trades)
 

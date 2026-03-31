@@ -135,6 +135,7 @@ async def paper_buy(
     signal_source: str = "",
     market_mode: str = "NORMAL",
     fear_greed: float = 50.0,
+    rugcheck_risk: str = "unknown",
 ) -> dict:
     """Simulate a paper buy trade. Returns result dict with fake signature."""
     # Get real price — skip trade if price fetch fails
@@ -160,11 +161,11 @@ async def paper_buy(
         """INSERT INTO paper_trades
            (mint, personality, entry_price, amount_sol, slippage_pct, fees_sol,
             entry_time, signal_source, ml_score, entry_signature,
-            market_mode_at_entry, fear_greed_at_entry)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            market_mode_at_entry, fear_greed_at_entry, rugcheck_risk)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
            RETURNING id""",
         mint, personality, entry_price, net_amount, slippage, fees,
-        now, signal_source, ml_score, sig, market_mode, fear_greed,
+        now, signal_source, ml_score, sig, market_mode, fear_greed, rugcheck_risk,
     )
 
     # Store in Redis for live tracking

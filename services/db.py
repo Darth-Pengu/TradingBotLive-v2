@@ -169,6 +169,14 @@ async def _init_tables():
                 except Exception:
                     pass  # Column already exists or table doesn't exist yet
 
+        # --- rugcheck_risk column on paper_trades ---
+        try:
+            await conn.execute(
+                "ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS rugcheck_risk VARCHAR(10) DEFAULT 'unknown'"
+            )
+        except Exception:
+            pass
+
         # --- watched_wallets table (PostgreSQL-backed wallet management) ---
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS watched_wallets (

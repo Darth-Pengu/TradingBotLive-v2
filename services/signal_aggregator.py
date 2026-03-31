@@ -170,6 +170,13 @@ async def _fetch_rugcheck(session: aiohttp.ClientSession, mint: str) -> dict:
                 risk_levels = [r.get("level", "") for r in risks]
                 has_danger = "danger" in risk_levels or "critical" in risk_levels
                 has_high = "high" in risk_levels or "warn" in risk_levels
+                # Extract top holders for concentration check
+                top_holders = []
+                for h in data.get("topHolders", [])[:5]:
+                    top_holders.append({
+                        "pct": float(h.get("pct", 0) or 0) / 100.0,  # normalize to 0-1
+                        "address": h.get("address", ""),
+                    })
                 return {
                     "score": data.get("score", 0),
                     "score_normalised": data.get("score_normalised", 0),
@@ -179,6 +186,11 @@ async def _fetch_rugcheck(session: aiohttp.ClientSession, mint: str) -> dict:
                     "has_danger": has_danger,
                     "has_high_risk": has_high,
                     "token_type": data.get("tokenType", ""),
+                    "top_holders": top_holders,
+                    "result": (data.get("rugged") and "rug") or "",
+                    "mint_authority_enabled": data.get("mintAuthority") is not None and data.get("mintAuthority") != "",
+                    "freeze_authority_enabled": data.get("freezeAuthority") is not None and data.get("freezeAuthority") != "",
+                    "is_honeypot": any("honeypot" in r.get("name", "").lower() for r in risks),
                 }
             elif resp.status == 429:
                 logger.warning("Rugcheck rate limited for %s", mint[:12])
@@ -226,6 +238,83 @@ async def _get_rugcheck_enriched(session: aiohttp.ClientSession, mint: str, redi
         except Exception:
             pass
     return rc
+
+
+def _score_rugcheck(rugcheck: dict) -> tuple:
+    """
+    Returns (hard_reject: bool, reason: str,
+             size_multiplier: float, risk_level: str)
+
+    hard_reject = True only for unrecoverable risks
+    size_multiplier = how much to scale position
+    """
+    if not rugcheck:
+        # No data — trade with caution
+        return False, "", 0.6, "unknown"
+
+    risks = rugcheck.get("risks", [])
+    risk_names = [r.get("name", "").lower() for r in risks]
+    score = int(rugcheck.get("score", 50) or 50)
+
+    # ── HARD REJECTS (unrecoverable) ───────────────
+    # Honeypot: cannot sell tokens
+    if rugcheck.get("is_honeypot"):
+        return True, "honeypot", 0, "fatal"
+
+    # Blacklisted contract
+    if any("blacklist" in r for r in risk_names):
+        return True, "blacklisted", 0, "fatal"
+
+    # Freeze authority active (funds can freeze)
+    if rugcheck.get("freeze_authority_enabled"):
+        return True, "freeze_authority", 0, "fatal"
+
+    # Explicit scam/rug pattern detected
+    if rugcheck.get("result") in ("rug", "scam"):
+        return True, "confirmed_rug", 0, "fatal"
+
+    # ── SOFT RISKS (reduce size, still trade) ──────
+    multiplier = 1.0
+    risk_level = "low"
+
+    # Mint authority not revoked (can print tokens)
+    if rugcheck.get("mint_authority_enabled"):
+        multiplier *= 0.6
+        risk_level = "medium"
+
+    # Top holder concentration > 20%
+    top_holders = rugcheck.get("top_holders", [])
+    if top_holders:
+        top_pct = sum(h.get("pct", 0) for h in top_holders[:3])
+        if top_pct > 0.5:
+            multiplier *= 0.5
+            risk_level = "high"
+        elif top_pct > 0.3:
+            multiplier *= 0.7
+            risk_level = "medium"
+
+    # General danger flags
+    if rugcheck.get("has_danger"):
+        multiplier *= 0.7
+        risk_level = "medium"
+
+    # Bundle detected in rugcheck
+    if any("bundle" in r for r in risk_names):
+        multiplier *= 0.6
+        risk_level = "high"
+
+    # Low rugcheck score
+    if score < 30:
+        multiplier *= 0.5
+        risk_level = "high"
+    elif score < 50:
+        multiplier *= 0.75
+        risk_level = "medium"
+
+    # Apply floor — never go below 0.15x
+    multiplier = max(0.15, multiplier)
+
+    return False, "", multiplier, risk_level
 
 
 _socialdata_last_call = 0.0
@@ -1055,21 +1144,9 @@ def _apply_hard_filters(personality: str, signal: dict, rugcheck: dict) -> tuple
         if liq < ANALYST_FILTERS["min_liquidity_sol"]:
             return False, f"liquidity {liq} < {ANALYST_FILTERS['min_liquidity_sol']}"
 
-    # Rugcheck safety gate (all personalities)
-    # Check for danger/critical risk levels in the risks array
-    if rugcheck.get("has_danger"):
-        risk_names = rugcheck.get("risk_names", [])
-        return False, f"rugcheck danger risks: {', '.join(risk_names[:3])}"
-
-    # Also reject if the overall risk score is too high (higher = riskier)
-    rugcheck_score = rugcheck.get("score", 0)
-    # Log raw score for calibration (keep last 50 in Redis for /api/debug/rugcheck-scores)
-    logger.debug("Rugcheck score for %s: %s (threshold: %d)",
-                 signal.get("mint", "")[:12], rugcheck_score, RUGCHECK_REJECT_SCORE)
-
-    if rugcheck_score >= RUGCHECK_REJECT_SCORE:
-        return False, f"rugcheck risk score {rugcheck_score} >= {RUGCHECK_REJECT_SCORE}"
-
+    # Rugcheck scoring is now handled separately via _score_rugcheck()
+    # Only hard rejects (honeypot/blacklist/freeze/scam) block here;
+    # soft risks reduce position size via rugcheck_multiplier on the signal.
     return True, ""
 
 
@@ -1505,7 +1582,27 @@ async def _process_signals(redis_conn: aioredis.Redis):
                         logger.debug("Graduation zone reject %s for speed_demon", mint[:12])
                         continue
 
-                    # Hard filters
+                    # Rugcheck risk-adjusted scoring (replaces old hard gate)
+                    hard_reject, rc_reason, rc_multiplier, risk_level = _score_rugcheck(rugcheck)
+                    if hard_reject:
+                        logger.info(
+                            "HARD REJECT: %s reason=%s (unrecoverable)",
+                            mint[:8], rc_reason,
+                        )
+                        continue
+
+                    if rc_multiplier < 1.0:
+                        logger.info(
+                            "RUGCHECK RISK: %s level=%s mult=%.2f "
+                            "(still trading with reduced size)",
+                            mint[:8], risk_level, rc_multiplier,
+                        )
+
+                    # Store multiplier for position sizing downstream
+                    signal["rugcheck_multiplier"] = rc_multiplier
+                    signal["rugcheck_risk_level"] = risk_level
+
+                    # Hard filters (personality-specific, no longer includes rugcheck)
                     passed, reason = _apply_hard_filters(personality, signal, rugcheck)
                     if not passed:
                         logger.info("HARD REJECT %s for %s: %s", mint[:12], personality, reason)
@@ -1622,6 +1719,8 @@ async def _process_signals(redis_conn: aioredis.Redis):
                         "haiku_rec": haiku_result.get("recommendation", ""),
                         "haiku_flags": haiku_result.get("red_flags", []),
                         "position_size_multiplier": position_size_multiplier,
+                        "rugcheck_multiplier": rc_multiplier,
+                        "rugcheck_risk_level": risk_level,
                     }
 
                     await redis_conn.lpush("signals:scored", json.dumps(scored_signal))

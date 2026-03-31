@@ -116,6 +116,7 @@ class Position:
     trailing_stop_active: bool = False
     trailing_stop_price: float = 0.0
     trailing_stop_pct: float = 0.0
+    rugcheck_risk_level: str = "unknown"
 
 
 class BotCore:
@@ -379,18 +380,42 @@ class BotCore:
         }
 
         # Calculate position size (with pre-filter multiplier for speed_demon)
-        size_sol = calculate_position_size(
+        base_size = calculate_position_size(
             personality, mint, self.portfolio,
             ml_score=ml_score,
             volatility_ratio=1.0,
         )
-        multiplier = scored_signal.get("position_size_multiplier", 1.0)
-        if personality == "speed_demon" and multiplier > 1.0:
-            size_sol = min(
-                size_sol * multiplier,
+        conf_mult = scored_signal.get("position_size_multiplier", 1.0)
+        if personality == "speed_demon" and conf_mult > 1.0:
+            base_size = min(
+                base_size * conf_mult,
                 self.portfolio.total_balance_sol * 0.10,  # never > 10% of balance
             )
-            logger.info("Speed Demon size boost: %.4f SOL (mult=%.2f)", size_sol, multiplier)
+
+        # Apply rugcheck risk multiplier
+        rc_mult = scored_signal.get("rugcheck_multiplier", 1.0)
+        size_sol = base_size * rc_mult
+
+        # Apply dynamic win rate multiplier (if exists)
+        wr_mult = 1.0
+        if self.redis:
+            try:
+                wr_raw = await self.redis.get(f"position:multiplier:{personality}")
+                if wr_raw:
+                    wr_mult = float(wr_raw)
+            except Exception:
+                pass
+        size_sol = size_sol * wr_mult
+
+        # Enforce limits
+        size_sol = max(0.15, min(size_sol, 0.75))
+
+        logger.info(
+            "POSITION SIZE: %s base=%.2f conf_mult=%.2f rc_mult=%.2f "
+            "wr_mult=%.2f final=%.2f SOL",
+            mint[:8], base_size,
+            conf_mult, rc_mult, wr_mult, size_sol,
+        )
 
         if size_sol <= 0:
             logger.debug("Risk rejected %s for %s (size=0)", mint[:12], personality)
@@ -445,6 +470,7 @@ class BotCore:
                 slippage_tier=slippage_tier, pool=token.pool,
                 ml_score=ml_score, signal_source=signal_source,
                 market_mode=market_mode, fear_greed=fgi,
+                rugcheck_risk=scored_signal.get("rugcheck_risk_level", "unknown"),
             )
             if paper_result["success"]:
                 paper_trade_id = paper_result["trade_id"]
@@ -479,6 +505,7 @@ class BotCore:
                     ml_score=ml_score,
                     signal_source=signal_source,
                     bonding_curve_progress=bc_progress,
+                    rugcheck_risk_level=scored_signal.get("rugcheck_risk_level", "unknown"),
                 )
                 # Persist trades_ml_id to paper_trades for restart recovery
                 try:
@@ -1147,6 +1174,7 @@ class BotCore:
                         "trailing_stop_active": v.trailing_stop_active,
                         "trailing_stop_price": v.trailing_stop_price,
                         "trailing_stop_pct": v.trailing_stop_pct,
+                        "rugcheck_risk_level": v.rugcheck_risk_level,
                     } for k, v in self.positions.items()},
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
