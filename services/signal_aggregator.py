@@ -1135,7 +1135,7 @@ def _apply_hard_filters(personality: str, signal: dict, rugcheck: dict) -> tuple
             return False, f"dev sold {dev_sold_pct}% > 20% (Helius enhanced)"
 
     if personality == "analyst":
-        liq = raw.get("liquidity_sol", 0)
+        liq = raw.get("liquidity_sol", raw.get("vSolInBondingCurve", 0))
         if isinstance(liq, str):
             try:
                 liq = float(liq)
@@ -1608,11 +1608,12 @@ async def _process_signals(redis_conn: aioredis.Redis):
                         logger.info("HARD REJECT %s for %s: %s", mint[:12], personality, reason)
                         continue
 
-                    # KOTH zone check
-                    passed, reason = _check_koth_zone(bc_progress, personality, ml_score)
-                    if not passed:
-                        logger.debug("KOTH reject %s for %s: %s", mint[:12], personality, reason)
-                        continue
+                    # KOTH zone check — disabled in aggressive paper mode
+                    if not AGGRESSIVE_PAPER:
+                        passed, reason = _check_koth_zone(bc_progress, personality, ml_score)
+                        if not passed:
+                            logger.info("KOTH reject %s for %s: %s", mint[:12], personality, reason)
+                            continue
 
                     # ML threshold check — use bootstrap thresholds during cold start
                     if ml_trained:
@@ -1654,12 +1655,14 @@ async def _process_signals(redis_conn: aioredis.Redis):
                         logger.info("HAIKU: %s risk=%d rec=%s final_score=%.1f",
                                      mint[:12], haiku_risk, haiku_rec, ml_score)
 
-                    # Source count check for Analyst
-                    # Source count gate — relaxed to 1 during bootstrap (untrained model)
-                    min_sources_required = 1 if not ml_trained else ANALYST_FILTERS.get("min_sources", 2)
+                    # Source count check for Analyst — relaxed in aggressive paper mode
+                    if AGGRESSIVE_PAPER:
+                        min_sources_required = 1
+                    else:
+                        min_sources_required = 1 if not ml_trained else ANALYST_FILTERS.get("min_sources", 2)
                     if personality == "analyst" and len(_seen_tokens[mint]["sources"]) < min_sources_required:
-                        logger.debug("Analyst source gate: %s has %d/%d sources (ml_trained=%s)",
-                                     mint[:12], len(_seen_tokens[mint]["sources"]), min_sources_required, ml_trained)
+                        logger.info("Analyst source gate: %s has %d/%d sources",
+                                    mint[:12], len(_seen_tokens[mint]["sources"]), min_sources_required)
                         continue
 
                     # --- Nansen smart money confirmation ---
