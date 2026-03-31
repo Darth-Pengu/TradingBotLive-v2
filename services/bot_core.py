@@ -42,6 +42,7 @@ HELIUS_RPC_URL = os.getenv("HELIUS_RPC_URL", "")
 TRADING_WALLET_ADDRESS = os.getenv("TRADING_WALLET_ADDRESS", "")
 JUPITER_API_KEY = os.getenv("JUPITER_API_KEY", "").strip()
 NANSEN_API_KEY = os.getenv("NANSEN_API_KEY", "")
+_start_time = time.time()
 
 # Import sibling modules
 from services.execution import execute_trade, Token, ExecutionResult
@@ -373,6 +374,17 @@ class BotCore:
 
         self.portfolio.market_mode = market_mode
 
+        # CFGI market fear gating — reduce exposure in extreme fear
+        cfgi = float(features.get("cfgi_score", 50))
+        if cfgi < 10 and personality == "speed_demon" and not os.getenv("AGGRESSIVE_PAPER_TRADING", "").lower() == "true":
+            logger.info("CFGI=%d — Speed Demon paused in extreme fear", int(cfgi))
+            return
+        cfgi_mult = 1.0
+        if cfgi < 10:
+            cfgi_mult = 0.5
+        elif cfgi < 20:
+            cfgi_mult = 0.75
+
         # Update portfolio with current open positions
         self.portfolio.open_positions = {
             k: {"personality": v.personality, "size_sol": v.size_sol * v.remaining_pct, "mint": v.mint}
@@ -405,7 +417,7 @@ class BotCore:
                     wr_mult = float(wr_raw)
             except Exception:
                 pass
-        size_sol = size_sol * wr_mult
+        size_sol = size_sol * wr_mult * cfgi_mult
 
         # Enforce limits
         size_sol = max(0.15, min(size_sol, 0.75))
@@ -583,6 +595,12 @@ class BotCore:
                 self.portfolio.daily_pnl_sol += pnl_sol
                 self.portfolio.total_balance_sol += pnl_sol
 
+                # Sync balance to Redis for dashboard
+                if self.redis:
+                    try:
+                        await self.redis.set("bot:portfolio:balance", str(self.portfolio.total_balance_sol))
+                    except Exception:
+                        pass
 
                 if outcome == "loss":
                     self.portfolio.consecutive_losses[pos.personality] = \
@@ -1217,15 +1235,31 @@ async def main():
 
     logger.info("Bot Core ready — managing 3 personalities")
 
+    async def _heartbeat():
+        while True:
+            try:
+                if bot.redis:
+                    await bot.redis.set("service:bot_core:heartbeat", json.dumps({
+                        "status": "alive",
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "uptime_seconds": round(time.time() - _start_time),
+                        "positions": len(bot.positions),
+                        "emergency": bot.emergency_stopped,
+                    }), ex=90)
+            except Exception:
+                pass
+            await asyncio.sleep(30)
+
     await asyncio.gather(
         bot._consume_signals(),
         bot._check_exits(),
         bot._emergency_listener(),
         bot._exit_check_listener(),
-        bot._nansen_exit_monitor(),  # P5: Nansen smart money sell detection
+        bot._nansen_exit_monitor(),
         bot._daily_reset(),
-        bot._portfolio_snapshot_task(),  # Write snapshots every 5min for equity chart
+        bot._portfolio_snapshot_task(),
         bot._status_publisher(),
+        _heartbeat(),
     )
 
 
