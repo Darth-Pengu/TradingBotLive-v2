@@ -1484,6 +1484,9 @@ async def _process_signals(redis_conn: aioredis.Redis):
                 token_name = signal.get("raw_data", {}).get("name", signal.get("raw_data", {}).get("symbol", mint[:12]))
                 ml_score, ml_trained = await _request_ml_score(redis_conn, features)
 
+                logger.info("ML SCORE %s: %.1f (trained=%s) targets=%s age=%ds",
+                           mint[:12], ml_score, ml_trained, targets, age_sec)
+
                 # Haiku enrichment — lazy, fetched once per signal only after a personality
                 # passes hard filters + ML gate. Reused for subsequent personalities.
                 haiku_result = {}
