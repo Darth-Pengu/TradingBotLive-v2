@@ -925,7 +925,16 @@ async def main():
         try:
             redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True, max_connections=5)
             await redis_conn.ping()
-            logger.info("Redis connected (accelerated engine)")
+            # Publish model state to Redis
+            await redis_conn.set("ml:engine:mode", "accelerated")
+            status = "TRAINED" if engine.is_trained else "HEURISTIC"
+            await redis_conn.set("ml:model:status", status)
+            await redis_conn.set("ml:model:phase", str(engine.phase))
+            await redis_conn.set("ml:model:sample_count", str(engine.n_samples))
+            if engine.cv_auc_mean > 0:
+                await redis_conn.set("ml:model:cv_auc", f"{engine.cv_auc_mean:.4f}")
+            logger.info("Redis connected — ml:engine:mode=accelerated, status=%s, phase=%d, n=%d, AUC=%.4f",
+                        status, engine.phase, engine.n_samples, engine.cv_auc_mean)
         except Exception as e:
             logger.warning("Redis connection failed: %s -- scoring disabled", e)
 
