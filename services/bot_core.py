@@ -64,28 +64,28 @@ if TEST_MODE:
 EXIT_STRATEGIES = {
     "speed_demon": {
         "staged_exits": [
-            {"at_multiple": 2.0, "sell_pct": 0.40},   # Sell 40% at 2x
-            {"at_multiple": 3.0, "sell_pct": 0.30},   # Sell 30% at 3x
+            {"at_multiple": 1 + float(os.getenv("SD_TAKE_PROFIT_PCT", "50")) / 100, "sell_pct": 0.40},
+            {"at_multiple": 1 + float(os.getenv("SD_TAKE_PROFIT_PCT", "50")) / 100 * 1.5, "sell_pct": 0.30},
         ],
-        "time_exit_minutes": 5,       # No movement in 5 min → close all
-        "stop_loss_pct": 0.50,        # 50% absolute floor
+        "time_exit_minutes": float(os.getenv("SD_EXIT_SECONDS", "600")) / 60,
+        "stop_loss_pct": float(os.getenv("SD_STOP_LOSS_PCT", "25")) / 100,
     },
     "analyst": {
         "staged_exits": [
-            {"at_multiple": 1.5, "sell_pct": 0.30},
-            {"at_multiple": 2.5, "sell_pct": 0.30},
+            {"at_multiple": 1 + float(os.getenv("ANALYST_TAKE_PROFIT_PCT", "100")) / 200, "sell_pct": 0.30},
+            {"at_multiple": 1 + float(os.getenv("ANALYST_TAKE_PROFIT_PCT", "100")) / 100, "sell_pct": 0.30},
         ],
-        "time_exit_minutes": 30,
+        "time_exit_minutes": float(os.getenv("ANALYST_EXIT_SECONDS", "1800")) / 60,
         "max_hold_hours": 2,
-        "stop_loss_pct": 0.30,
+        "stop_loss_pct": float(os.getenv("ANALYST_STOP_LOSS_PCT", "35")) / 100,
     },
     "whale_tracker": {
         "staged_exits": [
-            {"at_multiple": 2.0, "sell_pct": 0.30},
-            {"at_multiple": 5.0, "sell_pct": 0.40},
+            {"at_multiple": 1 + float(os.getenv("WHALE_TAKE_PROFIT_PCT", "200")) / 200, "sell_pct": 0.30},
+            {"at_multiple": 1 + float(os.getenv("WHALE_TAKE_PROFIT_PCT", "200")) / 100, "sell_pct": 0.40},
         ],
-        "max_hold_hours": 4,
-        "stop_loss_pct": 0.30,
+        "max_hold_hours": float(os.getenv("WHALE_EXIT_SECONDS", "3600")) / 3600,
+        "stop_loss_pct": float(os.getenv("WHALE_STOP_LOSS_PCT", "40")) / 100,
     },
 }
 
@@ -532,6 +532,10 @@ class BotCore:
                 logger.info("PAPER ENTERED: %s %s @ $%.8f, %.4f SOL (sig: %s)",
                              personality, mint[:12], paper_result["entry_price"],
                              paper_result["amount_sol"], paper_result["signature"])
+                try:
+                    await self.redis.hincrby("filter:stats:today", "trades_entered", 1)
+                except Exception:
+                    pass
                 # FIX 21: Publish trade_entered for dashboard signal feed
                 if self.redis:
                     await self.redis.publish("bot:status", json.dumps({
@@ -867,6 +871,18 @@ class BotCore:
                     entry = pos.entry_price
                     elapsed_min = (time.time() - pos.entry_time) / 60
                     elapsed_hrs = elapsed_min / 60
+
+                    # 90-second momentum check for speed_demon
+                    early_check_sec = float(os.getenv("SD_EARLY_CHECK_SECONDS", "90"))
+                    early_min_move = float(os.getenv("SD_EARLY_MIN_MOVE_PCT", "2.0"))
+                    if pos.personality == "speed_demon" and current_price > 0 and entry > 0:
+                        hold_sec = time.time() - pos.entry_time
+                        if early_check_sec - 10 < hold_sec < early_check_sec + 30:
+                            pnl_pct = (current_price - entry) / entry * 100
+                            if pnl_pct < early_min_move:
+                                logger.info("NO MOMENTUM 90s: %s %.1f%%", pos.mint[:8], pnl_pct)
+                                await self._close_position(pos, "no_momentum_90s")
+                                continue
 
                     # Time-based and max-hold exits fire regardless of price availability
                     time_exit = strategy.get("time_exit_minutes")
