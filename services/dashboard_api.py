@@ -363,6 +363,43 @@ async def api_status(request):
     status_data["holding_wallet_balance"] = holding_balance
     status_data["app_version"] = APP_VERSION
     status_data["test_mode"] = TEST_MODE
+
+    # SOL price — from market:health with CoinGecko fallback
+    sol_price = 0
+    if redis_conn:
+        try:
+            mh_raw = await redis_conn.get("market:health")
+            if mh_raw:
+                mh = json.loads(mh_raw)
+                sol_price = float(mh.get("sol_price", mh.get("sol_usd", 0)) or 0)
+                status_data["fear_greed"] = mh.get("cfgi", mh.get("cfgi_score", 0))
+                status_data["dex_volume_24h"] = mh.get("dex_volume_24h", 0)
+                status_data["session"] = mh.get("session", "--")
+        except Exception:
+            pass
+    if sol_price == 0:
+        try:
+            async with aiohttp.ClientSession() as sess:
+                async with sess.get(
+                    "https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd",
+                    timeout=aiohttp.ClientTimeout(total=5),
+                ) as r:
+                    data = await r.json()
+                    sol_price = data.get("solana", {}).get("usd", 0)
+        except Exception:
+            sol_price = 0
+    status_data["sol_price"] = sol_price
+
+    # Total P&L from paper_trades
+    try:
+        pnl_rows = await _query_db(
+            """SELECT COALESCE(SUM(realised_pnl_sol), 0) as pnl FROM paper_trades
+               WHERE exit_time IS NOT NULL AND realised_pnl_sol IS NOT NULL""")
+        if pnl_rows:
+            status_data["total_pnl"] = round(float(pnl_rows[0].get("pnl", 0) or 0), 4)
+    except Exception:
+        pass
+
     return web.json_response(status_data)
 
 
@@ -1122,6 +1159,88 @@ async def api_debug_rugcheck(request):
         return web.json_response([])
 
 
+async def api_analytics(request):
+    """Equity curve, exit reasons, win rate trends, expectancy."""
+    result = {
+        "equity_curve": [], "exit_reasons": {},
+        "filter_stats": {}, "telegram_stats": {},
+        "win_rate_last10": 0, "win_rate_last25": 0, "win_rate_last50": 0,
+        "expectancy": 0, "avg_win_sol": 0, "avg_loss_sol": 0, "profit_factor": 0,
+    }
+    try:
+        # Equity curve
+        trades = await _query_db(
+            """SELECT realised_pnl_sol, exit_time FROM paper_trades
+               WHERE exit_time IS NOT NULL AND realised_pnl_sol IS NOT NULL
+               ORDER BY exit_time ASC""")
+        cumulative = 0
+        for i, t in enumerate(trades):
+            cumulative += float(t.get("realised_pnl_sol", 0) or 0)
+            result["equity_curve"].append({"time": i + 1, "value": round(cumulative, 4)})
+
+        # Exit reasons
+        exit_rows = await _query_db(
+            """SELECT exit_reason, COUNT(*) as c,
+               ROUND(AVG(realised_pnl_sol)::numeric, 4) as avg
+               FROM paper_trades WHERE exit_time IS NOT NULL
+               GROUP BY exit_reason ORDER BY c DESC""")
+        result["exit_reasons"] = {
+            r["exit_reason"]: {"count": r["c"], "avg_pnl": float(r.get("avg", 0) or 0)}
+            for r in exit_rows
+        }
+
+        # Win rate trends
+        def calc_wr(rows):
+            if not rows:
+                return 0
+            w = sum(1 for r in rows if float(r.get("realised_pnl_sol", 0) or 0) > 0)
+            return round(w / len(rows) * 100, 1)
+
+        l10 = await _query_db(
+            "SELECT realised_pnl_sol FROM paper_trades WHERE exit_time IS NOT NULL ORDER BY exit_time DESC LIMIT 10")
+        l25 = await _query_db(
+            "SELECT realised_pnl_sol FROM paper_trades WHERE exit_time IS NOT NULL ORDER BY exit_time DESC LIMIT 25")
+        l50 = await _query_db(
+            "SELECT realised_pnl_sol FROM paper_trades WHERE exit_time IS NOT NULL ORDER BY exit_time DESC LIMIT 50")
+        result["win_rate_last10"] = calc_wr(l10)
+        result["win_rate_last25"] = calc_wr(l25)
+        result["win_rate_last50"] = calc_wr(l50)
+
+        # Filter + Telegram stats from Redis
+        redis_conn = request.app.get("redis")
+        if redis_conn:
+            fs = await redis_conn.hgetall("filter:stats:today")
+            if fs:
+                result["filter_stats"] = {k: int(v) for k, v in fs.items()}
+            ts = await redis_conn.hgetall("telegram:stats:today")
+            if ts:
+                result["telegram_stats"] = {k: int(v) for k, v in ts.items()}
+
+        # Expectancy
+        win_row = await _query_db(
+            """SELECT
+               AVG(CASE WHEN realised_pnl_sol > 0 THEN realised_pnl_sol END) as avg_win,
+               AVG(CASE WHEN realised_pnl_sol < 0 THEN realised_pnl_sol END) as avg_loss,
+               COUNT(CASE WHEN realised_pnl_sol > 0 THEN 1 END) as wins,
+               COUNT(*) as total
+               FROM paper_trades WHERE exit_time IS NOT NULL""")
+        if win_row:
+            wr_data = win_row[0]
+            avg_win = float(wr_data.get("avg_win", 0) or 0)
+            avg_loss = float(wr_data.get("avg_loss", 0) or 0)
+            total = max(int(wr_data.get("total", 0) or 0), 1)
+            wr = int(wr_data.get("wins", 0) or 0) / total
+            expectancy = (wr * avg_win) + ((1 - wr) * avg_loss)
+            result["avg_win_sol"] = round(avg_win, 4)
+            result["avg_loss_sol"] = round(avg_loss, 4)
+            result["expectancy"] = round(expectancy, 4)
+            denom = abs(avg_loss * (1 - wr))
+            result["profit_factor"] = round(abs(avg_win * wr) / max(denom, 0.0001), 2)
+    except Exception as e:
+        logger.warning("api_analytics error: %s", e)
+    return web.json_response(result)
+
+
 async def api_emergency_stop(request):
     redis_conn = request.app.get("redis")
     now_iso = datetime.now(timezone.utc).isoformat()
@@ -1794,6 +1913,7 @@ def create_app() -> web.Application:
     app.router.add_get("/api/sol-price", api_sol_price)
     app.router.add_get("/api/service-health", api_service_health)
     app.router.add_get("/api/debug/rugcheck-scores", api_debug_rugcheck)
+    app.router.add_get("/api/analytics", api_analytics)
     app.router.add_get("/api/audit-snapshot", api_audit_snapshot)
     app.router.add_post("/api/market-mode-override", api_market_mode_override)
     app.router.add_get("/api/whale-activity", api_whale_activity)

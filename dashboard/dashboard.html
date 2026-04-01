@@ -266,6 +266,39 @@ kbd{background:var(--bg-elevated);border:1px solid var(--border-active);border-r
     <div class="pcard anl"><div class="pcard-h"><span class="pcard-name"><i class="bi bi-search" style="color:var(--accent-purple)"></i> Analyst</span><span class="pill pill-green" id="anlSt">ACTIVE</span></div><div class="pcard-grid"><div><div class="pcard-m-label">Trades</div><div class="pcard-m-val" id="anlT">0</div></div><div><div class="pcard-m-label">Win Rate</div><div class="pcard-m-val" id="anlW">--%</div></div><div><div class="pcard-m-label">P/L</div><div class="pcard-m-val" id="anlP">0.00</div></div></div><div class="pcard-footer" id="mlFt70">ML threshold: 70%</div></div>
     <div class="pcard whl"><div class="pcard-h"><span class="pcard-name"><i class="bi bi-water" style="color:var(--accent-amber)"></i> Whale Tracker</span><span class="pill pill-green" id="whlSt">ACTIVE</span></div><div class="pcard-grid"><div><div class="pcard-m-label">Trades</div><div class="pcard-m-val" id="whlT">0</div></div><div><div class="pcard-m-label">Win Rate</div><div class="pcard-m-val" id="whlW">--%</div></div><div><div class="pcard-m-label">P/L</div><div class="pcard-m-val" id="whlP">0.00</div></div></div><div class="pcard-footer" id="mlFt70">ML threshold: 70%</div></div>
   </div>
+  <!-- Analytics Row: Win Rate Trends + Signal Funnel + Risk Monitor -->
+  <div class="row-3">
+    <div class="card">
+      <div class="card-h"><span class="card-title">Win Rate Trends</span></div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center">
+        <div><div class="pcard-m-label">Last 10</div><div class="pcard-m-val" id="wrL10" style="font-size:18px">--</div></div>
+        <div><div class="pcard-m-label">Last 25</div><div class="pcard-m-val" id="wrL25" style="font-size:18px">--</div></div>
+        <div><div class="pcard-m-label">Last 50</div><div class="pcard-m-val" id="wrL50" style="font-size:18px">--</div></div>
+      </div>
+      <div style="margin-top:12px;padding-top:8px;border-top:1px solid var(--border);display:grid;grid-template-columns:1fr 1fr;gap:8px;text-align:center">
+        <div><div class="pcard-m-label">Expectancy</div><div id="analyticsExp" style="font-family:var(--font-mono);font-size:14px;margin-top:2px">--</div></div>
+        <div><div class="pcard-m-label">Profit Factor</div><div id="analyticsPF" style="font-family:var(--font-mono);font-size:14px;margin-top:2px">--</div></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-h"><span class="card-title">Signal Funnel Today</span></div>
+      <div style="font-size:13px;line-height:2">
+        <div style="display:flex;justify-content:space-between">📡 Signals<span id="fTotal" style="font-family:var(--font-mono)">--</span></div>
+        <div style="display:flex;justify-content:space-between">❌ Rejected<span id="fRejected" style="font-family:var(--font-mono);color:var(--red)">--</span></div>
+        <div style="display:flex;justify-content:space-between">✅ Passed<span id="fPassed" style="font-family:var(--font-mono);color:var(--green)">--</span></div>
+        <div style="display:flex;justify-content:space-between">📈 Entered<span id="fEntered" style="font-family:var(--font-mono);color:var(--accent-teal)">--</span></div>
+        <div style="display:flex;justify-content:space-between">🏆 Wins<span id="fWins" style="font-family:var(--font-mono);color:var(--green)">--</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-h"><span class="card-title">Risk Monitor</span></div>
+      <div style="font-size:13px">
+        <div style="margin-bottom:10px"><div class="pcard-m-label">Daily P&L</div><div style="margin-top:4px;background:var(--bg-elevated);border-radius:4px;overflow:hidden;height:8px"><div id="dailyBar" style="height:100%;width:0;background:var(--green);transition:width .5s"></div></div><div style="display:flex;justify-content:space-between;margin-top:2px"><span id="dailyPnlDisp" style="font-family:var(--font-mono);font-size:12px">--</span><span style="font-size:10px;color:var(--text-muted)">/ 2.00 SOL limit</span></div></div>
+        <div style="margin-bottom:10px"><div class="pcard-m-label">Consec. Losses</div><div style="margin-top:4px;background:var(--bg-elevated);border-radius:4px;overflow:hidden;height:8px"><div id="lossBar" style="height:100%;width:0;background:var(--green);transition:width .5s"></div></div><div style="display:flex;justify-content:space-between;margin-top:2px"><span id="consecLosses" style="font-family:var(--font-mono);font-size:12px">0</span><span style="font-size:10px;color:var(--text-muted)">/ 10 limit</span></div></div>
+        <div><div class="pcard-m-label">Open Exposure</div><div id="openRisk" style="font-family:var(--font-mono);font-size:14px;margin-top:2px">-- SOL</div></div>
+      </div>
+    </div>
+  </div>
   <!-- Trades + Feed -->
   <div class="row-2e">
     <div class="card">
@@ -394,9 +427,15 @@ if(d.recent_signals){d.recent_signals.slice(0,3).forEach(sig=>{
 })}
 // Session
 const sess=h.session;if(sess){$('mSess').textContent=sess;$('sessName').textContent=sess}
+// Risk monitor update from WS
+updateRisk(s);
 }
 // REST
 async function load(){try{const[st,ps,tr,stats]=await Promise.all([aFetch('/api/status').then(r=>r.json()).catch(()=>({})),aFetch('/api/personality-stats').then(r=>r.json()).catch(()=>({})),aFetch('/api/treasury').then(r=>r.json()).catch(()=>({})),aFetch('/api/stats').then(r=>r.json()).catch(()=>null)]);
+// Risk monitor from REST status
+updateRisk(st);
+// SOL price from status
+if(st.sol_price)updateSolPrice(st.sol_price,0);
 // Wire /api/stats to KPIs
 if(stats&&stats.total_trades>0){$('kPnl').textContent=(stats.total_pnl_sol>=0?'+':'')+stats.total_pnl_sol.toFixed(4)+' SOL';$('kPnl').style.color=stats.total_pnl_sol>=0?'var(--green)':'var(--red)';$('kWr').textContent=stats.win_rate+'%';$('kWrSub').textContent=stats.winning_trades+'W / '+(stats.total_trades-stats.winning_trades)+'L'}
 if(st.trading_wallet_balance!=null){$('kBal').textContent=F(st.trading_wallet_balance)+' SOL';$('trBal').textContent=F(st.trading_wallet_balance)+' SOL'}
@@ -430,6 +469,29 @@ aFetch('/api/paper-stats').then(r=>r.json()).then(ps=>{
   if(ps.total_trades>0){$('kPnl').textContent=(ps.total_pnl_sol>=0?'+':'')+ps.total_pnl_sol.toFixed(4)+' SOL';$('kPnl').style.color=ps.total_pnl_sol>=0?'var(--green)':'var(--red)';$('kWr').textContent=ps.win_rate+'%';$('kWrSub').textContent=ps.winning_trades+'W / '+(ps.total_trades-ps.winning_trades)+'L'}
 }).catch(()=>{});
 }catch(e){}}
+// Analytics panel
+async function loadAnalytics(){try{const r=await aFetch('/api/analytics');const a=await r.json();
+if(a.win_rate_last10!==undefined){const wr10=$('wrL10');if(wr10){wr10.textContent=a.win_rate_last10+'%';wr10.style.color=a.win_rate_last10>5?'var(--green)':'var(--red)'}
+const wr25=$('wrL25');if(wr25){wr25.textContent=a.win_rate_last25+'%';wr25.style.color=a.win_rate_last25>5?'var(--green)':'var(--red)'}
+const wr50=$('wrL50');if(wr50){wr50.textContent=a.win_rate_last50+'%';wr50.style.color=a.win_rate_last50>5?'var(--green)':'var(--red)'}}
+if(a.expectancy!==undefined){const expEl=$('analyticsExp');if(expEl){expEl.textContent=(a.expectancy>=0?'+':'')+a.expectancy.toFixed(4)+' SOL';expEl.style.color=a.expectancy>=0?'var(--green)':'var(--red)'}
+const pfEl=$('analyticsPF');if(pfEl){pfEl.textContent=a.profit_factor+'x';pfEl.style.color=a.profit_factor>=1?'var(--green)':'var(--red)'}}
+// Filter funnel
+const fs=a.filter_stats||{};const total=parseInt(fs.total_signals||0);const passed=parseInt(fs.passed_filters||0);const rejected=total-passed;const entered=parseInt(fs.trades_entered||0);const wins=parseInt(fs.wins||0);
+if($('fTotal'))$('fTotal').textContent=total||'--';
+if($('fRejected'))$('fRejected').textContent=rejected||'--';
+if($('fPassed'))$('fPassed').textContent=passed||'--';
+if($('fEntered'))$('fEntered').textContent=entered||'--';
+if($('fWins'))$('fWins').textContent=wins||'--';
+}catch(e){}}
+loadAnalytics();setInterval(loadAnalytics,30000);
+// Risk monitor from status
+function updateRisk(st){
+const dailyPnl=st.daily_pnl||0;const dpEl=$('dailyPnlDisp');if(dpEl){dpEl.textContent=(dailyPnl>=0?'+':'')+dailyPnl.toFixed(4)+' SOL';dpEl.style.color=dailyPnl>=0?'var(--green)':'var(--red)'}
+const pct=Math.min(Math.abs(dailyPnl)/2.0*100,100);const bar=$('dailyBar');if(bar){bar.style.width=pct+'%';bar.style.background=pct>80?'var(--red)':pct>50?'var(--accent-amber)':'var(--green)'}
+const cl=st.consecutive_losses||0;const clEl=$('consecLosses');if(clEl)clEl.textContent=cl;
+const lb=$('lossBar');if(lb){const lp=Math.min(cl/10*100,100);lb.style.width=lp+'%';lb.style.background=lp>80?'var(--red)':lp>50?'var(--accent-amber)':'var(--green)'}
+}
 // Emergency modal
 function openModal(){$('modalBg').classList.add('on');$('modalBar').style.width='0';setTimeout(()=>{$('modalBar').style.width='100%'},50);setTimeout(()=>{$('modalConfirm').classList.add('ready')},3000)}
 function closeModal(){$('modalBg').classList.remove('on');$('modalConfirm').classList.remove('ready');$('modalBar').style.width='0'}

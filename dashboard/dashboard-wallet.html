@@ -174,9 +174,9 @@ kbd{background:var(--bg-elevated);border:1px solid var(--border-active);border-r
   <!-- Tab 1: Active Positions -->
   <div class="tab-panel on" id="tab-positions">
     <div class="tbl-wrap">
-    <table><thead><tr><th>Token</th><th>Bot</th><th>Entry</th><th>Current</th><th>P/L SOL</th><th>P/L %</th><th>Size</th><th>Hold</th><th></th></tr></thead>
+    <table><thead><tr><th>Token</th><th>Bot</th><th>Entry</th><th>Current</th><th>P/L SOL</th><th>P/L %</th><th>Risk</th><th>Size</th><th>Hold</th><th></th></tr></thead>
     <tbody id="posTbl">
-      <tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:20px">No active positions</td></tr>
+      <tr><td colspan="10" style="text-align:center;color:var(--text-muted);padding:20px">No active positions</td></tr>
     </tbody></table>
     </div>
   </div>
@@ -193,7 +193,7 @@ kbd{background:var(--bg-elevated);border:1px solid var(--border-active);border-r
       <button class="fil" data-f="loss">Losses</button>
     </div>
     <div class="tbl-wrap">
-    <table><thead><tr><th>Time</th><th>Token</th><th>Bot</th><th>Entry</th><th>Exit</th><th>P/L SOL</th><th>P/L %</th><th>Hold</th><th>Size</th><th>Reason</th></tr></thead>
+    <table><thead><tr><th>Time</th><th>Token</th><th>Bot</th><th>Entry</th><th>Exit</th><th>P/L SOL</th><th>P/L %</th><th>Risk</th><th>Hold</th><th>Size</th><th>Reason</th></tr></thead>
     <tbody id="histTbl">
       <tr><td colspan="10" style="text-align:center;color:var(--text-muted);padding:20px">No trades yet</td></tr>
     </tbody></table>
@@ -354,8 +354,9 @@ $('posTbl').innerHTML=active.map(t=>{
   const curPrice=t.current_price||t.entry_price||0;
   const pnlPct=t.unrealised_pnl_pct;const pnlSol=t.unrealised_pnl_sol;
   const pnlClr=pnlPct!=null&&pnlPct>=0?'var(--green)':'var(--red)';
-  const tsCell=t.trailing_stop_active?'<span style="color:var(--accent-teal)">▲ $'+Number(t.trailing_stop_price).toFixed(8)+'</span>':'<span style="color:var(--text-muted)">--</span>';
-  return '<tr><td><span title="'+fullMint+'">'+mint+'</span> <button class="copy-btn" onclick="copyAddress(\''+fullMint+'\')" title="Copy full address" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:11px">⎘</button></td><td><span class="pill '+ic+'" style="font-size:9px"><i class="bi '+im+'"></i></span></td><td>'+(t.entry_price?'$'+Number(t.entry_price).toFixed(8):'--')+'</td><td>'+(curPrice>0?'$'+Number(curPrice).toFixed(8):'--')+'</td><td style="color:'+pnlClr+'">'+(pnlSol!=null?(pnlSol>=0?'+':'')+Number(pnlSol).toFixed(4):'--')+'</td><td style="color:'+pnlClr+'">'+(pnlPct!=null?(pnlPct>=0?'+':'')+Number(pnlPct).toFixed(1)+'%':'--')+'</td><td>'+tsCell+'</td><td>'+(t.amount_sol?Number(t.amount_sol).toFixed(4):'--')+'</td><td>'+holdStr+(entryTimeStr?'<br><span style="font-size:10px;color:var(--text-muted)">'+entryTimeStr+' AEDT</span>':'')+'</td><td><button class="btn-sm" onclick="if(confirm(\'Stop All positions?\'))aFetch(\'/api/emergency-stop\',{method:\'POST\'})">Stop All</button></td></tr>'
+  const riskMap={low:'<span class="pill pill-green" style="font-size:9px">✅ LOW</span>',medium:'<span class="pill pill-amber" style="font-size:9px">⚠ MED</span>',high:'<span class="pill pill-red" style="font-size:9px">🔴 HIGH</span>',unknown:'<span class="pill pill-muted" style="font-size:9px">--</span>'};
+  const riskBadge=riskMap[t.rugcheck_risk||'unknown']||riskMap.unknown;
+  return '<tr><td><span title="'+fullMint+'">'+mint+'</span> <button class="copy-btn" onclick="copyAddress(\''+fullMint+'\')" title="Copy full address" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:11px">⎘</button></td><td><span class="pill '+ic+'" style="font-size:9px"><i class="bi '+im+'"></i></span></td><td>'+(t.entry_price?'$'+Number(t.entry_price).toFixed(8):'--')+'</td><td>'+(curPrice>0?'$'+Number(curPrice).toFixed(8):'--')+'</td><td style="color:'+pnlClr+'">'+(pnlSol!=null?(pnlSol>=0?'+':'')+Number(pnlSol).toFixed(4):'--')+'</td><td style="color:'+pnlClr+'">'+(pnlPct!=null?(pnlPct>=0?'+':'')+Number(pnlPct).toFixed(1)+'%':'--')+'</td><td>'+riskBadge+'</td><td>'+(t.amount_sol?Number(t.amount_sol).toFixed(4):'--')+'</td><td>'+holdStr+(entryTimeStr?'<br><span style="font-size:10px;color:var(--text-muted)">'+entryTimeStr+' AEDT</span>':'')+'</td><td><button class="btn-sm" onclick="if(confirm(\'Stop All positions?\'))aFetch(\'/api/emergency-stop\',{method:\'POST\'})">Stop All</button></td></tr>'
 }).join('')}
 // FIX 7/10: Populate trade history with correct win/loss from pnl_sol + data attribute
 if(trades.length>0){const icons={speed_demon:'pill-teal',analyst:'pill-purple',whale_tracker:'pill-amber'};const imap={speed_demon:'bi-lightning-charge-fill',analyst:'bi-search',whale_tracker:'bi-water'};
@@ -369,7 +370,9 @@ $('histTbl').innerHTML=closedTrades.map(t=>{
   const d=t.entry_time?new Date(t.entry_time):new Date();
   const ts=d.toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit'});
   const dataAttr=JSON.stringify(t).replace(/'/g,'&#39;').replace(/"/g,'&quot;');
-  return "<tr data-trade='"+dataAttr+"' style='cursor:pointer'><td>"+ts+'</td><td>'+mint+'</td><td><span class="pill '+ic+'" style="font-size:9px"><i class="bi '+im+'"></i></span></td><td>'+(t.entry_price?'$'+Number(t.entry_price).toFixed(8):'--')+'</td><td>'+(t.exit_price?'$'+Number(t.exit_price).toFixed(8):'--')+'</td><td style="color:'+clr+';font-weight:600">'+(pnl>=0?'+':'')+pnl.toFixed(4)+'</td><td><span class="pill '+pc+'">'+(pp>=0?'+':'')+pp.toFixed(0)+'%</span></td><td>'+hm+'m</td><td>'+(t.amount_sol?Number(t.amount_sol).toFixed(2):'--')+'</td><td><span class="pill '+pc+'">'+reason+'</span></td></tr>'
+  const riskMap2={low:'<span class="pill pill-green" style="font-size:9px">LOW</span>',medium:'<span class="pill pill-amber" style="font-size:9px">MED</span>',high:'<span class="pill pill-red" style="font-size:9px">HIGH</span>',unknown:'<span style="color:var(--text-muted);font-size:10px">--</span>'};
+  const riskBadge2=riskMap2[t.rugcheck_risk||'unknown']||riskMap2.unknown;
+  return "<tr data-trade='"+dataAttr+"' style='cursor:pointer'><td>"+ts+'</td><td>'+mint+'</td><td><span class="pill '+ic+'" style="font-size:9px"><i class="bi '+im+'"></i></span></td><td>'+(t.entry_price?'$'+Number(t.entry_price).toFixed(8):'--')+'</td><td>'+(t.exit_price?'$'+Number(t.exit_price).toFixed(8):'--')+'</td><td style="color:'+clr+';font-weight:600">'+(pnl>=0?'+':'')+pnl.toFixed(4)+'</td><td><span class="pill '+pc+'">'+(pp>=0?'+':'')+pp.toFixed(0)+'%</span></td><td>'+riskBadge2+'</td><td>'+hm+'m</td><td>'+(t.amount_sol?Number(t.amount_sol).toFixed(2):'--')+'</td><td><span class="pill '+pc+'">'+reason+'</span></td></tr>'
 }).join('')}
 }catch(e){console.error('load:',e)}}
 // FIX 22: Load whale activity
