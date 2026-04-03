@@ -42,7 +42,15 @@ HELIUS_RPC_URL = os.getenv("HELIUS_RPC_URL", "")
 TRADING_WALLET_ADDRESS = os.getenv("TRADING_WALLET_ADDRESS", "")
 JUPITER_API_KEY = os.getenv("JUPITER_API_KEY", "").strip()
 NANSEN_API_KEY = os.getenv("NANSEN_API_KEY", "")
+NANSEN_DAILY_BUDGET = int(os.getenv("NANSEN_DAILY_BUDGET", "50"))
 _start_time = time.time()
+
+# Personality position size adjustments
+PERSONALITY_SIZE_ADJUSTMENT = {
+    "speed_demon": 0.5,   # Half size — bleeding -9 SOL from 324 trades
+    "analyst": 1.3,       # Boost — best personality
+    "whale_tracker": 1.0,
+}
 
 # Import sibling modules
 from services.execution import execute_trade, Token, ExecutionResult
@@ -64,28 +72,28 @@ if TEST_MODE:
 EXIT_STRATEGIES = {
     "speed_demon": {
         "staged_exits": [
-            {"at_multiple": 1 + float(os.getenv("SD_TAKE_PROFIT_PCT", "50")) / 100, "sell_pct": 0.40},
-            {"at_multiple": 1 + float(os.getenv("SD_TAKE_PROFIT_PCT", "50")) / 100 * 1.5, "sell_pct": 0.30},
+            {"at_multiple": 2.0, "sell_pct": 0.40},
+            {"at_multiple": 3.0, "sell_pct": 0.30},
         ],
-        "time_exit_minutes": float(os.getenv("SD_EXIT_SECONDS", "600")) / 60,
-        "stop_loss_pct": float(os.getenv("SD_STOP_LOSS_PCT", "25")) / 100,
+        "time_exit_minutes": 10,
+        "stop_loss_pct": 0.40,
     },
     "analyst": {
         "staged_exits": [
-            {"at_multiple": 1 + float(os.getenv("ANALYST_TAKE_PROFIT_PCT", "100")) / 200, "sell_pct": 0.30},
-            {"at_multiple": 1 + float(os.getenv("ANALYST_TAKE_PROFIT_PCT", "100")) / 100, "sell_pct": 0.30},
+            {"at_multiple": 1.5, "sell_pct": 0.30},
+            {"at_multiple": 2.5, "sell_pct": 0.30},
         ],
-        "time_exit_minutes": float(os.getenv("ANALYST_EXIT_SECONDS", "1800")) / 60,
-        "max_hold_hours": 2,
-        "stop_loss_pct": float(os.getenv("ANALYST_STOP_LOSS_PCT", "35")) / 100,
+        "time_exit_minutes": 45,
+        "max_hold_hours": 3,
+        "stop_loss_pct": 0.25,
     },
     "whale_tracker": {
         "staged_exits": [
-            {"at_multiple": 1 + float(os.getenv("WHALE_TAKE_PROFIT_PCT", "200")) / 200, "sell_pct": 0.30},
-            {"at_multiple": 1 + float(os.getenv("WHALE_TAKE_PROFIT_PCT", "200")) / 100, "sell_pct": 0.40},
+            {"at_multiple": 2.0, "sell_pct": 0.30},
+            {"at_multiple": 5.0, "sell_pct": 0.40},
         ],
-        "max_hold_hours": float(os.getenv("WHALE_EXIT_SECONDS", "3600")) / 3600,
-        "stop_loss_pct": float(os.getenv("WHALE_STOP_LOSS_PCT", "40")) / 100,
+        "max_hold_hours": 6,
+        "stop_loss_pct": 0.30,
     },
 }
 
@@ -183,6 +191,12 @@ class BotCore:
                 if key in self.positions:
                     continue  # Already tracked
                 entry_price = float(r.get("entry_price", 0) or 0)
+                # Restore staged exits done
+                staged_raw = r.get("staged_exits_done", "[]")
+                try:
+                    staged_exits = json.loads(staged_raw) if staged_raw else []
+                except Exception:
+                    staged_exits = []
                 pos = Position(
                     mint=mint,
                     personality=personality,
@@ -190,6 +204,7 @@ class BotCore:
                     entry_time=float(r.get("entry_time", r.get("created_at", 0)) or 0),
                     size_sol=float(r.get("amount_sol", 0) or 0),
                     peak_price=float(r.get("peak_price") or entry_price or 0),
+                    staged_exits_done=staged_exits,
                     trade_id=r.get("id", 0),
                     trades_ml_id=int(r.get("trades_ml_id", 0) or 0),
                     ml_score=float(r.get("ml_score", r.get("ml_score_at_entry", 0)) or 0),
@@ -404,9 +419,18 @@ class BotCore:
                 self.portfolio.total_balance_sol * 0.10,  # never > 10% of balance
             )
 
+        # Apply personality size adjustment
+        pers_adj = PERSONALITY_SIZE_ADJUSTMENT.get(personality, 1.0)
+        base_size *= pers_adj
+        if pers_adj != 1.0:
+            logger.info("Personality sizing: %s x %.1f -> %.4f SOL", personality, pers_adj, base_size)
+
         # Apply rugcheck risk multiplier
-        rc_mult = scored_signal.get("rugcheck_multiplier", 1.0)
+        rc_mult = float(scored_signal.get("rugcheck_multiplier", 1.0))
         size_sol = base_size * rc_mult
+        if rc_mult < 1.0:
+            logger.info("Rugcheck risk: %s x %.2f -> %.4f SOL (risk=%s)",
+                        mint[:12], rc_mult, size_sol, scored_signal.get("rugcheck_risk_level", "?"))
 
         # Apply dynamic win rate multiplier (if exists)
         wr_mult = 1.0
@@ -884,10 +908,12 @@ class BotCore:
                                 await self._close_position(pos, "no_momentum_90s")
                                 continue
 
-                    # Time-based and max-hold exits fire regardless of price availability
+                    # Time-based exit — skip if position is profitable (let trailing stop handle winners)
                     time_exit = strategy.get("time_exit_minutes")
                     if time_exit and elapsed_min >= time_exit:
-                        if current_price <= 0 or (entry > 0 and current_price / entry <= 1.05):
+                        if current_price > 0 and entry > 0 and current_price > entry * 1.05:
+                            logger.debug("Time exit skipped — %s profitable (%.1fx)", pos.mint[:12], current_price / entry)
+                        else:
                             await self._close_position(pos, "time_exit_no_movement")
                             continue
 
@@ -920,6 +946,16 @@ class BotCore:
                         if exit_key not in pos.staged_exits_done and multiple >= exit_rule["at_multiple"]:
                             await self._close_position(pos, f"staged_{exit_key}", sell_pct=exit_rule["sell_pct"])
                             pos.staged_exits_done.append(exit_key)
+                            # Persist staged_exits_done to DB
+                            if pos.trade_id:
+                                try:
+                                    table = "paper_trades" if TEST_MODE else "trades"
+                                    await self.pool.execute(
+                                        f"UPDATE {table} SET staged_exits_done = $1 WHERE id = $2",
+                                        json.dumps(pos.staged_exits_done), pos.trade_id,
+                                    )
+                                except Exception:
+                                    pass
 
                 except Exception as e:
                     logger.error("Exit check error for %s: %s", key, e)
@@ -1019,11 +1055,18 @@ class BotCore:
 
                     for key, pos in list(self.positions.items()):
                         if pos.mint == mint:
-                            logger.warning(
-                                "FORCED EXIT: %s %s — reason=%s (smart money selling)",
-                                pos.personality, mint[:12], reason,
-                            )
-                            await self._close_position(pos, reason)
+                            if pos.personality == "whale_tracker":
+                                logger.info("WHALE PRIMARY EXIT: %s — tracked wallet selling", pos.mint[:12])
+                                await self._close_position(pos, f"whale_primary_exit: {reason}")
+                            else:
+                                if pos.remaining_pct > 0.50:
+                                    await self._close_position(pos, f"smart_money_exit: {reason}", sell_pct=0.50)
+                                else:
+                                    logger.warning(
+                                        "FORCED EXIT: %s %s — reason=%s (smart money selling)",
+                                        pos.personality, mint[:12], reason,
+                                    )
+                                    await self._close_position(pos, reason)
                 except Exception as e:
                     logger.error("Exit check listener error: %s", e)
         finally:
@@ -1037,63 +1080,71 @@ class BotCore:
 
     # --- Nansen smart money exit monitor ---
     async def _nansen_exit_monitor(self):
-        """
-        P5: Monitor open positions for smart money sell activity via Nansen.
-        Checks every 60 seconds for each open position. If Fund or All Time
-        Smart Trader is selling, publishes exit alert.
-
-        Budget: ~30 calls/day (one per position per check cycle, max 5 positions)
-        """
+        """Monitor open positions for smart money sells. Budget-gated."""
         if not NANSEN_API_KEY:
             logger.info("Nansen exit monitor disabled (no API key)")
             return
-
         from services.nansen_client import get_smart_money_dex_sells
 
         while True:
             if self.emergency_stopped or not self.positions:
-                await asyncio.sleep(30)
+                await asyncio.sleep(60)
                 continue
+
+            # Check if Nansen is disabled via Redis
+            try:
+                if self.redis:
+                    disabled = await self.redis.get("nansen:disabled")
+                    if disabled:
+                        await asyncio.sleep(300)
+                        continue
+            except Exception:
+                pass
+
+            # Budget gate
+            today_key = f"nansen:calls:{datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
+            try:
+                if self.redis:
+                    calls_today = int(await self.redis.get(today_key) or 0)
+                    if calls_today >= NANSEN_DAILY_BUDGET:
+                        logger.debug("Nansen budget exhausted (%d/%d)", calls_today, NANSEN_DAILY_BUDGET)
+                        await asyncio.sleep(300)
+                        continue
+            except Exception:
+                pass
 
             try:
                 async with aiohttp.ClientSession() as session:
-                    # Check up to 5 positions per cycle to conserve credits
-                    positions_to_check = list(self.positions.items())[:5]
+                    positions_to_check = list(self.positions.items())[:3]
                     for key, pos in positions_to_check:
                         try:
-                            redis_conn = self.redis
-                            sells = await get_smart_money_dex_sells(session, pos.mint, redis_conn)
+                            sells = await get_smart_money_dex_sells(session, pos.mint, self.redis)
+                            # Track call count
+                            try:
+                                if self.redis:
+                                    await self.redis.incr(today_key)
+                                    await self.redis.expire(today_key, 86400)
+                            except Exception:
+                                pass
 
                             if sells and len(sells) > 0:
-                                # Count significant sells (>$1000 USD)
                                 sig_sells = [s for s in sells
                                              if float(s.get("valueUsd", s.get("value_usd", 0)) or 0) > 1000]
                                 if sig_sells:
                                     total_sell_usd = sum(
-                                        float(s.get("valueUsd", s.get("value_usd", 0)) or 0)
-                                        for s in sig_sells
+                                        float(s.get("valueUsd", s.get("value_usd", 0)) or 0) for s in sig_sells
                                     )
-                                    labels = [s.get("trader", s.get("label", "unknown"))
-                                              for s in sig_sells[:3]]
-                                    logger.warning(
-                                        "NANSEN EXIT ALERT: %s %s — %d smart money sells ($%.0f) by %s",
-                                        pos.personality, pos.mint[:12], len(sig_sells),
-                                        total_sell_usd, ", ".join(str(l) for l in labels),
-                                    )
-
-                                    # Publish exit alert for bot_core's _exit_check_listener
                                     if self.redis:
                                         await self.redis.publish("alerts:exit_check", json.dumps({
                                             "mint": pos.mint,
                                             "reason": f"nansen_smart_money_selling ({len(sig_sells)} sells, ${total_sell_usd:.0f})",
                                         }))
                         except Exception as e:
-                            logger.debug("Nansen exit check error for %s: %s", pos.mint[:12], e)
-
+                            logger.debug("Nansen exit check error: %s", e)
             except Exception as e:
                 logger.error("Nansen exit monitor error: %s", e)
 
-            await asyncio.sleep(60)  # Check every 60 seconds
+            await asyncio.sleep(300)  # Every 5 minutes, not 60 seconds
 
     # --- Analyst pre-entry granular flow check ---
     async def _analyst_flow_check(self, mint: str, redis_conn) -> bool:
