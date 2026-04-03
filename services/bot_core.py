@@ -168,10 +168,16 @@ class BotCore:
                 # Reset daily P&L on startup — stale negative values
                 # from previous session trigger false emergency stops
                 self.portfolio.daily_pnl_sol = 0.0
-                self.portfolio.peak_balance_sol = max(
-                    self.portfolio.peak_balance_sol,
-                    self.portfolio.total_balance_sol
-                )
+                # In paper trading, reset peak to current balance to prevent
+                # accumulated paper losses from permanently triggering emergency stop
+                if TEST_MODE:
+                    self.portfolio.peak_balance_sol = self.portfolio.total_balance_sol
+                    logger.info("Paper mode: peak_balance reset to current %.4f SOL", self.portfolio.total_balance_sol)
+                else:
+                    self.portfolio.peak_balance_sol = max(
+                        self.portfolio.peak_balance_sol,
+                        self.portfolio.total_balance_sol
+                    )
                 logger.info("Loaded portfolio state: %.4f SOL (daily P&L reset to 0.0)", row["total_balance_sol"])
         except Exception:
             pass
