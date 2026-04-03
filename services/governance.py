@@ -46,7 +46,7 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 NANSEN_API_KEY = os.getenv("NANSEN_API_KEY", "").strip()
-GOVERNANCE_MODEL = os.getenv("GOVERNANCE_MODEL", "claude-sonnet-4-6")
+GOVERNANCE_MODEL = os.getenv("GOVERNANCE_MODEL", "claude-haiku-4-5-20251001")
 TEST_MODE = os.getenv("TEST_MODE", "true").lower() == "true"
 
 NANSEN_MCP_SERVER = {
