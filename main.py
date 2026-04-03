@@ -1,18 +1,15 @@
 """
 ZMN Bot v3.0 — Main Launcher
 ==============================
-Starts all services concurrently in a single process.
-Used by Railway as the single entrypoint.
-
-The dashboard web server starts FIRST to pass Railway's health check,
-then all other services are launched as asyncio tasks.
-If any service crashes, it is restarted automatically.
+Routes each Railway service to its own code via SERVICE_NAME env var.
+Falls back to legacy mode (all services) if SERVICE_NAME is not set.
 """
 
 import asyncio
 import logging
 import os
 import sys
+import importlib
 
 from dotenv import load_dotenv
 
@@ -28,6 +25,20 @@ logger = logging.getLogger("main")
 # Ensure the project root is on the Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Check both SERVICE_NAME (explicit) and RAILWAY_SERVICE_NAME (auto-set by Railway)
+SERVICE_NAME = os.getenv("SERVICE_NAME", "") or os.getenv("RAILWAY_SERVICE_NAME", "")
+
+SERVICE_MAP = {
+    "signal_listener": "services.signal_listener",
+    "signal_aggregator": "services.signal_aggregator",
+    "bot_core": "services.bot_core",
+    "ml_engine": "services.ml_engine",
+    "market_health": "services.market_health",
+    "governance": "services.governance",
+    "treasury": "services.treasury",
+    "web": None,  # Special — runs dashboard
+}
+
 
 async def run_service(name: str, module_path: str, critical: bool = False):
     """Run a service's main() with automatic restart on failure and exponential backoff."""
@@ -39,8 +50,6 @@ async def run_service(name: str, module_path: str, critical: bool = False):
     while True:
         try:
             logger.info("Starting service: %s", name)
-            # Lazy import so heavy libs (catboost, lightgbm) don't block startup
-            import importlib
             mod = importlib.import_module(module_path)
             await mod.main()
             # Service exited cleanly — reset backoff
@@ -56,14 +65,13 @@ async def run_service(name: str, module_path: str, critical: bool = False):
             logger.error("Service %s crashed (attempt %d): %s", name, consecutive_failures, e, exc_info=True)
             logger.warning("Service %s restarting in %ds", name, current_delay)
             await asyncio.sleep(current_delay)
-            # Exponential backoff: 5 → 10 → 20 → 40 → 80 → 160 → 300 (cap)
             current_delay = min(current_delay * 2, max_delay)
 
 
 async def main():
     test_mode = os.getenv("TEST_MODE", "true").lower() == "true"
     logger.info("=" * 60)
-    logger.info("ZMN Bot v3.0 starting")
+    logger.info("ZMN Bot v3.0 starting — SERVICE_NAME=%s", SERVICE_NAME or "(not set)")
     logger.info("TEST_MODE=%s", test_mode)
     logger.info("=" * 60)
 
@@ -71,36 +79,60 @@ async def main():
         logger.info("TEST MODE — no real trades will be executed")
 
     # ---------------------------------------------------------------
-    # Step 1: Start the web server FIRST so Railway health check passes
+    # SINGLE SERVICE MODE — each Railway service runs only its own code
     # ---------------------------------------------------------------
-    from aiohttp import web
-    from services.dashboard_api import create_app
+    if SERVICE_NAME == "web":
+        logger.info("Starting SINGLE service: web (dashboard only)")
+        from aiohttp import web
+        from services.dashboard_api import create_app
 
-    port = int(os.getenv("PORT", "8080"))
-    app = create_app()
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
-    logger.info("Dashboard running on port %d — health check ready", port)
+        port = int(os.getenv("PORT", "8080"))
+        app = create_app()
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, "0.0.0.0", port)
+        await site.start()
+        logger.info("Dashboard running on port %d (SERVICE_NAME=web)", port)
+        await asyncio.Event().wait()  # Keep alive forever
 
-    # ---------------------------------------------------------------
-    # Step 2: Now launch all backend services as background tasks
-    # ---------------------------------------------------------------
-    tasks = [
-        asyncio.create_task(run_service("market_health", "services.market_health", critical=True)),
-        asyncio.create_task(run_service("signal_listener", "services.signal_listener", critical=True)),
-        asyncio.create_task(run_service("treasury", "services.treasury", critical=True)),
-        asyncio.create_task(run_service("ml_engine", "services.ml_engine")),
-        asyncio.create_task(run_service("signal_aggregator", "services.signal_aggregator")),
-        asyncio.create_task(run_service("bot_core", "services.bot_core")),
-        asyncio.create_task(run_service("governance", "services.governance")),
-    ]
+    elif SERVICE_NAME in SERVICE_MAP and SERVICE_MAP[SERVICE_NAME]:
+        logger.info("Starting SINGLE service: %s", SERVICE_NAME)
+        mod = importlib.import_module(SERVICE_MAP[SERVICE_NAME])
+        await mod.main()
 
-    logger.info("All %d services launched", len(tasks))
+    elif not SERVICE_NAME:
+        # ---------------------------------------------------------------
+        # LEGACY MODE — no SERVICE_NAME set, run everything (backward compat)
+        # ---------------------------------------------------------------
+        logger.warning("No SERVICE_NAME set — running ALL services (LEGACY MODE)")
+        logger.warning("Set SERVICE_NAME env var on each Railway service to fix!")
 
-    # Wait forever — run_service handles restarts internally
-    await asyncio.gather(*tasks)
+        from aiohttp import web
+        from services.dashboard_api import create_app
+
+        port = int(os.getenv("PORT", "8080"))
+        app = create_app()
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, "0.0.0.0", port)
+        await site.start()
+        logger.info("Dashboard running on port %d — health check ready", port)
+
+        tasks = [
+            asyncio.create_task(run_service("market_health", "services.market_health", critical=True)),
+            asyncio.create_task(run_service("signal_listener", "services.signal_listener", critical=True)),
+            asyncio.create_task(run_service("treasury", "services.treasury", critical=True)),
+            asyncio.create_task(run_service("ml_engine", "services.ml_engine")),
+            asyncio.create_task(run_service("signal_aggregator", "services.signal_aggregator")),
+            asyncio.create_task(run_service("bot_core", "services.bot_core")),
+            asyncio.create_task(run_service("governance", "services.governance")),
+        ]
+        logger.info("All %d services launched (LEGACY MODE)", len(tasks))
+        await asyncio.gather(*tasks)
+
+    else:
+        logger.error("Unknown SERVICE_NAME: %s — valid: %s", SERVICE_NAME, list(SERVICE_MAP.keys()))
+        sys.exit(1)
 
 
 if __name__ == "__main__":
