@@ -426,6 +426,38 @@ def _apply_speed_demon_prefilters(signal: dict, rugcheck: dict) -> tuple[bool, s
     if liq < 0.5:
         return False, "low_liquidity", 0
 
+    # --- MOMENTUM HARD-GATES (trenches criteria) ---
+    # Token must have ACTIVE BUYING MOMENTUM. No momentum = dead money.
+    # If feature value is 0 (no data yet), let it through — only reject
+    # when we have data AND it's negative.
+
+    bsr = float(raw.get("buy_sell_ratio_5min", 0) or 0)
+    if 0 < bsr < 1.2:
+        return False, "weak_buy_pressure", 0
+
+    bsr_deriv = float(raw.get("buy_sell_ratio_derivative", 0) or 0)
+    if bsr_deriv < -0.5:
+        return False, "declining_momentum", 0
+
+    uwv = float(raw.get("unique_wallet_velocity", 0) or 0)
+    if age <= 600 and 0 < uwv < 1.0:
+        return False, "low_wallet_velocity", 0
+
+    las = float(raw.get("liquidity_accumulation_speed", 0) or 0)
+    if 0 < las < 0.02:
+        return False, "dust_transactions", 0
+
+    # Momentum score for position sizing
+    momentum = 1.0
+    if bsr >= 3.0: momentum *= 1.4
+    elif bsr >= 2.0: momentum *= 1.2
+    if bsr_deriv > 1.0: momentum *= 1.2
+    if uwv >= 5.0: momentum *= 1.3
+    score *= min(momentum, 2.0)
+
+    logger.info("SD MOMENTUM: bsr=%.2f deriv=%.2f uwv=%.1f las=%.4f mult=%.2f",
+                bsr, bsr_deriv, uwv, las, score)
+
     # --- SOFT SCORING (increases position size) ---
 
     # Twitter followers
@@ -573,7 +605,7 @@ async def _fetch_creator_history(session: aiohttp.ClientSession, mint: str, redi
     creator = ""
     if VYBE_API_KEY:
         try:
-            url = f"https://api.vybenetwork.xyz/token/{mint}"
+            url = f"https://api.vybenetwork.com/token/{mint}"
             headers = {"Authorization": f"Bearer {VYBE_API_KEY}"}
             async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                 if resp.status == 200:
