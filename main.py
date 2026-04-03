@@ -97,6 +97,23 @@ async def main():
 
     elif SERVICE_NAME in SERVICE_MAP and SERVICE_MAP[SERVICE_NAME]:
         logger.info("Starting SINGLE service: %s", SERVICE_NAME)
+
+        # Lightweight health endpoint so Railway healthcheck passes
+        from aiohttp import web
+
+        health_app = web.Application()
+
+        async def _health(_request):
+            return web.json_response({"status": "ok", "service": SERVICE_NAME})
+
+        health_app.router.add_get("/api/health", _health)
+        port = int(os.getenv("PORT", "8080"))
+        runner = web.AppRunner(health_app)
+        await runner.setup()
+        site = web.TCPSite(runner, "0.0.0.0", port)
+        await site.start()
+        logger.info("Health endpoint running on port %d for service %s", port, SERVICE_NAME)
+
         mod = importlib.import_module(SERVICE_MAP[SERVICE_NAME])
         await mod.main()
 
