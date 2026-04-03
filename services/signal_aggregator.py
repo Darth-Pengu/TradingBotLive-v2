@@ -1811,6 +1811,27 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
                         except Exception as e:
                             logger.debug("Nansen SM check failed for %s: %s", mint[:12], e)
 
+                    # --- MOMENTUM CHECK (features available here) ---
+                    if personality == "speed_demon":
+                        f_bsr = float(features.get("buy_sell_ratio_5min", 0) or 0)
+                        f_uwv = float(features.get("unique_wallet_velocity", 0) or 0)
+                        f_las = float(features.get("liquidity_accumulation_speed", 0) or 0)
+                        # Only reject when we have data AND it's negative
+                        if 0 < f_bsr < 1.2:
+                            logger.info("MOMENTUM REJECT %s: weak buy pressure bsr=%.2f", mint[:12], f_bsr)
+                            continue
+                        if 0 < f_uwv < 1.0 and signal.get("age_seconds", 999) <= 600:
+                            logger.info("MOMENTUM REJECT %s: low wallet velocity uwv=%.1f", mint[:12], f_uwv)
+                            continue
+                        if 0 < f_las < 0.02:
+                            logger.info("MOMENTUM REJECT %s: dust transactions las=%.4f", mint[:12], f_las)
+                            continue
+                        # Boost position size for strong momentum
+                        if f_bsr >= 3.0:
+                            position_size_multiplier = min(position_size_multiplier * 1.4, 1.67)
+                        elif f_bsr >= 2.0:
+                            position_size_multiplier = min(position_size_multiplier * 1.2, 1.67)
+
                     # --- SIGNAL PASSED ALL GATES ---
                     scored_signal = {
                         "mint": mint,
