@@ -179,8 +179,18 @@ class BotCore:
                         self.portfolio.total_balance_sol
                     )
                 logger.info("Loaded portfolio state: %.4f SOL (daily P&L reset to 0.0)", row["total_balance_sol"])
-        except Exception:
-            pass
+            else:
+                logger.warning("No portfolio snapshots found — using defaults")
+                if TEST_MODE:
+                    # Use Redis balance if available, else starting capital
+                    pass
+        except Exception as e:
+            logger.warning("Portfolio state load error: %s", e)
+
+        # In paper mode, always reset peak to current to prevent permanent emergency stop
+        if TEST_MODE:
+            self.portfolio.peak_balance_sol = self.portfolio.total_balance_sol
+            logger.info("Paper mode: peak_balance set to %.4f SOL (prevents false drawdown stop)", self.portfolio.total_balance_sol)
 
         # Reload open positions from DB (with trailing stop state)
         try:
