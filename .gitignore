@@ -22,4 +22,6 @@ data/memetrans/
 data/whale_wallets_pending.json
 # data/models/ tracked via git LFS for ML model persistence
 node_modules/
+package.json
+package-lock.json
 .DS_Store
