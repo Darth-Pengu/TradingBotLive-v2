@@ -404,13 +404,21 @@ class MLModel:
         # Apply feature weights via sample weighting
         sample_weights = np.ones(len(X))
 
-        logger.info("Training on %d samples (%.1f%% positive)", len(X), y.mean() * 100)
+        # Adaptive tree depth for small samples
+        n_samples = len(X)
+        depth_cb = 4 if n_samples < 500 else 6
+        depth_lgbm = 4 if n_samples < 500 else 6
+        depth_xgb = 3 if n_samples < 500 else 4
+        n_est = 200 if n_samples < 500 else 500
+
+        logger.info("Training on %d samples (%.1f%% positive) depth_cb=%d n_est=%d",
+                     len(X), y.mean() * 100, depth_cb, n_est)
 
         # CatBoost
         try:
             self.catboost_model = CatBoostClassifier(
-                iterations=500,
-                depth=6,
+                iterations=n_est,
+                depth=depth_cb,
                 learning_rate=0.05,
                 auto_class_weights="Balanced",
                 verbose=0,
@@ -425,8 +433,8 @@ class MLModel:
         # LightGBM
         try:
             self.lgbm_model = LGBMClassifier(
-                n_estimators=500,
-                max_depth=6,
+                n_estimators=n_est,
+                max_depth=depth_lgbm,
                 learning_rate=0.05,
                 class_weight="balanced",
                 random_state=42,
@@ -445,8 +453,8 @@ class MLModel:
             scale_pos_weight = neg_count / pos_count if pos_count > 0 else 1.0
 
             self.xgb_model = XGBClassifier(
-                n_estimators=500,
-                max_depth=4,
+                n_estimators=n_est,
+                max_depth=depth_xgb,
                 learning_rate=0.05,
                 scale_pos_weight=scale_pos_weight,
                 subsample=0.8,
