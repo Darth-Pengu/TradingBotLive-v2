@@ -400,6 +400,46 @@ async def api_status(request):
     except Exception:
         pass
 
+    # Today's P&L
+    try:
+        today_rows = await _query_db(
+            """SELECT COALESCE(SUM(realised_pnl_sol), 0) as pnl FROM paper_trades
+               WHERE exit_time IS NOT NULL
+               AND exit_time > EXTRACT(EPOCH FROM NOW() - INTERVAL '24 hours')""")
+        if today_rows:
+            status_data["today_pnl"] = round(float(today_rows[0].get("pnl", 0) or 0), 4)
+    except Exception:
+        pass
+
+    # Win rate windows
+    for window, key in [(10, "wr_10"), (25, "wr_25"), (50, "wr_50")]:
+        try:
+            wr_rows = await _query_db(
+                f"""SELECT ROUND(100.0 * COUNT(CASE WHEN realised_pnl_sol > 0 THEN 1 END)
+                    / NULLIF(COUNT(*), 0), 1) as wr
+                FROM (SELECT realised_pnl_sol FROM paper_trades
+                      WHERE exit_time IS NOT NULL
+                      ORDER BY exit_time DESC LIMIT {window}) t""")
+            if wr_rows and wr_rows[0].get("wr") is not None:
+                status_data[key] = float(wr_rows[0]["wr"])
+        except Exception:
+            pass
+
+    # Overall win rate
+    try:
+        wr_all = await _query_db(
+            """SELECT COUNT(*) as total,
+               SUM(CASE WHEN realised_pnl_sol > 0 THEN 1 ELSE 0 END) as wins
+            FROM paper_trades WHERE exit_time IS NOT NULL""")
+        if wr_all:
+            total = int(wr_all[0].get("total", 0) or 0)
+            wins = int(wr_all[0].get("wins", 0) or 0)
+            status_data["win_rate"] = round(100.0 * wins / total, 1) if total > 0 else 0
+            status_data["total_trades"] = total
+            status_data["total_wins"] = wins
+    except Exception:
+        pass
+
     return web.json_response(status_data)
 
 
@@ -1051,12 +1091,15 @@ async def api_wallets(request):
                 all_wallets = all_wallets_raw
 
         grouped = {"whale_tracker": [], "analyst": [], "both": []}
+        from decimal import Decimal
         for w in all_wallets:
-            route = w.get("personality_route", "whale_tracker")
+            # Fix Decimal serialization
+            cleaned = {k: float(v) if isinstance(v, Decimal) else v for k, v in w.items()}
+            route = cleaned.get("personality_route", "whale_tracker")
             if route in grouped:
-                grouped[route].append(w)
+                grouped[route].append(cleaned)
             else:
-                grouped["whale_tracker"].append(w)
+                grouped["whale_tracker"].append(cleaned)
         last_refresh = await _query_db("SELECT MAX(refreshed_at) as ts FROM wallet_refresh_log")
         return web.json_response({
             **grouped,
@@ -1883,6 +1926,57 @@ async def on_cleanup(app: web.Application):
         await redis_conn.close()
 
 
+async def api_signal_metrics(request):
+    """Signal queue depths + filter stats from Redis."""
+    redis_conn = request.app.get("redis")
+    result = {"raw_queue": 0, "scored_queue": 0, "filter_stats": {}}
+    if redis_conn:
+        try:
+            result["raw_queue"] = await redis_conn.llen("signals:raw") or 0
+            result["scored_queue"] = await redis_conn.llen("signals:scored") or 0
+            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            stats = await redis_conn.hgetall(f"filter:stats:{today}")
+            result["filter_stats"] = {k: int(v) for k, v in stats.items()} if stats else {}
+        except Exception as e:
+            result["error"] = str(e)[:100]
+    return web.json_response(result)
+
+
+async def api_exit_analysis(request):
+    """Exit reason breakdown with counts and avg PnL."""
+    try:
+        rows = await _query_db(
+            """SELECT exit_reason, COUNT(*) as count,
+                ROUND(AVG(realised_pnl_sol)::numeric, 4) as avg_pnl,
+                SUM(CASE WHEN realised_pnl_sol > 0 THEN 1 ELSE 0 END) as wins
+            FROM paper_trades
+            WHERE exit_time IS NOT NULL AND exit_reason IS NOT NULL
+            GROUP BY exit_reason ORDER BY count DESC"""
+        )
+        return web.json_response(rows or [])
+    except Exception as e:
+        return web.json_response({"error": str(e)[:100]}, status=500)
+
+
+async def api_win_rates(request):
+    """Rolling win rates: last 10, 25, 50 trades."""
+    result = {"wr_10": 0, "wr_25": 0, "wr_50": 0}
+    for window, key in [(10, "wr_10"), (25, "wr_25"), (50, "wr_50")]:
+        try:
+            rows = await _query_db(
+                f"""SELECT ROUND(100.0 * COUNT(CASE WHEN realised_pnl_sol > 0 THEN 1 END)
+                    / NULLIF(COUNT(*), 0), 1) as wr
+                FROM (SELECT realised_pnl_sol FROM paper_trades
+                      WHERE exit_time IS NOT NULL
+                      ORDER BY exit_time DESC LIMIT {window}) t"""
+            )
+            if rows and rows[0].get("wr") is not None:
+                result[key] = float(rows[0]["wr"])
+        except Exception:
+            pass
+    return web.json_response(result)
+
+
 def create_app() -> web.Application:
     app = web.Application(middlewares=[ip_whitelist_middleware, auth_middleware])
 
@@ -1922,6 +2016,9 @@ def create_app() -> web.Application:
     app.router.add_post("/api/wallets/refresh", api_wallets_refresh)
     app.router.add_delete("/api/wallets/{address}", api_wallets_delete)
     app.router.add_post("/api/trigger-health-check", api_trigger_health_check)
+    app.router.add_get("/api/signal-metrics", api_signal_metrics)
+    app.router.add_get("/api/exit-analysis", api_exit_analysis)
+    app.router.add_get("/api/win-rates", api_win_rates)
     app.router.add_get("/ws", ws_handler)
     app.router.add_get("/dashboard/{filename}", handle_static)
 
