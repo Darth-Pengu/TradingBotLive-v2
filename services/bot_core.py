@@ -459,7 +459,12 @@ class BotCore:
                 pass
         size_sol = size_sol * wr_mult * cfgi_mult
 
-        # Enforce limits
+        # If risk manager returned 0 (max concurrent, max exposure, etc.), respect it
+        if base_size <= 0:
+            logger.debug("Risk manager rejected %s for %s (size=0)", mint[:12], personality)
+            return
+
+        # Enforce min/max limits only if risk manager approved
         size_sol = max(0.15, min(size_sol, 0.75))
 
         logger.info(
