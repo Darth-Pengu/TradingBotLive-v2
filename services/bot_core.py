@@ -1045,8 +1045,16 @@ class BotCore:
                     # Time-based exit — skip if position is profitable (let trailing stop handle winners)
                     time_exit = strategy.get("time_exit_minutes")
                     if time_exit and elapsed_min >= time_exit:
-                        if current_price > 0 and entry > 0 and current_price > entry * 1.05:
-                            logger.debug("Time exit skipped — %s profitable (%.1fx)", pos.mint[:12], current_price / entry)
+                        if current_price > 0 and entry > 0 and current_price > entry * 1.01:
+                            # Position is up >1% — activate trailing stop instead of time-exiting
+                            if not pos.trailing_stop_active:
+                                pos.trailing_stop_active = True
+                                pos.peak_price = max(pos.peak_price, current_price)
+                                pos.trailing_stop_price = pos.peak_price * 0.85  # 15% trailing
+                                logger.info("TIME_EXIT_SKIP: %s up %.1f%% — activating trailing stop (peak=%.8f stop=%.8f)",
+                                           pos.mint[:12], (current_price/entry - 1)*100, pos.peak_price, pos.trailing_stop_price)
+                            else:
+                                logger.debug("Time exit skipped — %s profitable (%.1fx), trailing active", pos.mint[:12], current_price / entry)
                         else:
                             await self._close_position(pos, "time_exit_no_movement")
                             continue
