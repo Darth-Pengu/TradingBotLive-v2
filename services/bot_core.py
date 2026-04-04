@@ -1042,7 +1042,24 @@ class BotCore:
                                 pos.trailing_stop_price = current_price * (1 - 0.15)
                                 continue
 
-                    # Time-based exit — skip if position is profitable (let trailing stop handle winners)
+                    # --- PRICE-BASED EXITS FIRST (stop loss, trailing stop) ---
+                    # These must fire BEFORE time_exit to prevent holding -57% losers
+                    if current_price > 0 and entry > 0:
+                        multiple = current_price / entry
+
+                        # Hard stop loss — checked every cycle, not just at time exit
+                        sl_pct = strategy.get("stop_loss_pct", 0.50)
+                        if multiple <= (1 - sl_pct):
+                            await self._close_position(pos, f"stop_loss_{sl_pct:.0%}")
+                            continue
+
+                        # Trailing stop — checked every cycle
+                        ts_exit = await self._evaluate_trailing_stop(pos, current_price)
+                        if ts_exit:
+                            await self._close_position(pos, ts_exit)
+                            continue
+
+                    # --- TIME-BASED EXITS (after price exits) ---
                     time_exit = strategy.get("time_exit_minutes")
                     if time_exit and elapsed_min >= time_exit:
                         if current_price > 0 and entry > 0 and current_price > entry * 1.01:
@@ -1064,25 +1081,11 @@ class BotCore:
                         await self._close_position(pos, "max_hold_time")
                         continue
 
-                    # Price-dependent exits require a valid price and entry
-                    if current_price <= 0 or entry <= 0:
-                        continue
-
-                    multiple = current_price / entry
-
-                    # --- Hard stop loss ---
-                    sl_pct = strategy.get("stop_loss_pct", 0.50)
-                    if multiple <= (1 - sl_pct):
-                        await self._close_position(pos, f"stop_loss_{sl_pct:.0%}")
-                        continue
-
-                    # --- Trailing stop ---
-                    ts_exit = await self._evaluate_trailing_stop(pos, current_price)
-                    if ts_exit:
-                        await self._close_position(pos, ts_exit)
-                        continue
-
-                    # --- Staged exits ---
+                    # --- Staged exits (require valid price) ---
+                    if current_price > 0 and entry > 0:
+                        multiple = current_price / entry
+                    else:
+                        multiple = 0.0
                     for exit_rule in strategy.get("staged_exits", []):
                         exit_key = f"{exit_rule['at_multiple']}x"
                         if exit_key not in pos.staged_exits_done and multiple >= exit_rule["at_multiple"]:
