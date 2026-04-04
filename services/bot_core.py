@@ -413,6 +413,19 @@ class BotCore:
         market_mode = scored_signal.get("market_mode", "NORMAL")
         features = scored_signal.get("features", {})
 
+        # Hourly trade cap — limit bleeding in bad markets while collecting data
+        max_trades_per_hour = int(os.getenv("MAX_TRADES_PER_HOUR", "10"))
+        if self.redis and max_trades_per_hour > 0:
+            try:
+                hour_key = f"trades:count:{datetime.now(timezone.utc).strftime('%Y-%m-%d-%H')}"
+                count = int(await self.redis.get(hour_key) or 0)
+                if count >= max_trades_per_hour:
+                    logger.debug("Hourly trade cap reached (%d/%d) — skipping %s",
+                                count, max_trades_per_hour, mint[:12])
+                    return
+            except Exception:
+                pass
+
         # Guard: skip if position already open for this personality+mint
         pos_key = f"{personality}:{mint}"
         if pos_key in self.positions:
@@ -646,6 +659,10 @@ class BotCore:
                              paper_result["amount_sol"], paper_result["signature"])
                 try:
                     await self.redis.hincrby("filter:stats:today", "trades_entered", 1)
+                    # Increment hourly trade counter for rate limiting
+                    hour_key = f"trades:count:{datetime.now(timezone.utc).strftime('%Y-%m-%d-%H')}"
+                    await self.redis.incr(hour_key)
+                    await self.redis.expire(hour_key, 7200)
                 except Exception:
                     pass
                 # FIX 21: Publish trade_entered for dashboard signal feed
