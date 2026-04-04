@@ -1540,7 +1540,7 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
                     "bonding_curve_progress": float(raw.get("bondingCurveProgress", raw.get("bonding_curve_progress", 0)))
                         if raw.get("bondingCurveProgress") is not None or raw.get("bonding_curve_progress") is not None
                         else (float(raw.get("vSolInBondingCurve", 0)) / 85.0 if float(raw.get("vSolInBondingCurve", 0)) > 0 else 0),
-                    "buy_sell_ratio_5min": float(raw.get("buy_sell_ratio_5min", 1.0)),
+                    "buy_sell_ratio_5min": float(raw.get("buy_sell_ratio_5min", 0)),
                     "holder_count": int(token_details.get("holder_count", raw.get("holder_count", raw.get("holders", 0)))),
                     "top10_holder_pct": float(token_details.get("top10_holder_pct", raw.get("top10_holder_pct", 0))),
                     "unique_buyers_30min": int(raw.get("unique_buyers_30min", 0)),
@@ -1625,7 +1625,7 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
                 features.setdefault("token_age_seconds", 0)
                 features.setdefault("bonding_curve_progress", 0.0)
                 features.setdefault("liquidity_sol", 0.5)
-                features.setdefault("buy_sell_ratio_5min", 1.0)
+                features.setdefault("buy_sell_ratio_5min", 0)
                 features.setdefault("holder_count", 10)
                 features.setdefault("top10_holder_pct", 40)
                 features.setdefault("bundle_detected", 0)
@@ -1816,15 +1816,13 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
                         f_bsr = float(features.get("buy_sell_ratio_5min", 0) or 0)
                         f_uwv = float(features.get("unique_wallet_velocity", 0) or 0)
                         f_las = float(features.get("liquidity_accumulation_speed", 0) or 0)
-                        # Only reject when we have data AND it's negative
-                        if 0 < f_bsr < 1.2:
-                            logger.info("MOMENTUM REJECT %s: weak buy pressure bsr=%.2f", mint[:12], f_bsr)
+                        # Only reject when we HAVE real data AND it's clearly sell-dominated
+                        # bsr=0 means no data (pass), bsr=1 means neutral (pass), bsr<0.8 means sell pressure (reject)
+                        if 0 < f_bsr < 0.8:
+                            logger.info("MOMENTUM REJECT %s: sell pressure bsr=%.2f", mint[:12], f_bsr)
                             continue
-                        if 0 < f_uwv < 1.0 and signal.get("age_seconds", 999) <= 600:
+                        if 0 < f_uwv < 0.5 and signal.get("age_seconds", 999) <= 600:
                             logger.info("MOMENTUM REJECT %s: low wallet velocity uwv=%.1f", mint[:12], f_uwv)
-                            continue
-                        if 0 < f_las < 0.02:
-                            logger.info("MOMENTUM REJECT %s: dust transactions las=%.4f", mint[:12], f_las)
                             continue
                         # Boost position size for strong momentum
                         if f_bsr >= 3.0:
