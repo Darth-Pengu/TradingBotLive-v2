@@ -261,10 +261,10 @@ kbd{background:var(--bg-elevated);border:1px solid var(--border-active);border-r
 <!-- Shortcuts -->
 <div class="shortcuts-bg" id="scBg" onclick="if(event.target===this)$('scBg').classList.remove('on')"><div class="shortcuts"><h3>Keyboard Shortcuts</h3><div class="sc-row"><span><kbd>G</kbd> then <kbd>O</kbd></span><span>Overview</span></div><div class="sc-row"><span><kbd>G</kbd> then <kbd>S</kbd></span><span>Status</span></div><div class="sc-row"><span><kbd>G</kbd> then <kbd>W</kbd></span><span>Wallet</span></div><div class="sc-row"><span><kbd>Ctrl+K</kbd></span><span>Command palette</span></div><div class="sc-row"><span><kbd>?</kbd></span><span>This dialog</span></div><div class="sc-row"><span><kbd>Esc</kbd></span><span>Close</span></div></div></div>
 <script>
-const TOKEN=sessionStorage.getItem('zmn_token');
+const TOKEN=localStorage.getItem('jwt_token');
 if(!TOKEN)window.location.href='/login.html';
-function aFetch(u,o={}){o.headers={...(o.headers||{}),Authorization:'Bearer '+TOKEN};return fetch(u,o).then(r=>{if(r.status===401){sessionStorage.removeItem('zmn_token');window.location.href='/login.html'}return r})}
-function logout(){sessionStorage.removeItem('zmn_token');window.location.href='/login.html'}
+function aFetch(u,o={}){o.headers={...(o.headers||{}),Authorization:'Bearer '+TOKEN};return fetch(u,o).then(r=>{if(r.status===401){localStorage.removeItem('jwt_token');window.location.href='/login.html'}return r})}
+function logout(){localStorage.removeItem('jwt_token');window.location.href='/login.html'}
 const $=id=>document.getElementById(id);
 function copyAddress(addr){navigator.clipboard.writeText(addr);event.target.textContent='\u2713';setTimeout(()=>event.target.textContent='\u238C',1500)}
 function updateClock(){const s=new Date().toLocaleString('en-AU',{timeZone:'Australia/Sydney',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false,timeZoneName:'short'});$('sydClock').textContent=s}

@@ -48,12 +48,12 @@ async function login(e){
   try{
     const r=await fetch('/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pw})});
     const d=await r.json();
-    if(r.ok&&d.token){sessionStorage.setItem('zmn_token',d.token);document.body.style.opacity='0';document.body.style.transition='opacity .3s';setTimeout(()=>window.location.href='/dashboard/dashboard.html',300);return}
+    if(r.ok&&d.token){localStorage.setItem('jwt_token',d.token);document.body.style.opacity='0';document.body.style.transition='opacity .3s';setTimeout(()=>window.location.href='/dashboard/dashboard.html',300);return}
     err.textContent=d.error||'Invalid credentials';err.classList.add('on');card.classList.remove('shake');void card.offsetWidth;card.classList.add('shake');document.getElementById('pw').value='';
   }catch(x){err.textContent='Connection error';err.classList.add('on')}
   btn.disabled=false;btn.textContent='Sign In';
 }
-if(sessionStorage.getItem('zmn_token')){fetch('/auth/verify',{headers:{'Authorization':'Bearer '+sessionStorage.getItem('zmn_token')}}).then(r=>{if(r.ok)window.location.href='/dashboard/dashboard.html'}).catch(()=>{})}
+if(localStorage.getItem('jwt_token')){fetch('/auth/verify',{headers:{'Authorization':'Bearer '+localStorage.getItem('jwt_token')}}).then(r=>{if(r.ok)window.location.href='/dashboard/dashboard.html';else localStorage.removeItem('jwt_token')}).catch(()=>{})}
 </script>
 </body>
 </html>
