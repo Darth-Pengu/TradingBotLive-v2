@@ -334,6 +334,31 @@ class BotCore:
                                     result[mint] = float(price_str)
                 except Exception:
                     pass
+
+        # Bonding curve price fallback for positions still at 0.0
+        still_zero = [m for m in mints if result.get(m, 0.0) == 0.0
+                      and m != "So11111111111111111111111111111111111111112"]
+        for mint in still_zero:
+            pos = self.positions.get(f"speed_demon:{mint}") or self.positions.get(f"analyst:{mint}") or self.positions.get(f"whale_tracker:{mint}")
+            if pos and pos.bonding_curve_progress and pos.bonding_curve_progress < 1.0:
+                # Use entry price as fallback for pre-graduation tokens
+                if pos.entry_price > 0:
+                    result[mint] = pos.entry_price
+                    logger.debug("Using entry_price fallback for %s: %.10f", mint[:12], pos.entry_price)
+
+        # Track price fetch failures in Redis
+        failed = [m for m in mints if result.get(m, 0.0) == 0.0
+                  and m != "So11111111111111111111111111111111111111112"]
+        if failed and self.redis:
+            date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            try:
+                await self.redis.incrby(f"price:fetch:failures:{date_str}", len(failed))
+                await self.redis.expire(f"price:fetch:failures:{date_str}", 86400)
+            except Exception:
+                pass
+            for m in failed:
+                logger.warning("SKIP_NO_PRICE: %s — no price source available", m[:12])
+
         return result
 
     # --- EMERGENCY STOP ---
@@ -631,6 +656,10 @@ class BotCore:
 
             if result.success:
                 price = await self._get_token_price(mint)
+                if not price or price <= 0:
+                    logger.warning("SKIP_NO_PRICE: %s — trade executed but no price for tracking, using fallback", mint[:12])
+                    # Fallback: estimate from size_sol and typical token amount
+                    price = 0.000001  # sentinel — will be updated on next price check
                 signal_source = scored_signal.get("signal", {}).get("source", "unknown")
                 pos = Position(
                     mint=mint, personality=personality,
