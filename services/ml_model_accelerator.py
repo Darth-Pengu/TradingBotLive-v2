@@ -319,16 +319,18 @@ class AcceleratedMLEngine:
         except Exception:
             rows = []
 
-        # Also include paper_trades (use 30-day window for more data)
+        # Also include paper_trades (use entry_time column, not created_at)
         try:
             paper_rows = await pool.fetch(
                 """SELECT features_json, outcome FROM paper_trades
-                   WHERE created_at > $1 AND features_json IS NOT NULL AND outcome IS NOT NULL""",
+                   WHERE entry_time > $1 AND features_json IS NOT NULL AND outcome IS NOT NULL""",
                 thirty_days_ago,
             )
             rows = list(rows) + list(paper_rows)
-        except Exception:
-            pass
+            logger.info("Training data: %d trades + %d paper_trades = %d total",
+                       len(rows) - len(paper_rows), len(paper_rows), len(rows))
+        except Exception as e:
+            logger.warning("Paper trades query failed: %s", e)
 
         if len(rows) < MIN_SAMPLES_FIRST_TRAIN:
             logger.info("Only %d samples (need %d) — skipping training", len(rows), MIN_SAMPLES_FIRST_TRAIN)
