@@ -685,6 +685,38 @@ async def _outcome_listener(engine: AcceleratedMLEngine, redis_conn: aioredis.Re
         await pubsub.aclose()
 
 
+# --- Emergency retrain listener ---
+async def _emergency_retrain_listener(engine: AcceleratedMLEngine, redis_conn: aioredis.Redis | None):
+    """Listen for emergency retrain signals."""
+    if not redis_conn:
+        return
+    pubsub = redis_conn.pubsub()
+    await pubsub.subscribe("ml:emergency_retrain")
+    logger.info("Listening for emergency retrain signals on ml:emergency_retrain")
+    try:
+        async for message in pubsub.listen():
+            if message["type"] != "message":
+                continue
+            try:
+                data = json.loads(message["data"])
+                reason = data.get("reason", "manual")
+                logger.warning("EMERGENCY RETRAIN triggered: %s", reason)
+                pool = await get_pool()
+                # Force reset to retrain from scratch
+                engine.models = {}
+                engine.is_trained = False
+                engine.n_samples = 0
+                engine.phase = 0
+                await engine.train(pool)
+                logger.info("Emergency retrain complete: phase=%d, n=%d, AUC=%.4f",
+                           engine.phase, engine.n_samples, engine.cv_auc_mean)
+            except Exception as e:
+                logger.error("Emergency retrain error: %s", e)
+    finally:
+        await pubsub.unsubscribe()
+        await pubsub.aclose()
+
+
 # --- Main entry point ---
 async def main():
     logger.info("Accelerated ML Engine starting (TEST_MODE=%s)", TEST_MODE)
@@ -717,6 +749,7 @@ async def main():
         _scoring_listener(engine, redis_conn),
         _retrain_loop(engine),
         _outcome_listener(engine, redis_conn),
+        _emergency_retrain_listener(engine, redis_conn),
     )
 
 
