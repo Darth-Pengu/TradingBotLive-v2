@@ -923,6 +923,7 @@ async def main():
             _scoring_listener as accel_scoring_listener,
             _retrain_loop as accel_retrain_loop,
             _outcome_listener as accel_outcome_listener,
+            _emergency_retrain_listener as accel_emergency_retrain_listener,
         )
         engine = AcceleratedMLEngine()
         pool = await get_pool()
@@ -950,6 +951,7 @@ async def main():
             accel_scoring_listener(engine, redis_conn),
             accel_retrain_loop(engine),
             accel_outcome_listener(engine, redis_conn),
+            accel_emergency_retrain_listener(engine, redis_conn),
         )
         return
 
