@@ -333,10 +333,23 @@ async def pumpportal_listener(redis_conn: aioredis.Redis | None):
                     if not mint:
                         continue
 
-                    # Track buy/sell for real-time ratio calculation
+                    # Track buy/sell for real-time ratio calculation + cache price
                     tx_type = data.get("txType", "")
                     if tx_type in ("buy", "sell"):
                         _update_trade_tracker(mint, tx_type)
+                        # Cache latest trade price in Redis for exit checker
+                        sol_amount = float(data.get("solAmount", data.get("sol_amount", 0)) or 0)
+                        token_amount = float(data.get("tokenAmount", data.get("token_amount", 0)) or 0)
+                        if sol_amount > 0 and token_amount > 0 and redis_conn:
+                            try:
+                                trade_price = sol_amount / token_amount
+                                await redis_conn.set(
+                                    f"token:price:{mint}",
+                                    str(trade_price),
+                                    ex=300,  # 5-minute TTL
+                                )
+                            except Exception:
+                                pass
 
                     # Classify signal type
                     if tx_type == "create" or "bondingCurveKey" in data:
