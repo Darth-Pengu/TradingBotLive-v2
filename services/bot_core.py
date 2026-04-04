@@ -47,7 +47,7 @@ _start_time = time.time()
 
 # Personality position size adjustments
 PERSONALITY_SIZE_ADJUSTMENT = {
-    "speed_demon": 0.5,   # Half size — bleeding -9 SOL from 324 trades
+    "speed_demon": 0.7,   # Raised from 0.5 — SD produced +259% winner, needs to trade
     "analyst": 1.3,       # Boost — best personality
     "whale_tracker": 1.0,
 }
@@ -335,16 +335,24 @@ class BotCore:
                 except Exception:
                     pass
 
-        # Bonding curve price fallback for positions still at 0.0
+        # Redis cached price fallback (from PumpPortal trade stream via signal_listener)
         still_zero = [m for m in mints if result.get(m, 0.0) == 0.0
                       and m != "So11111111111111111111111111111111111111112"]
-        for mint in still_zero:
-            pos = self.positions.get(f"speed_demon:{mint}") or self.positions.get(f"analyst:{mint}") or self.positions.get(f"whale_tracker:{mint}")
-            if pos and pos.bonding_curve_progress and pos.bonding_curve_progress < 1.0:
-                # Use entry price as fallback for pre-graduation tokens
-                if pos.entry_price > 0:
-                    result[mint] = pos.entry_price
-                    logger.debug("Using entry_price fallback for %s: %.10f", mint[:12], pos.entry_price)
+        if still_zero and self.redis:
+            for mint in still_zero:
+                try:
+                    cached = await self.redis.get(f"token:price:{mint}")
+                    if cached:
+                        cached_price = float(cached)
+                        # Convert SOL price to USD for consistency
+                        sol_price = result.get("So11111111111111111111111111111111111111112", 0)
+                        if sol_price > 0:
+                            result[mint] = cached_price * sol_price
+                        else:
+                            result[mint] = cached_price * 80.0  # fallback SOL price
+                        logger.debug("Using Redis cached price for %s: %.10f", mint[:12], result[mint])
+                except Exception:
+                    pass
 
         # Track price fetch failures in Redis
         failed = [m for m in mints if result.get(m, 0.0) == 0.0
@@ -535,7 +543,7 @@ class BotCore:
             return
 
         # Enforce min/max limits only if risk manager approved
-        size_sol = max(0.15, min(size_sol, 0.75))
+        size_sol = max(0.08, min(size_sol, 0.75))
 
         logger.info(
             "POSITION SIZE: %s base=%.2f conf_mult=%.2f rc_mult=%.2f "
@@ -1042,36 +1050,51 @@ class BotCore:
                                 pos.trailing_stop_price = current_price * (1 - 0.15)
                                 continue
 
-                    # --- PRICE-BASED EXITS FIRST (stop loss, trailing stop) ---
-                    # These must fire BEFORE time_exit to prevent holding -57% losers
+                    # --- PRICE-BASED EXITS (priority order) ---
+                    # 1. Stop loss  2. Staged TPs  3. Trailing stop  4. Time exit
                     if current_price > 0 and entry > 0:
                         multiple = current_price / entry
 
-                        # Hard stop loss — checked every cycle, not just at time exit
+                        # 1. Hard stop loss — highest priority, every cycle
                         sl_pct = strategy.get("stop_loss_pct", 0.50)
                         if multiple <= (1 - sl_pct):
                             await self._close_position(pos, f"stop_loss_{sl_pct:.0%}")
                             continue
 
-                        # Trailing stop — checked every cycle
+                        # 2. Staged take-profits — checked BEFORE time_exit
+                        for exit_rule in strategy.get("staged_exits", []):
+                            exit_key = f"{exit_rule['at_multiple']}x"
+                            if exit_key not in pos.staged_exits_done and multiple >= exit_rule["at_multiple"]:
+                                logger.info("STAGED_TP: %s hit %s (%.1fx) — selling %d%%",
+                                           pos.mint[:12], exit_key, multiple, int(exit_rule["sell_pct"] * 100))
+                                await self._close_position(pos, f"staged_{exit_key}", sell_pct=exit_rule["sell_pct"])
+                                pos.staged_exits_done.append(exit_key)
+                                if pos.trade_id:
+                                    try:
+                                        table = "paper_trades" if TEST_MODE else "trades"
+                                        await self.pool.execute(
+                                            f"UPDATE {table} SET staged_exits_done = $1 WHERE id = $2",
+                                            json.dumps(pos.staged_exits_done), pos.trade_id,
+                                        )
+                                    except Exception:
+                                        pass
+
+                        # 3. Trailing stop — checked every cycle
                         ts_exit = await self._evaluate_trailing_stop(pos, current_price)
                         if ts_exit:
                             await self._close_position(pos, ts_exit)
                             continue
 
-                    # --- TIME-BASED EXITS (after price exits) ---
+                    # 4. Time-based exit (lowest priority)
                     time_exit = strategy.get("time_exit_minutes")
                     if time_exit and elapsed_min >= time_exit:
                         if current_price > 0 and entry > 0 and current_price > entry * 1.01:
-                            # Position is up >1% — activate trailing stop instead of time-exiting
                             if not pos.trailing_stop_active:
                                 pos.trailing_stop_active = True
                                 pos.peak_price = max(pos.peak_price, current_price)
-                                pos.trailing_stop_price = pos.peak_price * 0.85  # 15% trailing
-                                logger.info("TIME_EXIT_SKIP: %s up %.1f%% — activating trailing stop (peak=%.8f stop=%.8f)",
-                                           pos.mint[:12], (current_price/entry - 1)*100, pos.peak_price, pos.trailing_stop_price)
-                            else:
-                                logger.debug("Time exit skipped — %s profitable (%.1fx), trailing active", pos.mint[:12], current_price / entry)
+                                pos.trailing_stop_price = pos.peak_price * 0.85
+                                logger.info("TIME_EXIT_SKIP: %s up %.1f%% — activating trailing stop",
+                                           pos.mint[:12], (current_price/entry - 1)*100)
                         else:
                             await self._close_position(pos, "time_exit_no_movement")
                             continue
@@ -1080,27 +1103,6 @@ class BotCore:
                     if max_hold and elapsed_hrs >= max_hold:
                         await self._close_position(pos, "max_hold_time")
                         continue
-
-                    # --- Staged exits (require valid price) ---
-                    if current_price > 0 and entry > 0:
-                        multiple = current_price / entry
-                    else:
-                        multiple = 0.0
-                    for exit_rule in strategy.get("staged_exits", []):
-                        exit_key = f"{exit_rule['at_multiple']}x"
-                        if exit_key not in pos.staged_exits_done and multiple >= exit_rule["at_multiple"]:
-                            await self._close_position(pos, f"staged_{exit_key}", sell_pct=exit_rule["sell_pct"])
-                            pos.staged_exits_done.append(exit_key)
-                            # Persist staged_exits_done to DB
-                            if pos.trade_id:
-                                try:
-                                    table = "paper_trades" if TEST_MODE else "trades"
-                                    await self.pool.execute(
-                                        f"UPDATE {table} SET staged_exits_done = $1 WHERE id = $2",
-                                        json.dumps(pos.staged_exits_done), pos.trade_id,
-                                    )
-                                except Exception:
-                                    pass
 
                 except Exception as e:
                     logger.error("Exit check error for %s: %s", key, e)
