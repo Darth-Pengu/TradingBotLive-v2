@@ -579,12 +579,21 @@ class BotCore:
             # Paper trading: simulate execution, real everything else
             signal_source = scored_signal.get("signal", {}).get("source", "unknown")
             fgi = scored_signal.get("features", {}).get("cfgi_score", 50)
+            # Compute bonding curve price fallback for new tokens
+            v_sol = float(raw.get("vSolInBondingCurve", 0) or 0)
+            v_tokens = float(raw.get("vTokensInBondingCurve", 0) or 0)
+            bc_price = (v_sol / v_tokens) if v_sol > 0 and v_tokens > 0 else 0.0
+            # Convert bonding curve price (in SOL) to USD
+            sol_price = features.get("sol_price_usd", 0) or 80.0
+            bc_price_usd = bc_price * sol_price if bc_price > 0 else 0.0
+
             paper_result = await paper_buy(
                 self.pool, self.redis, mint, size_sol, personality,
                 slippage_tier=slippage_tier, pool=token.pool,
                 ml_score=ml_score, signal_source=signal_source,
                 market_mode=market_mode, fear_greed=fgi,
                 rugcheck_risk=scored_signal.get("rugcheck_risk_level", "unknown"),
+                bonding_curve_price=bc_price_usd,
             )
             if paper_result["success"]:
                 paper_trade_id = paper_result["trade_id"]

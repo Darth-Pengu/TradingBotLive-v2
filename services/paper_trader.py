@@ -136,10 +136,14 @@ async def paper_buy(
     market_mode: str = "NORMAL",
     fear_greed: float = 50.0,
     rugcheck_risk: str = "unknown",
+    bonding_curve_price: float = 0.0,
 ) -> dict:
     """Simulate a paper buy trade. Returns result dict with fake signature."""
-    # Get real price — skip trade if price fetch fails
+    # Get real price — Jupiter/Gecko primary, bonding curve fallback
     price = await _get_token_price(mint)
+    if price <= 0 and bonding_curve_price > 0:
+        price = bonding_curve_price
+        logger.info("PAPER: using bonding curve price for %s: $%.10f", mint[:12], price)
     if price <= 0:
         logger.warning("PAPER: price fetch failed for %s — skipping", mint[:12])
         return {"success": False, "error": "price_fetch_failed", "simulated": True}
