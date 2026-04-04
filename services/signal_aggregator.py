@@ -5,7 +5,7 @@ Layer 3 of the signal stack:
 - Deduplicates by token address within 60-second window
 - Multi-source confidence: base 50 + 15 per additional source
 - Applies market mode multiplier (HIBERNATE → skip all)
-- Applies bonding curve filter (reject 30-55% KOTH zone for Speed Demon unless ML >= 85%)
+- Applies bonding curve filter (reject 45-65% KOTH zone unless ML >= 60 or velocity bypass)
 - Routes through ML gate before forwarding to execution
 - Enriches signals with Rugcheck safety data
 - Outputs scored signals to Redis "signals:scored" for bot_core consumption
@@ -84,10 +84,12 @@ SEEN_CLEANUP_INTERVAL = 300
 BASE_CONFIDENCE = 50
 PER_SOURCE_BONUS = 15
 
-# --- Bonding curve KOTH zone (Section 3) ---
-KOTH_ZONE_LOW = 0.30
-KOTH_ZONE_HIGH = 0.55
-KOTH_ML_OVERRIDE = 85  # ML >= 85% can override KOTH zone rejection
+# --- Bonding curve KOTH zone ---
+# Narrowed from 30-55% to 45-65%: tokens at 36-40% have active momentum,
+# real KOTH stalling happens at 45-65% where progress genuinely stalls.
+KOTH_ZONE_LOW = 0.45
+KOTH_ZONE_HIGH = 0.65
+KOTH_ML_OVERRIDE = 60  # ML >= 60 can override KOTH zone rejection (was 85)
 
 # --- Hard filters for Speed Demon (Section 3) ---
 SPEED_DEMON_FILTERS = {
@@ -1184,19 +1186,31 @@ def _apply_hard_filters(personality: str, signal: dict, rugcheck: dict) -> tuple
     return True, ""
 
 
-def _check_koth_zone(bc_progress: float, personality: str, ml_score: float) -> tuple[bool, str]:
-    """Check if token is in KOTH dump zone (30-55% bonding curve)."""
-    if personality == "speed_demon" and KOTH_ZONE_LOW <= bc_progress <= KOTH_ZONE_HIGH:
-        if ml_score >= KOTH_ML_OVERRIDE:
-            return True, f"KOTH zone but ML {ml_score} >= {KOTH_ML_OVERRIDE}"
-        return False, f"KOTH zone ({bc_progress:.0%}) — ML {ml_score} < {KOTH_ML_OVERRIDE}"
+def _check_koth_zone(bc_progress: float, personality: str, ml_score: float,
+                     initial_bc_progress: float = None, enrichment_time_seconds: float = 0) -> tuple[bool, str]:
+    """Check if token is in KOTH dump zone (45-65% bonding curve).
 
-    if personality == "analyst":
-        # Analyst avoids 30-60% zone
-        if 0.30 <= bc_progress <= 0.60:
-            return False, f"Analyst KOTH avoidance zone ({bc_progress:.0%})"
+    Supports velocity bypass: if bc_progress increased significantly since signal
+    arrival, the token has active momentum and should pass through.
+    """
+    in_koth = KOTH_ZONE_LOW <= bc_progress <= KOTH_ZONE_HIGH
 
-    return True, ""
+    if not in_koth:
+        return True, ""
+
+    # Velocity bypass: if bc moved >0.5%/sec during enrichment, it has momentum
+    bc_velocity = 0.0
+    if initial_bc_progress is not None and enrichment_time_seconds > 0:
+        bc_velocity = (bc_progress - initial_bc_progress) / max(enrichment_time_seconds, 1)
+        if bc_velocity > 0.005:  # >0.5% per second = strong momentum
+            return True, f"KOTH velocity bypass (velocity={bc_velocity*100:.2f}%/s)"
+
+    # ML override
+    if ml_score >= KOTH_ML_OVERRIDE:
+        return True, f"KOTH zone but ML {ml_score:.1f} >= {KOTH_ML_OVERRIDE}"
+
+    # Reject
+    return False, f"KOTH zone ({bc_progress:.0%}) — ML {ml_score:.1f} < {KOTH_ML_OVERRIDE}"
 
 
 # Direct ML engine reference — lazy-loaded and retrained on live data
@@ -1327,10 +1341,20 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
                         # Window expired — treat as new
                         del _seen_tokens[mint]
 
+                # Store initial bc_progress for KOTH velocity calculation
+                raw_bc = signal.get("raw_data", {}).get(
+                    "bondingCurveProgress",
+                    signal.get("raw_data", {}).get("bonding_curve_progress", 0))
+                try:
+                    initial_bc = float(raw_bc or 0)
+                except (TypeError, ValueError):
+                    initial_bc = 0.0
+
                 _seen_tokens[mint] = {
                     "first_seen": now,
                     "sources": {source},
                     "signal_data": signal,
+                    "initial_bc_progress": initial_bc,
                 }
 
                 sig_type = signal.get("signal_type", "")
@@ -1717,10 +1741,20 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
 
                     # KOTH zone check — disabled in aggressive paper mode
                     if not AGGRESSIVE_PAPER:
-                        passed, reason = _check_koth_zone(bc_progress, personality, ml_score)
+                        initial_bc = _seen_tokens.get(mint, {}).get("initial_bc_progress")
+                        enrichment_secs = time.time() - _seen_tokens.get(mint, {}).get("first_seen", time.time())
+                        passed, reason = _check_koth_zone(
+                            bc_progress, personality, ml_score,
+                            initial_bc_progress=initial_bc,
+                            enrichment_time_seconds=enrichment_secs,
+                        )
                         if not passed:
-                            logger.info("KOTH reject %s for %s: %s", mint[:12], personality, reason)
+                            logger.info("KOTH_REJECT: mint=%s bc=%.1f%% ml=%.1f personality=%s reason=%s",
+                                        mint[:12], bc_progress * 100, ml_score, personality, reason)
                             continue
+                        elif reason:  # bypass or override
+                            logger.info("KOTH_OVERRIDE: mint=%s bc=%.1f%% ml=%.1f reason=%s",
+                                        mint[:12], bc_progress * 100, ml_score, reason)
 
                     # ML threshold check — use bootstrap thresholds during cold start
                     if ml_trained:
@@ -1897,7 +1931,7 @@ async def _process_graduations(redis_conn: aioredis.Redis, pool=None):
                             rc = await resp.json()
                             rc_score = rc.get("score", 0)
                             if rc_score >= 2000:
-                                logger.info("GRAD SKIP: %s — rugcheck score %d (high risk)", mint[:12], rc_score)
+                                logger.info("GRAD_REJECT: mint=%s rug=%d reason=high_risk → REJECT", mint[:12], rc_score)
                                 continue
                         else:
                             rc_score = 0
@@ -1916,8 +1950,8 @@ async def _process_graduations(redis_conn: aioredis.Redis, pool=None):
                 except Exception:
                     pass
 
-                if holders < 100:
-                    logger.info("GRAD SKIP: %s — only %d holders (need 100+)", mint[:12], holders)
+                if holders < 25:
+                    logger.info("GRAD_REJECT: mint=%s holders=%d reason=need_25+ → REJECT", mint[:12], holders)
                     continue
 
                 # 3. Check for KOL/MM presence via Vybe
@@ -1984,7 +2018,9 @@ async def _process_graduations(redis_conn: aioredis.Redis, pool=None):
                 }
 
                 await redis_conn.lpush("signals:scored", json.dumps(signal))
-                logger.info("GRAD SIGNAL: %s score=%.0f holders=%d kol=%d whale=%.2f",
+                logger.info("GRAD_EVAL: mint=%s holders=%d rug=%d bsr=N/A platform=%s → ACCEPT",
+                            mint[:12], holders, rc_score, grad_data.get("platform", "pump.fun"))
+                logger.info("GRAD_ACCEPT: %s score=%.0f holders=%d kol=%d whale=%.2f",
                             mint[:12], score, holders, kol_count, whale_boost)
 
             except Exception as e:
