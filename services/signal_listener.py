@@ -348,6 +348,16 @@ async def pumpportal_listener(redis_conn: aioredis.Redis | None):
                     else:
                         sig_type = "token_trade"
 
+                    # Detect platform (Pump.fun vs Bonk.fun/LaunchLab)
+                    platform = "pump.fun"
+                    data_str = json.dumps(data) if isinstance(data, dict) else str(data)
+                    if "LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj" in data_str:
+                        platform = "launchlab"
+                    elif data.get("pool") == "bonk" or "bonk" in data_str.lower().split("pool")[0] if "pool" in data_str.lower() else False:
+                        platform = "bonk"
+                    elif data.get("pool") == "launchlab":
+                        platform = "launchlab"
+
                     # Calculate age from creation timestamp if available
                     created_ts = data.get("timestamp")
                     age = 0.0
@@ -358,6 +368,7 @@ async def pumpportal_listener(redis_conn: aioredis.Redis | None):
                             pass
 
                     signal = _build_signal(mint, "pumpportal", sig_type, data, age)
+                    signal["platform"] = platform
 
                     # Extract social metadata from PumpPortal create events
                     if sig_type == "new_token":
@@ -367,6 +378,22 @@ async def pumpportal_listener(redis_conn: aioredis.Redis | None):
                         signal["has_website"] = bool(data.get("website") or socials.get("website") or data.get("uri"))
                         signal["has_social"] = signal["has_twitter"] or signal["has_telegram"] or signal["has_website"]
                         signal["twitter_url"] = data.get("twitter") or socials.get("twitter", "")
+                        if platform != "pump.fun":
+                            logger.info("NEW TOKEN [%s]: %s %s", platform, data.get("name", "?"), mint[:12])
+
+                    # Push graduation events to dedicated queue for sniper
+                    if sig_type == "migration":
+                        grad_data = {
+                            "type": "graduation",
+                            "mint": mint,
+                            "timestamp": time.time(),
+                            "pool_type": data.get("pool", "pumpswap"),
+                            "platform": platform,
+                            "source": "pumpportal_migration",
+                        }
+                        if redis_conn:
+                            await redis_conn.lpush("signals:graduated", json.dumps(grad_data))
+                        logger.info("GRADUATION: %s -> %s [%s]", mint[:12], data.get("pool", "?"), platform)
 
                     await _push_signal(redis_conn, signal)
 

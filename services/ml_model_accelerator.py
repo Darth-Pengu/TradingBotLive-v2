@@ -273,16 +273,24 @@ class AcceleratedMLEngine:
                 live_count = await pool.fetchval(
                     "SELECT COUNT(*) FROM trades WHERE features_json IS NOT NULL AND outcome IS NOT NULL"
                 )
-                win_count = await pool.fetchval(
-                    "SELECT COUNT(*) FROM trades WHERE outcome = 'profit' AND features_json IS NOT NULL"
+                paper_count = await pool.fetchval(
+                    "SELECT COUNT(*) FROM paper_trades WHERE features_json IS NOT NULL AND outcome IS NOT NULL"
                 )
-                logger.info("Live data check: %d labeled trades, %d wins (model has %d samples)",
-                           live_count, win_count, self.n_samples)
-                if live_count >= 100 and win_count >= 5:
+                total_count = (live_count or 0) + (paper_count or 0)
+                win_count = await pool.fetchval(
+                    "SELECT COUNT(*) FROM trades WHERE outcome IN ('profit', 'win') AND features_json IS NOT NULL"
+                )
+                paper_wins = await pool.fetchval(
+                    "SELECT COUNT(*) FROM paper_trades WHERE outcome IN ('profit', 'win') AND features_json IS NOT NULL"
+                )
+                total_wins = (win_count or 0) + (paper_wins or 0)
+                logger.info("Live data check: %d labeled trades (%d live + %d paper), %d wins (model has %d samples)",
+                           total_count, live_count, paper_count, total_wins, self.n_samples)
+                if total_count >= 50 and total_wins >= 3:
                     logger.warning(
-                        "LIVE DATA RETRAIN TRIGGERED: %d live trades (%d wins) — "
-                        "overriding %d-sample pretrained model",
-                        live_count, win_count, self.n_samples,
+                        "LIVE DATA RETRAIN TRIGGERED: %d trades (%d wins) — "
+                        "overriding %d-sample pretrained model for feature alignment",
+                        total_count, total_wins, self.n_samples,
                     )
                     # Reset model state to force fresh training on live data
                     self.models = {}
@@ -291,8 +299,8 @@ class AcceleratedMLEngine:
                     self.phase = 0
                     # Fall through to training code below
                 else:
-                    logger.info("Keeping pretrained model: live=%d wins=%d (need 100+ trades, 5+ wins)",
-                               live_count, win_count)
+                    logger.info("Keeping pretrained model: total=%d wins=%d (need 50+ trades, 3+ wins)",
+                               total_count, total_wins)
                     return
             except Exception as e:
                 logger.warning("Live data check failed: %s — keeping pretrained", e)
@@ -300,6 +308,7 @@ class AcceleratedMLEngine:
 
         # Use 30-day window for live data (we need all available samples)
         thirty_days_ago = datetime.now(timezone.utc).timestamp() - (30 * 86400)
+        seven_days_ago = datetime.now(timezone.utc).timestamp() - (7 * 86400)
 
         try:
             rows = await pool.fetch(
@@ -310,12 +319,12 @@ class AcceleratedMLEngine:
         except Exception:
             rows = []
 
-        # Also try paper_trades
+        # Also include paper_trades (use 30-day window for more data)
         try:
             paper_rows = await pool.fetch(
                 """SELECT features_json, outcome FROM paper_trades
                    WHERE created_at > $1 AND features_json IS NOT NULL AND outcome IS NOT NULL""",
-                seven_days_ago,
+                thirty_days_ago,
             )
             rows = list(rows) + list(paper_rows)
         except Exception:
@@ -331,7 +340,7 @@ class AcceleratedMLEngine:
             try:
                 features = json.loads(row["features_json"])
                 features_list.append(features)
-                labels.append("win" if row["outcome"] == "profit" else "loss")
+                labels.append("win" if row["outcome"] in ("profit", "win") else "loss")
             except (json.JSONDecodeError, TypeError, KeyError):
                 continue
 

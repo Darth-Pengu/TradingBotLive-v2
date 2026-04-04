@@ -391,7 +391,7 @@ class MLModel:
                 features = json.loads(features_json)
                 feature_row = [features.get(col, 0) for col in FEATURE_COLUMNS]
                 features_list.append(feature_row)
-                labels.append(1 if outcome == "profit" else 0)
+                labels.append(1 if outcome in ("profit", "win") else 0)
             except (json.JSONDecodeError, TypeError):
                 continue
 
@@ -726,7 +726,7 @@ def _build_features_from_rows(rows) -> tuple[pd.DataFrame, np.ndarray]:
             features = json.loads(row["features_json"])
             feature_row = [features.get(col, 0) for col in FEATURE_COLUMNS]
             features_list.append(feature_row)
-            labels.append(1 if row["outcome"] == "profit" else 0)
+            labels.append(1 if row["outcome"] in ("profit", "win") else 0)
         except (json.JSONDecodeError, TypeError, KeyError):
             continue
     if not features_list:

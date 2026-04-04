@@ -42,7 +42,7 @@ HELIUS_GATEKEEPER_URL = os.getenv("HELIUS_GATEKEEPER_URL", "")
 HELIUS_ENRICHMENT_ENABLED = os.getenv("HELIUS_ENRICHMENT_ENABLED", "true").lower() == "true"
 NANSEN_API_KEY = os.getenv("NANSEN_API_KEY", "")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-SOCIALDATA_API_KEY = os.getenv("SOCIALDATA_API_KEY", "")
+SOCIALDATA_API_KEY = os.getenv("SOCIALDATA_API_KEY") or os.getenv("SOCIAL_DATA_API_KEY", "")
 SPEED_DEMON_FILTERS_ENABLED = os.getenv("SPEED_DEMON_FILTERS_ENABLED", "true").lower() == "true"
 
 # Haiku enrichment config
@@ -1867,6 +1867,131 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
                 await asyncio.sleep(1)
 
 
+# ════════════════════���══════════════════════════════════════════════════════════
+# GRADUATION SNIPER — evaluate migrated tokens for Analyst entry
+# ═══════════════════════════════════════��═══════════════════════════════════════
+
+async def _process_graduations(redis_conn: aioredis.Redis, pool=None):
+    """Process graduation signals from signals:graduated queue."""
+    logger.info("Graduation sniper processor started")
+    async with aiohttp.ClientSession() as session:
+        while True:
+            try:
+                result = await redis_conn.brpop("signals:graduated", timeout=5)
+                if not result:
+                    continue
+                _, raw = result
+                grad_data = json.loads(raw)
+                mint = grad_data.get("mint", "")
+                if not mint:
+                    continue
+
+                logger.info("GRAD EVAL: %s — waiting 60s for DEX data", mint[:12])
+                await asyncio.sleep(60)  # Let initial DEX trading data accumulate
+
+                # 1. Rugcheck
+                try:
+                    rc_url = f"https://api.rugcheck.xyz/v1/tokens/{mint}/report/summary"
+                    async with session.get(rc_url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                        if resp.status == 200:
+                            rc = await resp.json()
+                            rc_score = rc.get("score", 0)
+                            if rc_score >= 2000:
+                                logger.info("GRAD SKIP: %s — rugcheck score %d (high risk)", mint[:12], rc_score)
+                                continue
+                        else:
+                            rc_score = 0
+                except Exception:
+                    rc_score = 0
+
+                # 2. Holder count from GeckoTerminal
+                holders = 0
+                try:
+                    gt_url = f"https://api.geckoterminal.com/api/v2/networks/solana/tokens/{mint}/info"
+                    async with session.get(gt_url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                        if resp.status == 200:
+                            gt_data = await resp.json()
+                            attrs = gt_data.get("data", {}).get("attributes", {})
+                            holders = int(attrs.get("holders", 0) or 0)
+                except Exception:
+                    pass
+
+                if holders < 100:
+                    logger.info("GRAD SKIP: %s — only %d holders (need 100+)", mint[:12], holders)
+                    continue
+
+                # 3. Check for KOL/MM presence via Vybe
+                whale_boost = 1.0
+                kol_count = 0
+                if VYBE_API_KEY:
+                    try:
+                        vybe_url = f"https://api.vybenetwork.com/token/{mint}/holders?limit=20"
+                        async with session.get(vybe_url, headers={"X-API-Key": VYBE_API_KEY},
+                                             timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                            if resp.status == 200:
+                                vybe_data = await resp.json()
+                                holder_list = vybe_data.get("data", vybe_data.get("holders", []))
+                                for h in holder_list:
+                                    label = (h.get("ownerLabel") or h.get("label") or "").lower()
+                                    if any(k in label for k in ("kol", "mm", "market maker", "smart")):
+                                        kol_count += 1
+                                if kol_count >= 2:
+                                    whale_boost = 1.25
+                                if kol_count >= 5:
+                                    whale_boost = 1.5
+                    except Exception:
+                        pass
+
+                # 4. ML score
+                ml_score = 50.0
+                try:
+                    features = {
+                        "liquidity_sol": 85.0,  # Graduated tokens have ~85 SOL
+                        "bonding_curve_progress": 1.0,
+                        "holder_count": holders,
+                        "rugcheck_score": rc_score,
+                        "cfgi_score": 50,
+                        "mint_authority_revoked": 1,
+                    }
+                    from services.ml_model_accelerator import AcceleratedMLEngine
+                    # Try inline scoring if model is loaded
+                    engine = AcceleratedMLEngine()
+                    engine.load()
+                    if engine.is_trained:
+                        ml_score, _ = engine.predict(features)
+                except Exception:
+                    pass
+
+                # Calculate graduation score
+                score = 70 * whale_boost
+                if holders > 300:
+                    score *= 1.15
+                score = min(score, 100)
+
+                signal = {
+                    "mint": mint,
+                    "personality": "analyst",
+                    "signal_type": "graduation",
+                    "score": round(score, 1),
+                    "ml_score": ml_score,
+                    "holders": holders,
+                    "rugcheck_score": rc_score,
+                    "whale_boost": whale_boost,
+                    "kol_mm_count": kol_count,
+                    "platform": grad_data.get("platform", "pump.fun"),
+                    "features": {"bonding_curve_progress": 1.0, "holder_count": holders},
+                    "market_mode": "NORMAL",
+                }
+
+                await redis_conn.lpush("signals:scored", json.dumps(signal))
+                logger.info("GRAD SIGNAL: %s score=%.0f holders=%d kol=%d whale=%.2f",
+                            mint[:12], score, holders, kol_count, whale_boost)
+
+            except Exception as e:
+                logger.error("Graduation processor error: %s", e)
+                await asyncio.sleep(5)
+
+
 async def main():
     logger.info("Signal Aggregator starting (TEST_MODE=%s)", TEST_MODE)
 
@@ -1893,6 +2018,7 @@ async def main():
 
     await asyncio.gather(
         _process_signals(redis_conn, pool=pool),
+        _process_graduations(redis_conn, pool=pool),
         _cleanup_seen_tokens(),
     )
 

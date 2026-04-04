@@ -323,6 +323,158 @@ Values 0.5-1.5. Nothing else -- just the JSON.
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# FEATURE 8 — STRUCTURED GOVERNANCE CLASSIFICATION (every 4h)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+GOVERNANCE_DEFAULTS = {
+    "mode": "NORMAL",
+    "speed_demon_enabled": True,
+    "analyst_enabled": True,
+    "whale_tracker_enabled": True,
+    "size_multiplier": 1.0,
+    "max_concurrent_positions": 10,
+    "reasoning": "default — no governance decision yet",
+    "next_review_hours": 4,
+}
+
+
+async def _run_governance_classification(pool, redis_conn, session):
+    """Call Haiku to classify market mode and store JSON decision in Redis."""
+    if not ANTHROPIC_API_KEY:
+        logger.warning("No ANTHROPIC_API_KEY — using default governance")
+        if redis_conn:
+            await redis_conn.set("governance:latest_decision", json.dumps(GOVERNANCE_DEFAULTS), ex=28800)
+        return GOVERNANCE_DEFAULTS
+
+    # Gather metrics
+    cfgi = 50
+    if redis_conn:
+        try:
+            raw = await redis_conn.get("market:cfgi")
+            if raw:
+                cfgi = int(float(raw))
+        except Exception:
+            pass
+
+    wr25 = 0
+    pnl_24h = 0
+    positions = 0
+    top_exit = "unknown"
+    trades_today = 0
+    try:
+        row = await pool.fetchrow(
+            "SELECT COUNT(*) as t, COUNT(CASE WHEN realised_pnl_sol > 0 THEN 1 END) as w "
+            "FROM (SELECT realised_pnl_sol FROM paper_trades WHERE exit_time IS NOT NULL "
+            "ORDER BY exit_time DESC LIMIT 25) x"
+        )
+        if row and row["t"] > 0:
+            wr25 = round(row["w"] / row["t"] * 100, 1)
+
+        row2 = await pool.fetchrow(
+            "SELECT COALESCE(SUM(realised_pnl_sol), 0) as pnl, COUNT(*) as trades "
+            "FROM paper_trades WHERE exit_time > NOW() - INTERVAL '24 hours'"
+        )
+        if row2:
+            pnl_24h = round(float(row2["pnl"]), 4)
+            trades_today = row2["trades"]
+
+        row3 = await pool.fetchval(
+            "SELECT COUNT(*) FROM paper_trades WHERE exit_time IS NULL"
+        )
+        positions = row3 or 0
+
+        row4 = await pool.fetchrow(
+            "SELECT exit_reason, COUNT(*) as c FROM paper_trades "
+            "WHERE exit_time > NOW() - INTERVAL '24 hours' AND exit_reason IS NOT NULL "
+            "GROUP BY exit_reason ORDER BY c DESC LIMIT 1"
+        )
+        if row4:
+            top_exit = row4["exit_reason"]
+    except Exception as e:
+        logger.warning("Governance metrics query failed: %s", e)
+
+    cfgi_label = "extreme_fear" if cfgi < 15 else "fear" if cfgi < 30 else "neutral" if cfgi < 60 else "greed"
+    sol_change = 0  # Could fetch from Jupiter but keeping simple
+
+    prompt = f"""You are a memecoin market analyst for an automated Solana trading bot.
+Given current market conditions, output EXACTLY one JSON object. No prose, no markdown, no explanation.
+
+Current conditions:
+  CFGI: {cfgi} ({cfgi_label})
+  Bot win rate (last 25): {wr25}%
+  Bot PnL (last 24h): {pnl_24h} SOL
+  Active positions: {positions}
+  Top exit reason (24h): {top_exit}
+  Total trades today: {trades_today}
+
+Respond with ONLY this JSON:
+{{"mode": "AGGRESSIVE|NORMAL|CONSERVATIVE|PAUSE|HIBERNATE", "speed_demon_enabled": true, "analyst_enabled": true, "whale_tracker_enabled": true, "size_multiplier": 1.0, "max_concurrent_positions": 10, "reasoning": "one sentence", "next_review_hours": 4}}
+
+Rules:
+- CFGI < 15 and WR < 5% -> CONSERVATIVE or PAUSE
+- CFGI < 25 -> CONSERVATIVE at most
+- CFGI 25-50 -> NORMAL
+- CFGI > 50 and WR > 10% -> can be AGGRESSIVE
+- If PnL last 24h < -2 SOL -> reduce size_multiplier to 0.5
+- If 0 take-profits in exits -> keep CONSERVATIVE
+- speed_demon_enabled=false if overall WR < 3%"""
+
+    try:
+        import anthropic
+        client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+        msg = await client.messages.create(
+            model=GOVERNANCE_MODEL,
+            max_tokens=300,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw_text = msg.content[0].text.strip()
+        logger.info("Governance classification raw: %s", raw_text[:200])
+
+        # Parse JSON — try to extract from possible markdown wrapping
+        if "```" in raw_text:
+            raw_text = raw_text.split("```")[1].strip()
+            if raw_text.startswith("json"):
+                raw_text = raw_text[4:].strip()
+        decision = json.loads(raw_text)
+
+        # Validate required fields
+        for key in ("mode", "size_multiplier"):
+            if key not in decision:
+                decision[key] = GOVERNANCE_DEFAULTS[key]
+
+        logger.info("GOVERNANCE DECISION: mode=%s size=%.2f reasoning=%s",
+                    decision["mode"], decision.get("size_multiplier", 1.0),
+                    decision.get("reasoning", "none"))
+
+    except Exception as e:
+        logger.error("Governance classification failed: %s — using CONSERVATIVE defaults", e)
+        decision = {**GOVERNANCE_DEFAULTS, "mode": "CONSERVATIVE", "size_multiplier": 0.8,
+                    "reasoning": f"classification failed: {str(e)[:100]}"}
+
+    # Store in Redis
+    if redis_conn:
+        await redis_conn.set("governance:latest_decision", json.dumps(decision), ex=28800)
+        await redis_conn.set("governance:mode", decision["mode"], ex=28800)
+        await redis_conn.set("governance:last_run", datetime.now(timezone.utc).isoformat(), ex=28800)
+
+    return decision
+
+
+async def _governance_classification_loop(pool, redis_conn):
+    """Run governance classification every N hours."""
+    async with aiohttp.ClientSession() as session:
+        while True:
+            try:
+                decision = await _run_governance_classification(pool, redis_conn, session)
+                wait_hours = decision.get("next_review_hours", 4)
+                logger.info("Governance classification done — next in %dh", wait_hours)
+                await asyncio.sleep(wait_hours * 3600)
+            except Exception as e:
+                logger.error("Governance classification loop error: %s", e)
+                await asyncio.sleep(3600)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # CORE — OUTPUT + DISCORD + RUN TASK
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -1092,6 +1244,7 @@ async def main():
         _anomaly_loop(pool, redis_conn),
         _smart_money_discovery_loop(redis_conn),  # P1: every 4h proactive scan
         _wallet_refresh_loop(redis_conn),          # Every 48h wallet refresh
+        _governance_classification_loop(pool, redis_conn),  # Structured JSON mode classification
     ]
     if redis_conn:
         tasks.append(_trigger_listener(pool, redis_conn))

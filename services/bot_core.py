@@ -126,6 +126,7 @@ class Position:
     trailing_stop_price: float = 0.0
     trailing_stop_pct: float = 0.0
     rugcheck_risk_level: str = "unknown"
+    signal_type: str = "standard"  # "standard" or "graduation"
 
 
 class BotCore:
@@ -405,6 +406,37 @@ class BotCore:
 
         self.portfolio.market_mode = market_mode
 
+        # Governance mode check — read structured JSON decision from Redis
+        gov = {"mode": "NORMAL", "size_multiplier": 1.0, "max_concurrent_positions": 10,
+               "speed_demon_enabled": True, "analyst_enabled": True, "whale_tracker_enabled": True}
+        if self.redis:
+            try:
+                gov_raw = await self.redis.get("governance:latest_decision")
+                if gov_raw:
+                    gov = json.loads(gov_raw)
+            except Exception:
+                pass
+
+        if gov.get("mode") in ("HIBERNATE", "PAUSE"):
+            logger.info("Governance: %s — skipping trade (%s)", gov["mode"], gov.get("reasoning", ""))
+            return
+
+        if personality == "speed_demon" and not gov.get("speed_demon_enabled", True):
+            logger.info("Governance disabled Speed Demon")
+            return
+        if personality == "analyst" and not gov.get("analyst_enabled", True):
+            logger.info("Governance disabled Analyst")
+            return
+        if personality == "whale_tracker" and not gov.get("whale_tracker_enabled", True):
+            logger.info("Governance disabled Whale Tracker")
+            return
+
+        if len(self.positions) >= gov.get("max_concurrent_positions", 10):
+            logger.info("Governance: max positions %d reached", gov["max_concurrent_positions"])
+            return
+
+        gov_size_mult = gov.get("size_multiplier", 1.0)
+
         # CFGI market fear gating — reduce exposure in extreme fear
         cfgi = float(features.get("cfgi_score", 50))
         if cfgi < 10 and personality == "speed_demon" and not os.getenv("AGGRESSIVE_PAPER_TRADING", "").lower() == "true":
@@ -457,7 +489,7 @@ class BotCore:
                     wr_mult = float(wr_raw)
             except Exception:
                 pass
-        size_sol = size_sol * wr_mult * cfgi_mult
+        size_sol = size_sol * wr_mult * cfgi_mult * gov_size_mult
 
         # If risk manager returned 0 (max concurrent, max exposure, etc.), respect it
         if base_size <= 0:
@@ -563,6 +595,7 @@ class BotCore:
                     signal_source=signal_source,
                     bonding_curve_progress=bc_progress,
                     rugcheck_risk_level=scored_signal.get("rugcheck_risk_level", "unknown"),
+                    signal_type=scored_signal.get("signal_type", "standard"),
                 )
                 # Persist trades_ml_id to paper_trades for restart recovery
                 try:
@@ -927,6 +960,31 @@ class BotCore:
                             if pnl_pct < early_min_move:
                                 logger.info("NO MOMENTUM 90s: %s %.1f%%", pos.mint[:8], pnl_pct)
                                 await self._close_position(pos, "no_momentum_90s")
+                                continue
+
+                    # Graduation-specific exit strategy (overrides standard exits)
+                    if getattr(pos, "signal_type", None) == "graduation":
+                        grad_time_limit = 20  # 20-minute survival window
+                        grad_stop_loss = 0.20  # -20% hard stop
+                        grad_tp = 1.30  # +30% take profit
+
+                        if elapsed_min >= grad_time_limit and current_price > 0 and entry > 0:
+                            if current_price <= entry * 1.05:
+                                await self._close_position(pos, "graduation_time_exit")
+                                continue
+
+                        if current_price > 0 and entry > 0:
+                            if current_price <= entry * (1 - grad_stop_loss):
+                                await self._close_position(pos, "graduation_stop_loss")
+                                continue
+                            if current_price >= entry * grad_tp:
+                                # Sell 95% at +30%, keep 5% moonbag
+                                await self._close_position(pos, "graduation_tp_30pct", sell_pct=0.95)
+                                # Remaining 5% gets 15% trailing stop
+                                pos.trailing_stop_active = True
+                                pos.trailing_stop_pct = 0.15
+                                pos.peak_price = current_price
+                                pos.trailing_stop_price = current_price * (1 - 0.15)
                                 continue
 
                     # Time-based exit — skip if position is profitable (let trailing stop handle winners)
