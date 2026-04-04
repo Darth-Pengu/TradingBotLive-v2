@@ -333,21 +333,35 @@ async def pumpportal_listener(redis_conn: aioredis.Redis | None):
                     if not mint:
                         continue
 
-                    # Track buy/sell for real-time ratio calculation + cache price
+                    # Track buy/sell for real-time ratio calculation + cache price + publish stats
                     tx_type = data.get("txType", "")
                     if tx_type in ("buy", "sell"):
                         _update_trade_tracker(mint, tx_type)
-                        # Cache latest trade price in Redis for exit checker
-                        sol_amount = float(data.get("solAmount", data.get("sol_amount", 0)) or 0)
-                        token_amount = float(data.get("tokenAmount", data.get("token_amount", 0)) or 0)
-                        if sol_amount > 0 and token_amount > 0 and redis_conn:
+                        # Track unique buyers
+                        buyer = data.get("traderPublicKey", "")
+                        if tx_type == "buy" and buyer and mint in _trade_tracker:
+                            _trade_tracker[mint].setdefault("unique_buyers", set()).add(buyer)
+
+                        if redis_conn:
                             try:
-                                trade_price = sol_amount / token_amount
-                                await redis_conn.set(
-                                    f"token:price:{mint}",
-                                    str(trade_price),
-                                    ex=300,  # 5-minute TTL
-                                )
+                                # Cache latest trade price for exit checker
+                                sol_amount = float(data.get("solAmount", data.get("sol_amount", 0)) or 0)
+                                token_amount = float(data.get("tokenAmount", data.get("token_amount", 0)) or 0)
+                                if sol_amount > 0 and token_amount > 0:
+                                    trade_price = sol_amount / token_amount
+                                    await redis_conn.set(f"token:price:{mint}", str(trade_price), ex=300)
+
+                                # Publish trade stats to Redis for aggregator feature extraction
+                                entry = _trade_tracker.get(mint, {})
+                                buys = entry.get("buys", 0)
+                                sells = entry.get("sells", 0)
+                                unique = len(entry.get("unique_buyers", set()))
+                                bsr = round(buys / sells, 2) if sells > 0 else float(buys) if buys > 0 else 0
+                                await redis_conn.hset(f"token:stats:{mint}", mapping={
+                                    "buys": buys, "sells": sells, "bsr": bsr,
+                                    "unique_buyers": unique, "updated": str(time.time()),
+                                })
+                                await redis_conn.expire(f"token:stats:{mint}", 600)
                             except Exception:
                                 pass
 

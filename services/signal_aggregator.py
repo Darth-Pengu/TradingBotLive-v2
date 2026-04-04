@@ -1584,8 +1584,24 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
                     confidence = min(100, confidence + webhook_boost)
                     logger.info("Helius boost %s: +%d confidence (now %d)", mint[:12], webhook_boost, confidence)
 
+                # --- Fetch fresh trade stats from Redis (published by signal_listener) ---
+                live_stats = {}
+                try:
+                    raw_stats = await redis_conn.hgetall(f"token:stats:{mint}")
+                    if raw_stats:
+                        live_stats = {k: v for k, v in raw_stats.items()}
+                except Exception:
+                    pass
+
                 # --- Build feature dict for ML scoring (37 features) ---
                 raw = signal.get("raw_data", {})
+
+                # Prefer live Redis stats over stale raw_data for key metrics
+                live_bsr = float(live_stats.get("bsr", 0) or 0)
+                live_buys = int(live_stats.get("buys", 0) or 0)
+                live_sells = int(live_stats.get("sells", 0) or 0)
+                live_unique = int(live_stats.get("unique_buyers", 0) or 0)
+
                 features = {
                     # === Original 26 features ===
                     "liquidity_sol": float(raw.get("vSolInBondingCurve", raw.get("liquidity_sol", 0))),
@@ -1593,10 +1609,10 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
                     "bonding_curve_progress": float(raw.get("bondingCurveProgress", raw.get("bonding_curve_progress", 0)))
                         if raw.get("bondingCurveProgress") is not None or raw.get("bonding_curve_progress") is not None
                         else (float(raw.get("vSolInBondingCurve", 0)) / 85.0 if float(raw.get("vSolInBondingCurve", 0)) > 0 else 0),
-                    "buy_sell_ratio_5min": float(raw.get("buy_sell_ratio_5min", 0)),
-                    "holder_count": int(token_details.get("holder_count", raw.get("holder_count", raw.get("holders", 0)))),
+                    "buy_sell_ratio_5min": live_bsr or float(raw.get("buy_sell_ratio_5min", 0)),
+                    "holder_count": int(token_details.get("holder_count", 0)) or live_unique or int(raw.get("holder_count", raw.get("holders", 0))),
                     "top10_holder_pct": float(token_details.get("top10_holder_pct", raw.get("top10_holder_pct", 0))),
-                    "unique_buyers_30min": int(raw.get("unique_buyers_30min", 0)),
+                    "unique_buyers_30min": live_unique or int(raw.get("unique_buyers_30min", 0)),
                     "volume_acceleration_15min": float(raw.get("volume_acceleration_15min", 0)),
                     "dev_wallet_hold_pct": float(raw.get("dev_wallet_hold_pct", 0)),
                     "dev_sold_pct": float(token_details.get("dev_sold_pct", raw.get("dev_sold_pct", 0))),
