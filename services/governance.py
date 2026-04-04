@@ -372,7 +372,7 @@ async def _run_governance_classification(pool, redis_conn, session):
 
         row2 = await pool.fetchrow(
             "SELECT COALESCE(SUM(realised_pnl_sol), 0) as pnl, COUNT(*) as trades "
-            "FROM paper_trades WHERE exit_time > NOW() - INTERVAL '24 hours'"
+            "FROM paper_trades WHERE exit_time > EXTRACT(EPOCH FROM NOW()) - 86400"
         )
         if row2:
             pnl_24h = round(float(row2["pnl"]), 4)
