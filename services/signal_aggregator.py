@@ -572,31 +572,60 @@ async def _fetch_holder_data(session: aiohttp.ClientSession, mint: str) -> dict:
 
 
 async def _fetch_gecko_pool_data(session: aiohttp.ClientSession, mint: str) -> dict:
-    """Fetch pool/volume data from GeckoTerminal."""
+    """Fetch pool/volume data + token info from GeckoTerminal."""
+    result = {}
+
+    # 1. Token info (holder count, etc)
+    try:
+        info_url = f"https://api.geckoterminal.com/api/v2/networks/solana/tokens/{mint}/info"
+        async with session.get(info_url, headers={"Accept": "application/json"},
+                               timeout=aiohttp.ClientTimeout(total=8)) as resp:
+            if resp.status == 200:
+                info_data = await resp.json()
+                attrs = info_data.get("data", {}).get("attributes", {})
+                holders = int(attrs.get("holders", 0) or 0)
+                if holders > 0:
+                    result["holder_count"] = holders
+    except Exception as e:
+        logger.debug("GeckoTerminal token info error for %s: %s", mint[:12], e)
+
+    # 2. Pool data (volume, price changes, buy/sell counts)
     try:
         url = f"https://api.geckoterminal.com/api/v2/networks/solana/tokens/{mint}/pools"
         async with session.get(url, headers={"Accept": "application/json"},
                                timeout=aiohttp.ClientTimeout(total=10)) as resp:
-            if resp.status != 200:
-                return {}
-            data = await resp.json()
-            pools = data.get("data", [])
-            if not pools:
-                return {}
+            if resp.status == 200:
+                data = await resp.json()
+                pools = data.get("data", [])
+                if pools:
+                    attrs = pools[0].get("attributes", {})
+                    result["volume_24h_usd"] = float(attrs.get("volume_usd", {}).get("h24", 0) or 0)
+                    result["reserve_usd"] = float(attrs.get("reserve_in_usd", 0) or 0)
+                    result["price_change_5min_pct"] = float(attrs.get("price_change_percentage", {}).get("m5", 0) or 0)
+                    result["price_change_1h_pct"] = float(attrs.get("price_change_percentage", {}).get("h1", 0) or 0)
 
-            # Use the first (highest volume) pool
-            attrs = pools[0].get("attributes", {})
-            return {
-                "volume_24h_usd": float(attrs.get("volume_usd", {}).get("h24", 0) or 0),
-                "reserve_usd": float(attrs.get("reserve_in_usd", 0) or 0),
-                "price_change_5min_pct": float(attrs.get("price_change_percentage", {}).get("m5", 0) or 0),
-                "price_change_1h_pct": float(attrs.get("price_change_percentage", {}).get("h1", 0) or 0),
-                "trade_count_24h": int(attrs.get("transactions", {}).get("h24", {}).get("buys", 0) or 0)
-                                 + int(attrs.get("transactions", {}).get("h24", {}).get("sells", 0) or 0),
-            }
+                    # Extract buy/sell counts for ratio calculation
+                    txns_h1 = attrs.get("transactions", {}).get("h1", {})
+                    buys_h1 = int(txns_h1.get("buys", 0) or 0)
+                    sells_h1 = int(txns_h1.get("sells", 0) or 0)
+                    txns_h24 = attrs.get("transactions", {}).get("h24", {})
+                    buys_h24 = int(txns_h24.get("buys", 0) or 0)
+                    sells_h24 = int(txns_h24.get("sells", 0) or 0)
+                    result["trade_count_24h"] = buys_h24 + sells_h24
+
+                    # Buy/sell ratio from 1h data (more relevant than 24h for momentum)
+                    if sells_h1 > 0:
+                        result["gecko_buy_sell_ratio"] = round(buys_h1 / sells_h1, 2)
+                    elif buys_h1 > 0:
+                        result["gecko_buy_sell_ratio"] = float(buys_h1)
+
+                    # Volume 1h from txn data
+                    vol_h1 = float(attrs.get("volume_usd", {}).get("h1", 0) or 0)
+                    if vol_h1 > 0:
+                        result["volume_1h_usd"] = vol_h1
     except Exception as e:
         logger.debug("GeckoTerminal pool error for %s: %s", mint[:12], e)
-    return {}
+    return result
 
 
 async def _fetch_creator_history(session: aiohttp.ClientSession, mint: str, redis_conn: aioredis.Redis | None = None) -> dict:
@@ -1578,7 +1607,9 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
                     "creator_prev_tokens_count": int(token_details.get("creator_prev_tokens_count", raw.get("creator_prev_tokens_count", 0))),
                     "creator_rug_count": int(token_details.get("creator_rug_count", raw.get("creator_rug_count", 0))),
                     "creator_graduation_rate": float(token_details.get("creator_graduation_rate", raw.get("creator_graduation_rate", 0))),
-                    "token_age_seconds": float(signal.get("age_seconds", 0)),
+                    # Use actual elapsed time since signal first arrived (not raw age from signal creation)
+                    "token_age_seconds": max(float(signal.get("age_seconds", 0)),
+                                            time.time() - _seen_tokens.get(mint, {}).get("first_seen", time.time())),
                     "market_cap_usd": float(raw.get("market_cap_usd", raw.get("usdMarketCap", 0))),
                     "volume_24h_usd": float(token_details.get("volume_24h_usd", raw.get("volume_24h_usd", 0))),
                     "price_change_5min_pct": float(token_details.get("price_change_5min_pct", raw.get("price_change_5min_pct", 0))),
@@ -1634,37 +1665,64 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
                         (min(bsr, 3) / 3 * 30)
                     ))
 
-                # === NEW FEATURES — academic research top predictors ===
+                # === FEATURE ENRICHMENT — use best available data sources ===
                 bc_sol = features["liquidity_sol"]
+                age_sec = features["token_age_seconds"]
+                age_min = max(age_sec / 60, 0.1)
                 tx_count = int(raw.get("trxns", token_details.get("trade_count_24h", 0)) or 0)
+
+                # Liquidity accumulation speed (SOL per transaction — #1 predictor per research)
                 features["liquidity_accumulation_speed"] = round(bc_sol / max(tx_count, 1), 6)
-                features["buy_sell_ratio_derivative"] = float(raw.get("buy_sell_ratio_derivative", 0) or 0)
-                ub_30 = features.get("unique_buyers_30min", 0)
-                age_min = max(features.get("token_age_seconds", 60) / 60, 0.1)
-                features["unique_wallet_velocity"] = round(ub_30 / age_min, 2)
+
+                # Liquidity velocity (SOL per second — measures how fast liquidity builds)
+                features["liquidity_velocity"] = round(bc_sol / max(age_sec, 1), 6) if bc_sol > 0 else 0.0
+
+                # Buy/sell ratio — prefer PumpPortal realtime, fallback to GeckoTerminal
+                bsr = features.get("buy_sell_ratio_5min", 0)
+                if bsr == 0:
+                    gecko_bsr = token_details.get("gecko_buy_sell_ratio", 0)
+                    if gecko_bsr > 0:
+                        features["buy_sell_ratio_5min"] = gecko_bsr
+                        bsr = gecko_bsr
+
+                # Buy/sell ratio derivative (positive = increasing buying pressure)
+                features["buy_sell_ratio_derivative"] = round(bsr - 1.0, 4) if bsr > 0 else 0.0
+
+                # Unique wallet velocity (holders per minute)
+                holder_count = features.get("holder_count", 0)
+                features["unique_wallet_velocity"] = round(holder_count / age_min, 2) if holder_count > 0 else 0.0
+
+                # Volume 1h — prefer GeckoTerminal if available
+                if features.get("volume_1h_usd", 0) == 0:
+                    gt_vol_1h = token_details.get("volume_1h_usd", 0)
+                    if gt_vol_1h > 0:
+                        features["volume_1h_usd"] = gt_vol_1h
+
                 features["graduation_proximity"] = round(min(bc_sol / 85.0, 1.0), 4) if bc_sol > 0 else 0
                 features["bundle_organic_ratio"] = round(float(rugcheck.get("bundle_pct", 0) or 0) / 100.0, 4)
 
-                # === Feature coverage — fill ALL nulls with sensible defaults ===
-                features.setdefault("token_age_seconds", 0)
+                # === Feature coverage — fill nulls/missing with -1 (model-friendly "unknown") ===
+                # Use -1 for features we couldn't fetch (tells model "no data")
+                # Use actual defaults only for features where 0 is misleading
+                features.setdefault("token_age_seconds", max(1, age_sec))
                 features.setdefault("bonding_curve_progress", 0.0)
                 features.setdefault("liquidity_sol", 0.5)
                 features.setdefault("buy_sell_ratio_5min", 0)
-                features.setdefault("holder_count", 10)
-                features.setdefault("top10_holder_pct", 40)
+                features.setdefault("holder_count", 0)
+                features.setdefault("top10_holder_pct", 0)
                 features.setdefault("bundle_detected", 0)
-                features.setdefault("fresh_wallet_ratio", 0.3)
-                features.setdefault("bot_transaction_ratio", 0.3)
+                features.setdefault("fresh_wallet_ratio", 0)
+                features.setdefault("bot_transaction_ratio", 0)
                 features.setdefault("creator_prev_launches", 0)
-                features.setdefault("creator_rug_rate", 0.1)
+                features.setdefault("creator_rug_rate", 0.5)
                 features.setdefault("creator_rug_count", 0)
                 features.setdefault("mint_authority_revoked", 1)
-                features.setdefault("dev_wallet_hold_pct", 5.0)
+                features.setdefault("dev_wallet_hold_pct", 0)
                 features.setdefault("dev_sold_pct", 0)
                 features.setdefault("sol_price_usd", 84.0)
                 features.setdefault("cfgi_score", 50.0)
                 features.setdefault("nansen_sm_count", 0)
-                features.setdefault("nansen_sm_inflow_ratio", 1.0)
+                features.setdefault("nansen_sm_inflow_ratio", 0)
                 features.setdefault("nansen_concentration_risk", 0)
 
                 # Fill in market health data
