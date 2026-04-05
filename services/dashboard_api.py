@@ -2338,6 +2338,38 @@ async def api_win_rates(request):
     return web.json_response(result)
 
 
+async def api_pnl_distribution(request):
+    """P/L distribution tiers (Axiom-style)."""
+    rows = await _query_db("""
+        SELECT
+            CASE
+                WHEN realised_pnl_pct > 500 THEN '>500%%'
+                WHEN realised_pnl_pct > 200 THEN '200-500%%'
+                WHEN realised_pnl_pct > 100 THEN '100-200%%'
+                WHEN realised_pnl_pct > 50 THEN '50-100%%'
+                WHEN realised_pnl_pct > 0 THEN '0-50%%'
+                WHEN realised_pnl_pct > -25 THEN '0 to -25%%'
+                WHEN realised_pnl_pct > -50 THEN '-25 to -50%%'
+                ELSE '<-50%%'
+            END as tier,
+            COUNT(*) as count,
+            ROUND(COALESCE(SUM(realised_pnl_sol), 0)::numeric, 4) as total_pnl
+        FROM paper_trades
+        WHERE exit_time IS NOT NULL AND realised_pnl_pct IS NOT NULL
+        GROUP BY 1
+        ORDER BY MIN(realised_pnl_pct) DESC
+    """)
+    from decimal import Decimal
+    result = []
+    for r in rows:
+        result.append({
+            "tier": r.get("tier", "?"),
+            "count": int(r.get("count", 0)),
+            "total_pnl": float(r["total_pnl"]) if isinstance(r.get("total_pnl"), Decimal) else float(r.get("total_pnl", 0) or 0),
+        })
+    return web.json_response({"data": result})
+
+
 def create_app() -> web.Application:
     app = web.Application(middlewares=[ip_whitelist_middleware, auth_middleware])
 
@@ -2379,6 +2411,7 @@ def create_app() -> web.Application:
     app.router.add_post("/api/trigger-health-check", api_trigger_health_check)
     app.router.add_get("/api/signal-metrics", api_signal_metrics)
     app.router.add_get("/api/exit-analysis", api_exit_analysis)
+    app.router.add_get("/api/pnl-distribution", api_pnl_distribution)
     app.router.add_get("/api/win-rates", api_win_rates)
     app.router.add_get("/api/session-stats", api_session_stats)
     app.router.add_get("/api/signal-funnel", api_signal_funnel)

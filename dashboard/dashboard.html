@@ -396,10 +396,9 @@ tbody tr:hover { background: rgba(0, 255, 65, 0.03); }
   </div>
 
   <div class="panel">
-    <div class="panel-title">Exit Analysis</div>
-    <div class="chart-container" style="height:200px;">
-      <canvas id="exitChart"></canvas>
-    </div>
+    <div class="panel-title">&gt; P/L DISTRIBUTION</div>
+    <div id="pnlDistContainer" style="padding:4px 0;min-height:180px;"></div>
+    <div id="exitBreakdownSummary" style="margin-top:6px;font-size:11px;color:var(--green-dim);font-family:'VT323',monospace;letter-spacing:0.5px;border-top:1px solid #003B00;padding-top:4px;"></div>
   </div>
 
   <!-- ROW 4: API HEALTH + WHALE/SMART MONEY -->
@@ -602,21 +601,17 @@ const equityChart = new Chart(equityCtx, {
   }
 });
 
-const exitCtx = document.getElementById('exitChart').getContext('2d');
-const exitChart = new Chart(exitCtx, {
-  type: 'doughnut',
-  data: { labels: [], datasets: [{ data: [],
-    backgroundColor: ['#00FF41', '#008F11', '#FFB000', '#FF0000', '#003B00', '#005500', '#FF6600', '#FFFF00'],
-    borderColor: '#000', borderWidth: 2
-  }]},
-  options: {
-    responsive: true, maintainAspectRatio: false, cutout: '55%',
-    plugins: {
-      legend: { position: 'right', labels: { color: '#008F11', font: { family: "'VT323', monospace", size: 12 }, padding: 6 } },
-      tooltip: { backgroundColor: '#000', borderColor: '#003B00', borderWidth: 1, titleColor: '#008F11', bodyColor: '#00FF41' }
-    }
-  }
-});
+// P/L distribution bar chart (replaces doughnut exit chart)
+const PNL_TIER_COLORS = {
+  '>500%':       '#00FF41',
+  '200-500%':    '#00CC33',
+  '100-200%':    '#009926',
+  '50-100%':     '#006619',
+  '0-50%':       '#003B00',
+  '0 to -25%':   '#660000',
+  '-25 to -50%': '#CC0000',
+  '<-50%':       '#FF0000',
+};
 
 // ---- Data fetchers ----
 
@@ -766,12 +761,56 @@ async function fetchPersonality() {
 }
 
 async function fetchExitAnalysis() {
-  const data = await apiFetch('/api/exit-analysis');
-  if (!data || !Array.isArray(data) || data.length === 0) return;
-  const sorted = data.sort((a, b) => (b.count || 0) - (a.count || 0));
-  exitChart.data.labels = sorted.map(r => fmtExitReason(r.exit_reason));
-  exitChart.data.datasets[0].data = sorted.map(r => r.count || 0);
-  exitChart.update('none');
+  // Fetch P/L distribution bars
+  const distResp = await apiFetch('/api/pnl-distribution');
+  const container = document.getElementById('pnlDistContainer');
+  if (distResp && Array.isArray(distResp.data) && distResp.data.length > 0) {
+    const tiers = distResp.data;
+    const maxCount = Math.max(...tiers.map(t => t.count || 0), 1);
+    // Canonical order: positive first (best to worst), then negative (least to most)
+    const ORDER = ['>500%','200-500%','100-200%','50-100%','0-50%','0 to -25%','-25 to -50%','<-50%'];
+    const sorted = [...tiers].sort((a, b) => {
+      const ai = ORDER.indexOf(a.tier); const bi = ORDER.indexOf(b.tier);
+      return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+    });
+    container.innerHTML = sorted.map(t => {
+      const color = PNL_TIER_COLORS[t.tier] || '#008F11';
+      const barPct = Math.max(2, Math.round((t.count / maxCount) * 100));
+      const pnlSign = t.total_pnl >= 0 ? '+' : '';
+      return `<div style="display:flex;align-items:center;gap:4px;margin-bottom:3px;font-family:'VT323',monospace;font-size:12px;">
+        <span style="color:${color};width:82px;text-align:right;flex-shrink:0;">${t.tier}</span>
+        <div style="flex:1;background:#0a0a0a;height:12px;border:1px solid #001a00;position:relative;">
+          <div style="width:${barPct}%;height:100%;background:${color};box-shadow:0 0 4px ${color};"></div>
+        </div>
+        <span style="color:${color};width:28px;text-align:right;flex-shrink:0;">${t.count}</span>
+        <span style="color:var(--green-dim);width:58px;text-align:right;flex-shrink:0;font-size:11px;">${pnlSign}${t.total_pnl.toFixed(2)}S</span>
+      </div>`;
+    }).join('');
+  } else if (container) {
+    container.innerHTML = '<span style="color:var(--green-dim);font-family:\'VT323\',monospace;font-size:12px;">NO DATA</span>';
+  }
+
+  // Fetch exit breakdown summary line
+  const exitData = await apiFetch('/api/exit-analysis');
+  const summaryEl = document.getElementById('exitBreakdownSummary');
+  if (summaryEl && exitData && Array.isArray(exitData) && exitData.length > 0) {
+    const total = exitData.reduce((s, r) => s + (r.count || 0), 0) || 1;
+    // Group reasons into buckets
+    const buckets = { 'Trail': 0, 'No Mom.': 0, 'Stop': 0, 'TP': 0, 'Stale': 0, 'Other': 0 };
+    exitData.forEach(r => {
+      const reason = (r.exit_reason || '').toLowerCase();
+      if (reason.includes('trail') || reason.includes('peak')) buckets['Trail'] += r.count || 0;
+      else if (reason.includes('time') || reason.includes('no_move') || reason.includes('no_momentum') || reason.includes('movement')) buckets['No Mom.'] += r.count || 0;
+      else if (reason.includes('stop') && !reason.includes('emergency')) buckets['Stop'] += r.count || 0;
+      else if (reason.includes('take_profit') || reason.includes('tp')) buckets['TP'] += r.count || 0;
+      else if (reason.includes('stale') || reason.includes('emergency')) buckets['Stale'] += r.count || 0;
+      else buckets['Other'] += r.count || 0;
+    });
+    const parts = Object.entries(buckets)
+      .filter(([, v]) => v > 0)
+      .map(([k, v]) => `${k} ${Math.round((v / total) * 100)}%`);
+    summaryEl.textContent = 'Exits: ' + parts.join(' | ');
+  }
 }
 
 async function fetchAPIHealth() {
