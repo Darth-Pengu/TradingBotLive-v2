@@ -2133,7 +2133,16 @@ async def api_exit_analysis(request):
             WHERE exit_time IS NOT NULL AND exit_reason IS NOT NULL
             GROUP BY exit_reason ORDER BY count DESC"""
         )
-        return web.json_response(rows or [])
+        # Convert Decimal values to float for JSON serialization
+        result = []
+        for r in (rows or []):
+            result.append({
+                "exit_reason": r.get("exit_reason", ""),
+                "count": int(r.get("count", 0)),
+                "avg_pnl": float(r.get("avg_pnl", 0) or 0),
+                "wins": int(r.get("wins", 0) or 0),
+            })
+        return web.json_response(result)
     except Exception as e:
         return web.json_response({"error": str(e)[:100]}, status=500)
 
