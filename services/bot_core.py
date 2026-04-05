@@ -341,7 +341,10 @@ class BotCore:
         if still_zero and self.redis:
             for mint in still_zero:
                 try:
+                    # Try both key formats (legacy + new per-token subscription)
                     cached = await self.redis.get(f"token:price:{mint}")
+                    if not cached:
+                        cached = await self.redis.get(f"token:latest_price:{mint}")
                     if cached:
                         cached_price = float(cached)
                         # Convert SOL price to USD for consistency
