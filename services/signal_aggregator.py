@@ -133,14 +133,14 @@ ML_BOOTSTRAP_THRESHOLDS = {
     "analyst": int(os.getenv("ML_BOOTSTRAP_ANALYST", "45")),
     "whale_tracker": int(os.getenv("ML_BOOTSTRAP_WHALE_TRACKER", "45")),
 }
-# Aggressive paper trading mode: set AGGRESSIVE_PAPER_TRADING=true to drop
-# all ML thresholds to 1, letting every signal through for data collection.
+# Paper trading mode: use low ML floor (25) to filter pure garbage
+# but allow most signals through. ML is unreliable at high scores (80+ = 0.8% WR).
 AGGRESSIVE_PAPER = os.getenv("AGGRESSIVE_PAPER_TRADING", "false").lower() == "true"
 if AGGRESSIVE_PAPER:
-    ML_THRESHOLDS = {"speed_demon": 1, "analyst": 1, "whale_tracker": 1}
-    ML_BOOTSTRAP_THRESHOLDS = {"speed_demon": 1, "analyst": 1, "whale_tracker": 1}
+    ML_THRESHOLDS = {"speed_demon": 25, "analyst": 25, "whale_tracker": 20}
+    ML_BOOTSTRAP_THRESHOLDS = {"speed_demon": 25, "analyst": 25, "whale_tracker": 20}
     logging.getLogger("signal_aggregator").warning(
-        "AGGRESSIVE PAPER TRADING active — ML thresholds set to 1 for all personalities"
+        "PAPER TRADING: ML threshold floor=25 (reject <25 garbage, accept rest)"
     )
 else:
     logging.getLogger("signal_aggregator").info(
@@ -1926,6 +1926,17 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
                     # Store multiplier for position sizing downstream
                     signal["rugcheck_multiplier"] = rc_multiplier
                     signal["rugcheck_risk_level"] = risk_level
+
+                    # CHANGE 5: Block high rugcheck risk entirely (2.6% WR vs 3.5-3.9%)
+                    if risk_level == "high":
+                        logger.info("RUGCHECK_BLOCK: %s high risk — rejected", mint[:12])
+                        continue
+
+                    # CHANGE 3: Liquidity velocity gate (winners avg 11.09, losers avg 3.45)
+                    liq_vel = features.get("liquidity_velocity", 0)
+                    if liq_vel < 5.0 and personality != "whale_tracker":
+                        logger.info("LIQ_REJECT: %s liquidity_velocity=%.1f < 5.0", mint[:12], liq_vel)
+                        continue
 
                     # Hard filters (personality-specific, no longer includes rugcheck)
                     passed, reason = _apply_hard_filters(personality, signal, rugcheck)
