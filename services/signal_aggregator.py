@@ -1769,6 +1769,25 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
                 logger.info("ML SCORE %s: %.1f (trained=%s) targets=%s age=%ds",
                            mint[:12], ml_score, ml_trained, targets, age_sec)
 
+                # Store evaluation result in Redis for dashboard signals panel
+                try:
+                    eval_result = "ML_SCORED"
+                    if ml_score < 40:
+                        eval_result = "ML REJECT"
+                    eval_entry = json.dumps({
+                        "mint": mint,
+                        "token": signal.get("raw_data", {}).get("name", signal.get("raw_data", {}).get("symbol", "")),
+                        "platform": signal.get("platform", signal.get("source", "")),
+                        "ml_score": round(ml_score, 1),
+                        "bc_progress": round(features.get("bonding_curve_progress", 0), 3),
+                        "result": eval_result,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    })
+                    await redis_conn.lpush("signals:evaluated", eval_entry)
+                    await redis_conn.ltrim("signals:evaluated", 0, 49)
+                except Exception:
+                    pass
+
                 # Haiku enrichment — lazy, fetched once per signal only after a personality
                 # passes hard filters + ML gate. Reused for subsequent personalities.
                 haiku_result = {}
@@ -1965,6 +1984,18 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
                                 mint[:12], personality, ml_score, confidence, market_mode)
                     try:
                         await redis_conn.hincrby("filter:stats:today", "passed_filters", 1)
+                        # Update signals:evaluated — mark as TRADED
+                        traded_entry = json.dumps({
+                            "mint": mint,
+                            "token": signal.get("raw_data", {}).get("name", signal.get("raw_data", {}).get("symbol", "")),
+                            "platform": signal.get("platform", signal.get("source", "")),
+                            "ml_score": round(ml_score, 1),
+                            "bc_progress": round(features.get("bonding_curve_progress", 0), 3),
+                            "result": f"TRADED \u2713 ({personality})",
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        })
+                        await redis_conn.lpush("signals:evaluated", traded_entry)
+                        await redis_conn.ltrim("signals:evaluated", 0, 49)
                     except Exception:
                         pass
 
