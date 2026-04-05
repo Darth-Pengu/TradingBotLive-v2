@@ -277,89 +277,141 @@ class BotCore:
         return prices.get(mint, 0.0)
 
     async def _get_token_prices_batch(self, mints: list[str]) -> dict[str, float]:
-        """Batch-fetch token prices. Jupiter primary (with auth), Binance fallback for SOL."""
+        """Batch-fetch token prices. Redis FIRST (instant), then API for uncached."""
         if not mints:
             return {}
         result = {m: 0.0 for m in mints}
-        # Primary: Jupiter V3
-        try:
-            ids = ",".join(set(mints))
-            headers = {"x-api-key": JUPITER_API_KEY} if JUPITER_API_KEY else {}
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    "https://api.jup.ag/price/v3",
-                    params={"ids": ids},
-                    headers=headers,
-                    timeout=aiohttp.ClientTimeout(total=10),
-                ) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        for mint in mints:
-                            p = data.get("data", {}).get(mint, {}).get("usdPrice") or data.get("data", {}).get(mint, {}).get("price")
-                            result[mint] = float(p) if p else 0.0
-                        return result
-        except Exception:
-            pass
-        # Fallback: Binance for SOL (no auth needed)
         sol_mint = "So11111111111111111111111111111111111111112"
-        if sol_mint in result:
+
+        # STEP 0: Get SOL/USD price (needed to convert Redis SOL prices to USD)
+        sol_usd = 0.0
+        if self.redis:
+            try:
+                cached_sol = await self.redis.get("market:sol_price")
+                if cached_sol:
+                    sol_usd = float(cached_sol)
+            except Exception:
+                pass
+
+        # STEP 1: Redis cached prices FIRST (from PumpPortal trade stream — instant)
+        redis_hits = {}
+        if self.redis:
+            for mint in mints:
+                if mint == sol_mint:
+                    continue
+                try:
+                    cached = await self.redis.get(f"token:latest_price:{mint}")
+                    if not cached:
+                        cached = await self.redis.get(f"token:price:{mint}")
+                    if cached:
+                        redis_hits[mint] = float(cached)
+                except Exception:
+                    pass
+
+        # STEP 2: Bonding curve reserves from Redis (fallback for tokens with no trades)
+        bc_hits = {}
+        if self.redis:
+            still_need = [m for m in mints if m not in redis_hits and m != sol_mint]
+            for mint in still_need:
+                try:
+                    reserves = await self.redis.hgetall(f"token:reserves:{mint}")
+                    if reserves:
+                        v_sol = float(reserves.get(b"vSol", 0) or reserves.get("vSol", 0))
+                        v_tokens = float(reserves.get(b"vTokens", 0) or reserves.get("vTokens", 0))
+                        if v_sol > 0 and v_tokens > 0:
+                            bc_hits[mint] = v_sol / v_tokens  # SOL per token
+                except Exception:
+                    pass
+
+        # STEP 3: Jupiter for mints NOT in Redis cache + SOL price refresh
+        mints_needing_api = [m for m in mints if m not in redis_hits and m not in bc_hits and m != sol_mint]
+        if sol_usd <= 0:
+            mints_needing_api.append(sol_mint)
+
+        if mints_needing_api:
+            try:
+                ids = ",".join(set(mints_needing_api))
+                headers = {"x-api-key": JUPITER_API_KEY} if JUPITER_API_KEY else {}
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(
+                        "https://api.jup.ag/price/v3",
+                        params={"ids": ids},
+                        headers=headers,
+                        timeout=aiohttp.ClientTimeout(total=5),
+                    ) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            for m in mints_needing_api:
+                                p = (data.get("data", {}).get(m, {}).get("usdPrice") or
+                                     data.get("data", {}).get(m, {}).get("price"))
+                                if p:
+                                    result[m] = float(p)
+                            sol_p = (data.get("data", {}).get(sol_mint, {}).get("usdPrice") or
+                                     data.get("data", {}).get(sol_mint, {}).get("price"))
+                            if sol_p:
+                                sol_usd = float(sol_p)
+            except Exception:
+                pass
+
+        # SOL price fallback: Binance
+        if sol_usd <= 0:
             try:
                 async with aiohttp.ClientSession() as session:
                     async with session.get(
                         "https://api.binance.com/api/v3/ticker/price",
                         params={"symbol": "SOLUSDT"},
-                        timeout=aiohttp.ClientTimeout(total=10),
+                        timeout=aiohttp.ClientTimeout(total=3),
                     ) as resp:
                         if resp.status == 200:
                             data = await resp.json()
-                            result[sol_mint] = float(data.get("price", 0))
+                            sol_usd = float(data.get("price", 0))
             except Exception:
                 pass
-        # GeckoTerminal fallback for non-SOL mints still at 0.0
-        zero_mints = [m for m in mints if result.get(m, 0.0) == 0.0
-                      and m != "So11111111111111111111111111111111111111112"]
-        if zero_mints:
-            for mint in zero_mints[:5]:  # cap at 5 to avoid rate limiting
-                try:
-                    async with aiohttp.ClientSession() as session:
-                        async with session.get(
-                            f"https://api.geckoterminal.com/api/v2/networks/solana/tokens/{mint}",
-                            headers={"Accept": "application/json"},
-                            timeout=aiohttp.ClientTimeout(total=8),
-                        ) as resp:
-                            if resp.status == 200:
-                                data = await resp.json()
-                                price_str = data.get("data", {}).get("attributes", {}).get("price_usd")
-                                if price_str:
-                                    result[mint] = float(price_str)
-                except Exception:
-                    pass
+        if sol_usd <= 0:
+            sol_usd = 80.0  # last resort fallback
 
-        # Redis cached price fallback (from PumpPortal trade stream via signal_listener)
-        still_zero = [m for m in mints if result.get(m, 0.0) == 0.0
-                      and m != "So11111111111111111111111111111111111111112"]
-        if still_zero and self.redis:
-            for mint in still_zero:
-                try:
-                    # Try both key formats (legacy + new per-token subscription)
-                    cached = await self.redis.get(f"token:price:{mint}")
-                    if not cached:
-                        cached = await self.redis.get(f"token:latest_price:{mint}")
-                    if cached:
-                        cached_price = float(cached)
-                        # Convert SOL price to USD for consistency
-                        sol_price = result.get("So11111111111111111111111111111111111111112", 0)
-                        if sol_price > 0:
-                            result[mint] = cached_price * sol_price
-                        else:
-                            result[mint] = cached_price * 80.0  # fallback SOL price
-                        logger.debug("Using Redis cached price for %s: %.10f", mint[:12], result[mint])
-                except Exception:
-                    pass
+        # Cache SOL price for other services
+        if self.redis and sol_usd > 0:
+            try:
+                await self.redis.set("market:sol_price", str(sol_usd), ex=60)
+            except Exception:
+                pass
 
-        # Track price fetch failures in Redis
-        failed = [m for m in mints if result.get(m, 0.0) == 0.0
-                  and m != "So11111111111111111111111111111111111111112"]
+        # STEP 4: Convert Redis SOL prices to USD and apply to result
+        for mint, sol_price_per_token in redis_hits.items():
+            if result[mint] <= 0:
+                result[mint] = sol_price_per_token * sol_usd
+                logger.debug("EXIT_PRICE: %s via Redis cache %.10f SOL × $%.2f = $%.10f",
+                            mint[:12], sol_price_per_token, sol_usd, result[mint])
+
+        # STEP 4b: Convert bonding curve SOL prices to USD
+        for mint, sol_price_per_token in bc_hits.items():
+            if result[mint] <= 0:
+                result[mint] = sol_price_per_token * sol_usd
+                logger.debug("EXIT_PRICE: %s via bonding curve %.10f SOL × $%.2f = $%.10f",
+                            mint[:12], sol_price_per_token, sol_usd, result[mint])
+
+        # STEP 5: GeckoTerminal ONLY for mints still at 0 (max 2, short timeout)
+        zero_mints = [m for m in mints if result.get(m, 0) <= 0 and m != sol_mint]
+        for mint in zero_mints[:2]:
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(
+                        f"https://api.geckoterminal.com/api/v2/networks/solana/tokens/{mint}",
+                        headers={"Accept": "application/json"},
+                        timeout=aiohttp.ClientTimeout(total=3),
+                    ) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            ps = data.get("data", {}).get("attributes", {}).get("price_usd")
+                            if ps:
+                                result[mint] = float(ps)
+                                logger.debug("EXIT_PRICE: %s via GeckoTerminal $%.10f", mint[:12], result[mint])
+            except Exception:
+                pass
+
+        # Track failures
+        failed = [m for m in mints if result.get(m, 0) <= 0 and m != sol_mint]
         if failed and self.redis:
             date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
             try:
@@ -368,7 +420,7 @@ class BotCore:
             except Exception:
                 pass
             for m in failed:
-                logger.warning("SKIP_NO_PRICE: %s — no price source available", m[:12])
+                logger.warning("NO_EXIT_PRICE: %s — all sources failed (Redis/BC/Jupiter/Gecko)", m[:12])
 
         return result
 
@@ -1045,6 +1097,14 @@ class BotCore:
                     elapsed_min = (time.time() - pos.entry_time) / 60
                     elapsed_hrs = elapsed_min / 60
 
+                    # EXIT_EVAL: Log every position check for debugging
+                    if current_price > 0 and entry > 0:
+                        multiple = current_price / entry
+                        pnl_pct = (multiple - 1) * 100
+                        logger.info("EXIT_EVAL: %s %s price=$%.8f entry=$%.8f %.2fx (%+.1f%%) held=%.1fm",
+                                    pos.personality, pos.mint[:12], current_price, entry,
+                                    multiple, pnl_pct, elapsed_min)
+
                     # Log when price is missing — critical for diagnosing missed exits
                     if current_price <= 0 and elapsed_min > 1:
                         logger.warning("NO_PRICE: %s %s — held %.1fm, price=0 (exits disabled)",
@@ -1053,10 +1113,18 @@ class BotCore:
                         # Dead tokens with no trading activity are pure loss
                         stale_threshold = 5.0 if pos.personality == "speed_demon" else 10.0
                         if elapsed_min >= stale_threshold:
-                            logger.info("STALE_EXIT: %s %s — no price for %.1fm, force closing",
-                                       pos.personality, pos.mint[:12], elapsed_min)
-                            await self._close_position(pos, "stale_no_price")
-                            continue
+                            # One last try before giving up
+                            last_try = await self._get_token_price(pos.mint)
+                            if last_try > 0:
+                                current_price = last_try
+                                logger.info("STALE_RECOVERY: %s got price $%.8f on final try",
+                                           pos.mint[:12], last_try)
+                                # Fall through to normal exit logic below
+                            else:
+                                logger.info("STALE_EXIT: %s %s — no price for %.1fm, force closing",
+                                           pos.personality, pos.mint[:12], elapsed_min)
+                                await self._close_position(pos, "stale_no_price")
+                                continue
 
                     # Update peak_price and persist to DB for staged exit tracking
                     if current_price > 0 and current_price > pos.peak_price:
@@ -1176,7 +1244,7 @@ class BotCore:
                 if triggered:
                     await self.emergency_stop("Risk limits breached")
 
-            await asyncio.sleep(10)  # Check every 10 seconds
+            await asyncio.sleep(2)  # Check every 2 seconds (Redis-first pricing is instant)
 
     # --- Signal consumer ---
     async def _consume_signals(self):
@@ -1520,6 +1588,23 @@ async def main():
                     pass
         if subscribed_mints:
             logger.info("Auto-subscribed to %d token trade streams for open positions", len(subscribed_mints))
+
+    # Load whale wallets from PostgreSQL into Redis cache
+    if bot.redis and bot.pool:
+        try:
+            rows = await bot.pool.fetch(
+                "SELECT address FROM watched_wallets WHERE is_active = TRUE"
+            )
+            if rows:
+                await bot.redis.delete("whale:watched_wallets")
+                addresses = [r["address"] for r in rows]
+                for addr in addresses:
+                    await bot.redis.sadd("whale:watched_wallets", addr)
+                logger.info("Loaded %d whale wallets into Redis cache", len(addresses))
+            else:
+                logger.warning("No active whale wallets in PostgreSQL")
+        except Exception as e:
+            logger.warning("Whale wallet Redis cache load failed: %s", e)
 
     logger.info("Bot Core ready — managing 3 personalities")
 
