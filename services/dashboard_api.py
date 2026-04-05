@@ -1942,6 +1942,186 @@ async def api_signal_metrics(request):
     return web.json_response(result)
 
 
+async def api_session_stats(request):
+    """Today's trading session stats (last 24h)."""
+    result = {
+        "session_pnl": 0, "trades_today": 0, "wins_today": 0,
+        "win_rate_today": 0, "best_trade": 0, "worst_trade": 0,
+        "open_positions": 0,
+    }
+    try:
+        rows = await _query_db(
+            """SELECT COUNT(*) as trades,
+                COUNT(CASE WHEN realised_pnl_sol > 0 THEN 1 END) as wins,
+                COALESCE(SUM(realised_pnl_sol), 0) as pnl,
+                COALESCE(MAX(realised_pnl_sol), 0) as best,
+                COALESCE(MIN(realised_pnl_sol), 0) as worst
+            FROM paper_trades WHERE exit_time IS NOT NULL
+            AND exit_time > EXTRACT(EPOCH FROM NOW() - INTERVAL '24 hours')""")
+        if rows and rows[0]["trades"]:
+            r = rows[0]
+            result["trades_today"] = r["trades"]
+            result["wins_today"] = r["wins"] or 0
+            result["session_pnl"] = round(float(r["pnl"] or 0), 4)
+            result["best_trade"] = round(float(r["best"] or 0), 4)
+            result["worst_trade"] = round(float(r["worst"] or 0), 4)
+            result["win_rate_today"] = round((r["wins"] or 0) / r["trades"] * 100, 1) if r["trades"] > 0 else 0
+        open_rows = await _query_db("SELECT COUNT(*) as c FROM paper_trades WHERE exit_time IS NULL")
+        if open_rows:
+            result["open_positions"] = int(open_rows[0].get("c", 0))
+    except Exception as e:
+        logger.warning("api_session_stats error: %s", e)
+    return web.json_response(result)
+
+
+async def api_signal_funnel(request):
+    """Signal pipeline funnel counts from Redis filter stats."""
+    result = {
+        "signals_received": 0, "passed_filters": 0,
+        "ml_scored_50plus": 0, "trades_entered": 0, "wins": 0,
+    }
+    redis_conn = request.app.get("redis")
+    if redis_conn:
+        try:
+            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            stats = await redis_conn.hgetall(f"filter:stats:{today}")
+            if stats:
+                result["signals_received"] = int(stats.get("received", stats.get("total_received", 0)))
+                result["passed_filters"] = int(stats.get("passed_filters", stats.get("passed", 0)))
+                result["ml_scored_50plus"] = int(stats.get("ml_scored_50plus", stats.get("ml_passed", 0)))
+                result["trades_entered"] = int(stats.get("trades_entered", stats.get("traded", 0)))
+        except Exception:
+            pass
+    # Also get all-time from DB
+    try:
+        total_rows = await _query_db(
+            "SELECT COUNT(*) as t, COUNT(CASE WHEN realised_pnl_sol > 0 THEN 1 END) as w FROM paper_trades WHERE exit_time IS NOT NULL")
+        if total_rows:
+            if result["trades_entered"] == 0:
+                result["trades_entered"] = int(total_rows[0].get("t", 0))
+            result["wins"] = int(total_rows[0].get("w", 0))
+    except Exception:
+        pass
+    return web.json_response(result)
+
+
+async def api_signals_evaluated(request):
+    """Last 10 evaluated signals from Redis."""
+    result = []
+    redis_conn = request.app.get("redis")
+    if redis_conn:
+        try:
+            items = await redis_conn.lrange("signals:evaluated", 0, 9)
+            for raw in items:
+                try:
+                    sig = json.loads(raw)
+                    result.append({
+                        "time": sig.get("timestamp", sig.get("time", "")),
+                        "token": sig.get("symbol", sig.get("token", "")),
+                        "mint": (sig.get("mint", ""))[:12],
+                        "platform": sig.get("platform", sig.get("source", "")),
+                        "ml_score": sig.get("ml_score", 0),
+                        "bc_progress": sig.get("bc_progress", sig.get("bc", 0)),
+                        "result": sig.get("result", sig.get("outcome", "unknown")),
+                    })
+                except Exception:
+                    continue
+        except Exception:
+            pass
+    return web.json_response(result)
+
+
+async def api_portfolio_history_daily(request):
+    """Daily cumulative PnL for equity curve — one point per day."""
+    result = []
+    try:
+        rows = await _query_db(
+            """SELECT DATE(to_timestamp(exit_time) AT TIME ZONE 'Australia/Sydney') as date,
+                SUM(SUM(realised_pnl_sol)) OVER (ORDER BY DATE(to_timestamp(exit_time) AT TIME ZONE 'Australia/Sydney')) as cumulative_pnl,
+                COUNT(*) as trades,
+                COUNT(CASE WHEN realised_pnl_sol > 0 THEN 1 END) as wins
+            FROM paper_trades WHERE exit_time IS NOT NULL AND realised_pnl_sol IS NOT NULL
+            GROUP BY DATE(to_timestamp(exit_time) AT TIME ZONE 'Australia/Sydney')
+            ORDER BY date""")
+        for r in rows:
+            result.append({
+                "date": str(r["date"]),
+                "cumulative_pnl": round(float(r["cumulative_pnl"] or 0), 4),
+                "trades": int(r["trades"]),
+                "wins": int(r["wins"] or 0),
+            })
+    except Exception as e:
+        logger.warning("api_portfolio_history_daily error: %s", e)
+    return web.json_response(result)
+
+
+async def api_consolidated_health(request):
+    """Consolidated API health with credit info — only relevant services."""
+    result = []
+    redis_conn = request.app.get("redis")
+    # Define the APIs we care about
+    apis = [
+        {"name": "PumpPortal", "key": "pumpportal", "credits": "Free", "budget": None},
+        {"name": "Jupiter", "key": "jupiter", "credits": "Free (w/ key)", "budget": None},
+        {"name": "GeckoTerminal", "key": "gecko", "credits": "Free", "budget": None},
+        {"name": "RugCheck", "key": "rugcheck", "credits": "Free", "budget": None},
+        {"name": "Vybe", "key": "vybe", "credits": None, "budget": None},
+        {"name": "Nansen", "key": "nansen", "credits": None, "budget": None},
+        {"name": "Anthropic", "key": "anthropic", "credits": None, "budget": None},
+        {"name": "SocialData", "key": "socialdata", "credits": None, "budget": None},
+        {"name": "Helius", "key": "helius_rpc", "credits": None, "budget": None},
+        {"name": "Discord", "key": "discord_webhook", "credits": "Free", "budget": None},
+    ]
+    # Get cached service health
+    cached_health = {}
+    if redis_conn:
+        try:
+            raw = await redis_conn.get("service:health")
+            if raw:
+                cached_health = json.loads(raw)
+        except Exception:
+            pass
+
+    # Check Nansen disabled state
+    nansen_disabled = False
+    if redis_conn:
+        try:
+            nansen_disabled = bool(await redis_conn.get("nansen:disabled"))
+        except Exception:
+            pass
+
+    for api in apis:
+        svc = cached_health.get(api["key"], {})
+        status_raw = svc.get("status", "unknown")
+        # Map status
+        if status_raw in ("ok", "live", "healthy"):
+            status = "ONLINE"
+        elif status_raw == "warn":
+            status = "IDLE"
+        elif status_raw == "down":
+            status = "DEAD"
+        else:
+            status = "UNKNOWN"
+        # Special overrides
+        if api["key"] == "nansen" and nansen_disabled:
+            status = "PAUSED"
+        if api["key"] == "helius_rpc":
+            helius_budget = os.getenv("HELIUS_DAILY_BUDGET", "0")
+            if helius_budget == "0":
+                status = "PAUSED"
+                api["credits"] = "Budget=0"
+        if api["key"] == "anthropic" and not os.getenv("ANTHROPIC_API_KEY"):
+            status = "DEAD"
+            api["credits"] = "$0 remaining"
+        result.append({
+            "name": api["name"],
+            "status": status,
+            "credits": api.get("credits", svc.get("detail", "--")),
+            "latency_ms": svc.get("latency_ms"),
+        })
+    return web.json_response(result)
+
+
 async def api_exit_analysis(request):
     """Exit reason breakdown with counts and avg PnL."""
     try:
@@ -2019,6 +2199,11 @@ def create_app() -> web.Application:
     app.router.add_get("/api/signal-metrics", api_signal_metrics)
     app.router.add_get("/api/exit-analysis", api_exit_analysis)
     app.router.add_get("/api/win-rates", api_win_rates)
+    app.router.add_get("/api/session-stats", api_session_stats)
+    app.router.add_get("/api/signal-funnel", api_signal_funnel)
+    app.router.add_get("/api/signals", api_signals_evaluated)
+    app.router.add_get("/api/portfolio-history-daily", api_portfolio_history_daily)
+    app.router.add_get("/api/api-health", api_consolidated_health)
     app.router.add_get("/ws", ws_handler)
     app.router.add_get("/dashboard/{filename}", handle_static)
 
