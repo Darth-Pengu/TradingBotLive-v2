@@ -290,6 +290,51 @@ async def _register_helius_webhook(redis_conn: aioredis.Redis | None):
         logger.warning("Helius webhook registration error: %s", e)
 
 
+# Track per-token subscriptions for exit pricing
+_subscribed_tokens: set[str] = set()
+_pumpportal_ws_ref: list = [None]  # Module-level shared WS reference
+
+
+async def _token_subscribe_listener(redis_conn: aioredis.Redis | None, ws_ref: list = _pumpportal_ws_ref):
+    """Listen on Redis pubsub for token:subscribe messages from bot_core.
+    Dynamically subscribe/unsubscribe PumpPortal token trade streams."""
+    if not redis_conn:
+        return
+    pubsub = redis_conn.pubsub()
+    await pubsub.subscribe("token:subscribe")
+    logger.info("Token subscribe listener started — waiting for bot_core messages")
+    async for message in pubsub.listen():
+        if message["type"] != "message":
+            continue
+        try:
+            data = json.loads(message["data"])
+            mint = data.get("mint", "")
+            action = data.get("action", "")
+            if not mint:
+                continue
+
+            ws = ws_ref[0] if ws_ref else None
+            if not ws:
+                logger.debug("TOKEN_SUB: no active WS connection for %s %s", action, mint[:12])
+                continue
+
+            if action == "subscribe" and mint not in _subscribed_tokens:
+                await ws.send(json.dumps({"method": "subscribeTokenTrade", "keys": [mint]}))
+                _subscribed_tokens.add(mint)
+                # Cache price key with placeholder so exit checker knows we're tracking
+                if redis_conn:
+                    await redis_conn.set(f"token:subscribed:{mint}", "1", ex=7200)
+                logger.info("PRICE_TRACK: subscribed to trades for %s", mint[:12])
+            elif action == "unsubscribe" and mint in _subscribed_tokens:
+                await ws.send(json.dumps({"method": "unsubscribeTokenTrade", "keys": [mint]}))
+                _subscribed_tokens.discard(mint)
+                if redis_conn:
+                    await redis_conn.delete(f"token:subscribed:{mint}")
+                logger.info("PRICE_TRACK: unsubscribed from %s", mint[:12])
+        except Exception as e:
+            logger.debug("Token subscribe listener error: %s", e)
+
+
 async def pumpportal_listener(redis_conn: aioredis.Redis | None):
     backoff = BACKOFF_BASE
     while True:
@@ -297,6 +342,7 @@ async def pumpportal_listener(redis_conn: aioredis.Redis | None):
             logger.info("Connecting to PumpPortal WebSocket...")
             async with websockets.connect(PUMPPORTAL_WS_URL, ping_interval=20, ping_timeout=10) as ws:
                 backoff = BACKOFF_BASE  # reset on successful connect
+                _pumpportal_ws_ref[0] = ws  # Share WS ref with token subscribe listener
 
                 # Subscribe to new tokens
                 await ws.send(json.dumps({"method": "subscribeNewToken"}))
@@ -315,9 +361,10 @@ async def pumpportal_listener(redis_conn: aioredis.Redis | None):
                     }))
                     logger.info("Subscribed: subscribeAccountTrade for %d wallets", len(whale_wallets))
 
-                # Subscribe to token trades (for real-time price/volume on held tokens)
-                await ws.send(json.dumps({"method": "subscribeTokenTrade"}))
-                logger.info("Subscribed: subscribeTokenTrade")
+                # Re-subscribe to any previously tracked tokens (after reconnect)
+                if _subscribed_tokens:
+                    await ws.send(json.dumps({"method": "subscribeTokenTrade", "keys": list(_subscribed_tokens)}))
+                    logger.info("Re-subscribed: subscribeTokenTrade for %d held tokens", len(_subscribed_tokens))
 
                 async for raw_msg in ws:
                     try:
@@ -350,6 +397,8 @@ async def pumpportal_listener(redis_conn: aioredis.Redis | None):
                                 if sol_amount > 0 and token_amount > 0:
                                     trade_price = sol_amount / token_amount
                                     await redis_conn.set(f"token:price:{mint}", str(trade_price), ex=300)
+                                    # Also set token:latest_price for exit checker + dashboard
+                                    await redis_conn.set(f"token:latest_price:{mint}", str(trade_price), ex=300)
 
                                 # Publish trade stats to Redis for aggregator feature extraction
                                 entry = _trade_tracker.get(mint, {})
@@ -1047,6 +1096,7 @@ async def main():
 
     await asyncio.gather(
         pumpportal_listener(redis_conn),
+        _token_subscribe_listener(redis_conn),
         gecko_poller(redis_conn),
         gecko_trending_poller(redis_conn),
         dexpaprika_listener(redis_conn),
