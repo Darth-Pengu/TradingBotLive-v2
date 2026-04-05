@@ -86,8 +86,8 @@ EXIT_STRATEGIES = {
             {"at_multiple": 2.5, "sell_pct": 0.25},
             {"at_multiple": 4.0, "sell_pct": 0.20},   # NEW 4x stage
         ],
-        "time_exit_minutes": 45,
-        "max_hold_hours": 3,
+        "time_exit_minutes": 30,     # Was 45 — holding >30m has 0.6% WR
+        "max_hold_hours": 1,
         "stop_loss_pct": 0.25,
     },
     "whale_tracker": {
@@ -621,6 +621,25 @@ class BotCore:
             return
 
         # Enforce min/max limits only if risk manager approved
+        size_sol = max(0.15, min(size_sol, 1.50))
+
+        # CHANGE 4: Time-of-day sizing (AEDT — Sydney)
+        from datetime import timedelta as _td
+        aedt_hour = datetime.now(timezone(_td(hours=11))).hour
+        if aedt_hour in (7, 8, 9, 21):
+            size_sol *= 1.25
+            logger.info("TIME_BOOST: hour=%d AEDT — 1.25x sizing", aedt_hour)
+        elif aedt_hour in (2, 3, 4, 5, 11, 12):
+            size_sol *= 0.50
+            logger.info("TIME_REDUCE: hour=%d AEDT — 0.5x sizing", aedt_hour)
+
+        # CHANGE 6: Weekend sizing boost (50% of big winners on weekends)
+        aedt_weekday = datetime.now(timezone(_td(hours=11))).weekday()
+        if aedt_weekday >= 5:  # Saturday=5, Sunday=6
+            size_sol *= 1.25
+            logger.info("WEEKEND_BOOST: day=%d — 1.25x sizing", aedt_weekday)
+
+        # Re-enforce limits after multipliers
         size_sol = max(0.15, min(size_sol, 1.50))
 
         logger.info(
