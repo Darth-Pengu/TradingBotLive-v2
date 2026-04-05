@@ -71,6 +71,57 @@ Currently TEST_MODE=true (paper trading). Balance: ~16.42 SOL.
 - MAX_WALLET_EXPOSURE is 0.25 (25%)
 - Run python -m py_compile services/<file>.py before committing
 
+## Data persistence rules — NEVER VIOLATE
+
+PostgreSQL is the ONLY permanent storage. Redis is a CACHE.
+Railway Redis CAN be wiped on restart. PostgreSQL survives everything.
+
+RULE: If data needs to survive a service restart, it goes in PostgreSQL FIRST.
+Redis is only a fast-access cache that gets reloaded from PostgreSQL on startup.
+
+| Data Type | PostgreSQL (permanent) | Redis (cache) |
+|---|---|---|
+| Trade records | paper_trades / trades table | paper:positions:{mint} (temporary) |
+| Portfolio balance | portfolio_snapshots table | bot:portfolio:balance |
+| ML model metadata | bot_state key='ml_model_meta' | ml:model:meta (hash) |
+| Winner analysis | bot_state key='winner_analysis' | ml:winner_analysis |
+| Whale wallets | watched_wallets table | whale:watched_wallets (set) |
+| Whale patterns | bot_state key='whale_patterns' | whale:pattern_analysis |
+| Governance decisions | bot_state key='governance_latest' | governance:latest_decision |
+| Signal evaluations | Logged to signals table if needed | signals:evaluated (list, last 50) |
+| Consecutive losses | bot_state key='consecutive_losses' | bot:consecutive_losses |
+| Emergency stop | bot_state key='emergency_stop' | bot:emergency_stop |
+
+PATTERN — every time you store analytical/state data:
+```python
+# 1. PostgreSQL FIRST (permanent)
+await pool.execute(
+    "INSERT INTO bot_state (key, value_text, updated_at) VALUES ($1, $2, NOW()) ON CONFLICT (key) DO UPDATE SET value_text=$2, updated_at=NOW()",
+    key_name, json.dumps(data)
+)
+# 2. Redis SECOND (cache for fast reads)
+await redis.set(f"cache:{key_name}", json.dumps(data), ex=86400)
+```
+
+PATTERN — every time you read analytical/state data:
+```python
+# 1. Try Redis first (fast)
+cached = await redis.get(f"cache:{key_name}")
+if cached:
+    return json.loads(cached)
+# 2. Fall back to PostgreSQL (permanent)
+row = await pool.fetchval("SELECT value_text FROM bot_state WHERE key=$1", key_name)
+if row:
+    # Repopulate Redis cache
+    await redis.set(f"cache:{key_name}", row, ex=86400)
+    return json.loads(row)
+return None
+```
+
+NEVER store important data in Redis only. NEVER assume Redis survives restarts.
+Token prices and trade stats are OK in Redis-only (they're ephemeral by nature).
+Everything else: PostgreSQL first, Redis cache second.
+
 ## Architecture
 - All services in services/ — no monolithic files
 - Services communicate only via Redis
