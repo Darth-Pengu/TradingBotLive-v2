@@ -72,16 +72,19 @@ if TEST_MODE:
 EXIT_STRATEGIES = {
     "speed_demon": {
         "staged_exits": [
-            {"at_multiple": 2.0, "sell_pct": 0.40},
-            {"at_multiple": 3.0, "sell_pct": 0.30},
+            {"at_multiple": 2.0, "sell_pct": 0.25},   # +100% → sell 25% (was 40%)
+            {"at_multiple": 3.0, "sell_pct": 0.20},   # +200% → sell 20% (was 30%)
+            {"at_multiple": 5.0, "sell_pct": 0.20},   # +400% → sell 20% (NEW)
+            # Remaining 35% rides with trailing stop
         ],
-        "time_exit_minutes": 10,
-        "stop_loss_pct": 0.40,
+        "time_exit_minutes": 15,     # Was 10 — give winners more time
+        "stop_loss_pct": 0.35,
     },
     "analyst": {
         "staged_exits": [
-            {"at_multiple": 1.5, "sell_pct": 0.30},
-            {"at_multiple": 2.5, "sell_pct": 0.30},
+            {"at_multiple": 1.5, "sell_pct": 0.25},
+            {"at_multiple": 2.5, "sell_pct": 0.25},
+            {"at_multiple": 4.0, "sell_pct": 0.20},   # NEW 4x stage
         ],
         "time_exit_minutes": 45,
         "max_hold_hours": 3,
@@ -89,10 +92,12 @@ EXIT_STRATEGIES = {
     },
     "whale_tracker": {
         "staged_exits": [
-            {"at_multiple": 2.0, "sell_pct": 0.30},
-            {"at_multiple": 5.0, "sell_pct": 0.40},
+            {"at_multiple": 2.0, "sell_pct": 0.20},
+            {"at_multiple": 3.0, "sell_pct": 0.20},
+            {"at_multiple": 5.0, "sell_pct": 0.20},
+            {"at_multiple": 10.0, "sell_pct": 0.20},  # NEW 10x moonshot stage
         ],
-        "max_hold_hours": 6,
+        "max_hold_hours": 24,        # 24h for whale/telegram conviction
         "stop_loss_pct": 0.30,
     },
 }
@@ -616,7 +621,7 @@ class BotCore:
             return
 
         # Enforce min/max limits only if risk manager approved
-        size_sol = max(0.08, min(size_sol, 0.75))
+        size_sol = max(0.15, min(size_sol, 1.50))
 
         logger.info(
             "POSITION SIZE: %s base=%.2f conf_mult=%.2f rc_mult=%.2f "
