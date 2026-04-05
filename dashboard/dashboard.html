@@ -459,7 +459,7 @@ tbody tr:hover { background: rgba(0, 255, 65, 0.03); }
     <div style="overflow-x:auto;">
       <table>
         <thead>
-          <tr><th>Time</th><th>Token</th><th>Mint</th><th>Personality</th><th>Entry</th><th>Exit</th><th>P/L SOL</th><th>P/L %</th><th>Hold</th><th>Exit Reason</th></tr>
+          <tr><th>Time</th><th>Token</th><th>Mint</th><th>Personality</th><th>Entry Mcap</th><th>Exit Mcap</th><th>P/L SOL</th><th>P/L %</th><th>Hold</th><th>Exit Reason</th></tr>
         </thead>
         <tbody id="tradesBody">
           <tr><td colspan="9" class="loading-text">LOADING...</td></tr>
@@ -551,6 +551,12 @@ function copyMint(mint, btn) {
   });
 }
 function numFmt(n) { return n >= 1000 ? (n/1000).toFixed(1) + 'K' : String(n); }
+function fmtMcap(usd) {
+  if (!usd || usd <= 0) return '—';
+  if (usd >= 1000000) return '$' + (usd/1000000).toFixed(1) + 'M';
+  if (usd >= 1000) return '$' + (usd/1000).toFixed(1) + 'K';
+  return '$' + usd.toFixed(0);
+}
 
 // ---- Clock ----
 function updateClock() {
@@ -910,8 +916,8 @@ async function fetchTrades() {
       <td>${truncMint(mint)}</td>
       <td>${t.mint_short || truncMint(mint)} <button class="copy-btn" onclick="copyMint('${mint}', this)">CP</button></td>
       <td style="color:var(--green-dim)">${(t.personality || '--').replace(/_/g,' ')}</td>
-      <td>${(t.entry_price || 0).toExponential(2)}</td>
-      <td>${(t.exit_price || 0).toExponential(2)}</td>
+      <td>${t.market_cap_at_entry > 0 ? fmtMcap(t.market_cap_at_entry) : fmtMcap((t.entry_price || 0) * 1000000000)}</td>
+      <td>${t.market_cap_at_exit > 0 ? fmtMcap(t.market_cap_at_exit) : fmtMcap((t.exit_price || 0) * 1000000000)}</td>
       <td class="${pnlClass(pnlSol)}">${pnlSign(pnlSol)}</td>
       <td class="${pnlClass(pnlPct)}">${pnlPctSign(pnlPct)}</td>
       <td style="color:var(--green-dim)">${fmtAge(t.hold_seconds)}</td>
