@@ -506,6 +506,13 @@ class BotCore:
             logger.debug("Already holding %s — skipping duplicate signal", pos_key)
             return
 
+        # Guard: skip if ANY personality already holds this token (no cross-personality dupes)
+        for key, pos in self.positions.items():
+            if pos.mint == mint:
+                logger.debug("SKIP_DUPE: %s already held by %s — %s blocked",
+                            mint[:12], pos.personality, personality)
+                return
+
         # Guard: skip if mint traded within 2h cooldown
         if self.redis:
             try:
