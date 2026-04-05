@@ -1044,6 +1044,14 @@ class BotCore:
                     if current_price <= 0 and elapsed_min > 1:
                         logger.warning("NO_PRICE: %s %s — held %.1fm, price=0 (exits disabled)",
                                       pos.personality, pos.mint[:12], elapsed_min)
+                        # Force close stale positions after 5 min with no price
+                        # Dead tokens with no trading activity are pure loss
+                        stale_threshold = 5.0 if pos.personality == "speed_demon" else 10.0
+                        if elapsed_min >= stale_threshold:
+                            logger.info("STALE_EXIT: %s %s — no price for %.1fm, force closing",
+                                       pos.personality, pos.mint[:12], elapsed_min)
+                            await self._close_position(pos, "stale_no_price")
+                            continue
 
                     # Update peak_price and persist to DB for staged exit tracking
                     if current_price > 0 and current_price > pos.peak_price:
