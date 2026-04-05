@@ -1,3 +1,133 @@
+═══════════════════════════════════════════════════════════════
+AGENT CONTEXT UPDATE — April 5, 2026
+Prepend this section to the TOP of AGENT_CONTEXT.md
+Keep all existing sections below — they contain API reference,
+DB schemas, and other details that are still relevant.
+═══════════════════════════════════════════════════════════════
+Section 0: Critical Current State (READ FIRST)
+0.1 — System Architecture (FIXED April 3)
+Each of the 8 Railway services runs ONLY its assigned service via
+SERVICE_NAME env var in main.py. This was the #1 bug — previously
+all 8 services ran ALL code via asyncio.gather(), causing 8x duplicate
+trades, 8x API costs, and 0 working exit strategies.
+DO NOT change main.py SERVICE_NAME routing. It is correct.
+0.2 — Exit Price Pipeline (BROKEN — #1 priority)
+The exit checker in bot_core.py _check_exits() calls
+_get_token_prices_batch() which tries price sources in this order:
+CURRENT (BROKEN):
+Jupiter Price API v3 (10s timeout) → ALWAYS FAILS for bonding curve tokens
+GeckoTerminal (8s timeout × N mints) → ALWAYS FAILS for bonding curve tokens
+Redis token:latest_price:{mint} → WORKS but reached too late (18s+ wasted)
+Bonding curve reserves → Sometimes available
+CORRECT ORDER (FIX THIS):
+Redis token:latest_price:{mint} → instant, from PumpPortal trade stream
+Redis token:reserves:{mint} → bonding curve price calculation
+Jupiter (5s timeout, uncached mints only) → for graduated tokens
+GeckoTerminal (3s timeout, max 2 mints) → for graduated tokens
+The result: 1,800+ trades, ZERO take-profits, ZERO stop-losses fired.
+55 profitable trades exited via time_exit instead of staged TP.
++1672% winner exited via timeout, not the 30% staged exit.
+0.3 — Price Format Mismatch (critical to understand)
+paper_buy() stores entry_price in USD (from Jupiter/GeckoTerminal)
+PumpPortal trade stream stores prices in SOL (sol_amount / token_amount)
+Redis token:latest_price stores SOL denomination
+Exit checker MUST convert SOL→USD before comparing to entry_price
+Conversion: usd_price = sol_price_per_token × market:sol_price
+If market:sol_price is missing, fallback to $80 (fragile)
+Always fetch SOL/USD price in same batch as token prices
+0.4 — Trading Performance (April 5, 2026)
+Balance: 16.42 SOL (started with ~20 SOL, first paper trade March 28)
+Total PnL: -20.40 SOL all-time
+Last 2 sessions: NET POSITIVE (+1.06 SOL, +1.78 SOL)
+Win rate trending up: WR10=20%, WR25=12.8%, WR50=10%
+Best trade: +1.33 SOL (+1672.9%) — Speed Demon
+CFGI: 12 (extreme fear) — memecoins don't pump in fear markets
+Bot is correctly selective — most entries are in extreme fear, so low WR is expected
+0.5 — Personality Status
+Personality    Trades    Wins    PnL SOL    WR    Status
+Speed Demon    511    19    -9.25    3.7%    Trading — 0.7x sizing, momentum gates active
+Analyst    1,206    35    -11.05    2.9%    Trading — 1.3x sizing, best consistency
+Whale Tracker    2    0    -0.04    0%    BROKEN — 44 wallets in DB, 0 in Redis cache
+0.6 — ML Model Status
+Engine: CatBoost + LightGBM ensemble (Phase 3)
+AUC: 0.889 on 1,729 labeled samples
+Features populated: 20/58 (34%) — 38 features always zero
+Zero features: Nansen (disabled, 9 features), Helius (disabled, 8 features),
+creator history (5), trade data timing (6+), other (10)
+Thresholds: SD=50, AN=55, WT=55
+AGGRESSIVE_PAPER_TRADING=true on signal_aggregator and bot_core
+(thresholds not enforced — collecting unbiased training data)
+ML metadata NOT stored in Redis — dashboard can't display AUC/features
+0.7 — API Status
+API    Status    Auth    Notes
+PumpPortal    ONLINE    No auth needed    Primary signal source. subscribeTokenTrade for exit pricing.
+Jupiter    ONLINE    JUPITER_API_KEY    Price API v3. REQUIRES x-api-key header. Returns 401 without.
+GeckoTerminal    ONLINE    No auth    Trending pools, token prices. Free.
+RugCheck    ONLINE    No auth    Risk scoring with graduated multiplier.
+Vybe    ONLINE    VYBE_API_KEY    Holder labels (CEX/KOL/MM), wallet PnL. Base URL: api.vybenetwork.com
+Nansen    PAUSED    NANSEN_API_KEY    508% over budget. Disabled via Redis. Smart money discovery when re-enabled.
+Anthropic    DEAD    ANTHROPIC_API_KEY    Credits exhausted. Governance non-functional. Needs top-up.
+SocialData    IDLE    SOCIALDATA_API_KEY    $10.10 balance, 0 requests ever. Pump.fun tokens lack Twitter URLs.
+Helius    PAUSED    HELIUS_API_KEY    Budget=0. NOT used for pricing. Was used for tx confirmation.
+Discord    ONLINE    DISCORD_WEBHOOK_URL    Trade notifications. Webhook may need regeneration (403).
+0.8 — Dashboard Status (14 panels)
+All 14 panels render with the retro green CRT theme (VT323, scanlines, #00FF41).
+Issues remaining:
+ML Status: AUC="--", Features="--" (model metadata not stored in Redis)
+Whale panel: shows "44 wallets" but no leaderboard/stats
+Governance: shows raw text, needs structured display
+Win rates: correct but labels unclear (WR10/25/50 not intuitive)
+Recent trades: missing market cap, hold time
+Open positions: usually empty (positions close within 5-10 min)
+Exit analysis: no "profitable" count per exit reason
+0.9 — Key Commits (last 30)
+8719d63 fix: stale exits don't count toward consecutive losses
+577aa74 fix: ML status and signal funnel data improvements
+d1f2c7b fix: force close stale positions with no price data
+0ea4335 fix: check both token:price and token:latest_price
+45bad06 fix: persist peak_price to DB
+6dfb56b fix: load existing token subscriptions on startup
+ceaaaa1 fix: Decimal serialization in exit-analysis endpoint
+266850f feat: store signal evaluations in Redis for dashboard
+31204fd feat: token subscribe/unsubscribe for live exit pricing
+5b509db feat: per-token trade subscription for exit pricing
+a4b8265 feat: complete dashboard redesign — all 14 panels
+7a122fd feat: live trade stats via Redis for ML features
+80b0ece fix: staged exits before time_exit, SD sizing
+feb994b feat: cache PumpPortal trade prices in Redis
+ef8e196 fix: move momentum gates after feature extraction
+d0b13ba fix: gitignore package.json, restore railway.toml
+1fe497e fix: respect risk manager rejection (max(0.15) override)
+b731f80 fix: bsr default 1.0→0, threshold 1.2→0.8
+(+ ~20 more commits from overnight sessions)
+0.10 — Database Tables (key ones)
+paper_trades: all paper trade records (entry/exit/pnl/features/ml_score)
+Has: staged_exits_done, peak_price, signal_source, rugcheck_risk
+Missing: market_cap_at_entry (should be added)
+trades: ML training table (features_json, outcome, ml_score)
+portfolio_snapshots: balance history for equity curve
+watched_wallets: qualified whale wallets (address, win_rate, pnl, source)
+bot_state: key-value store for persistent state
+0.11 — LetsBonk.fun / Bonk.fun Coverage
+PumpPortal already delivers Bonk.fun/LaunchLab tokens via the same WebSocket.
+LaunchLab program ID: LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj
+Platform detection is implemented in signal_listener.py.
+Execution layer supports launchlab and bonk pool types.
+Pump.fun has 70-80% of bonding curve market share (not 18% as previously stated).
+0.12 — Graduation Sniper
+Implemented in signal_aggregator.py:
+signal_listener pushes migration events to signals:graduated
+Aggregator waits 60s, checks rugcheck + holder count + KOL presence
+Holder threshold: 25 minimum (was 100, lowered)
+Graduated tokens bypass KOTH zone and ML threshold
+Exit: 95% at +30%, 5% moonbag with 15% trailing, -20% stop, 20min window
+Results so far: 5+ graduation events detected, all rejected (high rug risk)
+0.13 — KOTH Zone
+King of the Hill zone narrowed from 30-55% to 45-65% bonding curve progress.
+ML override threshold lowered from 85 to 60.
+Velocity bypass: if bc_progress increasing >0.5%/s, token has momentum → bypass KOTH.
+Tokens at 36-40% are EARLY with momentum, not stalled.
+
 # ZMN Bot — Agent Context Document
 **Version:** 3.1
 **Last Updated:** March 2026
