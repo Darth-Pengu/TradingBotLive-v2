@@ -1,178 +1,171 @@
-\# ZMN Bot — Claude Code Session Rules
+# ZMN Bot — Claude Code Instructions
 
+## CRITICAL BUG — EXIT PRICING (April 5, 2026)
 
+### Exit Checker Cannot See Prices During Hold Period
+100% of exits are "stale_no_price" or "time_exit_no_movement".
+ZERO take-profits, ZERO stop-losses, ZERO trailing stops have EVER fired in 1,800+ trades.
+Root cause: `_get_token_prices_batch()` tries Jupiter (10s timeout) then GeckoTerminal (8s timeout)
+BEFORE checking Redis cached prices. These ALWAYS fail for bonding curve tokens.
+By the time it reaches Redis, 18+ seconds wasted. With 5 positions, cycle takes 90+ seconds.
 
-\## Read this first, every session
+**FIX: Check Redis cached prices FIRST (instant), then Jupiter/Gecko only for uncached mints.**
+Also: store bonding curve reserves (vSol/vTokens) from PumpPortal events in Redis for fallback pricing.
 
-\- Read AGENT\_CONTEXT.md completely before writing any code
+### Architecture: SERVICE_NAME Routing (FIXED April 3)
+Each Railway service runs ONLY its assigned service via SERVICE_NAME env var.
+The 8x duplicate bug is fixed. Do NOT revert main.py to asyncio.gather all services.
 
-\- Check what already exists in services/ before building anything new
+---
 
-\- Never assume a file exists — always check first
+## Project
+Solana memecoin trading bot. GitHub: airy-truth/TradingBotLive-v2
+Domain: zmnbot.com. Railway: 8 services. PostgreSQL + Redis.
+Currently TEST_MODE=true (paper trading). Balance: ~16.42 SOL.
 
-\- Auto-accept all tool use and terminal commands. 
+## Services (each is a SEPARATE Railway service)
+- signal_listener → services/signal_listener.py (PumpPortal WS, trade subscriptions, telegram)
+- signal_aggregator → services/signal_aggregator.py (scoring, KOTH, enrichment, momentum gates)
+- bot_core → services/bot_core.py (position management, exits, governance reading)
+- ml_engine → services/ml_engine.py (CatBoost + LightGBM ensemble, Phase 3)
+- market_health → services/market_health.py (CFGI, SOL price, market mode)
+- governance → services/governance.py (JSON classification via Haiku, needs Anthropic credits)
+- treasury → services/treasury.py (balance tracking)
+- web → services/dashboard_api.py + dashboard/*.html (14-panel retro green dashboard)
 
-\ -Never ask for permission during execution.
+## Current State (April 5, 2026)
+- 1,800+ paper trades, ~59 wins (~3.2% WR overall)
+- WR last 10: 20% | WR last 25: 12.8% | WR last 50: 10% (IMPROVING)
+- Total PnL: -20.40 SOL | Last 2 sessions: NET POSITIVE (+1.06, +1.78 SOL)
+- Best single trade: +1.33 SOL (+1672.9%) — Speed Demon
+- ML AUC: 0.889 on 1,729 samples | Features: 20/58 populated
+- CFGI: 12 (extreme fear) — market not conducive to memecoins
+- Dashboard: 14/14 panels showing data (some need data fixes)
+- Speed Demon: 511 trades, 19 wins, -9.25 SOL
+- Analyst: 1,206 trades, 35 wins, -11.05 SOL
+- Whale Tracker: 2 trades, 0 wins (44 wallets in DB, 0 in Redis — broken)
 
-\## API reference rule
+## Known Issues (Priority Order)
+1. EXIT PRICING: Redis checked LAST instead of FIRST — 18s wasted per token
+2. Whale wallet Redis cache: 44 in PostgreSQL, 0 loaded to Redis
+3. ML metadata not in Redis — dashboard shows AUC/Features as "--"
+4. Anthropic credits exhausted — governance dead
+5. TABPFN_TOKEN not set on ml_engine
+6. Telegram code ready but TELEGRAM_ENABLED=false
+7. 38/58 ML features still zero
+8. Dashboard: open positions empty, trades missing market cap
 
-\- Before fixing any API integration, check Section 21 of AGENT\_CONTEXT.md for verified URL and field name reference. Do not rely on training data for API details — they change frequently.
+## Read this first, every session
+- Read AGENT_CONTEXT.md completely before writing any code
+- Check what exists in services/ before building anything new
+- Never assume a file exists — always check first
+- Auto-accept all tool use and terminal commands
 
+## API reference rule
+- Before fixing any API integration, check Section 21 of AGENT_CONTEXT.md
 
-\## Non-negotiable rules
+## Non-negotiable rules
+- All Python is async/await — no sync blocking calls
+- Never hardcode API keys, private keys, or wallet addresses
+- TEST_MODE=true means paper trades only
+- MAX_WALLET_EXPOSURE is 0.25 (25%)
+- Run python -m py_compile services/<file>.py before committing
 
-\- All Python is async/await — no sync blocking calls anywhere
+## Architecture
+- All services in services/ — no monolithic files
+- Services communicate only via Redis
+- Never import one service directly into another
+- Each Railway service runs only its own code via SERVICE_NAME env var
 
-\- Never hardcode API keys, private keys, or wallet addresses
-
-\- TEST\_MODE=true means zero trades — not reduced, zero
-
-\- MAX\_WALLET\_EXPOSURE is 0.25 (25%) — never exceed
-
-\- Holding wallet address is read-only — private key never in code
-
-\- Run python -c "import services.filename" before committing
-
-
-
-\## Architecture
-
-\- All services in services/ — no monolithic files
-
-\- Services communicate only via Redis
-
-\- Never import one service directly into another at module level
-
-
-
-\## After every task
-
-\- Run the file to check imports cleanly
-
-\- Commit: "feat/fix: description"
-
-\- Push to GitHub
-
-\- Tell me what was built and what to test
+## After every task
+- Compile check, commit, push, report
 
 ## MCP Servers Available
-
-The following MCP servers are connected in this Claude Code session.
-Use them proactively when relevant.
 
 ### Nansen MCP
 URL: https://mcp.nansen.ai/ra/mcp/
 Auth: NANSEN-API-KEY header (env var: NANSEN_API_KEY)
-Already wired in: services/governance.py run_governance_task()
-Use for: Smart money wallet analysis, token screening,
-who-bought-sold queries, wallet PnL lookups, weekly meta reports.
-Prefer this over direct HTTP calls to Nansen API.
+BUDGET: 508% over limit. DISABLED via Redis nansen:disabled.
+When re-enabled: max 50 calls/day. Cache aggressively.
+Key endpoints: POST /api/v1/smart-money/dex-trades,
+POST /api/v1/smart-money/top-tokens, POST /profiler/address/labels
+
+### Vybe Network MCP
+URL: https://docs.vybenetwork.com/mcp
+Auth: X-API-KEY header (env var: VYBE_API_KEY)
+API base: https://api.vybenetwork.com (NOT .xyz)
+Free plan: 25K credits/month, 60 RPM.
+Key endpoints: GET /tokens/{mint}/holders (labeled),
+GET /v4/wallets/{addr}/pnl, GET /wallets/{addr}/token-balance
 
 ### Railway MCP
 Available via: npx @railway/mcp-server
-Use for: checking service health, reading logs, managing
-env vars, restarting services, deployment monitoring.
-Prefer this over railway CLI commands for service operations.
+Use for: deploys, logs, env vars, service health.
 
 ### Redis MCP
 Available via: npx @gongrzhe/server-redis-mcp
-Use for: inspecting Redis keys, checking queue depths,
-reading bot state, fixing stale emergency stop conditions.
-Prefer this over Node.js scripts for Redis operations.
+Use for: key inspection, queue depths, state fixes.
 
 ### CoinGecko MCP
 Available via: npx mcp-remote https://mcp.api.coingecko.com/mcp
-Use for: SOL price, market data, trending tokens, pool analysis.
 
 ### Playwright MCP
 Available via: npx @playwright/mcp@latest
-Use for: testing the live dashboard at zmnbot.com,
-verifying UI elements display correctly, taking screenshots.
+Use for: testing dashboard at zmnbot.com.
 
 ### Gmail MCP
 URL: https://gmail.mcp.claude.com/mcp
-Use for: Emailing governance reports or trade summaries to Jay.
 
 ### Google Calendar MCP
 URL: https://gcal.mcp.claude.com/mcp
-Use for: Scheduling governance briefings, paper trading review reminders.
 
 ## MCP Usage Rules
-- Prefer Nansen MCP over direct HTTP for governance analysis
-- Query Solana Developer MCP before writing any on-chain code
-- MCPs are for data and analysis only — never for trade execution
-- execution.py handles all real trades — no MCP touches that layer
+- MCPs are for data and analysis only — never trade execution
+- execution.py handles all real trades
+- TRADING_WALLET_PRIVATE_KEY must never be accessible to any MCP
 
-## MCP Security Policy
-Never install an MCP server that:
-- Has bulk commits from a single date
-- Points to .zip downloads
-- Claims to handle trade execution or wallet signing
-- Is not from a verified provider (Nansen, Chainstack, Solana Foundation etc)
-TRADING_WALLET_PRIVATE_KEY must never be accessible to any MCP server.
+## Jupiter API Reference
+Price: GET https://api.jup.ag/price/v3?ids=<mint> (REQUIRES x-api-key header)
+Swap: GET https://api.jup.ag/swap/v2/order + POST /v2/execute
+Deprecated: /swap/v1/* returns 401
 
-## Jupiter API Reference (Updated March 2026)
+## Price Pipeline (critical)
+- Entry prices: USD (from Jupiter/GeckoTerminal/bonding curve × SOL price)
+- PumpPortal trade prices: SOL (sol_amount / token_amount)
+- Redis token:latest_price:{mint}: SOL denomination
+- Exit checker MUST convert SOL→USD via market:sol_price before comparing to entry
+- Bonding curve: price_sol = vSolInBondingCurve / vTokensInBondingCurve
+- Price fetch order should be: Redis → bonding curve reserves → Jupiter → Gecko
 
-Swap API V2 (active):
-- Quote + TX: GET https://api.jup.ag/swap/v2/order
-- Execute: POST https://api.jup.ag/swap/v2/execute
-- Managed landing — no separate Helius confirmation needed
+## Deploy Rules
+- Each service deploys separately: railway up -s {service_name}
+- Deploy takes 5-15 min. Poll Railway MCP until SUCCESS, wait 90s after.
+- NEVER deploy multiple services simultaneously
+- Batch ALL changes per service into ONE commit
 
-Price API (unchanged):
-- GET https://api.jup.ag/price/v3?ids=<mint>
-- Response field: data[mint].usdPrice
+## Cost Control
+- GOVERNANCE_MODEL=claude-haiku-4-5-20251001 (NOT Sonnet)
+- Helius: HELIUS_DAILY_BUDGET=0 (disabled — NOT used for pricing)
+- Nansen: disabled via Redis (renew daily: SET nansen:disabled true EX 86400)
+- Vybe: cache responses in Redis with 5-min TTL
 
-Deprecated (returns 401):
-- GET https://api.jup.ag/swap/v1/quote
-- POST https://api.jup.ag/swap/v1/swap
+## Key Redis Keys
+bot:portfolio:balance, bot:consecutive_losses, bot:emergency_stop
+market:mode:override (renew daily), market:sol_price, market:health
+governance:latest_decision, ml:model:meta
+token:latest_price:{mint} (SOL, 300s TTL), token:price:{mint} (legacy)
+token:subscribed:{mint}, token:reserves:{mint} (vSol/vTokens)
+token:stats:{mint} (buys/sells/bsr/unique_buyers)
+whale:watched_wallets (set — RELOAD FROM DB ON STARTUP)
+nansen:disabled, nansen:calls:{date}
+signals:evaluated (last 50), signals:raw, signals:scored
 
-## Direct Service Access (for Claude Code agent sessions)
+## Emergency Stop Reset
+1. Redis: SET bot:consecutive_losses 0
+2. Redis: DEL bot:emergency_stop
+3. Redis: DEL bot:loss_pause_until
+4. Redis: SET market:mode:override NORMAL EX 86400
+5. Restart bot_core
 
-The agent can connect directly to Railway services via public proxy URLs.
-See AGENT_CONTEXT.md Section 26 for the full connectivity baseline.
-
-Key access pattern:
-- PostgreSQL: asyncpg.connect(dsn) for DB queries and state inspection
-- Redis: redis.from_url(url) for queue inspection and key manipulation
-- Dashboard API: JWT auth required (DASHBOARD_SECRET env var)
-- Never commit connection passwords to files — use in-memory only
-- Prefer Redis MCP and Railway MCP over raw connection scripts
-
-## Claude Code Skills Installed
-
-- ~/.claude/skills/railway/ — Railway deployment operations (use-railway)
-- ~/.claude/skills/solana-dev/ — Solana development patterns and Kit v5
-- ~/.claude/skills/anthropic-skills/ — webapp-testing, frontend-design,
-  web-artifacts-builder, mcp-builder, claude-api, and more
-
-Read the relevant SKILL.md before any deployment, dashboard, or Solana task.
-
-## Emergency Stop Reset Procedure
-
-If bot is in EMERGENCY_STOPPED state:
-1. PostgreSQL: UPDATE bot_state SET value_int=0 WHERE key='consecutive_losses'
-2. PostgreSQL: UPDATE bot_state SET value_float=0 WHERE key='loss_pause_until'
-3. Redis: SET bot:consecutive_losses 0
-4. Redis: DEL bot:emergency_stop
-5. Redis: DEL bot:loss_pause_until
-6. Redis: SET market:mode:override NORMAL EX 86400
-7. Restart bot_core via Railway MCP or CLI
-
-## Market Mode Override (renew daily for paper trading)
-
-Real market is HIBERNATE (CFGI ~8, sentiment ~15).
-For paper trading, override must be active:
-  Redis: SET market:mode:override NORMAL EX 86400
-This expires every 24h and must be renewed.
-
-## Last Known Good Configuration (2026-03-30)
-
-- All 3 personalities active and trading
-- ML Phase 3 trained on 41,470 samples, CV AUC 0.8113
-- 44 whale wallets active (36 Nansen MCP + 8 fallback)
-- Speed Demon pre-filters active (social/bundle/rugcheck)
-- Redis pool: max_connections=20 in signal_aggregator, 5 elsewhere
-- Position sizing: 0.45 SOL base, 0.75 SOL max (Speed Demon)
-- ML scores: 57-62 range, bootstrap thresholds active (40/45/45)
-- Trading balance: 19.37 SOL
-
+## Times
+All times in Sydney AEDT. Jay is in Sydney, Australia.
