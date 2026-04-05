@@ -1100,60 +1100,60 @@ def _compute_confidence(sources: set[str]) -> int:
 
 
 def _classify_target_personalities(signal: dict, rugcheck: dict) -> list[str]:
-    """Determine which personalities this signal should be routed to."""
-    targets = []
-    age = signal.get("age_seconds", 0)
+    """Route signals to the correct personality. Each personality has DISTINCT sources.
+
+    Speed Demon: EARLY pre-bond tokens only (<2 min, <80% bc)
+    Analyst:     Graduated + trending + mature tokens (bc≥80% or age>5min or gecko/nansen)
+    Whale Tracker: Whale buys + telegram calls + tracked wallet activity
+    """
     sig_type = signal.get("signal_type", "")
+    source = signal.get("source", "")
     raw = signal.get("raw_data", {})
+    age = signal.get("age_seconds", 0)
+    bc_progress = float(raw.get("bondingCurveProgress",
+                    raw.get("bonding_curve_progress", 0)) or 0)
 
-    # Speed Demon: new tokens, 0-30s (alpha), 30s-3min (confirmation), 5-15min post-grad
-    if sig_type in ("new_token", "new_pool") and age <= 180:
-        targets.append("speed_demon")
-    elif sig_type == "migration" and 300 <= age <= 900:
-        targets.append("speed_demon")  # Post-grad dip tier
-
-    # GeckoTerminal trending: confirmed volume + momentum — analyst only
-    if sig_type == "trending" or signal.get("source") == "geckoterminal_trending":
-        return ["analyst"]
-
-    # Nansen screener: graduated tokens — analyst only (no bonding curve)
-    if sig_type == "analyst" or signal.get("source") == "nansen_screener":
-        return ["analyst"]
-
-    # Telegram alpha calls: route to analyst with boosted position sizing
-    if sig_type == "telegram_call" or signal.get("source") == "telegram_alpha":
-        return ["analyst"]
-
-    # Analyst: confirmed tokens, multi-source signals, AND new_token (for bootstrap data collection)
-    if sig_type in ("new_token", "new_pool", "token_trade", "sse_event", "migration"):
-        targets.append("analyst")
-
-    # Whale Tracker: account trades from tracked wallets + Helius webhook whale signals
+    # --- Whale Tracker: whale/telegram sources only ---
     if sig_type in ("account_trade", "whale_trade", "whale_transfer"):
-        targets.append("whale_tracker")
-
-    # --- Expanded Helius webhook signal types ---
-
-    # pool_created: strong insider signal → ALL three personalities
-    if sig_type == "pool_created":
-        targets = ["speed_demon", "analyst", "whale_tracker"]
-
-    # liquidity_add: whale accumulating → whale_tracker
+        return ["whale_tracker"]
+    if sig_type == "telegram_call" or source.startswith("telegram"):
+        return ["whale_tracker"]
     if sig_type == "liquidity_add":
-        if "whale_tracker" not in targets:
-            targets.append("whale_tracker")
-
-    # new_token with whale_created: same as regular new_token (already handled above)
-    # but ensure it routes to whale_tracker as well
+        return ["whale_tracker"]
     if sig_type == "new_token" and raw.get("whale_created"):
-        if "whale_tracker" not in targets:
-            targets.append("whale_tracker")
+        return ["whale_tracker"]
 
-    # Exit-type signals (whale_transfer, liquidity_remove, token_burn, account_closed)
-    # are NOT routed to personalities — they are handled separately as exit alerts
-    # in _process_signals() below
+    # --- Analyst: graduated + trending + nansen + mature tokens ---
+    if sig_type == "trending" or source == "geckoterminal_trending":
+        return ["analyst"]
+    if sig_type == "analyst" or source == "nansen_screener":
+        return ["analyst"]
+    if sig_type == "graduation" or sig_type == "migration":
+        return ["analyst"]
+    if sig_type == "pool_created":
+        return ["analyst"]
 
-    return targets
+    # --- Speed Demon vs Analyst: based on token age and BC progress ---
+    if sig_type in ("new_token", "new_pool"):
+        # Early pre-bond: Speed Demon territory
+        if age <= 120 and bc_progress < 0.80:
+            return ["speed_demon"]
+        # Mature or near-graduation: Analyst territory
+        if bc_progress >= 0.80 or age > 300:
+            return ["analyst"]
+        # Middle ground (2-5 min, 0-80% bc): Speed Demon still has edge
+        if age <= 300:
+            return ["speed_demon"]
+        return ["analyst"]
+
+    # token_trade / sse_event: route by BC progress
+    if sig_type in ("token_trade", "sse_event"):
+        if bc_progress < 0.80:
+            return ["speed_demon"]
+        return ["analyst"]
+
+    # Default: analyst (safest)
+    return ["analyst"]
 
 
 def _apply_hard_filters(personality: str, signal: dict, rugcheck: dict) -> tuple[bool, str]:
