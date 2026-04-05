@@ -417,6 +417,16 @@ async def pumpportal_listener(redis_conn: aioredis.Redis | None):
                                     # Also set token:latest_price for exit checker + dashboard
                                     await redis_conn.set(f"token:latest_price:{mint}", str(trade_price), ex=300)
 
+                                # Store bonding curve reserves for exit pricing fallback
+                                v_sol_bc = data.get("vSolInBondingCurve") or data.get("vsolInBondingCurve")
+                                v_tokens_bc = data.get("vTokensInBondingCurve") or data.get("vtokensInBondingCurve")
+                                if v_sol_bc and v_tokens_bc and mint in _subscribed_tokens:
+                                    await redis_conn.hset(f"token:reserves:{mint}", mapping={
+                                        "vSol": str(v_sol_bc),
+                                        "vTokens": str(v_tokens_bc),
+                                    })
+                                    await redis_conn.expire(f"token:reserves:{mint}", 600)
+
                                 # Publish trade stats to Redis for aggregator feature extraction
                                 entry = _trade_tracker.get(mint, {})
                                 buys = entry.get("buys", 0)
