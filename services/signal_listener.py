@@ -413,9 +413,9 @@ async def pumpportal_listener(redis_conn: aioredis.Redis | None):
                                 token_amount = float(data.get("tokenAmount", data.get("token_amount", 0)) or 0)
                                 if sol_amount > 0 and token_amount > 0:
                                     trade_price = sol_amount / token_amount
-                                    await redis_conn.set(f"token:price:{mint}", str(trade_price), ex=300)
+                                    await redis_conn.set(f"token:price:{mint}", str(trade_price), ex=600)
                                     # Also set token:latest_price for exit checker + dashboard
-                                    await redis_conn.set(f"token:latest_price:{mint}", str(trade_price), ex=300)
+                                    await redis_conn.set(f"token:latest_price:{mint}", str(trade_price), ex=600)
 
                                 # Store bonding curve reserves for exit pricing fallback
                                 v_sol_bc = data.get("vSolInBondingCurve") or data.get("vsolInBondingCurve")
@@ -626,8 +626,22 @@ async def gecko_trending_poller(redis_conn: aioredis.Redis | None):
                                     mcap = float(attrs.get("market_cap_usd") or attrs.get("fdv_usd") or 0)
                                     liq = float(attrs.get("reserve_in_usd", 0) or 0)
 
-                                    if vol_1h < 10000:
+                                    if vol_1h < 5000:
                                         continue
+
+                                    # Analyst criteria: $10K-$500K mcap, more buyers than sellers
+                                    if mcap > 0 and (mcap < 10000 or mcap > 500000):
+                                        continue
+                                    if buys_1h <= sells_1h and sells_1h > 5:
+                                        continue
+
+                                    # Dedup — don't re-signal same trending token within 30 min
+                                    dedup_key = f"trending:seen:{mint[:16]}"
+                                    if redis_conn:
+                                        already = await redis_conn.exists(dedup_key)
+                                        if already:
+                                            continue
+                                        await redis_conn.set(dedup_key, "1", ex=1800)
 
                                     buy_sell_ratio = buys_1h / sells_1h if sells_1h > 0 else float(buys_1h)
 
