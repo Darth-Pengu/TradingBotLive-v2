@@ -632,7 +632,7 @@ async def _scoring_listener(engine: AcceleratedMLEngine, redis_conn: aioredis.Re
 
 
 # --- Retrain loop ---
-async def _retrain_loop(engine: AcceleratedMLEngine):
+async def _retrain_loop(engine: AcceleratedMLEngine, redis_conn=None):
     """Retrain periodically from DB."""
     pool = await get_pool()
     while True:
@@ -641,12 +641,36 @@ async def _retrain_loop(engine: AcceleratedMLEngine):
             now = time.time()
             full_retrain_due = (now - engine.last_train_time) >= RETRAIN_INTERVAL_SECONDS
 
+            trained = False
             if not engine.is_trained:
                 await engine.train(pool)
+                trained = True
                 check_interval = 300  # 5 min during cold start
             elif full_retrain_due:
                 logger.info("Weekly full retrain triggered")
                 await engine.train(pool)
+                trained = True
+
+            # Update Redis metadata after training
+            if trained and redis_conn:
+                try:
+                    from datetime import datetime, timezone as tz
+                    status = "TRAINED" if engine.is_trained else "HEURISTIC"
+                    await redis_conn.hset("ml:model:meta", mapping={
+                        "auc": f"{engine.cv_auc_mean:.4f}" if engine.cv_auc_mean > 0 else "0",
+                        "phase": str(engine.phase),
+                        "samples": str(engine.n_samples),
+                        "features": str(len(engine.feature_columns)) if hasattr(engine, 'feature_columns') else "44",
+                        "last_train": datetime.now(tz.utc).isoformat(),
+                        "cold_start": "false" if engine.is_trained else "true",
+                        "status": status,
+                    })
+                    await redis_conn.set("ml:model:cv_auc", f"{engine.cv_auc_mean:.4f}")
+                    await redis_conn.set("ml:model:sample_count", str(engine.n_samples))
+                    logger.info("Updated ml:model:meta in Redis after retrain (AUC=%.4f, n=%d)",
+                               engine.cv_auc_mean, engine.n_samples)
+                except Exception as e:
+                    logger.debug("Redis ml:model:meta update failed: %s", e)
         except Exception as e:
             logger.error("Retrain loop error: %s", e)
             check_interval = 300

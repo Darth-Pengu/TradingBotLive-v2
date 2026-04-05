@@ -942,6 +942,17 @@ async def main():
             await redis_conn.set("ml:model:sample_count", str(engine.n_samples))
             if engine.cv_auc_mean > 0:
                 await redis_conn.set("ml:model:cv_auc", f"{engine.cv_auc_mean:.4f}")
+            # Store as hash for dashboard compatibility (ml:model:meta)
+            feature_count = len(FEATURE_COLUMNS) if engine.is_trained else 0
+            await redis_conn.hset("ml:model:meta", mapping={
+                "auc": f"{engine.cv_auc_mean:.4f}" if engine.cv_auc_mean > 0 else "0",
+                "phase": str(engine.phase),
+                "samples": str(engine.n_samples),
+                "features": str(feature_count),
+                "last_train": datetime.now(timezone.utc).isoformat(),
+                "cold_start": "false" if engine.is_trained else "true",
+                "status": status,
+            })
             logger.info("Redis connected — ml:engine:mode=accelerated, status=%s, phase=%d, n=%d, AUC=%.4f",
                         status, engine.phase, engine.n_samples, engine.cv_auc_mean)
         except Exception as e:
@@ -949,7 +960,7 @@ async def main():
 
         await asyncio.gather(
             accel_scoring_listener(engine, redis_conn),
-            accel_retrain_loop(engine),
+            accel_retrain_loop(engine, redis_conn),
             accel_outcome_listener(engine, redis_conn),
             accel_emergency_retrain_listener(engine, redis_conn),
         )
