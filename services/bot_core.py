@@ -292,6 +292,17 @@ class BotCore:
                     sol_usd = float(cached_sol)
             except Exception:
                 pass
+            # Also try market:health JSON (market_health service stores SOL price here)
+            if sol_usd <= 0:
+                try:
+                    mh_raw = await self.redis.get("market:health")
+                    if mh_raw:
+                        mh = json.loads(mh_raw)
+                        sp = mh.get("sol_price") or mh.get("sol_usd", 0)
+                        if sp:
+                            sol_usd = float(sp)
+                except Exception:
+                    pass
 
         # STEP 1: Redis cached prices FIRST (from PumpPortal trade stream — instant)
         redis_hits = {}
