@@ -662,6 +662,12 @@ class BotCore:
                     pass
                 key = f"{personality}:{mint}"
                 self.positions[key] = pos
+                # Subscribe to per-token trade stream for live exit pricing
+                if self.redis:
+                    try:
+                        await self.redis.publish("token:subscribe", json.dumps({"mint": mint, "action": "subscribe"}))
+                    except Exception:
+                        pass
                 logger.info("PAPER ENTERED: %s %s @ $%.8f, %.4f SOL (sig: %s)",
                              personality, mint[:12], paper_result["entry_price"],
                              paper_result["amount_sol"], paper_result["signature"])
@@ -712,6 +718,12 @@ class BotCore:
                 pos.trade_id = trade_id
                 key = f"{personality}:{mint}"
                 self.positions[key] = pos
+                # Subscribe to per-token trade stream for live exit pricing
+                if self.redis:
+                    try:
+                        await self.redis.publish("token:subscribe", json.dumps({"mint": mint, "action": "subscribe"}))
+                    except Exception:
+                        pass
                 logger.info("ENTERED: %s %s @ $%.8f, %.4f SOL (tx: %s)",
                              personality, mint[:12], price, size_sol, result.signature)
             else:
@@ -754,6 +766,12 @@ class BotCore:
                     self.portfolio.consecutive_losses[pos.personality] = 0
                 key = f"{pos.personality}:{pos.mint}"
                 self.positions.pop(key, None)
+                # Unsubscribe from token trade stream if no other personality holds this mint
+                if self.redis and not any(p.mint == pos.mint for p in self.positions.values()):
+                    try:
+                        await self.redis.publish("token:subscribe", json.dumps({"mint": pos.mint, "action": "unsubscribe"}))
+                    except Exception:
+                        pass
                 logger.info("PAPER CLOSED: %s %s -- %s %.4f SOL (%.1f%%) reason=%s",
                              pos.personality, pos.mint[:12], outcome, pnl_sol, pnl_pct, reason)
 
@@ -850,6 +868,12 @@ class BotCore:
 
             key = f"{pos.personality}:{pos.mint}"
             self.positions.pop(key, None)
+            # Unsubscribe from token trade stream if no other personality holds this mint
+            if self.redis and not any(p.mint == pos.mint for p in self.positions.values()):
+                try:
+                    await self.redis.publish("token:subscribe", json.dumps({"mint": pos.mint, "action": "unsubscribe"}))
+                except Exception:
+                    pass
 
             logger.info("CLOSED: %s %s -- %s %.4f SOL (%.1f%%) reason=%s",
                          pos.personality, pos.mint[:12], outcome, pnl_sol, pnl_pct, reason)
@@ -1449,6 +1473,19 @@ async def main():
         else:
             logger.warning("market:mode not received after 60s — defaulting to NORMAL")
             bot.portfolio.market_mode = "NORMAL"
+
+    # Auto-subscribe to token trade streams for all restored open positions
+    if bot.redis and bot.positions:
+        subscribed_mints = set()
+        for pos in bot.positions.values():
+            if pos.mint not in subscribed_mints:
+                try:
+                    await bot.redis.publish("token:subscribe", json.dumps({"mint": pos.mint, "action": "subscribe"}))
+                    subscribed_mints.add(pos.mint)
+                except Exception:
+                    pass
+        if subscribed_mints:
+            logger.info("Auto-subscribed to %d token trade streams for open positions", len(subscribed_mints))
 
     logger.info("Bot Core ready — managing 3 personalities")
 
