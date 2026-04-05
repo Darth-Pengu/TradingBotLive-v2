@@ -227,7 +227,7 @@ tbody tr:hover { background: rgba(0, 255, 65, 0.03); }
   box-shadow: 0 0 6px rgba(0,255,65,0.3);
   transition: width 0.5s;
 }
-.wr-val { width: 50px; text-align: right; }
+.wr-val { width: 110px; text-align: right; }
 
 /* === PERSONALITY BARS === */
 .pers-row {
@@ -459,7 +459,7 @@ tbody tr:hover { background: rgba(0, 255, 65, 0.03); }
     <div style="overflow-x:auto;">
       <table>
         <thead>
-          <tr><th>Time</th><th>Token</th><th>Mint</th><th>Personality</th><th>Entry</th><th>Exit</th><th>P/L SOL</th><th>P/L %</th><th>Exit Reason</th></tr>
+          <tr><th>Time</th><th>Token</th><th>Mint</th><th>Personality</th><th>Entry</th><th>Exit</th><th>P/L SOL</th><th>P/L %</th><th>Hold</th><th>Exit Reason</th></tr>
         </thead>
         <tbody id="tradesBody">
           <tr><td colspan="9" class="loading-text">LOADING...</td></tr>
@@ -533,10 +533,16 @@ function fmtExitReason(r) {
     'time_exit': 'Timeout', 'time_exit_no_movement': 'Timeout',
     'stop_loss': 'Stop Loss', 'trailing_stop': 'Trail Stop',
     'staged_take_profit': 'Take Profit \u2713', 'take_profit': 'Take Profit \u2713',
-    'emergency_stop': 'Emergency', 'stale': 'Stale',
+    'emergency_stop': 'E-Stop', 'stale': 'Stale',
+    'stale_no_price': 'No Price', 'no_momentum_90s': 'No Mom.',
     'whale_sell': 'Whale Exit', 'signal_exit': 'Signal Exit',
   };
-  return map[r] || r.replace(/_/g, ' ');
+  if (map[r]) return map[r];
+  if (r.startsWith('staged_')) {
+    const stage = r.replace('staged_', '').replace('exit_', '');
+    return 'TP ' + stage + ' \u2713';
+  }
+  return r.replace(/_/g, ' ');
 }
 function copyMint(mint, btn) {
   navigator.clipboard.writeText(mint).then(() => {
@@ -652,10 +658,9 @@ async function fetchMLStatus() {
   const auc = data.accuracy_last_100 || 0;
   document.getElementById('mlAucVal').textContent = auc ? auc.toFixed(4) + ' AUC' : '--';
 
-  const phase = data.trained ? (data.bootstrap_mode ? '2 (Bootstrap)' : '3 (CatBoost + LightGBM)') : '1 (Cold Start)';
+  const phase = data.phase || (data.trained ? (data.bootstrap_mode ? '2 (Bootstrap)' : '3 (CatBoost + LightGBM)') : '1 (Cold Start)');
   const samples = data.sample_count || 0;
-  const features = data.features || {};
-  const featCount = typeof features === 'object' ? Object.keys(features).length : 0;
+  const featCount = data.feature_count || (typeof data.features === 'object' ? Object.keys(data.features).length : 0);
 
   el.innerHTML = `
     <div class="ml-stat"><span class="ml-stat-label">AUC</span><span style="text-shadow:var(--glow)">${auc ? auc.toFixed(4) : '--'}</span></div>
@@ -743,10 +748,13 @@ async function fetchPersonality() {
     const barPct = Math.max((Math.abs(pnl) / maxAbs) * 100, 2);
     const displayName = name.replace(/_/g, ' ');
 
-    return `<div class="pers-row">
+    const best = p.best_trade;
+    const bestLine = (best && best.pnl_sol) ? `<div style="font-size:12px;color:var(--green-dim);margin-top:1px;">Best: <span class="pnl-pos">${pnlSign(best.pnl_sol)} SOL</span> (${best.pnl_pct ? pnlPctSign(best.pnl_pct) : '--'})</div>` : '';
+
+    return `<div class="pers-row" style="flex-wrap:wrap;">
       <span class="pers-name">${displayName}</span>
       <div class="pers-bar-bg"><div class="pers-bar-fill" style="width:${barPct}%;background:${color};box-shadow:0 0 6px ${color};"></div></div>
-      <span class="pers-details" style="color:${color}">${pnlSign(pnl)} SOL (${trades}t, ${wr.toFixed(1)}% WR)</span>
+      <span class="pers-details" style="color:${color}">${pnlSign(pnl)} SOL (${trades}t, ${wr.toFixed(1)}% WR)${bestLine}</span>
     </div>`;
   }).join('');
 }
@@ -806,17 +814,18 @@ async function fetchWinRates() {
   if (!data) { el.innerHTML = '<span style="color:var(--green-dim)">NO DATA</span>'; return; }
 
   const rows = [
-    { label: 'WR10', val: data.wr_10 || 0 },
-    { label: 'WR25', val: data.wr_25 || 0 },
-    { label: 'WR50', val: data.wr_50 || 0 }
+    { label: 'Last 10', val: data.wr_10 || 0, wins: data.wins_10, total: data.total_10 },
+    { label: 'Last 25', val: data.wr_25 || 0, wins: data.wins_25, total: data.total_25 },
+    { label: 'Last 50', val: data.wr_50 || 0, wins: data.wins_50, total: data.total_50 }
   ];
   el.innerHTML = rows.map(r => {
     const pct = r.val;
     const color = pct >= 30 ? 'var(--green)' : pct >= 15 ? 'var(--amber)' : 'var(--red)';
+    const counts = (r.wins != null && r.total != null) ? ` (${r.wins}/${r.total})` : '';
     return `<div class="wr-row">
       <span class="wr-label">${r.label}</span>
       <div class="wr-bar-bg"><div class="wr-bar-fill" style="width:${Math.min(pct,100)}%;background:${color};box-shadow:0 0 6px ${color};"></div></div>
-      <span class="wr-val" style="color:${color};">${pct.toFixed(1)}%</span>
+      <span class="wr-val" style="color:${color};">${pct.toFixed(1)}%${counts}</span>
     </div>`;
   }).join('');
 }
@@ -832,15 +841,26 @@ async function fetchGovernance() {
   modeEl.textContent = mode;
   modeEl.className = 'stat-value ' + (mode === 'NORMAL' ? 'positive' : mode === 'HIBERNATE' ? 'negative' : 'warn');
 
-  document.getElementById('govMode').textContent = mode;
-  document.getElementById('govMode').style.color = mode === 'NORMAL' ? 'var(--green)' : mode === 'HIBERNATE' ? 'var(--red)' : 'var(--amber)';
+  const govMode = (data && data.mode) ? data.mode : mode;
+  document.getElementById('govMode').textContent = govMode;
+  document.getElementById('govMode').style.color = govMode === 'NORMAL' ? 'var(--green)' : govMode === 'HIBERNATE' ? 'var(--red)' : 'var(--amber)';
 
-  let detail = 'CFGI: ' + cfgi + (cfgi < 20 ? ' (EXTREME FEAR) \uD83D\uDD34' : cfgi < 40 ? ' (FEAR) \uD83D\uDFE1' : ' \uD83D\uDFE2');
-  if (data && data.notes) {
+  const sizeMult = (data && data.size_multiplier != null) ? data.size_multiplier.toFixed(1) + 'x' : '--';
+  const sdOn = (data && data.speed_demon_enabled != null) ? (data.speed_demon_enabled ? '\u2713' : '\u2717') : '?';
+  const anOn = (data && data.analyst_enabled != null) ? (data.analyst_enabled ? '\u2713' : '\u2717') : '?';
+  const wtOn = (data && data.whale_tracker_enabled != null) ? (data.whale_tracker_enabled ? '\u2713' : '\u2717') : '?';
+
+  let detail = `<div style="font-size:14px;margin-bottom:4px;">Size: ${sizeMult} | SD: ${sdOn} | AN: ${anOn} | WT: ${wtOn}</div>`;
+  detail += 'CFGI: ' + cfgi + (cfgi < 20 ? ' (EXTREME FEAR) \uD83D\uDD34' : cfgi < 40 ? ' (FEAR) \uD83D\uDFE1' : ' \uD83D\uDFE2');
+
+  if (data && data.reasoning) {
+    const reasoning = data.reasoning.slice(-300).replace(/\n/g, '<br>');
+    detail += '<br><br><span style="color:var(--green-dim);font-size:13px;">' + reasoning + '</span>';
+  } else if (data && data.notes) {
     const notes = data.notes.slice(-300).replace(/\n/g, '<br>');
     detail += '<br><br><span style="color:var(--green-dim);font-size:13px;">' + notes + '</span>';
   }
-  if (!data || !data.notes) {
+  if (!data || (!data.notes && !data.reasoning)) {
     detail += '<br><span style="color:var(--amber);">GOVERNANCE OFFLINE \u2014 CONSERVATIVE defaults</span>';
   }
   document.getElementById('govDetail').innerHTML = detail;
@@ -878,7 +898,7 @@ async function fetchTrades() {
   const data = await apiFetch('/api/trades?limit=20');
   const body = document.getElementById('tradesBody');
   if (!data || !Array.isArray(data) || data.length === 0) {
-    body.innerHTML = '<tr><td colspan="9" style="color:var(--green-dim);">NO RECENT TRADES</td></tr>';
+    body.innerHTML = '<tr><td colspan="10" style="color:var(--green-dim);">NO RECENT TRADES</td></tr>';
     return;
   }
   body.innerHTML = data.map(t => {
@@ -894,6 +914,7 @@ async function fetchTrades() {
       <td>${(t.exit_price || 0).toExponential(2)}</td>
       <td class="${pnlClass(pnlSol)}">${pnlSign(pnlSol)}</td>
       <td class="${pnlClass(pnlPct)}">${pnlPctSign(pnlPct)}</td>
+      <td style="color:var(--green-dim)">${fmtAge(t.hold_seconds)}</td>
       <td>${fmtExitReason(t.exit_reason)}</td>
     </tr>`;
   }).join('');

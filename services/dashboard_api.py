@@ -528,13 +528,63 @@ async def api_stats(request):
 
 
 async def api_positions(request):
-    """Return currently open positions from Redis bot:status, enriched with live price and P/L."""
+    """Return currently open positions from Redis bot:status, enriched with live price and P/L.
+    Falls back to paper_trades DB if bot:status has no positions."""
     positions = []
     redis_conn = request.app.get("redis")
     if not redis_conn:
         return web.json_response(positions)
     try:
         raw = await redis_conn.get("bot:status")
+        if not raw or not json.loads(raw).get("positions"):
+            # Fallback: read open positions from DB with Redis prices
+            db_rows = await _query_db(
+                "SELECT * FROM paper_trades WHERE exit_time IS NULL ORDER BY entry_time DESC"
+            )
+            now = time.time()
+            for r in db_rows:
+                mint = r.get("mint", "")
+                entry_price = float(r.get("entry_price", 0) or 0)
+                current_price = 0.0
+                # Try Redis cached price (SOL → USD conversion)
+                try:
+                    cached = await redis_conn.get(f"token:latest_price:{mint}")
+                    if not cached:
+                        cached = await redis_conn.get(f"token:price:{mint}")
+                    if cached:
+                        sol_price_raw = await redis_conn.get("market:sol_price")
+                        sol_usd = float(sol_price_raw) if sol_price_raw else 80.0
+                        current_price = float(cached) * sol_usd
+                except Exception:
+                    pass
+                if current_price <= 0:
+                    current_price = entry_price  # fallback to entry
+
+                size_sol = float(r.get("amount_sol", 0) or 0)
+                entry_time = float(r.get("entry_time", 0) or 0)
+                unrealised_pnl_pct = ((current_price - entry_price) / entry_price * 100) if entry_price > 0 else 0
+                unrealised_pnl_sol = ((current_price - entry_price) / entry_price * size_sol) if entry_price > 0 else 0
+
+                positions.append({
+                    "key": f"{r.get('personality', '')}:{mint}",
+                    "mint": mint,
+                    "mint_full": mint,
+                    "mint_short": mint[:8] + "..." + mint[-4:] if len(mint) > 12 else mint,
+                    "personality": r.get("personality", ""),
+                    "size_sol": size_sol,
+                    "entry_price": entry_price,
+                    "current_price": current_price,
+                    "remaining_pct": 1.0,
+                    "entry_time": entry_time,
+                    "hold_seconds": int(now - entry_time) if entry_time > 0 else 0,
+                    "unrealised_pnl_sol": round(unrealised_pnl_sol, 6),
+                    "unrealised_pnl_pct": round(unrealised_pnl_pct, 2),
+                    "trailing_stop_active": bool(r.get("trailing_stop_active", False)),
+                    "trailing_stop_price": float(r.get("trailing_stop_price", 0) or 0),
+                    "peak_price": float(r.get("peak_price", 0) or 0),
+                    "rugcheck_risk": r.get("rugcheck_risk", "unknown"),
+                })
+            return web.json_response(positions)
         if not raw:
             return web.json_response(positions)
         status = json.loads(raw)
@@ -754,7 +804,7 @@ async def api_trades_active(request):
 
 
 async def api_personality_stats(request):
-    """Per-personality stats — queries paper_trades first, falls back to trades table."""
+    """Per-personality stats with best trade info."""
     stats = {}
     for personality in ["speed_demon", "analyst", "whale_tracker"]:
         # Try paper_trades first (primary in paper mode)
@@ -770,13 +820,31 @@ async def api_personality_stats(request):
             row = rows[0]
             total = row["total_trades"]
             wins = row.get("wins", 0) or 0
-            stats[personality] = {
+            pstat = {
                 "total_trades": total,
                 "wins": wins,
                 "losses": row.get("losses", 0) or 0,
                 "total_pnl_sol": float(row.get("total_pnl_sol", 0) or 0),
                 "win_rate": round(wins / total * 100, 1) if total > 0 else 0,
             }
+            # Best trade per personality
+            best = await _query_db(
+                """SELECT mint, realised_pnl_sol, realised_pnl_pct, entry_time,
+                    COALESCE(exit_time - entry_time, 0) as hold_sec
+                FROM paper_trades WHERE exit_time IS NOT NULL AND personality = $1
+                    AND realised_pnl_sol IS NOT NULL
+                ORDER BY realised_pnl_sol DESC LIMIT 1""",
+                personality,
+            )
+            if best and best[0].get("realised_pnl_sol"):
+                b = best[0]
+                pstat["best_trade"] = {
+                    "mint": b.get("mint", "")[:12],
+                    "pnl_sol": round(float(b["realised_pnl_sol"]), 4),
+                    "pnl_pct": round(float(b.get("realised_pnl_pct", 0) or 0), 1),
+                    "hold_min": round(float(b.get("hold_sec", 0) or 0) / 60, 1),
+                }
+            stats[personality] = pstat
             continue
         # Fallback to trades table
         rows = await _query_db(
@@ -821,8 +889,27 @@ async def api_treasury(request):
 
 
 async def api_governance(request):
-    """Governance status — reads from PostgreSQL first, file fallback."""
-    result = {"notes": "", "pending_whale_review": False, "recent_decisions": [], "notes_length": 0}
+    """Governance status — structured decision from Redis + notes from PostgreSQL."""
+    result = {"notes": "", "pending_whale_review": False, "recent_decisions": [], "notes_length": 0,
+              "mode": "CONSERVATIVE", "reasoning": "", "speed_demon_enabled": True,
+              "analyst_enabled": True, "whale_tracker_enabled": True, "size_multiplier": 1.0}
+    # Read structured governance decision from Redis
+    redis_conn = request.app.get("redis")
+    if redis_conn:
+        try:
+            gov_raw = await redis_conn.get("governance:latest_decision")
+            if gov_raw:
+                gov = json.loads(gov_raw)
+                result["mode"] = gov.get("mode", "CONSERVATIVE")
+                result["reasoning"] = gov.get("reasoning", "")
+                result["speed_demon_enabled"] = gov.get("speed_demon_enabled", True)
+                result["analyst_enabled"] = gov.get("analyst_enabled", True)
+                result["whale_tracker_enabled"] = gov.get("whale_tracker_enabled", True)
+                result["size_multiplier"] = gov.get("size_multiplier", 1.0)
+            else:
+                result["reasoning"] = "Governance offline — using CONSERVATIVE defaults"
+        except Exception:
+            pass
     try:
         rows = await _query_db(
             "SELECT content, appended_at FROM governance_notes_log ORDER BY appended_at DESC LIMIT 50"
@@ -893,21 +980,48 @@ async def api_ml_status(request):
                 result["features"] = fi if isinstance(fi, dict) and fi else data.get("features", [])
             except Exception:
                 pass
-    # Redis fallback — ML engine stores model info here
-    if not result["trained"]:
-        redis_conn = request.app.get("redis")
-        if redis_conn:
-            try:
-                ml_raw = await redis_conn.get("ml:model:meta")
-                if ml_raw:
-                    ml_meta = json.loads(ml_raw)
-                    sc = ml_meta.get("sample_count", ml_meta.get("n_samples", 0))
-                    result["trained"] = sc >= 50
-                    result["bootstrap_mode"] = sc < 200
+    # Redis — ML accelerated engine stores metadata as hash in ml:model:meta
+    redis_conn = request.app.get("redis")
+    if redis_conn:
+        try:
+            ml_meta = await redis_conn.hgetall("ml:model:meta")
+            if ml_meta:
+                auc_val = ml_meta.get("auc") or ml_meta.get(b"auc")
+                samples_val = ml_meta.get("samples") or ml_meta.get(b"samples")
+                features_val = ml_meta.get("features") or ml_meta.get(b"features")
+                last_train_val = ml_meta.get("last_train") or ml_meta.get(b"last_train")
+                phase_val = ml_meta.get("phase") or ml_meta.get(b"phase")
+                cold_start_val = ml_meta.get("cold_start") or ml_meta.get(b"cold_start")
+
+                if auc_val:
+                    auc_f = float(auc_val)
+                    if auc_f > 0:
+                        result["accuracy_last_100"] = result["accuracy_last_100"] or auc_f
+                if samples_val:
+                    sc = int(samples_val)
                     result["sample_count"] = max(result["sample_count"], sc)
-                    result["accuracy_last_100"] = result["accuracy_last_100"] or ml_meta.get("auc", ml_meta.get("accuracy"))
-                    result["last_train_time"] = result["last_train_time"] or ml_meta.get("trained_at")
-                    result["features"] = result["features"] or ml_meta.get("feature_importance", ml_meta.get("features", []))
+                    if sc >= 50:
+                        result["trained"] = True
+                    result["bootstrap_mode"] = sc < 200
+                if features_val:
+                    result["feature_count"] = features_val if isinstance(features_val, str) else features_val.decode() if isinstance(features_val, bytes) else str(features_val)
+                if last_train_val:
+                    result["last_train_time"] = result["last_train_time"] or (last_train_val if isinstance(last_train_val, str) else last_train_val.decode())
+                if phase_val:
+                    result["phase"] = phase_val if isinstance(phase_val, str) else phase_val.decode()
+                if cold_start_val:
+                    cs = cold_start_val if isinstance(cold_start_val, str) else cold_start_val.decode()
+                    result["cold_start"] = cs == "true"
+        except Exception as e:
+            logger.debug("Redis ml:model:meta read error: %s", e)
+
+        # Also try individual keys (legacy accelerated engine format)
+        if not result.get("accuracy_last_100"):
+            try:
+                auc_raw = await redis_conn.get("ml:model:cv_auc")
+                if auc_raw:
+                    result["accuracy_last_100"] = float(auc_raw)
+                    result["trained"] = True
             except Exception:
                 pass
 
@@ -2197,12 +2311,17 @@ async def api_exit_analysis(request):
 
 
 async def api_win_rates(request):
-    """Rolling win rates: last 10, 25, 50 trades."""
-    result = {"wr_10": 0, "wr_25": 0, "wr_50": 0}
+    """Rolling win rates: last 10, 25, 50 trades with win/total counts."""
+    result = {"wr_10": 0, "wr_25": 0, "wr_50": 0,
+              "wins_10": 0, "total_10": 0,
+              "wins_25": 0, "total_25": 0,
+              "wins_50": 0, "total_50": 0}
     for window, key in [(10, "wr_10"), (25, "wr_25"), (50, "wr_50")]:
         try:
             rows = await _query_db(
-                f"""SELECT ROUND(100.0 * COUNT(CASE WHEN realised_pnl_sol > 0 THEN 1 END)
+                f"""SELECT COUNT(*) as total,
+                    COUNT(CASE WHEN realised_pnl_sol > 0 THEN 1 END) as wins,
+                    ROUND(100.0 * COUNT(CASE WHEN realised_pnl_sol > 0 THEN 1 END)
                     / NULLIF(COUNT(*), 0), 1) as wr
                 FROM (SELECT realised_pnl_sol FROM paper_trades
                       WHERE exit_time IS NOT NULL
@@ -2210,6 +2329,8 @@ async def api_win_rates(request):
             )
             if rows and rows[0].get("wr") is not None:
                 result[key] = float(rows[0]["wr"])
+                result[f"wins_{window}"] = int(rows[0].get("wins", 0) or 0)
+                result[f"total_{window}"] = int(rows[0].get("total", 0) or 0)
         except Exception:
             pass
     return web.json_response(result)
