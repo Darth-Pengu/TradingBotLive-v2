@@ -160,16 +160,21 @@ async def paper_buy(
     sig = f"PAPER_{uuid.uuid4().hex[:16]}"
     now = time.time()
 
+    # Calculate market cap (pump.fun tokens = 1 billion supply)
+    total_supply = 1_000_000_000
+    market_cap = entry_price * total_supply if entry_price > 0 else 0
+
     # Store in PostgreSQL
     trade_id = await pg_pool.fetchval(
         """INSERT INTO paper_trades
            (mint, personality, entry_price, amount_sol, slippage_pct, fees_sol,
             entry_time, signal_source, ml_score, entry_signature,
-            market_mode_at_entry, fear_greed_at_entry, rugcheck_risk)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            market_mode_at_entry, fear_greed_at_entry, rugcheck_risk, market_cap_at_entry)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
            RETURNING id""",
         mint, personality, entry_price, net_amount, slippage, fees,
         now, signal_source, ml_score, sig, market_mode, fear_greed, rugcheck_risk,
+        market_cap,
     )
 
     # Store in Redis for live tracking
@@ -253,13 +258,19 @@ async def paper_sell(
     outcome = "profit" if pnl_sol > 0 else "loss"
     sig = f"PAPER_{uuid.uuid4().hex[:16]}"
 
+    # Calculate exit market cap
+    total_supply = 1_000_000_000
+    market_cap_exit = exit_price * total_supply if exit_price > 0 else 0
+
     # Update PostgreSQL
     if trade_id:
         await pg_pool.execute(
             """UPDATE paper_trades SET exit_price=$1, exit_time=$2, hold_seconds=$3,
-               realised_pnl_sol=$4, realised_pnl_pct=$5, exit_reason=$6, exit_signature=$7
+               realised_pnl_sol=$4, realised_pnl_pct=$5, exit_reason=$6, exit_signature=$7,
+               market_cap_at_exit=$9
                WHERE id=$8""",
             exit_price, time.time(), hold_seconds, pnl_sol, pnl_pct, reason, sig, trade_id,
+            market_cap_exit,
         )
 
     # Update Redis stats

@@ -757,6 +757,8 @@ async def api_trades(request):
             "entry_time": _safe_isoformat(r.get("entry_time")),
             "exit_time": _safe_isoformat(r.get("exit_time")),
             "rugcheck_risk": r.get("rugcheck_risk", "unknown"),
+            "market_cap_at_entry": float(r.get("market_cap_at_entry", 0) or 0),
+            "market_cap_at_exit": float(r.get("market_cap_at_exit", 0) or 0),
         })
     return web.json_response(trades)
 
