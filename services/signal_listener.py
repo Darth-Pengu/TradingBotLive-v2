@@ -300,6 +300,23 @@ async def _token_subscribe_listener(redis_conn: aioredis.Redis | None, ws_ref: l
     Dynamically subscribe/unsubscribe PumpPortal token trade streams."""
     if not redis_conn:
         return
+
+    # On startup, load any existing token subscriptions from Redis
+    # (handles case where bot_core published before we started listening)
+    try:
+        cursor = 0
+        while True:
+            cursor, keys = await redis_conn.scan(cursor, match="token:subscribed:*", count=100)
+            for key in keys:
+                mint = key.split(":")[-1] if isinstance(key, str) else key.decode().split(":")[-1]
+                _subscribed_tokens.add(mint)
+            if cursor == 0:
+                break
+        if _subscribed_tokens:
+            logger.info("Loaded %d existing token subscriptions from Redis", len(_subscribed_tokens))
+    except Exception as e:
+        logger.debug("Failed to load existing subscriptions: %s", e)
+
     pubsub = redis_conn.pubsub()
     await pubsub.subscribe("token:subscribe")
     logger.info("Token subscribe listener started — waiting for bot_core messages")
