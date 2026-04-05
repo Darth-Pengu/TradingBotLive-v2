@@ -1037,6 +1037,24 @@ class BotCore:
                     elapsed_min = (time.time() - pos.entry_time) / 60
                     elapsed_hrs = elapsed_min / 60
 
+                    # Log when price is missing — critical for diagnosing missed exits
+                    if current_price <= 0 and elapsed_min > 1:
+                        logger.warning("NO_PRICE: %s %s — held %.1fm, price=0 (exits disabled)",
+                                      pos.personality, pos.mint[:12], elapsed_min)
+
+                    # Update peak_price and persist to DB for staged exit tracking
+                    if current_price > 0 and current_price > pos.peak_price:
+                        pos.peak_price = current_price
+                        if pos.trade_id:
+                            try:
+                                table = "paper_trades" if TEST_MODE else "trades"
+                                await self.pool.execute(
+                                    f"UPDATE {table} SET peak_price = $1 WHERE id = $2",
+                                    current_price, pos.trade_id,
+                                )
+                            except Exception:
+                                pass
+
                     # 90-second momentum check for speed_demon
                     early_check_sec = float(os.getenv("SD_EARLY_CHECK_SECONDS", "90"))
                     early_min_move = float(os.getenv("SD_EARLY_MIN_MOVE_PCT", "2.0"))
