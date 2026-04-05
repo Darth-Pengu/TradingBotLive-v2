@@ -324,6 +324,88 @@ def _score_rugcheck(rugcheck: dict) -> tuple:
 _socialdata_last_call = 0.0
 
 
+async def _fetch_token_metadata_socials(session: aiohttp.ClientSession, signal: dict,
+                                         redis_conn: aioredis.Redis | None = None) -> dict:
+    """Fetch IPFS/arweave metadata URI to extract Twitter/Telegram/Website links.
+    PumpPortal sometimes provides these directly, but metadata URI is more reliable."""
+    raw = signal.get("raw_data", {})
+    uri = raw.get("uri") or raw.get("metadata_uri") or raw.get("metadataUri", "")
+
+    # If signal already has twitter_url from PumpPortal, skip fetch
+    if signal.get("twitter_url") or signal.get("has_twitter"):
+        return {}
+
+    if not uri or len(uri) < 10:
+        return {}
+
+    cache_key = f"meta:socials:{signal.get('mint', '')[:20]}"
+    if redis_conn:
+        try:
+            cached = await redis_conn.get(cache_key)
+            if cached:
+                return json.loads(cached)
+        except Exception:
+            pass
+
+    try:
+        fetch_url = uri
+        if uri.startswith("ipfs://"):
+            fetch_url = f"https://cf-ipfs.com/ipfs/{uri[7:]}"
+        elif not uri.startswith("http"):
+            fetch_url = f"https://cf-ipfs.com/ipfs/{uri}"
+
+        async with session.get(fetch_url, timeout=aiohttp.ClientTimeout(total=4)) as resp:
+            if resp.status != 200:
+                return {}
+            metadata = await resp.json()
+
+        twitter = metadata.get("twitter", "") or ""
+        telegram = metadata.get("telegram", "") or ""
+        website = metadata.get("website", "") or ""
+
+        import re
+        twitter_handle = ""
+        if twitter:
+            match = re.search(r'(?:twitter\.com|x\.com)/@?(\w+)', twitter)
+            if match:
+                twitter_handle = match.group(1)
+
+        result = {}
+        if twitter_handle:
+            result["twitter_url"] = twitter
+            result["twitter_handle"] = twitter_handle
+            result["has_twitter"] = True
+            signal["twitter_url"] = twitter
+            signal["has_twitter"] = True
+        if telegram:
+            result["has_telegram"] = True
+            signal["has_telegram"] = True
+        if website and "ipfs" not in website.lower():
+            result["has_website"] = True
+            signal["has_website"] = True
+
+        social_count = sum([bool(twitter_handle), bool(telegram),
+                           bool(website) and "ipfs" not in website.lower()])
+        if social_count > 0:
+            signal["has_social"] = True
+            result["social_count"] = social_count
+            logger.info("METADATA_SOCIALS: %s twitter=@%s tg=%s web=%s",
+                       signal.get("mint", "")[:12], twitter_handle or "-",
+                       bool(telegram), bool(website))
+
+        if redis_conn and result:
+            try:
+                await redis_conn.set(cache_key, json.dumps(result), ex=3600)
+            except Exception:
+                pass
+
+        return result
+
+    except Exception as e:
+        logger.debug("Metadata fetch failed for %s: %s", signal.get("mint", "")[:12], e)
+        return {}
+
+
 async def _get_twitter_followers(session: aiohttp.ClientSession, twitter_url: str,
                                   redis_conn: aioredis.Redis | None = None) -> int:
     """Look up Twitter follower count via SocialData.tools. Returns -1 if unknown."""
@@ -1500,6 +1582,25 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
                             "ts": datetime.now(timezone.utc).isoformat(),
                         }))
                         await redis_conn.ltrim("debug:rugcheck_scores", 0, 49)
+                    except Exception:
+                        pass
+
+                # --- Fetch metadata URI for social links (if PumpPortal didn't provide them) ---
+                try:
+                    meta_socials = await _fetch_token_metadata_socials(session, signal, redis_conn)
+                except Exception:
+                    meta_socials = {}
+
+                # --- SocialData: look up Twitter followers if we have a handle ---
+                tw_handle = meta_socials.get("twitter_handle") or ""
+                if not tw_handle and signal.get("twitter_url"):
+                    tw_handle = signal["twitter_url"].rstrip("/").split("/")[-1].replace("@", "").split("?")[0]
+                if tw_handle and SOCIALDATA_API_KEY:
+                    try:
+                        tw_url = signal.get("twitter_url", f"https://twitter.com/{tw_handle}")
+                        followers = await _get_twitter_followers(session, tw_url, redis_conn)
+                        if followers > 0:
+                            signal.setdefault("raw_data", {})["twitter_followers"] = followers
                     except Exception:
                         pass
 
