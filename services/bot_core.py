@@ -82,13 +82,13 @@ EXIT_STRATEGIES = {
     },
     "analyst": {
         "staged_exits": [
-            {"at_multiple": 1.5, "sell_pct": 0.25},
-            {"at_multiple": 2.5, "sell_pct": 0.25},
-            {"at_multiple": 4.0, "sell_pct": 0.20},   # NEW 4x stage
+            {"at_multiple": 1.3, "sell_pct": 0.25},   # +30% — lock some profit early
+            {"at_multiple": 1.8, "sell_pct": 0.25},   # +80%
+            {"at_multiple": 3.0, "sell_pct": 0.20},   # +200%
         ],
-        "time_exit_minutes": 30,     # Was 45 — holding >30m has 0.6% WR
-        "max_hold_hours": 1,
-        "stop_loss_pct": 0.25,
+        "time_exit_minutes": 30,
+        "max_hold_hours": 2,
+        "stop_loss_pct": 0.20,       # Tighter for trending tokens
     },
     "whale_tracker": {
         "staged_exits": [
@@ -1044,6 +1044,12 @@ class BotCore:
         market_mode = self.portfolio.market_mode or "NORMAL"
         trail_mult = TRAILING_STOP_MARKET_MULTIPLIERS.get(market_mode, 1.0)
         trail_pct = base_trail_pct * trail_mult
+
+        # Tighten trailing for positions held >15 min in profit
+        hold_min = (time.time() - pos.entry_time) / 60
+        if hold_min > 15 and pos.trailing_stop_active:
+            trail_pct = min(trail_pct, 0.15)  # Max 15% trail after 15 min
+
         entry = pos.entry_price
         table = "paper_trades" if TEST_MODE else "trades"
 
@@ -1182,16 +1188,20 @@ class BotCore:
                                 pass
 
                     # 90-second momentum check for speed_demon
+                    # Skip if staged exits already fired (token proved itself)
                     early_check_sec = float(os.getenv("SD_EARLY_CHECK_SECONDS", "90"))
                     early_min_move = float(os.getenv("SD_EARLY_MIN_MOVE_PCT", "2.0"))
                     if pos.personality == "speed_demon" and current_price > 0 and entry > 0:
-                        hold_sec = time.time() - pos.entry_time
-                        if early_check_sec - 10 < hold_sec < early_check_sec + 30:
-                            pnl_pct = (current_price - entry) / entry * 100
-                            if pnl_pct < early_min_move:
-                                logger.info("NO MOMENTUM 90s: %s %.1f%%", pos.mint[:8], pnl_pct)
-                                await self._close_position(pos, "no_momentum_90s")
-                                continue
+                        if pos.staged_exits_done:
+                            pass  # Already hit TP — let trailing ride, skip momentum check
+                        else:
+                            hold_sec = time.time() - pos.entry_time
+                            if early_check_sec - 10 < hold_sec < early_check_sec + 30:
+                                pnl_pct = (current_price - entry) / entry * 100
+                                if pnl_pct < early_min_move:
+                                    logger.info("NO MOMENTUM 90s: %s %.1f%%", pos.mint[:8], pnl_pct)
+                                    await self._close_position(pos, "no_momentum_90s")
+                                    continue
 
                     # Graduation-specific exit strategy (overrides standard exits)
                     if getattr(pos, "signal_type", None) == "graduation":
