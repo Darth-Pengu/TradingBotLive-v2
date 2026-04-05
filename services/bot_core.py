@@ -762,10 +762,13 @@ class BotCore:
                     except Exception:
                         pass
 
-                if outcome == "loss":
+                # Don't count stale_no_price exits as consecutive losses
+                # (dead tokens being cleaned up, not real trading losses)
+                is_stale = reason in ("stale_no_price", "stale_force_closed")
+                if outcome == "loss" and not is_stale:
                     self.portfolio.consecutive_losses[pos.personality] = \
                         self.portfolio.consecutive_losses.get(pos.personality, 0) + 1
-                else:
+                elif outcome != "loss":
                     self.portfolio.consecutive_losses[pos.personality] = 0
                 key = f"{pos.personality}:{pos.mint}"
                 self.positions.pop(key, None)
@@ -803,8 +806,10 @@ class BotCore:
                     await self.redis.sadd("traded:mints", pos.mint)
                     await self.redis.expire("traded:mints", 7200)
                     # Consecutive loss counter (Redis + PostgreSQL)
+                    # Don't count stale exits as consecutive losses
                     aggressive_paper = os.getenv("AGGRESSIVE_PAPER_TRADING", "").lower() == "true"
-                    if outcome == "loss":
+                    is_stale_exit = reason in ("stale_no_price", "stale_force_closed")
+                    if outcome == "loss" and not is_stale_exit:
                         consec = await self.redis.incr("bot:consecutive_losses")
                         if not aggressive_paper:
                             # Only pause entries in non-aggressive mode
