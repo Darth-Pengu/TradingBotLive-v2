@@ -623,15 +623,21 @@ class BotCore:
         # Enforce min/max limits only if risk manager approved
         size_sol = max(0.15, min(size_sol, 1.50))
 
-        # CHANGE 4: Time-of-day sizing (AEDT — Sydney)
+        # CHANGE 4: Time-of-day sizing (AEDT — Sydney) — data-driven from 426-trade analysis
         from datetime import timedelta as _td
         aedt_hour = datetime.now(timezone(_td(hours=11))).hour
-        if aedt_hour in (7, 8, 9, 21):
-            size_sol *= 1.25
-            logger.info("TIME_BOOST: hour=%d AEDT — 1.25x sizing", aedt_hour)
-        elif aedt_hour in (2, 3, 4, 5, 11, 12):
-            size_sol *= 0.50
-            logger.info("TIME_REDUCE: hour=%d AEDT — 0.5x sizing", aedt_hour)
+        if aedt_hour in (18, 19, 20):
+            size_sol *= 2.0
+            logger.info("TIME_PRIME: hour=%d AEDT — 2.0x sizing (peak WR hours)", aedt_hour)
+        elif aedt_hour in (7, 8, 9, 21):
+            size_sol *= 1.5
+            logger.info("TIME_GOOD: hour=%d AEDT — 1.5x sizing", aedt_hour)
+        elif aedt_hour in (11, 12, 13, 14, 15, 16):
+            size_sol *= 0.3
+            logger.info("TIME_DEAD: hour=%d AEDT — 0.3x sizing (0%% WR zone)", aedt_hour)
+        elif aedt_hour in (2, 3, 4, 5):
+            size_sol *= 0.3
+            logger.info("TIME_SLEEP: hour=%d AEDT — 0.3x sizing (dead zone)", aedt_hour)
 
         # CHANGE 6: Weekend sizing boost (50% of big winners on weekends)
         aedt_weekday = datetime.now(timezone(_td(hours=11))).weekday()
