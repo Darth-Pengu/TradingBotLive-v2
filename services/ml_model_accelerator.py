@@ -30,6 +30,10 @@ from services.db import get_pool
 
 load_dotenv()
 
+# TabPFN: allow CPU training with large datasets (Railway has no GPU)
+# Must be set BEFORE tabpfn is imported anywhere
+os.environ["TABPFN_ALLOW_CPU_LARGE_DATASET"] = "1"
+
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL),
