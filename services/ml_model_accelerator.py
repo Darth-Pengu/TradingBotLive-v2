@@ -139,6 +139,29 @@ class AcceleratedMLEngine:
             return 3
 
     def _make_tabpfn(self):
+        # Inject TABPFN_TOKEN before import triggers browser auth
+        token = os.getenv("TABPFN_TOKEN", "")
+        if token:
+            try:
+                from tabpfn import config as tabpfn_config
+                # Write token to TabPFN's expected config location
+                config_dir = Path(tabpfn_config.__file__).parent / ".tabpfn"
+                config_dir.mkdir(parents=True, exist_ok=True)
+                config_path = config_dir / "config"
+                config_path.write_text(token)
+                logger.info("TabPFN: wrote auth token to %s", config_path)
+            except Exception as e:
+                logger.debug("TabPFN config write attempt: %s", e)
+            # Also try setting token directly on the config object
+            try:
+                from tabpfn import config as tabpfn_config
+                if hasattr(tabpfn_config, "g_tabpfn_config"):
+                    tabpfn_config.g_tabpfn_config.access_token = token
+                    logger.info("TabPFN: set access_token on g_tabpfn_config")
+            except Exception as e:
+                logger.debug("TabPFN direct config set: %s", e)
+            # Also set via environment for any subprocess
+            os.environ["TABPFN_TOKEN"] = token
         from tabpfn import TabPFNClassifier  # noqa: may not be installed
         return TabPFNClassifier()
 
@@ -392,41 +415,32 @@ class AcceleratedMLEngine:
                         features.get("bonding_curve_progress", 0),
                         int(features.get("token_age_seconds", 0)))
 
+        # Safe per-model scoring — never let a broken model poison the average
         try:
-            if self.phase == 1 and "tabpfn" in self.models:
-                proba = self.models["tabpfn"].predict_proba(X.values)[0]
-                method = "tabpfn"
-            elif self.phase == 2:
-                if "tabpfn" in self.models and "catboost" in self.models:
-                    p_tabpfn = self.models["tabpfn"].predict_proba(X.values)[0]
-                    p_cb = self.models["catboost"].predict_proba(X.values)[0]
-                    proba = 0.60 * p_tabpfn + 0.40 * p_cb
-                    method = "tabpfn+catboost"
-                elif "catboost" in self.models:
-                    proba = self.models["catboost"].predict_proba(X.values)[0]
-                    method = "catboost"
-                    logger.debug("Phase 2 scoring without TabPFN")
-                elif "tabpfn" in self.models:
-                    proba = self.models["tabpfn"].predict_proba(X.values)[0]
-                    method = "tabpfn"
-                else:
-                    return 50.0, False
+            probas = {}
+            for name, model in self.models.items():
+                try:
+                    probas[name] = model.predict_proba(X.values)[0]
+                except Exception as e:
+                    logger.warning("ML model %s predict failed: %s — excluding", name, e)
+
+            if not probas:
+                return 50.0, False
+
+            method = "+".join(probas.keys())
+
+            # Weighted ensemble based on phase and available models
+            if len(probas) == 1:
+                proba = list(probas.values())[0]
+            elif self.phase == 2 and "tabpfn" in probas and "catboost" in probas:
+                proba = 0.60 * probas["tabpfn"] + 0.40 * probas["catboost"]
+            elif self.phase >= 3 and len(probas) == 3:
+                proba = (0.35 * probas.get("tabpfn", np.zeros(2)) +
+                         0.35 * probas.get("catboost", np.zeros(2)) +
+                         0.30 * probas.get("lightgbm", np.zeros(2)))
             else:
-                if "tabpfn" in self.models:
-                    p_tabpfn = self.models["tabpfn"].predict_proba(X.values)[0]
-                    p_cb = self.models["catboost"].predict_proba(X.values)[0]
-                    p_lgbm = self.models["lightgbm"].predict_proba(X.values)[0]
-                    proba = (0.35 * p_tabpfn +
-                             0.35 * p_cb +
-                             0.30 * p_lgbm)
-                    method = "tabpfn+catboost+lightgbm"
-                else:
-                    # TabPFN unavailable — equal weight remaining models
-                    p_cb = self.models["catboost"].predict_proba(X.values)[0]
-                    p_lgbm = self.models["lightgbm"].predict_proba(X.values)[0]
-                    proba = 0.50 * p_cb + 0.50 * p_lgbm
-                    method = "catboost+lightgbm"
-                    logger.debug("Phase 3 scoring without TabPFN")
+                # Equal weight whatever models survived
+                proba = sum(probas.values()) / len(probas)
 
             # For binary classification: proba[1] is P(win)
             if len(proba) == 2:
@@ -437,7 +451,7 @@ class AcceleratedMLEngine:
             return round(max(5.0, min(95.0, score)), 1), True
 
         except Exception as e:
-            logger.error("Prediction error (%s): %s", method if "method" in dir() else "unknown", e)
+            logger.error("Prediction error: %s", e)
             return 50.0, False
 
     def predict_detailed(self, features: dict) -> dict:
