@@ -1902,6 +1902,14 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
                 bc_progress = features["bonding_curve_progress"]
 
                 for personality in targets:
+                    # Analyst pause in extreme fear — auto-enables when CFGI > 20
+                    # Data: 17 analyst trades at CFGI<15 = 0 wins, -0.057 SOL
+                    if personality == "analyst":
+                        cfgi_val = float(features.get("cfgi_score", 50))
+                        if cfgi_val < 20:
+                            logger.info("ANALYST_PAUSE: %s CFGI=%.0f — analyst disabled in extreme fear", mint[:12], cfgi_val)
+                            continue
+
                     # FIX 15: Speed demon age tightening (60s max)
                     if personality == "speed_demon" and age_sec > 60:
                         logger.info("AGE REJECT %s for speed_demon: %ds > 60s", mint[:12], age_sec)
