@@ -162,8 +162,10 @@ class AcceleratedMLEngine:
                 logger.debug("TabPFN direct config set: %s", e)
             # Also set via environment for any subprocess
             os.environ["TABPFN_TOKEN"] = token
+        # Allow CPU with large datasets (Railway has no GPU)
+        os.environ["TABPFN_ALLOW_CPU_LARGE_DATASET"] = "1"
         from tabpfn import TabPFNClassifier  # noqa: may not be installed
-        return TabPFNClassifier()
+        return TabPFNClassifier(ignore_pretraining_limits=True)
 
     def _make_catboost(self, n_samples):
         from catboost import CatBoostClassifier
