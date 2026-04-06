@@ -1142,6 +1142,80 @@ async def nansen_screener_poller(redis_conn: aioredis.Redis | None):
 
 
 # ---------------------------------------------------------------------------
+# Periodic re-subscription + Jupiter price fallback for DEX tokens
+# ---------------------------------------------------------------------------
+JUPITER_API_KEY = os.getenv("JUPITER_API_KEY", "")
+
+
+async def _resub_and_price_poller(redis_conn: aioredis.Redis | None):
+    """Every 30s: re-subscribe held tokens on PumpPortal WS (handles reconnects)
+    and fetch Jupiter prices for tokens missing from Redis (DEX tokens)."""
+    if not redis_conn:
+        return
+    await asyncio.sleep(10)  # Let WS connect first
+    logger.info("Resub+price poller started")
+
+    while True:
+        try:
+            # Collect all subscribed mints
+            mints = []
+            async for key in redis_conn.scan_iter("token:subscribed:*", count=100):
+                mint = key.split(":")[-1] if isinstance(key, str) else key.decode().split(":")[-1]
+                mints.append(mint)
+
+            if not mints:
+                await asyncio.sleep(30)
+                continue
+
+            # Re-subscribe on PumpPortal WS (handles reconnect/subscription loss)
+            ws = _pumpportal_ws_ref[0] if _pumpportal_ws_ref else None
+            if ws:
+                try:
+                    await ws.send(json.dumps({"method": "subscribeTokenTrade", "keys": mints}))
+                    logger.debug("RESUB: refreshed %d token subscriptions", len(mints))
+                except Exception:
+                    pass
+
+            # Check which mints are missing prices in Redis
+            missing = []
+            for mint in mints:
+                price = await redis_conn.get(f"token:latest_price:{mint}")
+                if not price:
+                    missing.append(mint)
+
+            # Jupiter fallback for missing prices (DEX tokens or sparse-trade tokens)
+            if missing:
+                try:
+                    ids = ",".join(missing[:5])  # Max 5 at a time
+                    headers = {"x-api-key": JUPITER_API_KEY} if JUPITER_API_KEY else {}
+                    sol_price = float(await redis_conn.get("market:sol_price") or "80")
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(
+                            "https://api.jup.ag/price/v3",
+                            params={"ids": ids},
+                            headers=headers,
+                            timeout=aiohttp.ClientTimeout(total=5),
+                        ) as resp:
+                            if resp.status == 200:
+                                data = await resp.json()
+                                for mint in missing[:5]:
+                                    usd_price = data.get("data", {}).get(mint, {}).get("usdPrice")
+                                    if usd_price and float(usd_price) > 0:
+                                        sol_per_token = float(usd_price) / sol_price if sol_price > 0 else 0
+                                        if sol_per_token > 0:
+                                            await redis_conn.set(f"token:latest_price:{mint}", str(sol_per_token), ex=600)
+                                            await redis_conn.set(f"token:price:{mint}", str(sol_per_token), ex=600)
+                                            logger.info("PRICE_JUPITER_FILL: %s = %.10f SOL ($%.8f)", mint[:12], sol_per_token, float(usd_price))
+                except Exception as e:
+                    logger.debug("Jupiter price fill error: %s", e)
+
+        except Exception as e:
+            logger.warning("Resub+price poller error: %s", e)
+
+        await asyncio.sleep(30)
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 async def main():
@@ -1177,6 +1251,7 @@ async def main():
     await asyncio.gather(
         pumpportal_listener(redis_conn),
         _token_subscribe_listener(redis_conn),
+        _resub_and_price_poller(redis_conn),
         gecko_poller(redis_conn),
         gecko_trending_poller(redis_conn),
         dexpaprika_listener(redis_conn),
