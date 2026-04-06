@@ -397,8 +397,14 @@ async def pumpportal_listener(redis_conn: aioredis.Redis | None):
                     if not mint:
                         continue
 
-                    # Track buy/sell for real-time ratio calculation + cache price + publish stats
+                    # Diagnostic: log ANY event for subscribed (held) tokens
                     tx_type = data.get("txType", "")
+                    if mint in _subscribed_tokens:
+                        sol_amt = data.get("solAmount", data.get("sol_amount", "?"))
+                        tok_amt = data.get("tokenAmount", data.get("token_amount", "?"))
+                        logger.info("HELD_TOKEN_EVENT: %s txType=%s sol=%s tok=%s keys=%s",
+                                    mint[:12], tx_type or "NONE", sol_amt, tok_amt,
+                                    ",".join(sorted(data.keys())[:8]))
                     if tx_type in ("buy", "sell"):
                         _update_trade_tracker(mint, tx_type)
                         # Track unique buyers
