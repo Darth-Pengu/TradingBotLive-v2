@@ -397,14 +397,7 @@ async def pumpportal_listener(redis_conn: aioredis.Redis | None):
                     if not mint:
                         continue
 
-                    # Diagnostic: log ANY event for subscribed (held) tokens
                     tx_type = data.get("txType", "")
-                    if mint in _subscribed_tokens:
-                        sol_amt = data.get("solAmount", data.get("sol_amount", "?"))
-                        tok_amt = data.get("tokenAmount", data.get("token_amount", "?"))
-                        logger.info("HELD_TOKEN_EVENT: %s txType=%s sol=%s tok=%s keys=%s",
-                                    mint[:12], tx_type or "NONE", sol_amt, tok_amt,
-                                    ",".join(sorted(data.keys())[:8]))
                     if tx_type in ("buy", "sell"):
                         _update_trade_tracker(mint, tx_type)
                         # Track unique buyers
@@ -423,7 +416,7 @@ async def pumpportal_listener(redis_conn: aioredis.Redis | None):
                                     await redis_conn.set(f"token:price:{mint}", str(trade_price), ex=600)
                                     await redis_conn.set(f"token:latest_price:{mint}", str(trade_price), ex=600)
                                     if is_subscribed:
-                                        logger.info("PRICE_CACHED: %s = %.10f SOL (subscribed, TTL=600s)", mint[:12], trade_price)
+                                        logger.debug("PRICE_CACHED: %s = %.10f SOL (subscribed, TTL=600s)", mint[:12], trade_price)
                                 elif is_subscribed:
                                     logger.warning("PRICE_SKIP: %s sol=%.6f tok=%.1f (zero amounts)", mint[:12], sol_amount, token_amount)
                             except Exception as e:
