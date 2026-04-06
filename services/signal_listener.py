@@ -407,6 +407,7 @@ async def pumpportal_listener(redis_conn: aioredis.Redis | None):
                             _trade_tracker[mint].setdefault("unique_buyers", set()).add(buyer)
 
                         if redis_conn:
+                            is_subscribed = mint in _subscribed_tokens
                             try:
                                 # Cache latest trade price for exit checker
                                 sol_amount = float(data.get("solAmount", data.get("sol_amount", 0)) or 0)
@@ -414,20 +415,39 @@ async def pumpportal_listener(redis_conn: aioredis.Redis | None):
                                 if sol_amount > 0 and token_amount > 0:
                                     trade_price = sol_amount / token_amount
                                     await redis_conn.set(f"token:price:{mint}", str(trade_price), ex=600)
-                                    # Also set token:latest_price for exit checker + dashboard
                                     await redis_conn.set(f"token:latest_price:{mint}", str(trade_price), ex=600)
+                                    if is_subscribed:
+                                        logger.info("PRICE_CACHED: %s = %.10f SOL (subscribed, TTL=600s)", mint[:12], trade_price)
+                                elif is_subscribed:
+                                    logger.warning("PRICE_SKIP: %s sol=%.6f tok=%.1f (zero amounts)", mint[:12], sol_amount, token_amount)
+                            except Exception as e:
+                                logger.warning("PRICE_CACHE_ERR: %s — %s", mint[:12], e)
 
-                                # Store bonding curve reserves for exit pricing fallback
+                            # Store bonding curve reserves for exit pricing fallback
+                            try:
                                 v_sol_bc = data.get("vSolInBondingCurve") or data.get("vsolInBondingCurve")
                                 v_tokens_bc = data.get("vTokensInBondingCurve") or data.get("vtokensInBondingCurve")
-                                if v_sol_bc and v_tokens_bc and mint in _subscribed_tokens:
-                                    await redis_conn.hset(f"token:reserves:{mint}", mapping={
-                                        "vSol": str(v_sol_bc),
-                                        "vTokens": str(v_tokens_bc),
-                                    })
-                                    await redis_conn.expire(f"token:reserves:{mint}", 600)
+                                if v_sol_bc and v_tokens_bc:
+                                    v_sol_f = float(v_sol_bc)
+                                    v_tok_f = float(v_tokens_bc)
+                                    if v_sol_f > 0 and v_tok_f > 0:
+                                        await redis_conn.hset(f"token:reserves:{mint}", mapping={
+                                            "vSol": str(v_sol_f),
+                                            "vTokens": str(v_tok_f),
+                                        })
+                                        await redis_conn.expire(f"token:reserves:{mint}", 600)
+                                        # For subscribed tokens: also cache BC price as latest_price fallback
+                                        if is_subscribed:
+                                            bc_price = v_sol_f / v_tok_f
+                                            existing = await redis_conn.get(f"token:latest_price:{mint}")
+                                            if not existing:
+                                                await redis_conn.set(f"token:latest_price:{mint}", str(bc_price), ex=600)
+                                                logger.info("PRICE_BC_FALLBACK: %s = %.10f SOL (from reserves)", mint[:12], bc_price)
+                            except Exception as e:
+                                logger.warning("RESERVES_ERR: %s — %s", mint[:12], e)
 
-                                # Publish trade stats to Redis for aggregator feature extraction
+                            # Publish trade stats to Redis for aggregator feature extraction
+                            try:
                                 entry = _trade_tracker.get(mint, {})
                                 buys = entry.get("buys", 0)
                                 sells = entry.get("sells", 0)
@@ -438,8 +458,28 @@ async def pumpportal_listener(redis_conn: aioredis.Redis | None):
                                     "unique_buyers": unique, "updated": str(time.time()),
                                 })
                                 await redis_conn.expire(f"token:stats:{mint}", 600)
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                logger.debug("STATS_ERR: %s — %s", mint[:12], e)
+
+                    # Also cache price from bonding curve data in CREATE events for subscribed tokens
+                    if tx_type == "create" or "bondingCurveKey" in data:
+                        if redis_conn and mint in _subscribed_tokens:
+                            try:
+                                v_sol_bc = data.get("vSolInBondingCurve") or data.get("vsolInBondingCurve")
+                                v_tokens_bc = data.get("vTokensInBondingCurve") or data.get("vtokensInBondingCurve")
+                                if v_sol_bc and v_tokens_bc:
+                                    v_sol_f = float(v_sol_bc)
+                                    v_tok_f = float(v_tokens_bc)
+                                    if v_sol_f > 0 and v_tok_f > 0:
+                                        bc_price = v_sol_f / v_tok_f
+                                        await redis_conn.set(f"token:latest_price:{mint}", str(bc_price), ex=600)
+                                        await redis_conn.hset(f"token:reserves:{mint}", mapping={
+                                            "vSol": str(v_sol_f), "vTokens": str(v_tok_f),
+                                        })
+                                        await redis_conn.expire(f"token:reserves:{mint}", 600)
+                                        logger.info("PRICE_CREATE_BC: %s = %.10f SOL (from create event)", mint[:12], bc_price)
+                            except Exception as e:
+                                logger.debug("CREATE_BC_ERR: %s — %s", mint[:12], e)
 
                     # Classify signal type
                     if tx_type == "create" or "bondingCurveKey" in data:
