@@ -1282,14 +1282,19 @@ def _apply_hard_filters(personality: str, signal: dict, rugcheck: dict) -> tuple
             return False, f"dev sold {dev_sold_pct}% > 20% (Helius enhanced)"
 
     if personality == "analyst":
-        liq = raw.get("liquidity_sol", raw.get("vSolInBondingCurve", 0))
-        if isinstance(liq, str):
-            try:
-                liq = float(liq)
-            except ValueError:
-                liq = 0
-        if liq < ANALYST_FILTERS["min_liquidity_sol"]:
-            return False, f"liquidity {liq} < {ANALYST_FILTERS['min_liquidity_sol']}"
+        # Trending/migration/graduation signals are already on DEX — skip liquidity check
+        # (GeckoTerminal trending doesn't include liquidity_sol in raw data)
+        sig_type = signal.get("signal_type", "")
+        liq_exempt = sig_type in ("trending", "migration", "graduation")
+        if not liq_exempt:
+            liq = raw.get("liquidity_sol", raw.get("vSolInBondingCurve", 0))
+            if isinstance(liq, str):
+                try:
+                    liq = float(liq)
+                except ValueError:
+                    liq = 0
+            if liq < ANALYST_FILTERS["min_liquidity_sol"]:
+                return False, f"liquidity {liq} < {ANALYST_FILTERS['min_liquidity_sol']}"
 
     # Rugcheck scoring is now handled separately via _score_rugcheck()
     # Only hard rejects (honeypot/blacklist/freeze/scam) block here;
