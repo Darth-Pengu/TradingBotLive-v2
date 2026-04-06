@@ -451,7 +451,18 @@ Rules:
         decision = {**GOVERNANCE_DEFAULTS, "mode": "CONSERVATIVE", "size_multiplier": 0.8,
                     "reasoning": f"classification failed: {str(e)[:100]}"}
 
-    # Store in Redis
+    # Store in PostgreSQL FIRST (permanent), then Redis (cache)
+    if pool:
+        try:
+            await pool.execute(
+                "INSERT INTO bot_state (key, value_text, updated_at) "
+                "VALUES ('governance_latest', $1, NOW()) "
+                "ON CONFLICT (key) DO UPDATE SET value_text=$1, updated_at=NOW()",
+                json.dumps(decision),
+            )
+        except Exception as e:
+            logger.warning("Governance PostgreSQL persist failed: %s", e)
+
     if redis_conn:
         await redis_conn.set("governance:latest_decision", json.dumps(decision), ex=28800)
         await redis_conn.set("governance:mode", decision["mode"], ex=28800)

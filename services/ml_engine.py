@@ -606,16 +606,20 @@ class MLModel:
             X = pd.DataFrame([row], columns=FEATURE_COLUMNS)
 
             probas = []
-            for m in (self.catboost_model, self.lgbm_model, self.xgb_model):
+            model_names = ["catboost", "lgbm", "xgb"]
+            for name, m in zip(model_names, (self.catboost_model, self.lgbm_model, self.xgb_model)):
                 if m is not None:
-                    probas.append(m.predict_proba(X)[0][1])
+                    try:
+                        probas.append(m.predict_proba(X)[0][1])
+                    except Exception as e:
+                        logger.warning("ML model %s failed: %s — excluding from ensemble", name, e)
 
             # Add FLAML as 4th ensemble member if available
             if self.flaml_model is not None:
                 try:
                     probas.append(self.flaml_model.predict_proba(X)[0][1])
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("ML model flaml failed: %s — excluding from ensemble", e)
 
             if not probas:
                 return 50.0, False

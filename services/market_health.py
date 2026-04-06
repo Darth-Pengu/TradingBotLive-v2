@@ -251,6 +251,10 @@ async def _publish_market_state(redis_conn: aioredis.Redis | None, state: dict):
     await redis_conn.set("market:health", json.dumps(state), ex=300)
     # Store mode as a simple key for bot_core startup check
     await redis_conn.set("market:mode:current", state["mode"])
+    # Keep market:sol_price in sync (bot_core exit checker reads this)
+    sol_price = state.get("sol_price")
+    if sol_price and float(sol_price) > 0:
+        await redis_conn.set("market:sol_price", str(sol_price), ex=300)
 
 
 async def _publish_emergency(redis_conn: aioredis.Redis | None, reason: str):

@@ -137,10 +137,10 @@ ML_BOOTSTRAP_THRESHOLDS = {
 # but allow most signals through. ML is unreliable at high scores (80+ = 0.8% WR).
 AGGRESSIVE_PAPER = os.getenv("AGGRESSIVE_PAPER_TRADING", "false").lower() == "true"
 if AGGRESSIVE_PAPER:
-    ML_THRESHOLDS = {"speed_demon": 25, "analyst": 25, "whale_tracker": 20}
-    ML_BOOTSTRAP_THRESHOLDS = {"speed_demon": 25, "analyst": 25, "whale_tracker": 20}
+    ML_THRESHOLDS = {"speed_demon": 30, "analyst": 30, "whale_tracker": 20}
+    ML_BOOTSTRAP_THRESHOLDS = {"speed_demon": 30, "analyst": 30, "whale_tracker": 20}
     logging.getLogger("signal_aggregator").warning(
-        "PAPER TRADING: ML threshold floor=25 (reject <25 garbage, accept rest)"
+        "PAPER TRADING: ML threshold floor=30 SD/AN, 20 WT (data shows 25-30 loses money)"
     )
 else:
     logging.getLogger("signal_aggregator").info(
@@ -1933,8 +1933,11 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
                         continue
 
                     # CHANGE 3: Liquidity velocity gate (winners avg 11.09, losers avg 3.45)
+                    # Exempt whale_tracker + trending/graduation (already validated by external demand)
+                    sig_type_local = signal.get("signal_type", "")
                     liq_vel = features.get("liquidity_velocity", 0)
-                    if liq_vel < 5.0 and personality != "whale_tracker":
+                    liq_exempt = personality == "whale_tracker" or sig_type_local in ("trending", "graduation", "migration")
+                    if liq_vel < 5.0 and not liq_exempt:
                         logger.info("LIQ_REJECT: %s liquidity_velocity=%.1f < 5.0", mint[:12], liq_vel)
                         continue
 
