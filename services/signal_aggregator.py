@@ -1975,6 +1975,11 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
                     else:
                         threshold = ML_BOOTSTRAP_THRESHOLDS.get(personality, 45)
 
+                    # Trending/migration signals have external validation — lower ML bar
+                    # ML model wasn't trained on trending tokens (missing BC features)
+                    if sig_type_local in ("trending", "migration", "graduation"):
+                        threshold = min(threshold, 10)
+
                     if market_mode == "FRENZY":
                         threshold -= 5
                     elif market_mode == "DEFENSIVE" and ml_trained:
