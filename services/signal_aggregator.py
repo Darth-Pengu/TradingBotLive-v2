@@ -1838,20 +1838,25 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
                     "token_freshness_score": math.exp(-float(signal.get("age_seconds", 0)) / 3600.0 / 6.0),
                     # Rugcheck risks array contains "mintAuthority" risk if authority is ACTIVE (not revoked = risky)
                     "mint_authority_revoked": 0.0 if any("mintauthority" in r.lower() for r in rugcheck.get("risk_names", [])) else 1.0,
-                    # === MemeTrans-derived features (defaults for live signals) ===
-                    "holder_gini": -1,
-                    "sniper_0s_num": -1,
-                    "sniper_0s_hold_pct": -1,
-                    "sniper_5s_ratio": -1,
-                    "early_top5_hold_ratio": -1,
-                    "early_top10_realized_pnl_mean": -1,
-                    "wash_ratio": -1,
-                    "tx_per_sec": -1,
-                    "sell_pressure": -1,
-                    "post_grad_holder_gini": -1,
-                    "cluster_num": -1,
-                    "cluster_holder_ratio": -1,
-                    "top10_pct_delta": -1,
+                    # === MemeTrans-derived features (live derivation where possible) ===
+                    "holder_gini": -1,                     # need getTokenAccounts for live
+                    "sniper_0s_num": -1,                   # no live equivalent
+                    "sniper_0s_hold_pct": -1,              # no live equivalent
+                    "sniper_5s_ratio": -1,                 # no live equivalent
+                    "early_top5_hold_ratio": -1,           # no live equivalent
+                    "early_top10_realized_pnl_mean": -1,   # no live equivalent
+                    # Derive wash_ratio from bot_transaction_ratio (same concept)
+                    "wash_ratio": float(raw.get("bot_transaction_ratio", -1)),
+                    # Derive tx_per_sec from live trade stats
+                    "tx_per_sec": round((live_buys + live_sells) / max(float(signal.get("age_seconds", 1)), 1), 4)
+                        if (live_buys + live_sells) > 0 else -1,
+                    # Derive sell_pressure from live buy/sell counts
+                    "sell_pressure": round(live_sells / max(live_buys + live_sells, 1), 4)
+                        if (live_buys + live_sells) > 0 else -1,
+                    "post_grad_holder_gini": -1,           # need post-grad holder data
+                    "cluster_num": -1,                     # need wallet clustering
+                    "cluster_holder_ratio": -1,            # need wallet clustering
+                    "top10_pct_delta": -1,                 # need pre/post grad data
                     # === Trending / multi-source features ===
                     "volume_1h_usd": float(raw.get("volume_1h_usd", 0)),
                     "trending_strength": float(raw.get("trending_strength", 0)),
