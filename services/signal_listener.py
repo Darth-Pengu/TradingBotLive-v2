@@ -1142,6 +1142,87 @@ async def nansen_screener_poller(redis_conn: aioredis.Redis | None):
 
 
 # ---------------------------------------------------------------------------
+# 7. Nansen Smart Money DEX Trades Poller (Whale Tracker signal source)
+# ---------------------------------------------------------------------------
+
+async def nansen_sm_dex_poller(redis_conn: aioredis.Redis | None):
+    """Poll Nansen SM DEX Trades every 5 min for new memecoin buys by smart money.
+    Uses distributed lock to prevent duplicate polling across replicas.
+    Replaces broken whale_tracker pipeline with pre-labeled SM data."""
+    if not redis_conn:
+        return
+    if not NANSEN_API_KEY:
+        logger.info("NANSEN_API_KEY not set — SM DEX poller disabled")
+        return
+
+    await asyncio.sleep(30)  # Let other pollers start first
+    logger.info("Nansen SM DEX poller started (5-min interval)")
+
+    while True:
+        try:
+            from services.nansen_client import acquire_poll_lock, nansen_post
+
+            # Distributed lock — only one instance polls at a time
+            lock_acquired = await acquire_poll_lock(redis_conn, "sm_dex_trades", ttl_sec=240)
+            if not lock_acquired:
+                logger.debug("SM DEX poll lock held by other instance, skipping")
+                await asyncio.sleep(300)
+                continue
+
+            # Query SM DEX trades: buys on Solana tokens < 24h old, < $1M mcap
+            from datetime import timedelta as _td
+            now = datetime.now(timezone.utc)
+            from_date = (now - _td(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            to_date = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+            async with aiohttp.ClientSession() as session:
+                result = await nansen_post(session, "/smart-money/dex-trades", {
+                    "chains": ["solana"],
+                    "action": "buy",
+                    "dateRange": {"from": from_date, "to": to_date},
+                    "includeSmartMoneyLabels": ["Fund", "All Time Smart Trader", "90D Smart Trader"],
+                    "order_by": "valueUsd",
+                    "order_by_direction": "desc",
+                }, redis_conn, cost=5)
+
+            if result:
+                data = result.get("data", result.get("result", []))
+                if isinstance(data, dict) and "rows" in data:
+                    data = data["rows"]
+                if isinstance(data, list):
+                    new_signals = 0
+                    for trade in data[:20]:  # Top 20 by USD value
+                        mint = trade.get("tokenAddress", trade.get("token_address", ""))
+                        if not mint:
+                            continue
+
+                        # Dedup: check if we've already sent this mint recently
+                        dedup_key = f"nansen:sm_dex_seen:{mint}"
+                        already_seen = await redis_conn.get(dedup_key)
+                        if already_seen:
+                            continue
+                        await redis_conn.set(dedup_key, "1", ex=3600)  # 1h dedup
+
+                        signal = _build_signal(mint, "nansen_sm_dex", "whale_tracker", {
+                            "name": trade.get("tokenSymbol", trade.get("symbol", "")),
+                            "symbol": trade.get("tokenSymbol", trade.get("symbol", "")),
+                            "trader_label": trade.get("traderLabel", trade.get("label", "")),
+                            "trade_value_usd": float(trade.get("valueUsd", trade.get("value_usd", 0)) or 0),
+                            "smart_money_signal": True,
+                        }, 0.0)
+                        await _push_signal(redis_conn, signal)
+                        new_signals += 1
+
+                    if new_signals > 0:
+                        logger.info("Nansen SM DEX: %d new signals from %d trades", new_signals, len(data))
+
+        except Exception as e:
+            logger.warning("Nansen SM DEX poller error: %s", e)
+
+        await asyncio.sleep(300)  # 5 minutes
+
+
+# ---------------------------------------------------------------------------
 # Periodic re-subscription + Jupiter price fallback for DEX tokens
 # ---------------------------------------------------------------------------
 JUPITER_API_KEY = os.getenv("JUPITER_API_KEY", "")
@@ -1256,6 +1337,7 @@ async def main():
         gecko_trending_poller(redis_conn),
         dexpaprika_listener(redis_conn),
         nansen_screener_poller(redis_conn),
+        nansen_sm_dex_poller(redis_conn),
         discord_nansen_poller(redis_conn),
         helius_whale_poller(redis_conn),
         telegram_listener(redis_conn),

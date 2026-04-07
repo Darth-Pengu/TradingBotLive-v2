@@ -593,12 +593,12 @@ async def _fetch_token_details(session: aiohttp.ClientSession, mint: str, redis_
         _fetch_creator_history(session, mint, redis_conn),
     ]
 
-    # Nansen enrichment (P0 + P1) — runs alongside free API fetches
+    # Always fetch free holder data (Helius + Vybe fallback)
+    fetch_tasks.append(_fetch_holder_data(session, mint))
+
+    # Nansen enrichment (flow features, labeled holders, SM count)
     if NANSEN_API_KEY:
         fetch_tasks.append(_fetch_nansen_enrichment(session, mint, redis_conn))
-    else:
-        # Fallback to Helius for holder data when Nansen unavailable
-        fetch_tasks.append(_fetch_holder_data(session, mint))
 
     results = await asyncio.gather(*fetch_tasks, return_exceptions=True)
 
@@ -611,13 +611,51 @@ async def _fetch_token_details(session: aiohttp.ClientSession, mint: str, redis_
 
 async def _fetch_nansen_enrichment(session: aiohttp.ClientSession, mint: str, redis_conn: aioredis.Redis | None = None) -> dict:
     """
-    Nansen per-token enrichment DISABLED — endpoints return 404 on current plan:
-    /nansen-scores/token, /tgm/token-current-top-holders, /tgm/token-recent-flows-summary
-    These were burning ~158K credits/day for zero value.
-    Re-enable when Nansen plan supports these endpoints.
-    ML features default to 0 when this returns empty (backwards compatible).
+    Nansen per-token enrichment — uses safeguarded nansen_client v3.
+    All calls go through 8-layer safeguards (budget, dry-run, circuit breaker, etc).
+    Returns empty dict gracefully if any safeguard blocks the call.
     """
-    return {}
+    try:
+        from services.nansen_client import (
+            get_token_flow_summary, parse_flow_summary,
+            get_labeled_top_holders, parse_labeled_holders,
+            get_smart_money_buyers,
+        )
+
+        # Fire all 3 enrichment calls concurrently (rate-limited internally)
+        flow_raw, holders_raw, buyers_raw = await asyncio.gather(
+            get_token_flow_summary(session, mint, redis_conn=redis_conn),
+            get_labeled_top_holders(session, mint, redis_conn=redis_conn),
+            get_smart_money_buyers(session, mint, redis_conn=redis_conn),
+            return_exceptions=True,
+        )
+
+        result = {}
+
+        # Parse flow data
+        if not isinstance(flow_raw, Exception):
+            flow_features = parse_flow_summary(flow_raw)
+            result.update(flow_features)
+
+        # Parse holder data
+        if not isinstance(holders_raw, Exception):
+            holder_features = parse_labeled_holders(holders_raw)
+            result.update(holder_features)
+
+        # Parse who-bought-sold for smart money count
+        if not isinstance(buyers_raw, Exception) and buyers_raw:
+            data = buyers_raw.get("data", buyers_raw.get("result", []))
+            if isinstance(data, dict) and "rows" in data:
+                data = data["rows"]
+            if isinstance(data, list):
+                result["nansen_sm_count"] = len(data)
+                result["whale_wallet_count"] = len(data)
+
+        return result
+
+    except Exception as e:
+        logger.debug("Nansen enrichment error for %s: %s", mint[:12], e)
+        return {}
 
 
 async def _fetch_holder_data(session: aiohttp.ClientSession, mint: str) -> dict:
