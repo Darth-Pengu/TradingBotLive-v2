@@ -621,7 +621,17 @@ async def _fetch_nansen_enrichment(session: aiohttp.ClientSession, mint: str, re
 
 
 async def _fetch_holder_data(session: aiohttp.ClientSession, mint: str) -> dict:
-    """Fetch top holder data via Helius getTokenLargestAccounts (RPC, gatekeeper fallback)."""
+    """Fetch top holder data via Helius, with Vybe Network fallback for pump.fun tokens."""
+    # Try Helius first
+    result = await _fetch_holder_data_helius(session, mint)
+    if result and result.get("holder_count_sample", 0) >= 5:
+        return result
+    # Vybe fallback (free, labeled holders, updated every 5 min)
+    return await _fetch_holder_data_vybe(session, mint)
+
+
+async def _fetch_holder_data_helius(session: aiohttp.ClientSession, mint: str) -> dict:
+    """Helius getTokenLargestAccounts RPC call."""
     payload = {
         "jsonrpc": "2.0", "id": 1,
         "method": "getTokenLargestAccounts",
@@ -650,6 +660,36 @@ async def _fetch_holder_data(session: aiohttp.ClientSession, mint: str) -> dict:
                 }
         except Exception as e:
             logger.debug("Helius holder data error for %s on %s: %s", mint[:12], rpc_url[:40], e)
+    return {}
+
+
+async def _fetch_holder_data_vybe(session: aiohttp.ClientSession, mint: str) -> dict:
+    """Vybe Network holder data fallback (free, labeled, 5-min updates)."""
+    if not VYBE_API_KEY:
+        return {}
+    try:
+        url = f"https://api.vybenetwork.com/token/{mint}/top-holders?limit=20"
+        headers = {"X-API-Key": VYBE_API_KEY}
+        async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+            if resp.status != 200:
+                return {}
+            data = await resp.json()
+            holders = data.get("data", data.get("holders", []))
+            if not holders:
+                return {}
+
+            amounts = [float(h.get("balance", h.get("amount", 0)) or 0) for h in holders[:20]]
+            total_supply_sample = sum(amounts)
+            top10_sum = sum(amounts[:10])
+            top10_pct = (top10_sum / total_supply_sample * 100) if total_supply_sample > 0 else 0
+
+            return {
+                "holder_count_sample": len(holders),
+                "top10_holder_pct": round(top10_pct, 1),
+                "source": "vybe",
+            }
+    except Exception as e:
+        logger.debug("Vybe holder data error for %s: %s", mint[:12], e)
     return {}
 
 
@@ -719,7 +759,7 @@ async def _fetch_creator_history(session: aiohttp.ClientSession, mint: str, redi
     if VYBE_API_KEY:
         try:
             url = f"https://api.vybenetwork.com/token/{mint}"
-            headers = {"Authorization": f"Bearer {VYBE_API_KEY}"}
+            headers = {"X-API-Key": VYBE_API_KEY}
             async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                 if resp.status == 200:
                     data = await resp.json()
