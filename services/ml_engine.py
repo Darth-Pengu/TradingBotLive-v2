@@ -999,7 +999,28 @@ async def main():
     try:
         redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True, max_connections=5)
         await redis_conn.ping()
-        logger.info("Redis connected")
+        # Publish model state to Redis for dashboard
+        await redis_conn.set("ml:engine:mode", "original")
+        status = "TRAINED" if model.is_trained else "UNTRAINED"
+        await redis_conn.set("ml:model:status", status)
+        feature_count = len(FEATURE_COLUMNS) if model.is_trained else 0
+        auc = model.cv_auc_mean if hasattr(model, "cv_auc_mean") and model.cv_auc_mean > 0 else 0
+        await redis_conn.hset("ml:model:meta", mapping={
+            "auc": f"{auc:.4f}" if auc > 0 else "0",
+            "samples": str(getattr(model, "sample_count", 0)),
+            "features": str(feature_count),
+            "last_train": datetime.now(timezone.utc).isoformat(),
+            "cold_start": "false" if model.is_trained else "true",
+            "status": status,
+            "engine": "original",
+        })
+        # Publish SHAP feature importance if available
+        fi = getattr(model, "_feature_importance", {})
+        if fi:
+            await redis_conn.set("ml:feature_importance", json.dumps(fi))
+            logger.info("Published SHAP feature importance to Redis (%d features)", len(fi))
+        logger.info("Redis connected — ml:engine:mode=original, status=%s, features=%d, AUC=%.4f",
+                     status, feature_count, auc)
     except Exception as e:
         logger.warning("Redis connection failed: %s -- scoring disabled", e)
 
