@@ -1176,13 +1176,16 @@ async def nansen_sm_dex_poller(redis_conn: aioredis.Redis | None):
             to_date = now.strftime("%Y-%m-%dT%H:%M:%SZ")
 
             async with aiohttp.ClientSession() as session:
-                result = await nansen_post(session, "/smart-money/dex-trades", {
+                # Use token-discovery screener with SM filter — returns top tokens
+                # where smart money is actively buying on Solana
+                result = await nansen_post(session, "/token-screener", {
                     "chains": ["solana"],
-                    "action": "buy",
-                    "dateRange": {"from": from_date, "to": to_date},
-                    "includeSmartMoneyLabels": ["Fund", "All Time Smart Trader", "90D Smart Trader"],
-                    "order_by": "valueUsd",
-                    "order_by_direction": "desc",
+                    "timeframe": "1h",
+                    "onlySmartTradersAndFunds": True,
+                    "marketCapUsd": {"from": 1000, "to": 1000000},
+                    "tokenAgeDays": {"from": 0, "to": 1},
+                    "orderBy": "netflow",
+                    "orderByDirection": "desc",
                 }, redis_conn, cost=5)
 
             if result:
@@ -1191,8 +1194,8 @@ async def nansen_sm_dex_poller(redis_conn: aioredis.Redis | None):
                     data = data["rows"]
                 if isinstance(data, list):
                     new_signals = 0
-                    for trade in data[:20]:  # Top 20 by USD value
-                        mint = trade.get("tokenAddress", trade.get("token_address", ""))
+                    for token in data[:20]:
+                        mint = token.get("token_address", token.get("tokenAddress", token.get("address", "")))
                         if not mint:
                             continue
 
@@ -1203,18 +1206,18 @@ async def nansen_sm_dex_poller(redis_conn: aioredis.Redis | None):
                             continue
                         await redis_conn.set(dedup_key, "1", ex=3600)  # 1h dedup
 
-                        signal = _build_signal(mint, "nansen_sm_dex", "whale_tracker", {
-                            "name": trade.get("tokenSymbol", trade.get("symbol", "")),
-                            "symbol": trade.get("tokenSymbol", trade.get("symbol", "")),
-                            "trader_label": trade.get("traderLabel", trade.get("label", "")),
-                            "trade_value_usd": float(trade.get("valueUsd", trade.get("value_usd", 0)) or 0),
+                        signal = _build_signal(mint, "nansen_sm_screener", "whale_tracker", {
+                            "name": token.get("name", token.get("tokenName", "")),
+                            "symbol": token.get("symbol", token.get("tokenSymbol", "")),
+                            "market_cap_usd": float(token.get("market_cap_usd", token.get("marketCapUsd", 0)) or 0),
+                            "netflow_usd": float(token.get("netflow", token.get("netflowUsd", 0)) or 0),
                             "smart_money_signal": True,
                         }, 0.0)
                         await _push_signal(redis_conn, signal)
                         new_signals += 1
 
                     if new_signals > 0:
-                        logger.info("Nansen SM DEX: %d new signals from %d trades", new_signals, len(data))
+                        logger.info("Nansen SM screener: %d new signals from %d tokens", new_signals, len(data))
 
         except Exception as e:
             logger.warning("Nansen SM DEX poller error: %s", e)
