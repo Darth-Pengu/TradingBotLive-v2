@@ -1467,8 +1467,8 @@ class BotCore:
             except Exception:
                 pass
 
-            # Budget gate
-            today_key = f"nansen:calls:{datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
+            # Budget gate — uses same key as nansen_client v3
+            today_key = f"nansen:credits:{datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
             try:
                 if self.redis:
                     calls_today = int(await self.redis.get(today_key) or 0)
@@ -1484,14 +1484,8 @@ class BotCore:
                     positions_to_check = list(self.positions.items())[:3]
                     for key, pos in positions_to_check:
                         try:
+                            # nansen_client v3 handles budget increment internally
                             sells = await get_smart_money_dex_sells(session, pos.mint, self.redis)
-                            # Track call count
-                            try:
-                                if self.redis:
-                                    await self.redis.incr(today_key)
-                                    await self.redis.expire(today_key, 86400)
-                            except Exception:
-                                pass
 
                             if sells and len(sells) > 0:
                                 sig_sells = [s for s in sells
