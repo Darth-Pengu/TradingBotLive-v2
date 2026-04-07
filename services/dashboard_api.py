@@ -2220,6 +2220,34 @@ async def api_portfolio_history_daily(request):
     return web.json_response(result)
 
 
+async def api_nansen_usage(request):
+    """Nansen API credit usage, call log, and safeguard status."""
+    redis_conn = request.app.get("redis")
+    if not redis_conn:
+        return web.json_response({"error": "no redis"}, status=503)
+
+    try:
+        from services.nansen_client import get_credit_usage, NANSEN_DRY_RUN
+        usage = await get_credit_usage(redis_conn)
+        usage["dry_run"] = NANSEN_DRY_RUN
+
+        # Circuit breaker status
+        breaker = await redis_conn.get("nansen:circuit_breaker")
+        usage["circuit_breaker"] = breaker if breaker else None
+
+        # Emergency stop
+        emergency = await redis_conn.get("nansen:emergency_stop")
+        usage["emergency_stop"] = bool(emergency)
+
+        # Recent call log (last 20)
+        raw_log = await redis_conn.lrange("nansen:call_log", 0, 19)
+        usage["recent_calls"] = [json.loads(entry) for entry in raw_log] if raw_log else []
+
+        return web.json_response(usage)
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+
 async def api_consolidated_health(request):
     """Consolidated API health with credit info — only relevant services."""
     result = []
@@ -2430,6 +2458,7 @@ def create_app() -> web.Application:
     app.router.add_get("/api/signals", api_signals_evaluated)
     app.router.add_get("/api/portfolio-history-daily", api_portfolio_history_daily)
     app.router.add_get("/api/api-health", api_consolidated_health)
+    app.router.add_get("/api/nansen-usage", api_nansen_usage)
     app.router.add_get("/ws", ws_handler)
     app.router.add_get("/dashboard/{filename}", handle_static)
 
