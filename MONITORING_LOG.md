@@ -84,6 +84,16 @@
 - [Iter 11] Fixed bot_core budget key mismatch (calls → credits)
 - [Iter 13] Feature coverage logging every 50 predictions
 
+### LIBGOMP FIX — 2026-04-08 (RESOLVED)
+- **Root cause**: ML_ENGINE was still set to "accelerated" in Railway (not "original" as expected)
+- **Fix 1**: Defensive lightgbm imports (commit 6d59dff) — all lightgbm imports wrapped with try/except
+- **Fix 2**: Set ML_ENGINE=original via Railway CLI
+- **Fix 3**: Set NIXPACKS_APT_PKGS=libgomp1 via Railway CLI (belt-and-braces)
+- **Fix 4**: nixpacks.toml already had aptPkgs=["libgomp1"] from overnight session
+- **Result**: ml_engine boots successfully on original engine, 4-model ensemble active
+- **Verified**: "Ensemble loaded from PostgreSQL (samples=1027)", "Incremental update complete"
+- **No libgomp warnings in logs** — LightGBM loaded successfully
+
 ---
 
 ## 2026-03-25 12:30 UTC — Initial Check
