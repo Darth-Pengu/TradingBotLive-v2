@@ -225,12 +225,18 @@ class MLModel:
         xgb_path = MODEL_DIR / "xgb_model.pkl"
         meta_path = MODEL_DIR / "model_meta.json"
 
-        if cb_path.exists() and lgbm_path.exists() and xgb_path.exists():
+        if cb_path.exists() and xgb_path.exists():
             try:
                 with open(cb_path, "rb") as f:
                     self.catboost_model = pickle.load(f)
-                with open(lgbm_path, "rb") as f:
-                    self.lgbm_model = pickle.load(f)
+                # LightGBM pickle load can fail if libgomp is missing
+                if lgbm_path.exists():
+                    try:
+                        with open(lgbm_path, "rb") as f:
+                            self.lgbm_model = pickle.load(f)
+                    except OSError as e:
+                        logger.warning("LightGBM model load failed (libgomp?): %s — ensemble will use CatBoost+XGBoost", e)
+                        self.lgbm_model = None
                 with open(xgb_path, "rb") as f:
                     self.xgb_model = pickle.load(f)
                 if meta_path.exists():
@@ -272,8 +278,9 @@ class MLModel:
         try:
             with open(MODEL_DIR / "catboost_model.pkl", "wb") as f:
                 pickle.dump(self.catboost_model, f)
-            with open(MODEL_DIR / "lgbm_model.pkl", "wb") as f:
-                pickle.dump(self.lgbm_model, f)
+            if self.lgbm_model is not None:
+                with open(MODEL_DIR / "lgbm_model.pkl", "wb") as f:
+                    pickle.dump(self.lgbm_model, f)
             with open(MODEL_DIR / "xgb_model.pkl", "wb") as f:
                 pickle.dump(self.xgb_model, f)
             meta = {
@@ -373,11 +380,20 @@ class MLModel:
         """Full train on 7-day sliding window of trade outcomes."""
         try:
             from catboost import CatBoostClassifier
-            from lightgbm import LGBMClassifier
             from xgboost import XGBClassifier
         except ImportError as e:
             logger.error("ML library not installed: %s", e)
             return
+
+        # Defensive lightgbm import — falls back gracefully if libgomp missing
+        LGBMClassifier = None
+        lgbm_available = False
+        try:
+            from lightgbm import LGBMClassifier
+            lgbm_available = True
+            logger.info("LightGBM loaded successfully")
+        except (ImportError, OSError) as e:
+            logger.warning("LightGBM unavailable (%s). Ensemble will use CatBoost + XGBoost + FLAML only.", e)
 
         # Fetch training data from trades table
         seven_days_ago = datetime.now(timezone.utc).timestamp() - (7 * 86400)
@@ -444,21 +460,25 @@ class MLModel:
             logger.error("CatBoost training failed: %s", e)
             return
 
-        # LightGBM
-        try:
-            self.lgbm_model = LGBMClassifier(
-                n_estimators=n_est,
-                max_depth=depth_lgbm,
-                learning_rate=0.05,
-                class_weight="balanced",
-                random_state=42,
-                verbose=-1,
-            )
-            self.lgbm_model.fit(X, y, sample_weight=sample_weights)
-            logger.info("LightGBM trained successfully")
-        except Exception as e:
-            logger.error("LightGBM training failed: %s", e)
-            return
+        # LightGBM — skip if unavailable (libgomp missing)
+        if lgbm_available and LGBMClassifier is not None:
+            try:
+                self.lgbm_model = LGBMClassifier(
+                    n_estimators=n_est,
+                    max_depth=depth_lgbm,
+                    learning_rate=0.05,
+                    class_weight="balanced",
+                    random_state=42,
+                    verbose=-1,
+                )
+                self.lgbm_model.fit(X, y, sample_weight=sample_weights)
+                logger.info("LightGBM trained successfully")
+            except Exception as e:
+                logger.warning("LightGBM training failed: %s — continuing without it", e)
+                self.lgbm_model = None
+        else:
+            logger.info("Skipping LightGBM in ensemble (unavailable)")
+            self.lgbm_model = None
 
         # XGBoost — shallower depth for inductive bias diversity
         try:
@@ -525,9 +545,11 @@ class MLModel:
                 logger.warning("FLAML tuning failed: %s — using default configs", e)
 
         # SHAP feature importance (runs after full retrain only)
+        # Use LightGBM if available, else fall back to CatBoost for SHAP
+        shap_model = self.lgbm_model if self.lgbm_model is not None else self.catboost_model
         try:
             import shap
-            explainer = shap.TreeExplainer(self.lgbm_model)
+            explainer = shap.TreeExplainer(shap_model)
             shap_values = explainer.shap_values(X)
             # For binary classification, shap_values[1] is positive class
             if isinstance(shap_values, list):
@@ -559,7 +581,6 @@ class MLModel:
         Faster adaptation to recent market changes."""
         try:
             from catboost import CatBoostClassifier, Pool as CatPool
-            import lightgbm as lgb
             from xgboost import XGBClassifier
 
             # CatBoost incremental — append 50 new trees
@@ -574,15 +595,20 @@ class MLModel:
             cb_new.fit(X_new, y_new, init_model=self.catboost_model)
             self.catboost_model = cb_new
 
-            # LightGBM incremental — append 50 new trees via Booster
-            new_data = lgb.Dataset(X_new, label=y_new)
-            booster = self.lgbm_model.booster_
-            self.lgbm_model._Booster = lgb.train(
-                self.lgbm_model.get_params(),
-                new_data,
-                num_boost_round=50,
-                init_model=booster,
-            )
+            # LightGBM incremental — append 50 new trees via Booster (skip if unavailable)
+            if self.lgbm_model is not None:
+                try:
+                    import lightgbm as lgb
+                    new_data = lgb.Dataset(X_new, label=y_new)
+                    booster = self.lgbm_model.booster_
+                    self.lgbm_model._Booster = lgb.train(
+                        self.lgbm_model.get_params(),
+                        new_data,
+                        num_boost_round=50,
+                        init_model=booster,
+                    )
+                except (ImportError, OSError) as e:
+                    logger.warning("LightGBM incremental update skipped: %s", e)
 
             # XGBoost incremental — append 50 new trees
             neg_count = len(y_new) - y_new.sum()

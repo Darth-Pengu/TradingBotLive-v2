@@ -187,7 +187,11 @@ class AcceleratedMLEngine:
         )
 
     def _make_lgbm(self):
-        from lightgbm import LGBMClassifier
+        try:
+            from lightgbm import LGBMClassifier
+        except (ImportError, OSError) as e:
+            logger.warning("LightGBM unavailable (%s) — returning None", e)
+            return None
         return LGBMClassifier(
             n_estimators=200,
             max_depth=4,
