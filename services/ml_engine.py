@@ -753,7 +753,36 @@ def _build_features_from_rows(rows) -> tuple[pd.DataFrame, np.ndarray]:
 
 
 # --- Retrain loop ---
-async def _retrain_loop(model: MLModel):
+async def _publish_model_meta(model: MLModel, redis_conn: aioredis.Redis | None):
+    """Publish model metadata + SHAP to Redis after training."""
+    if not redis_conn:
+        return
+    try:
+        auc = model.cv_auc_mean if hasattr(model, "cv_auc_mean") and model.cv_auc_mean > 0 else 0
+        feature_count = len(FEATURE_COLUMNS) if model.is_trained else 0
+        status = "TRAINED" if model.is_trained else "UNTRAINED"
+        await redis_conn.hset("ml:model:meta", mapping={
+            "auc": f"{auc:.4f}" if auc > 0 else "0",
+            "samples": str(getattr(model, "sample_count", 0)),
+            "features": str(feature_count),
+            "last_train": datetime.now(timezone.utc).isoformat(),
+            "cold_start": "false" if model.is_trained else "true",
+            "status": status,
+            "engine": "original",
+        })
+        await redis_conn.set("ml:model:status", status)
+        if auc > 0:
+            await redis_conn.set("ml:model:cv_auc", f"{auc:.4f}")
+        fi = getattr(model, "_feature_importance", {})
+        if fi:
+            await redis_conn.set("ml:feature_importance", json.dumps(fi))
+        logger.info("Published model meta to Redis: AUC=%.4f features=%d samples=%d",
+                     auc, feature_count, getattr(model, "sample_count", 0))
+    except Exception as e:
+        logger.debug("Failed to publish model meta: %s", e)
+
+
+async def _retrain_loop(model: MLModel, redis_conn: aioredis.Redis | None = None):
     """
     Two-tier retrain system:
     - Incremental update every 20 new labeled trades (append trees)
@@ -778,11 +807,13 @@ async def _retrain_loop(model: MLModel):
                 if count >= MIN_SAMPLES_FIRST_TRAIN:
                     logger.info("COLD START TRAINING: %d samples ready — training now!", count)
                     await model.train(pool)
+                    await _publish_model_meta(model, redis_conn)
                 check_interval = 300  # 5 min during cold start
 
             elif full_retrain_due:
                 logger.info("Weekly full retrain triggered")
                 await model.train(pool)
+                await _publish_model_meta(model, redis_conn)
 
             elif model.is_trained:
                 # Check for incremental update: new trades since last update
@@ -1026,7 +1057,7 @@ async def main():
 
     await asyncio.gather(
         _scoring_listener(model, redis_conn),
-        _retrain_loop(model),
+        _retrain_loop(model, redis_conn),
         _outcome_listener(model, redis_conn),
         _emergency_retrain_listener(model, redis_conn),
     )

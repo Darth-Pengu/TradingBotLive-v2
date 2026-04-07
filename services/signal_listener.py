@@ -19,7 +19,7 @@ import logging
 import os
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import aiohttp
 import redis.asyncio as aioredis
@@ -1170,9 +1170,8 @@ async def nansen_sm_dex_poller(redis_conn: aioredis.Redis | None):
                 continue
 
             # Query SM DEX trades: buys on Solana tokens < 24h old, < $1M mcap
-            from datetime import timedelta as _td
             now = datetime.now(timezone.utc)
-            from_date = (now - _td(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            from_date = (now - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
             to_date = now.strftime("%Y-%m-%dT%H:%M:%SZ")
 
             async with aiohttp.ClientSession() as session:
