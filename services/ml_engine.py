@@ -61,9 +61,9 @@ MIN_SAMPLES_PRODUCTION = 200
 RETRAIN_INTERVAL_SECONDS = 7 * 24 * 3600  # Weekly
 INCREMENTAL_UPDATE_INTERVAL = int(os.getenv("ML_INCREMENTAL_INTERVAL", "20"))  # faster adaptation
 
-# --- Feature definitions (44 features: 26 original + 11 Nansen + 7 new) ---
+# --- Feature definitions (54 features: 28 original + 5 Nansen + 8 enrichment + 13 MemeTrans) ---
 FEATURE_COLUMNS = [
-    # === Original 26 features ===
+    # === Original 28 features (core + structural) ===
     "liquidity_sol",
     "liquidity_velocity",          # 2x weight
     "bonding_curve_progress",      # 2x weight
@@ -93,18 +93,14 @@ FEATURE_COLUMNS = [
     "is_weekend",
     "signal_source_count",
     "whale_wallet_count",
-    # === Nansen flow features (P0 — token_recent_flows_summary) ===
+    # === Nansen flow features (token_recent_flows_summary) ===
     "nansen_sm_inflow_ratio",      # smart money flow / average (>1 = bullish)
     "nansen_whale_outflow_ratio",  # whale outflow / average (>1 = bearish)
     "nansen_exchange_flow",        # exchange net flow (positive = selling)
     "nansen_fresh_wallet_flow_ratio",  # fresh wallet activity / avg (>5 = suspicious)
-    # === Nansen quant score features (P0 — token_quant_scores) ===
-    "nansen_performance_score",    # -60 to +75 normalized to ~[-0.8, 1.0]
-    "nansen_risk_score",           # -60 to +80 normalized
-    "nansen_concentration_risk",   # 1=low, 0=medium, -1=high
-    # === Nansen holder features (P1 — labeled top holders) ===
+    # === Nansen holder features (labeled top holders) ===
     "nansen_labeled_exchange_holder_pct",  # % held by exchange addresses
-    # === 7 new features (Section 23 AGENT_CONTEXT.md) ===
+    # === Enrichment features (Helius/Vybe/Rugcheck) ===
     "creator_prev_launches",       # count of prior token launches by deployer
     "creator_rug_rate",            # fraction of prior launches that failed (<24h)
     "creator_avg_hold_hours",      # avg time creator held own tokens
@@ -112,6 +108,21 @@ FEATURE_COLUMNS = [
     "jito_tip_lamports",           # avg Jito tip in first bundles
     "token_freshness_score",       # exp(-age_hours / 6) decay function
     "mint_authority_revoked",      # 1=revoked, 0=active
+    "nansen_sm_count",             # smart money wallet count from who-bought-sold
+    # === MemeTrans-derived features (historical holder/tx patterns) ===
+    "holder_gini",                 # Gini coefficient of early holder distribution
+    "sniper_0s_num",               # count of 0-second snipers
+    "sniper_0s_hold_pct",          # % supply held by 0s snipers
+    "sniper_5s_ratio",             # 5-second sniper ratio
+    "early_top5_hold_ratio",       # diamond hands signal — top 5 early holder %
+    "early_top10_realized_pnl_mean",  # insider profitability (unavailable live)
+    "wash_ratio",                  # bot/wash trade detection
+    "tx_per_sec",                  # transaction velocity
+    "sell_pressure",               # sell volume / total volume
+    "post_grad_holder_gini",       # post-graduation Gini coefficient
+    "cluster_num",                 # wallet cluster count
+    "cluster_holder_ratio",        # % holders in wallet clusters
+    "top10_pct_delta",             # top10 concentration change pre/post graduation
 ]
 
 # Weights for feature importance boosting (applied during training)

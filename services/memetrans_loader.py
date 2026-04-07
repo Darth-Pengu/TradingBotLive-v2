@@ -36,19 +36,21 @@ def download_memetrans(target_dir="data/memetrans") -> Path:
 
 def map_features(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Map MemeTrans 131 features -> ZMN Bot 25-feature schema.
+    Map MemeTrans 131 features -> ZMN Bot 54-feature schema.
     Uses verified column names from the actual dataset.
+    group2 = early (bonding curve) holder data
+    group3 = transaction activity features
+    group4 = post-graduation holder distribution
     """
-    from services.ml_model_accelerator import FEATURE_SCHEMA
+    from services.ml_engine import FEATURE_COLUMNS
 
     mapped = pd.DataFrame(index=df.index)
 
-    # Direct mappings from MemeTrans -> ZMN schema
-    # group2 = early (bonding curve) holder data, group3 = tx activity, group4 = post-grad
+    # --- Direct mappings from MemeTrans -> ZMN schema ---
     mapped["top10_holder_pct"] = df.get("group2_top10_pct", pd.Series(-1, index=df.index)) * 100
     mapped["dev_wallet_hold_pct"] = df.get("group2_dev_hold_pct", pd.Series(-1, index=df.index)) * 100
     mapped["fresh_wallet_ratio"] = df.get("group2_sniper_0s_ratio", pd.Series(-1, index=df.index))
-    mapped["holder_count"] = df.get("group3_holder_num", df.get("group2_holder_gini", pd.Series(-1, index=df.index)))
+    mapped["holder_count"] = df.get("group3_holder_num", pd.Series(-1, index=df.index))
 
     # Transaction-derived features
     buy_num = df.get("group3_buy_num", pd.Series(0, index=df.index))
@@ -64,30 +66,49 @@ def map_features(df: pd.DataFrame) -> pd.DataFrame:
     mapped["bonding_curve_progress"] = (df.get("group1_price", pd.Series(0, index=df.index)) > 0).astype(float)
 
     # Liquidity: use buy volume as proxy for SOL liquidity
-    mapped["liquidity_sol"] = df.get("group3_buy_vol", pd.Series(0, index=df.index)) / 1e9  # normalize
+    mapped["liquidity_sol"] = df.get("group3_buy_vol", pd.Series(0, index=df.index)) / 1e9
 
     # Sniper/bundle detection
     sniper_ratio = df.get("group2_sniper_0s_ratio", pd.Series(0, index=df.index))
     mapped["bundle_detected"] = (sniper_ratio > 0.1).astype(int)
 
-    # Concentration metrics
-    mapped["nansen_concentration_risk"] = df.get("group4_holder_gini", pd.Series(0, index=df.index))
-
     # Creator features — derive from dev hold patterns
     dev_hold = df.get("group2_dev_hold_ratio", pd.Series(1, index=df.index))
-    mapped["creator_rug_rate"] = (1 - dev_hold).clip(0, 1)  # Low hold ratio = higher rug chance
+    mapped["creator_rug_rate"] = (1 - dev_hold).clip(0, 1)
     mapped["creator_rug_count"] = (mapped["creator_rug_rate"] > 0.5).astype(int)
 
+    # --- NEW: 13 MemeTrans-derived features ---
+    mapped["holder_gini"] = df.get("group2_holder_gini", pd.Series(-1, index=df.index))
+    mapped["sniper_0s_num"] = df.get("group2_sniper_0s_num", pd.Series(-1, index=df.index))
+    mapped["sniper_0s_hold_pct"] = df.get("group2_sniper_0s_hold_pct", pd.Series(-1, index=df.index))
+    mapped["sniper_5s_ratio"] = df.get("group2_sniper_5s_ratio", pd.Series(-1, index=df.index))
+    mapped["early_top5_hold_ratio"] = df.get("group2_early_top5_hold_ratio", pd.Series(-1, index=df.index))
+    mapped["early_top10_realized_pnl_mean"] = df.get(
+        "group2_early_top10_realized_pnl_mean", pd.Series(-1, index=df.index)
+    )
+    mapped["wash_ratio"] = df.get("group3_wash_ratio", pd.Series(-1, index=df.index))
+    mapped["tx_per_sec"] = df.get("group3_tx_per_sec", pd.Series(-1, index=df.index))
+    sell_vol = df.get("group3_sell_vol", pd.Series(0, index=df.index))
+    total_vol = df.get("group3_buy_vol", pd.Series(0, index=df.index)) + sell_vol
+    mapped["sell_pressure"] = (sell_vol / total_vol.replace(0, 1)).clip(0, 1)
+    mapped["post_grad_holder_gini"] = df.get("group4_holder_gini", pd.Series(-1, index=df.index))
+    mapped["cluster_num"] = df.get("group4_cluster_num", pd.Series(-1, index=df.index))
+    mapped["cluster_holder_ratio"] = df.get("group4_cluster_holder_ratio", pd.Series(-1, index=df.index))
+    # top10 concentration change: group4 minus group2
+    g4_top10 = df.get("group4_top10_pct", pd.Series(0, index=df.index))
+    g2_top10 = df.get("group2_top10_pct", pd.Series(0, index=df.index))
+    mapped["top10_pct_delta"] = g4_top10 - g2_top10
+
     # Features with no MemeTrans equivalent — fill with -1 sentinel
-    for col in FEATURE_SCHEMA:
+    for col in FEATURE_COLUMNS:
         if col not in mapped.columns:
             mapped[col] = -1
 
     # Reorder to match schema
-    mapped = mapped[FEATURE_SCHEMA]
+    mapped = mapped[FEATURE_COLUMNS]
 
-    matched = sum(1 for col in FEATURE_SCHEMA if not (mapped[col] == -1).all())
-    logger.info("Mapped %d/%d features from MemeTrans (%d rows)", matched, len(FEATURE_SCHEMA), len(df))
+    matched = sum(1 for col in FEATURE_COLUMNS if not (mapped[col] == -1).all())
+    logger.info("Mapped %d/%d features from MemeTrans (%d rows)", matched, len(FEATURE_COLUMNS), len(df))
     return mapped
 
 
