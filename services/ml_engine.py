@@ -612,12 +612,20 @@ class MLModel:
         When untrained, uses basic heuristics to generate meaningful scores
         so paper trading can collect data for the first real training run.
         """
+        self._predict_count = getattr(self, "_predict_count", 0) + 1
         if not self.is_trained:
             return self._heuristic_score(features), False
 
         try:
             row = [features.get(col, 0) for col in FEATURE_COLUMNS]
             X = pd.DataFrame([row], columns=FEATURE_COLUMNS)
+
+            # Log feature coverage every 50 predictions
+            if self._predict_count % 50 == 1:
+                populated = sum(1 for col in FEATURE_COLUMNS if features.get(col) not in (None, 0, 0.0, -1))
+                logger.info("Feature coverage: %d/%d populated (%.0f%%)",
+                            populated, len(FEATURE_COLUMNS),
+                            populated / len(FEATURE_COLUMNS) * 100)
 
             probas = []
             model_names = ["catboost", "lgbm", "xgb"]
