@@ -1826,10 +1826,6 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
                     "nansen_whale_outflow_ratio": float(token_details.get("nansen_whale_outflow_ratio", 0)),
                     "nansen_exchange_flow": float(token_details.get("nansen_exchange_flow", 0)),
                     "nansen_fresh_wallet_flow_ratio": float(token_details.get("nansen_fresh_wallet_flow_ratio", 0)),
-                    # === Nansen quant score features (P0) ===
-                    "nansen_performance_score": float(token_details.get("nansen_performance_score", 0)),
-                    "nansen_risk_score": float(token_details.get("nansen_risk_score", 0)),
-                    "nansen_concentration_risk": float(token_details.get("nansen_concentration_risk", 0)),
                     "nansen_sm_count": int(token_details.get("nansen_sm_count", 0)),
                     # === Nansen holder features (P1) ===
                     "nansen_labeled_exchange_holder_pct": float(token_details.get("nansen_labeled_exchange_holder_pct", 0)),
@@ -1842,6 +1838,20 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
                     "token_freshness_score": math.exp(-float(signal.get("age_seconds", 0)) / 3600.0 / 6.0),
                     # Rugcheck risks array contains "mintAuthority" risk if authority is ACTIVE (not revoked = risky)
                     "mint_authority_revoked": 0.0 if any("mintauthority" in r.lower() for r in rugcheck.get("risk_names", [])) else 1.0,
+                    # === MemeTrans-derived features (defaults for live signals) ===
+                    "holder_gini": -1,
+                    "sniper_0s_num": -1,
+                    "sniper_0s_hold_pct": -1,
+                    "sniper_5s_ratio": -1,
+                    "early_top5_hold_ratio": -1,
+                    "early_top10_realized_pnl_mean": -1,
+                    "wash_ratio": -1,
+                    "tx_per_sec": -1,
+                    "sell_pressure": -1,
+                    "post_grad_holder_gini": -1,
+                    "cluster_num": -1,
+                    "cluster_holder_ratio": -1,
+                    "top10_pct_delta": -1,
                     # === Trending / multi-source features ===
                     "volume_1h_usd": float(raw.get("volume_1h_usd", 0)),
                     "trending_strength": float(raw.get("trending_strength", 0)),
@@ -1923,7 +1933,6 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
                 features.setdefault("cfgi_score", 50.0)
                 features.setdefault("nansen_sm_count", 0)
                 features.setdefault("nansen_sm_inflow_ratio", 0)
-                features.setdefault("nansen_concentration_risk", 0)
 
                 # Fill in market health data
                 health_str = await redis_conn.get("market:health")

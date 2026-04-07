@@ -136,8 +136,11 @@ FEATURE_WEIGHTS = {
     "creator_rug_count": 1.5,
     # Nansen features with elevated weights
     "nansen_sm_inflow_ratio": 1.5,
-    "nansen_concentration_risk": 1.5,
     "nansen_fresh_wallet_flow_ratio": 1.5,
+    # MemeTrans features with elevated weights
+    "holder_gini": 1.5,
+    "wash_ratio": 1.5,
+    "sniper_0s_hold_pct": 1.5,
     # New features with elevated weights — strong rug/safety signals
     "creator_rug_rate": 2.0,           # deployer rug history is very predictive
     "jito_bundle_count": 1.5,          # bundle activity = coordinated manipulation
