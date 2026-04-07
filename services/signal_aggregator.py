@@ -1860,9 +1860,13 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
                     # === MemeTrans-derived features (live derivation where possible) ===
                     "holder_gini": float(token_details.get("holder_gini", -1)),
                     "sniper_0s_num": int(live_stats.get("snipers_0s", -1)),
-                    "sniper_0s_hold_pct": -1,              # no live equivalent
+                    # bundled_supply_pct is effectively sniper_0s_hold_pct (same concept)
+                    "sniper_0s_hold_pct": float(raw.get("bundled_supply_pct", -1)) / 100.0
+                        if float(raw.get("bundled_supply_pct", 0)) > 0 else -1,
                     "sniper_5s_ratio": -1,                 # no live equivalent
-                    "early_top5_hold_ratio": -1,           # no live equivalent
+                    # Approximate early_top5 from top10 (top5 ≈ 70% of top10 concentration)
+                    "early_top5_hold_ratio": round(float(token_details.get("top10_holder_pct", 0)) * 0.7 / 100, 4)
+                        if float(token_details.get("top10_holder_pct", 0)) > 0 else -1,
                     "early_top10_realized_pnl_mean": -1,   # no live equivalent
                     # Derive wash_ratio from bot_transaction_ratio (same concept)
                     "wash_ratio": float(raw.get("bot_transaction_ratio", -1)),
