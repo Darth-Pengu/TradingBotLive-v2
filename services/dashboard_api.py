@@ -2231,7 +2231,7 @@ async def api_consolidated_health(request):
         {"name": "GeckoTerminal", "key": "gecko", "credits": "Free", "budget": None},
         {"name": "RugCheck", "key": "rugcheck", "credits": "Free", "budget": None},
         {"name": "Vybe", "key": "vybe", "credits": None, "budget": None},
-        {"name": "Nansen", "key": "nansen", "credits": None, "budget": None},
+        {"name": "Nansen", "key": "nansen", "credits": None, "budget": int(os.getenv("NANSEN_DAILY_BUDGET", "2000"))},
         {"name": "Anthropic", "key": "anthropic", "credits": None, "budget": None},
         {"name": "SocialData", "key": "socialdata", "credits": None, "budget": None},
         {"name": "Helius", "key": "helius_rpc", "credits": None, "budget": None},
@@ -2268,8 +2268,20 @@ async def api_consolidated_health(request):
         else:
             status = "UNKNOWN"
         # Special overrides
-        if api["key"] == "nansen" and nansen_disabled:
-            status = "PAUSED"
+        if api["key"] == "nansen":
+            if nansen_disabled:
+                status = "PAUSED"
+            # Show daily credit usage
+            if redis_conn:
+                try:
+                    from datetime import datetime as _dt, timezone as _tz
+                    today_key = f"nansen:credits:{_dt.now(_tz.utc).strftime('%Y-%m-%d')}"
+                    used_today = int(await redis_conn.get(today_key) or 0)
+                    budget = int(os.getenv("NANSEN_DAILY_BUDGET", "2000"))
+                    dry_run = os.getenv("NANSEN_DRY_RUN", "true").lower() == "true"
+                    api["credits"] = f"{used_today}/{budget}/day" + (" [DRY]" if dry_run else "")
+                except Exception:
+                    pass
         if api["key"] == "helius_rpc":
             helius_budget = os.getenv("HELIUS_DAILY_BUDGET", "0")
             if helius_budget == "0":
