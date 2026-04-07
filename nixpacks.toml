@@ -3,4 +3,5 @@ PYTHONPATH = "/app"
 
 [phases.setup]
 nixPkgs = ["python311"]
+aptPkgs = ["libgomp1"]
 
