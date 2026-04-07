@@ -276,9 +276,11 @@ async def get_credit_usage(redis_conn: aioredis.Redis) -> dict:
         month=datetime.now(timezone.utc).strftime("%Y-%m")
     )
     today_key = f"nansen:credits:{_today()}"
+    cache_hits_key = f"nansen:cache_hits:{_today()}"
     try:
         month_count = int(await redis_conn.get(month_key) or 0)
         day_count = int(await redis_conn.get(today_key) or 0)
+        cache_hits = int(await redis_conn.get(cache_hits_key) or 0)
         return {
             "used_month": month_count,
             "budget_month": NANSEN_MONTHLY_BUDGET,
@@ -286,6 +288,7 @@ async def get_credit_usage(redis_conn: aioredis.Redis) -> dict:
             "budget_today": NANSEN_DAILY_BUDGET,
             "remaining_today": max(0, NANSEN_DAILY_BUDGET - day_count),
             "pct_used_today": round(day_count / NANSEN_DAILY_BUDGET * 100, 1) if NANSEN_DAILY_BUDGET > 0 else 0,
+            "cache_hits_today": cache_hits,
             "dry_run": NANSEN_DRY_RUN,
             # Legacy fields for backward compat
             "used": month_count,
@@ -624,6 +627,10 @@ async def get_token_flow_summary(
     if redis_conn:
         cached = await redis_conn.get(cache_key)
         if cached:
+            try:
+                await redis_conn.incrby(f"nansen:cache_hits:{_today()}", 1)
+            except Exception:
+                pass
             return json.loads(cached)
 
     result = await nansen_post(session, "/tgm/token-recent-flows-summary", {
