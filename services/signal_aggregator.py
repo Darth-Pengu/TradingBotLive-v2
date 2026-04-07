@@ -668,6 +668,21 @@ async def _fetch_holder_data(session: aiohttp.ClientSession, mint: str) -> dict:
     return await _fetch_holder_data_vybe(session, mint)
 
 
+def _compute_gini(values: list[float]) -> float:
+    """Compute Gini coefficient from a list of values (0=equal, 1=concentrated)."""
+    if not values or sum(values) == 0:
+        return 0.0
+    sorted_vals = sorted(values)
+    n = len(sorted_vals)
+    cumsum = 0.0
+    total = sum(sorted_vals)
+    weighted_sum = 0.0
+    for i, v in enumerate(sorted_vals):
+        cumsum += v
+        weighted_sum += (2 * (i + 1) - n - 1) * v
+    return round(weighted_sum / (n * total), 4)
+
+
 async def _fetch_holder_data_helius(session: aiohttp.ClientSession, mint: str) -> dict:
     """Helius getTokenLargestAccounts RPC call."""
     payload = {
@@ -692,9 +707,13 @@ async def _fetch_holder_data_helius(session: aiohttp.ClientSession, mint: str) -
                 top10_sum = sum(amounts[:10])
                 top10_pct = (top10_sum / total_supply_sample * 100) if total_supply_sample > 0 else 0
 
+                # Derive holder_gini from top-20 holder distribution
+                gini = _compute_gini(amounts) if len(amounts) >= 3 else -1
+
                 return {
                     "holder_count_sample": len(accounts),
                     "top10_holder_pct": round(top10_pct, 1),
+                    "holder_gini": gini,
                 }
         except Exception as e:
             logger.debug("Helius holder data error for %s on %s: %s", mint[:12], rpc_url[:40], e)
@@ -1839,7 +1858,7 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
                     # Rugcheck risks array contains "mintAuthority" risk if authority is ACTIVE (not revoked = risky)
                     "mint_authority_revoked": 0.0 if any("mintauthority" in r.lower() for r in rugcheck.get("risk_names", [])) else 1.0,
                     # === MemeTrans-derived features (live derivation where possible) ===
-                    "holder_gini": -1,                     # need getTokenAccounts for live
+                    "holder_gini": float(token_details.get("holder_gini", -1)),
                     "sniper_0s_num": int(live_stats.get("snipers_0s", -1)),
                     "sniper_0s_hold_pct": -1,              # no live equivalent
                     "sniper_5s_ratio": -1,                 # no live equivalent
