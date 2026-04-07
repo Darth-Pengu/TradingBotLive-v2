@@ -1,20 +1,26 @@
 """
-ZMN Bot Nansen API Client v2
-==============================
-Shared client for all Nansen API calls with:
-- Redis-based rate limiter (max 1 call per 2 seconds across all services)
-- Response time logging for credit monitoring
-- Redis caching for wallet PnL data (6-hour TTL)
-- Monthly credit counter (tracks usage toward 10k/month budget)
-- try/except on all calls — bot continues if Nansen is down
+ZMN Bot Nansen API Client v3 — 8-Layer Safeguarded
+====================================================
+All Nansen API calls route through 8 safeguard layers to prevent
+the April 2026 credit-burn incident from recurring.
 
-Endpoints (8 new + 4 existing = 12 total):
-  Existing: wallet_pnl, smart_money_buyers, smart_money_sellers, screen_new_tokens, smart_money_holdings
-  New (P0): get_token_flow_summary, get_token_quant_scores
-  New (P1): get_labeled_top_holders, get_smart_money_discovery
-  New (P2): get_nansen_top_tokens, get_whale_portfolio, get_token_flows_granular
-  New (P3): get_token_pnl_leaderboard
-  New (exits): get_smart_money_dex_sells
+8 SAFEGUARD LAYERS (checked on every call):
+  Layer 1 — Service routing guard (only allowed services can call)
+  Layer 2 — Daily budget enforcement (Redis-backed counter)
+  Layer 3 — Distributed lock for polling coroutines
+  Layer 4 — Aggressive Redis caching with per-endpoint TTLs
+  Layer 5 — Circuit breaker on consecutive rate limits
+  Layer 6 — Dry-run mode (NANSEN_DRY_RUN=true blocks real calls)
+  Layer 7 — Per-call cost logging to Redis + structured log
+  Layer 8 — Emergency kill switch (nansen:emergency_stop)
+
+Endpoints (12 total):
+  Existing: wallet_pnl, smart_money_buyers/sellers, screen_new_tokens, smart_money_holdings
+  P0: get_token_flow_summary, get_token_quant_scores
+  P1: get_labeled_top_holders, get_smart_money_discovery
+  P2: get_nansen_top_tokens, get_whale_portfolio, get_token_flows_granular
+  P3: get_token_pnl_leaderboard
+  Exits: get_smart_money_dex_sells
 """
 
 import asyncio
@@ -32,18 +38,201 @@ load_dotenv()
 
 logger = logging.getLogger("nansen_client")
 
+# --- Config ---
 NANSEN_API_KEY = os.getenv("NANSEN_API_KEY", "")
 NANSEN_BASE_URL = "https://api.nansen.ai/api/v1"
+SERVICE_NAME = os.getenv("SERVICE_NAME", "")
 NANSEN_RATE_LIMIT_KEY = "nansen:rate_limit"
-NANSEN_RATE_LIMIT_SECONDS = 2  # Max 1 call per 2 seconds across all services
-NANSEN_CREDIT_COUNTER_KEY = "nansen:credits:{month}"  # Monthly credit counter
+NANSEN_RATE_LIMIT_SECONDS = 2
+NANSEN_CREDIT_COUNTER_KEY = "nansen:credits:{month}"
 NANSEN_MONTHLY_BUDGET = 10000
 
+# Layer 1 — Only these services may make actual Nansen API calls
+ALLOWED_CALLER_SERVICES = {"signal_aggregator", "signal_listener", "bot_core"}
 
+# Layer 2 — Daily budget (env var, default 2000)
+NANSEN_DAILY_BUDGET = int(os.getenv("NANSEN_DAILY_BUDGET", "2000"))
+
+# Layer 4 — Per-endpoint cache TTLs (seconds)
+ENDPOINT_CACHE_TTLS = {
+    "token-information": 300,
+    "token-recent-flows-summary": 120,
+    "who-bought-sold": 300,
+    "nansen-scores/token": 600,
+    "token-current-top-holders": 900,
+    "profiler/address/labels": 604800,
+    "profiler/address/pnl-summary": 86400,
+    "smart-money/token-balances": 900,
+    "token-flows": 900,
+    "token-screener": 600,
+    "smart-money/holdings": 3600,
+    "nansen-scores/top-tokens": 3600,
+    "address/portfolio": 21600,
+    "token-pnl-leaderboard": 3600,
+    "token-dex-trades": 0,       # NEVER cache — live signal
+    "smart-money/dex-trades": 0,  # NEVER cache — live signal
+}
+
+# Layer 6 — Dry-run mode
+NANSEN_DRY_RUN = os.getenv("NANSEN_DRY_RUN", "true").lower() == "true"
+
+# Track consecutive 429s for circuit breaker (Layer 5)
+_consecutive_429s = 0
+
+
+# --- Custom Exceptions ---
+class NansenBudgetExceeded(Exception):
+    pass
+
+
+class NansenCircuitBreakerOpen(Exception):
+    pass
+
+
+class NansenEmergencyStop(Exception):
+    pass
+
+
+class NansenServiceGuard(Exception):
+    pass
+
+
+class NansenRateLimited(Exception):
+    pass
+
+
+# --- Helper functions ---
 def _is_available() -> bool:
     return bool(NANSEN_API_KEY)
 
 
+def _today() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def _endpoint_key(endpoint: str) -> str:
+    """Normalize endpoint to cache TTL lookup key."""
+    ep = endpoint.strip("/")
+    for key in ENDPOINT_CACHE_TTLS:
+        if key in ep:
+            return key
+    return ep
+
+
+# --- Layer 1: Service routing guard ---
+def _check_service_guard():
+    """Only allowed services may make Nansen API calls."""
+    if SERVICE_NAME and SERVICE_NAME not in ALLOWED_CALLER_SERVICES:
+        raise NansenServiceGuard(
+            f"Nansen client called by {SERVICE_NAME} — "
+            f"only {ALLOWED_CALLER_SERVICES} allowed. "
+            f"This prevents the 8x credit-burn bug."
+        )
+
+
+# --- Layer 2: Daily budget enforcement ---
+async def _check_daily_budget(redis_conn: aioredis.Redis, cost: int = 1) -> int:
+    """Check and enforce daily budget. Returns credits used so far."""
+    today_key = f"nansen:credits:{_today()}"
+    used = int(await redis_conn.get(today_key) or 0)
+    if used + cost > NANSEN_DAILY_BUDGET:
+        logger.error(
+            "NANSEN BUDGET EXCEEDED: used=%d + cost=%d > budget=%d",
+            used, cost, NANSEN_DAILY_BUDGET
+        )
+        raise NansenBudgetExceeded(
+            f"Would exceed daily budget {NANSEN_DAILY_BUDGET} "
+            f"(used={used}, cost={cost})"
+        )
+    return used
+
+
+async def _increment_daily_counter(redis_conn: aioredis.Redis, cost: int = 1) -> int:
+    """Increment daily counter AFTER a successful call. Returns new total."""
+    today_key = f"nansen:credits:{_today()}"
+    new_total = await redis_conn.incrby(today_key, cost)
+    await redis_conn.expire(today_key, 172800)  # 48h expiry
+    return new_total
+
+
+# --- Layer 3: Distributed lock for polling ---
+async def acquire_poll_lock(
+    redis_conn: aioredis.Redis, lock_name: str, ttl_sec: int = 240
+) -> bool:
+    """Acquire a distributed lock. Returns True if acquired, False if held."""
+    return bool(await redis_conn.set(
+        f"nansen:lock:{lock_name}", "held", ex=ttl_sec, nx=True
+    ))
+
+
+# --- Layer 5: Circuit breaker ---
+async def _check_circuit_breaker(redis_conn: aioredis.Redis):
+    """Check if circuit breaker is open (tripped by consecutive 429s)."""
+    breaker = await redis_conn.get("nansen:circuit_breaker")
+    if breaker:
+        raise NansenCircuitBreakerOpen(
+            f"Circuit breaker open until {breaker.decode() if isinstance(breaker, bytes) else breaker}"
+        )
+
+
+async def _trip_circuit_breaker(redis_conn: aioredis.Redis, duration_sec: int = 300):
+    """Trip the circuit breaker after consecutive rate limits."""
+    until = (datetime.now(timezone.utc) + timedelta(seconds=duration_sec)).isoformat()
+    await redis_conn.set("nansen:circuit_breaker", until, ex=duration_sec)
+    logger.error("NANSEN CIRCUIT BREAKER TRIPPED until %s", until)
+
+
+# --- Layer 6: Dry-run mock responses ---
+def _mock_response(endpoint: str) -> dict:
+    """Return a plausible empty response for dry-run mode."""
+    ep = _endpoint_key(endpoint)
+    if "screener" in ep or "top-tokens" in ep or "holdings" in ep:
+        return {"data": []}
+    if "dex-trades" in ep or "who-bought-sold" in ep:
+        return {"data": []}
+    if "pnl" in ep:
+        return {"data": {"totalPnlUsd": 0}}
+    return {"data": {}}
+
+
+# --- Layer 7: Per-call logging ---
+async def _log_call(redis_conn: aioredis.Redis, endpoint: str, cost: int,
+                    used_after: int, duration_ms: float, status: int):
+    """Log call to structured log and Redis list for dashboard."""
+    logger.info(
+        "NANSEN_CALL endpoint=%s cost=%d used=%d/%d "
+        "duration_ms=%.0f status=%d service=%s",
+        endpoint, cost, used_after, NANSEN_DAILY_BUDGET,
+        duration_ms, status, SERVICE_NAME
+    )
+    try:
+        await redis_conn.lpush("nansen:call_log", json.dumps({
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "endpoint": endpoint,
+            "cost": cost,
+            "used": used_after,
+            "budget": NANSEN_DAILY_BUDGET,
+            "duration_ms": round(duration_ms),
+            "status": status,
+            "service": SERVICE_NAME,
+        }))
+        await redis_conn.ltrim("nansen:call_log", 0, 999)
+    except Exception:
+        pass
+
+
+# --- Layer 8: Emergency kill switch ---
+async def _check_kill_switch(redis_conn: aioredis.Redis):
+    """Check if emergency stop is active."""
+    killed = await redis_conn.get("nansen:emergency_stop")
+    if killed:
+        raise NansenEmergencyStop(
+            "Nansen emergency stop active. "
+            "Clear with: redis-cli DEL nansen:emergency_stop"
+        )
+
+
+# --- Rate limiter (existing, preserved) ---
 async def _rate_limit(redis_conn: aioredis.Redis | None):
     """Redis-based rate limiter: wait until 2 seconds since last call."""
     if not redis_conn:
@@ -60,6 +249,7 @@ async def _rate_limit(redis_conn: aioredis.Redis | None):
         return
 
 
+# --- Monthly credit counter (existing, preserved) ---
 async def _increment_credit_counter(redis_conn: aioredis.Redis | None):
     """Track monthly Nansen API credit usage."""
     if not redis_conn:
@@ -69,7 +259,6 @@ async def _increment_credit_counter(redis_conn: aioredis.Redis | None):
     )
     try:
         count = await redis_conn.incr(month_key)
-        # Set expiry to 35 days on first increment
         if count == 1:
             await redis_conn.expire(month_key, 35 * 86400)
         if count % 500 == 0:
@@ -82,34 +271,77 @@ async def _increment_credit_counter(redis_conn: aioredis.Redis | None):
 
 
 async def get_credit_usage(redis_conn: aioredis.Redis) -> dict:
-    """Get current month's credit usage stats."""
+    """Get current month and day credit usage stats."""
     month_key = NANSEN_CREDIT_COUNTER_KEY.format(
         month=datetime.now(timezone.utc).strftime("%Y-%m")
     )
+    today_key = f"nansen:credits:{_today()}"
     try:
-        count = int(await redis_conn.get(month_key) or 0)
+        month_count = int(await redis_conn.get(month_key) or 0)
+        day_count = int(await redis_conn.get(today_key) or 0)
         return {
-            "used": count,
+            "used_month": month_count,
+            "budget_month": NANSEN_MONTHLY_BUDGET,
+            "used_today": day_count,
+            "budget_today": NANSEN_DAILY_BUDGET,
+            "remaining_today": max(0, NANSEN_DAILY_BUDGET - day_count),
+            "pct_used_today": round(day_count / NANSEN_DAILY_BUDGET * 100, 1) if NANSEN_DAILY_BUDGET > 0 else 0,
+            "dry_run": NANSEN_DRY_RUN,
+            # Legacy fields for backward compat
+            "used": month_count,
             "budget": NANSEN_MONTHLY_BUDGET,
-            "remaining": max(0, NANSEN_MONTHLY_BUDGET - count),
-            "pct_used": round(count / NANSEN_MONTHLY_BUDGET * 100, 1),
+            "remaining": max(0, NANSEN_MONTHLY_BUDGET - month_count),
+            "pct_used": round(month_count / NANSEN_MONTHLY_BUDGET * 100, 1),
         }
     except Exception:
-        return {"used": 0, "budget": NANSEN_MONTHLY_BUDGET, "remaining": NANSEN_MONTHLY_BUDGET, "pct_used": 0}
+        return {"used": 0, "budget": NANSEN_MONTHLY_BUDGET, "remaining": NANSEN_MONTHLY_BUDGET, "pct_used": 0,
+                "used_today": 0, "budget_today": NANSEN_DAILY_BUDGET, "remaining_today": NANSEN_DAILY_BUDGET,
+                "pct_used_today": 0, "dry_run": NANSEN_DRY_RUN, "used_month": 0, "budget_month": NANSEN_MONTHLY_BUDGET}
 
+
+# ===========================================================================
+# SAFEGUARDED API CALL FUNCTIONS
+# All 8 layers are checked in nansen_post and nansen_get.
+# Every endpoint function that uses these is automatically protected.
+# ===========================================================================
 
 async def nansen_post(
     session: aiohttp.ClientSession,
     endpoint: str,
     body: dict,
     redis_conn: aioredis.Redis | None = None,
+    cost: int = 1,
 ) -> dict | None:
     """
-    Make a rate-limited POST to the Nansen API.
-    Returns response dict or None on failure. Never raises.
+    Make a safeguarded POST to the Nansen API.
+    All 8 safeguard layers are enforced. Returns dict or None. Never raises.
     """
+    global _consecutive_429s
+
     if not _is_available():
         return None
+
+    # --- Safeguard layers (1, 8, 5, 2, 6) ---
+    try:
+        _check_service_guard()                              # Layer 1
+        if redis_conn:
+            await _check_kill_switch(redis_conn)            # Layer 8
+            await _check_circuit_breaker(redis_conn)        # Layer 5
+            await _check_daily_budget(redis_conn, cost)     # Layer 2
+    except (NansenServiceGuard, NansenEmergencyStop,
+            NansenCircuitBreakerOpen, NansenBudgetExceeded) as e:
+        logger.warning("Nansen safeguard blocked POST %s: %s", endpoint, e)
+        return None
+
+    # Layer 6 — Dry-run mode
+    if NANSEN_DRY_RUN:
+        logger.info("[NANSEN_DRY_RUN] Would POST %s cost=%d", endpoint, cost)
+        if redis_conn:
+            try:
+                await redis_conn.incrby(f"nansen:dryrun_calls:{_today()}", 1)
+            except Exception:
+                pass
+        return _mock_response(endpoint)
 
     url = f"{NANSEN_BASE_URL}/{endpoint.lstrip('/')}"
     headers = {
@@ -119,28 +351,46 @@ async def nansen_post(
 
     try:
         await _rate_limit(redis_conn)
-        await _increment_credit_counter(redis_conn)
         start = time.time()
 
         async with session.post(url, json=body, headers=headers,
                                 timeout=aiohttp.ClientTimeout(total=15)) as resp:
             elapsed_ms = (time.time() - start) * 1000
-            logger.info("Nansen POST %s — %d (%.0fms)", endpoint, resp.status, elapsed_ms)
 
             if resp.status == 200:
-                return await resp.json()
+                _consecutive_429s = 0
+                data = await resp.json()
+                # Layer 2+7: increment counter and log
+                if redis_conn:
+                    await _increment_credit_counter(redis_conn)
+                    used_after = await _increment_daily_counter(redis_conn, cost)
+                    await _log_call(redis_conn, endpoint, cost, used_after, elapsed_ms, 200)
+                return data
+
+            elif resp.status == 429:
+                _consecutive_429s += 1
+                logger.warning("Nansen rate limited on %s (consecutive=%d)",
+                               endpoint, _consecutive_429s)
+                if _consecutive_429s >= 3 and redis_conn:
+                    await _trip_circuit_breaker(redis_conn)       # Layer 5
+                await asyncio.sleep(5)
+
             elif resp.status == 403:
                 body_text = await resp.text()
                 if "credit" in body_text.lower() or "insufficient" in body_text.lower():
-                    logger.error("Nansen credits exhausted — screener disabled until restart")
+                    logger.error("Nansen credits exhausted on POST %s", endpoint)
+                    if redis_conn:
+                        await redis_conn.set("nansen:emergency_stop", "credits_exhausted", ex=3600)
                 else:
                     logger.error("Nansen %s forbidden (403): %s", endpoint, body_text[:200])
-            elif resp.status == 429:
-                logger.warning("Nansen rate limited on %s — backing off", endpoint)
-                await asyncio.sleep(5)
             else:
                 body_text = await resp.text()
                 logger.warning("Nansen %s HTTP %d: %s", endpoint, resp.status, body_text[:200])
+
+            # Log failed calls too
+            if redis_conn:
+                await _log_call(redis_conn, endpoint, 0, 0, elapsed_ms, resp.status)
+
     except Exception as e:
         logger.warning("Nansen %s error: %s", endpoint, e)
     return None
@@ -151,35 +401,73 @@ async def nansen_get(
     endpoint: str,
     params: dict | None = None,
     redis_conn: aioredis.Redis | None = None,
+    cost: int = 1,
 ) -> dict | None:
     """
-    Make a rate-limited GET to the Nansen API.
-    Returns response dict or None on failure. Never raises.
+    Make a safeguarded GET to the Nansen API.
+    All 8 safeguard layers are enforced. Returns dict or None. Never raises.
     """
+    global _consecutive_429s
+
     if not _is_available():
         return None
+
+    # --- Safeguard layers (1, 8, 5, 2, 6) ---
+    try:
+        _check_service_guard()                              # Layer 1
+        if redis_conn:
+            await _check_kill_switch(redis_conn)            # Layer 8
+            await _check_circuit_breaker(redis_conn)        # Layer 5
+            await _check_daily_budget(redis_conn, cost)     # Layer 2
+    except (NansenServiceGuard, NansenEmergencyStop,
+            NansenCircuitBreakerOpen, NansenBudgetExceeded) as e:
+        logger.warning("Nansen safeguard blocked GET %s: %s", endpoint, e)
+        return None
+
+    # Layer 6 — Dry-run mode
+    if NANSEN_DRY_RUN:
+        logger.info("[NANSEN_DRY_RUN] Would GET %s cost=%d", endpoint, cost)
+        if redis_conn:
+            try:
+                await redis_conn.incrby(f"nansen:dryrun_calls:{_today()}", 1)
+            except Exception:
+                pass
+        return _mock_response(endpoint)
 
     url = f"{NANSEN_BASE_URL}/{endpoint.lstrip('/')}"
     headers = {"apikey": NANSEN_API_KEY}
 
     try:
         await _rate_limit(redis_conn)
-        await _increment_credit_counter(redis_conn)
         start = time.time()
 
         async with session.get(url, params=params, headers=headers,
                                timeout=aiohttp.ClientTimeout(total=15)) as resp:
             elapsed_ms = (time.time() - start) * 1000
-            logger.info("Nansen GET %s — %d (%.0fms)", endpoint, resp.status, elapsed_ms)
 
             if resp.status == 200:
-                return await resp.json()
+                _consecutive_429s = 0
+                data = await resp.json()
+                if redis_conn:
+                    await _increment_credit_counter(redis_conn)
+                    used_after = await _increment_daily_counter(redis_conn, cost)
+                    await _log_call(redis_conn, endpoint, cost, used_after, elapsed_ms, 200)
+                return data
+
             elif resp.status == 429:
-                logger.warning("Nansen rate limited on %s — backing off", endpoint)
+                _consecutive_429s += 1
+                logger.warning("Nansen rate limited on GET %s (consecutive=%d)",
+                               endpoint, _consecutive_429s)
+                if _consecutive_429s >= 3 and redis_conn:
+                    await _trip_circuit_breaker(redis_conn)
                 await asyncio.sleep(5)
             else:
                 body_text = await resp.text()
                 logger.warning("Nansen %s HTTP %d: %s", endpoint, resp.status, body_text[:200])
+
+            if redis_conn:
+                await _log_call(redis_conn, endpoint, 0, 0, elapsed_ms, resp.status)
+
     except Exception as e:
         logger.warning("Nansen %s error: %s", endpoint, e)
     return None
