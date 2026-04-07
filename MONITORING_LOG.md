@@ -48,6 +48,42 @@
 - [x] Two MCP verification calls completed, schemas documented
 - [x] Zero unauthorized Nansen calls from bot client (dry-run active)
 
+### Phase 1 — Engine Switch + libgomp (COMPLETE)
+- nixpacks.toml restored + libgomp1 added via aptPkgs
+- ML_ENGINE defaults to "original" in code (line 921)
+- Railway env var ML_ENGINE may still be "accelerated" — needs manual check
+
+### Phase 2 — MemeTrans Feature Expansion (COMPLETE)
+- FEATURE_COLUMNS expanded from 44 → 54 features
+- Removed 3 dead nansen_quant_score features (404 endpoint)
+- Added 13 MemeTrans features + nansen_sm_count
+- Updated memetrans_loader.py: FEATURE_SCHEMA → FEATURE_COLUMNS import
+- Added all 13 new MemeTrans column mappings
+
+### Phase 3 — Free Live Data Wins (COMPLETE)
+- Fixed Vybe auth: Bearer → X-API-Key (line 722)
+- Added Vybe holder fallback in _fetch_holder_data
+- SocialData diagnosis: code correct, likely SOCIALDATA_API_KEY not set
+
+### Phase 4 — Nansen Integration (COMPLETE)
+- Rewired _fetch_nansen_enrichment() with 3 concurrent Nansen calls
+- Added nansen_sm_dex_poller using token-screener with SM filter
+- Distributed lock prevents duplicate polling
+
+### Phase 5 — Retrain + SHAP (DEFERRED to Railway restart)
+- Code changes complete, retrain happens automatically on restart
+
+### Phase 6 — Refinement Iterations
+- [Iter 1] Dead feature cleanup + 13 MemeTrans defaults for live signals
+- [Iter 2] Dashboard Nansen credit usage display
+- [Iter 3] Derived tx_per_sec, sell_pressure, wash_ratio from live data
+- [Iter 4] Fixed SM poller endpoint to use token-screener
+- [Iter 5-6] Added /api/nansen-usage monitoring endpoint
+- [Iter 7] ML meta publishing to Redis on original engine startup
+- [Iter 9-10] Auto-publish ML meta+SHAP after every retrain
+- [Iter 11] Fixed bot_core budget key mismatch (calls → credits)
+- [Iter 13] Feature coverage logging every 50 predictions
+
 ---
 
 ## 2026-03-25 12:30 UTC — Initial Check

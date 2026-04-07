@@ -1840,7 +1840,7 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
                     "mint_authority_revoked": 0.0 if any("mintauthority" in r.lower() for r in rugcheck.get("risk_names", [])) else 1.0,
                     # === MemeTrans-derived features (live derivation where possible) ===
                     "holder_gini": -1,                     # need getTokenAccounts for live
-                    "sniper_0s_num": -1,                   # no live equivalent
+                    "sniper_0s_num": int(live_stats.get("snipers_0s", -1)),
                     "sniper_0s_hold_pct": -1,              # no live equivalent
                     "sniper_5s_ratio": -1,                 # no live equivalent
                     "early_top5_hold_ratio": -1,           # no live equivalent

@@ -112,16 +112,21 @@ def _update_trade_tracker(mint: str, tx_type: str):
     now = time.time()
     if mint not in _trade_tracker:
         if len(_trade_tracker) >= TRADE_TRACKER_MAX:
-            # Evict oldest entries
             oldest = sorted(_trade_tracker, key=lambda m: _trade_tracker[m]["last_update"])
             for old_mint in oldest[:TRADE_TRACKER_MAX // 2]:
                 del _trade_tracker[old_mint]
-        _trade_tracker[mint] = {"buys": 0, "sells": 0, "last_update": now, "unique_buyers": set()}
+        _trade_tracker[mint] = {
+            "buys": 0, "sells": 0, "last_update": now,
+            "unique_buyers": set(), "first_seen": now, "snipers_0s": 0,
+        }
 
     entry = _trade_tracker[mint]
     entry["last_update"] = now
     if tx_type == "buy":
         entry["buys"] += 1
+        # Track 0-second snipers (buyers within 5s of first trade)
+        if now - entry["first_seen"] <= 5.0:
+            entry["snipers_0s"] = entry.get("snipers_0s", 0) + 1
     elif tx_type == "sell":
         entry["sells"] += 1
 
@@ -452,9 +457,11 @@ async def pumpportal_listener(redis_conn: aioredis.Redis | None):
                                 sells = entry.get("sells", 0)
                                 unique = len(entry.get("unique_buyers", set()))
                                 bsr = round(buys / sells, 2) if sells > 0 else float(buys) if buys > 0 else 0
+                                snipers = entry.get("snipers_0s", 0)
                                 await redis_conn.hset(f"token:stats:{mint}", mapping={
                                     "buys": buys, "sells": sells, "bsr": bsr,
-                                    "unique_buyers": unique, "updated": str(time.time()),
+                                    "unique_buyers": unique, "snipers_0s": snipers,
+                                    "updated": str(time.time()),
                                 })
                                 await redis_conn.expire(f"token:stats:{mint}", 600)
                             except Exception as e:
