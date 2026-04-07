@@ -1269,16 +1269,51 @@ class BotCore:
                             await self._close_position(pos, ts_exit)
                             continue
 
-                    # 4. Time-based exit (lowest priority)
+                    # 4. Time-based exit (lowest priority) with momentum extension
                     time_exit = strategy.get("time_exit_minutes")
                     if time_exit and elapsed_min >= time_exit:
-                        if current_price > 0 and entry > 0 and current_price > entry * 1.01:
-                            if not pos.trailing_stop_active:
-                                pos.trailing_stop_active = True
-                                pos.peak_price = max(pos.peak_price, current_price)
-                                pos.trailing_stop_price = pos.peak_price * 0.85
-                                logger.info("TIME_EXIT_SKIP: %s up %.1f%% — activating trailing stop",
-                                           pos.mint[:12], (current_price/entry - 1)*100)
+                        # Hard ceiling: never extend beyond 2x original time_exit
+                        max_extended = time_exit * 2
+                        if elapsed_min >= max_extended:
+                            await self._close_position(pos, "max_extended_hold")
+                            continue
+
+                        if current_price > 0 and entry > 0:
+                            pnl_pct = (current_price / entry - 1) * 100
+
+                            if pnl_pct > 5.0:
+                                # MOMENTUM EXTENSION: profitable at time_exit — let it ride
+                                if not pos.trailing_stop_active:
+                                    pos.trailing_stop_active = True
+                                    pos.peak_price = max(pos.peak_price or 0, current_price)
+                                    pos.trailing_stop_pct = 0.10
+                                    pos.trailing_stop_price = current_price * 0.90
+                                    # Never below entry +1% (always lock SOME profit)
+                                    pos.trailing_stop_price = max(pos.trailing_stop_price, entry * 1.01)
+                                    logger.info(
+                                        "MOMENTUM_EXTEND: %s %s held %.1fm at +%.1f%% — "
+                                        "trail activated at %.10f (locked +%.1f%%)",
+                                        pos.personality, pos.mint[:12], elapsed_min, pnl_pct,
+                                        pos.trailing_stop_price,
+                                        (pos.trailing_stop_price / entry - 1) * 100,
+                                    )
+                                    if pos.trade_id:
+                                        try:
+                                            table = "paper_trades" if TEST_MODE else "trades"
+                                            await self.pool.execute(
+                                                f"UPDATE {table} SET trailing_stop_active=$1, trailing_stop_price=$2, trailing_stop_pct=$3 WHERE id=$4",
+                                                True, pos.trailing_stop_price, pos.trailing_stop_pct, pos.trade_id,
+                                            )
+                                        except Exception:
+                                            pass
+                                continue  # Let trailing stop manage from here
+
+                            elif pnl_pct < -5.0:
+                                await self._close_position(pos, "time_exit_loss")
+                                continue
+                            else:
+                                await self._close_position(pos, "time_exit_no_movement")
+                                continue
                         else:
                             await self._close_position(pos, "time_exit_no_movement")
                             continue
