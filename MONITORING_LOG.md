@@ -2,6 +2,38 @@
 
 ---
 
+## 2026-04-09 — No-Trades Diagnosis & Fix
+
+### Root Cause
+market_health was publishing HIBERNATE mode (CFGI 18.1 = extreme fear).
+signal_aggregator.py:1669 had a hard gate that dropped ALL signals when
+market_mode == HIBERNATE. The AGGRESSIVE_PAPER_TRADING flag only lowered
+ML thresholds — it did NOT bypass the HIBERNATE gate. Every signal was
+silently discarded (logger.debug = invisible in logs).
+
+### Fix Applied (commit 47de1fa)
+- signal_aggregator.py:1669 — when AGGRESSIVE_PAPER=true AND mode is HIBERNATE,
+  downgrade to DEFENSIVE instead of dropping signals
+- Deployed to signal_aggregator via `railway up -s signal_aggregator`
+- No env var changes needed (AGGRESSIVE_PAPER_TRADING=true was already set)
+
+### Verification (14:27–14:40 UTC)
+- First PAPER ENTERED: speed_demon EmRPgzWNv9LQ @ $0.00000683, 0.1492 SOL
+- 56 signals processed through HIBERNATE bypass in first 15 minutes
+- 18 ML rejections (correct behavior — low scores filtered)
+- 3+ paper trades entered, exits firing (stop_loss_35%, no_momentum_90s)
+- ML AUC: 0.8696 on 2,592 samples (inline AcceleratedMLEngine)
+
+### Structural Issue Documented (NOT fixed)
+signal_aggregator.py:1439 imports AcceleratedMLEngine inline. The ml_engine
+service running "original" with 55 features is NOT scoring live trades.
+This is Tier 2 — needs Jay's approval for a proper fix session.
+
+### Services Restarted
+- signal_aggregator: 14:25 UTC (deploy with HIBERNATE bypass fix)
+
+---
+
 ## 2026-04-07/08 — Nansen Integration Overnight
 
 ### Phase 0.1 — Audit (COMPLETE)
