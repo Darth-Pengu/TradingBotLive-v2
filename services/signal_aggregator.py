@@ -1666,9 +1666,12 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
                 if mode_str:
                     market_mode = mode_str
 
-                if market_mode == "HIBERNATE":
+                if market_mode == "HIBERNATE" and not AGGRESSIVE_PAPER:
                     logger.debug("HIBERNATE mode — skipping %s", mint[:12])
                     continue
+                elif market_mode == "HIBERNATE" and AGGRESSIVE_PAPER:
+                    logger.info("HIBERNATE mode but AGGRESSIVE_PAPER=true — processing %s for data collection", mint[:12])
+                    market_mode = "DEFENSIVE"  # downgrade to DEFENSIVE thresholds instead of full block
 
                 # --- Enrich with Rugcheck (cached) + token details (concurrent) ---
                 rugcheck, token_details = await asyncio.gather(
