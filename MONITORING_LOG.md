@@ -2,6 +2,39 @@
 
 ---
 
+## 2026-04-10 — Tier 2 Overnight: 4 Fixes
+
+### Fix 1: ML Retrain Cleanup (commit f7ebc56)
+- Excluded 403 contaminated rows from 7-day training window (77% was contaminated)
+- Emergency retrain on 128 clean samples (CatBoost + XGBoost)
+- SHAP top 5: cfgi_score, token_age_seconds, hour_of_day, sol_price_usd, liquidity_velocity
+- Cutoff configurable via ML_TRAINING_CONTAMINATION_CUTOFF env var
+
+### Fix 2: Feature Derivation Timing (commit cb53b7a)
+- Early PumpPortal subscriptions on createEvent (was post-entry)
+- sniper_0s_num: 0% → 70%, tx_per_sec: 0% → 70%, sell_pressure: 0% → 70%
+- 5-min TTL auto-cleanup prevents subscription bloat
+- signal_aggregator retries stats after 500ms if initially empty
+
+### Fix 3: Inline ML Routing (commit 629c740)
+- Removed AcceleratedMLEngine inline path from signal_aggregator
+- All scoring via Redis pubsub to ml_engine service (original 55-feature engine)
+- 3s timeout + circuit breaker (5 timeouts/60s → default score)
+- Pubsub latency: ~69ms, zero timeouts post-deploy
+
+### Fix 4: Price Continuity (commit da964ab)
+- token:latest_price TTL: 600s → 1800s (30 min)
+- token:reserves TTL: 600s → 1800s
+- stale_no_price: 1 in 50 trades (2%, down from ~10%)
+
+### Post-Fix Aggregate (50 trades, ~1 hour)
+- WR: 16.0% (8/50), PnL: -0.94 SOL
+- TRAILING_STOP: 13, no_momentum_90s: 25, stop_loss: 4, staged TPs: 2
+- Emergency stops: 0, Cascade triggers: 0
+- Best trade: +138.6% via TRAILING_STOP (correct pricing confirmed)
+
+---
+
 ## 2026-04-10 — Paper Trader Exit Price Fix
 
 ### Deploy
