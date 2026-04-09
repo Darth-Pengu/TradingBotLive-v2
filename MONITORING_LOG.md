@@ -2,6 +2,35 @@
 
 ---
 
+## 2026-04-10 — Paper Trader Exit Price Fix
+
+### Deploy
+- Commit: 9b880e1 (paper_trader exit price accuracy)
+- bot_core deploy: ~20:41 UTC Apr 9 (manual `railway up -s bot_core`)
+- Emergency stop cleared: consecutive_losses=0, market:mode:override=NORMAL
+
+### Root Cause
+paper_sell did independent Jupiter/GeckoTerminal fetch for exit price — failed on bonding curve tokens (no liquidity pool), fell back to entry_price. Every P/L on BC tokens was wrong. 685/3353 trades (20.4%) affected.
+
+### Changes
+- `services/paper_trader.py:221-270` — added `exit_price_override` param, demoted fetch to fallback with warning
+- `services/bot_core.py:867` — `_close_position` accepts `current_price` param
+- `services/bot_core.py` — all 17 `_close_position` call sites pass `current_price`
+
+### Verification (8 post-deploy closed trades)
+- bot_core price matches paper_trades.exit_price: 8/8 ✅
+- Trade E9xbEj8UsnPH: peaked +260.4%, recorded +255.2% (correct, diff = slippage sim) ✅
+- Post-deploy trades with exit≈entry AND peak>+50%: **0** (was 685 pre-fix) ✅
+- Fallback warnings: 0 ✅
+- Emergency stops: 0 ✅
+- Crashes: 0 ✅
+
+### ML Contamination
+- 685 of 3,353 closed trades (20.4%) have bug signature
+- Tier 2 follow-up: next retrain should flag/exclude these rows
+
+---
+
 ## 2026-04-09 — Exit Strategy Fix (Tiered Trailing + Staged TPs)
 
 ### Deploy
