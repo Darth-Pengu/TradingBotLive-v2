@@ -431,10 +431,10 @@ async def pumpportal_listener(redis_conn: aioredis.Redis | None):
                                 token_amount = float(data.get("tokenAmount", data.get("token_amount", 0)) or 0)
                                 if sol_amount > 0 and token_amount > 0:
                                     trade_price = sol_amount / token_amount
-                                    await redis_conn.set(f"token:price:{mint}", str(trade_price), ex=600)
-                                    await redis_conn.set(f"token:latest_price:{mint}", str(trade_price), ex=600)
+                                    await redis_conn.set(f"token:price:{mint}", str(trade_price), ex=1800)
+                                    await redis_conn.set(f"token:latest_price:{mint}", str(trade_price), ex=1800)
                                     if is_subscribed:
-                                        logger.debug("PRICE_CACHED: %s = %.10f SOL (subscribed, TTL=600s)", mint[:12], trade_price)
+                                        logger.debug("PRICE_CACHED: %s = %.10f SOL (subscribed, TTL=1800s)", mint[:12], trade_price)
                                 elif is_subscribed:
                                     logger.warning("PRICE_SKIP: %s sol=%.6f tok=%.1f (zero amounts)", mint[:12], sol_amount, token_amount)
                             except Exception as e:
@@ -452,13 +452,13 @@ async def pumpportal_listener(redis_conn: aioredis.Redis | None):
                                             "vSol": str(v_sol_f),
                                             "vTokens": str(v_tok_f),
                                         })
-                                        await redis_conn.expire(f"token:reserves:{mint}", 600)
+                                        await redis_conn.expire(f"token:reserves:{mint}", 1800)
                                         # For subscribed tokens: also cache BC price as latest_price fallback
                                         if is_subscribed:
                                             bc_price = v_sol_f / v_tok_f
                                             existing = await redis_conn.get(f"token:latest_price:{mint}")
                                             if not existing:
-                                                await redis_conn.set(f"token:latest_price:{mint}", str(bc_price), ex=600)
+                                                await redis_conn.set(f"token:latest_price:{mint}", str(bc_price), ex=1800)
                                                 logger.info("PRICE_BC_FALLBACK: %s = %.10f SOL (from reserves)", mint[:12], bc_price)
                             except Exception as e:
                                 logger.warning("RESERVES_ERR: %s — %s", mint[:12], e)
@@ -492,11 +492,11 @@ async def pumpportal_listener(redis_conn: aioredis.Redis | None):
                                     v_tok_f = float(v_tokens_bc)
                                     if v_sol_f > 0 and v_tok_f > 0:
                                         bc_price = v_sol_f / v_tok_f
-                                        await redis_conn.set(f"token:latest_price:{mint}", str(bc_price), ex=600)
+                                        await redis_conn.set(f"token:latest_price:{mint}", str(bc_price), ex=1800)
                                         await redis_conn.hset(f"token:reserves:{mint}", mapping={
                                             "vSol": str(v_sol_f), "vTokens": str(v_tok_f),
                                         })
-                                        await redis_conn.expire(f"token:reserves:{mint}", 600)
+                                        await redis_conn.expire(f"token:reserves:{mint}", 1800)
                                         logger.info("PRICE_CREATE_BC: %s = %.10f SOL (from create event)", mint[:12], bc_price)
                             except Exception as e:
                                 logger.debug("CREATE_BC_ERR: %s — %s", mint[:12], e)
@@ -1319,8 +1319,8 @@ async def _resub_and_price_poller(redis_conn: aioredis.Redis | None):
                                     if usd_price and float(usd_price) > 0:
                                         sol_per_token = float(usd_price) / sol_price if sol_price > 0 else 0
                                         if sol_per_token > 0:
-                                            await redis_conn.set(f"token:latest_price:{mint}", str(sol_per_token), ex=600)
-                                            await redis_conn.set(f"token:price:{mint}", str(sol_per_token), ex=600)
+                                            await redis_conn.set(f"token:latest_price:{mint}", str(sol_per_token), ex=1800)
+                                            await redis_conn.set(f"token:price:{mint}", str(sol_per_token), ex=1800)
                                             logger.info("PRICE_JUPITER_FILL: %s = %.10f SOL ($%.8f)", mint[:12], sol_per_token, float(usd_price))
                 except Exception as e:
                     logger.debug("Jupiter price fill error: %s", e)
