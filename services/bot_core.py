@@ -67,37 +67,58 @@ if TEST_MODE:
 
 # --- Exit strategies per personality (Section 3) ---
 # --- Exit strategies per personality (Section 3) ---
-# Trailing stop is handled exclusively by _evaluate_trailing_stop() with
-# per-personality config in risk_manager.py TRAILING_STOP_CONFIG.
+# --- Staged take-profits (configurable via env var) ---
+# Default: bank 25% at +50%, +100%, +200%, +400%
+_DEFAULT_STAGED_TPS = [[0.50, 0.25], [1.00, 0.25], [2.00, 0.25], [4.00, 0.25]]
+try:
+    STAGED_TAKE_PROFITS = json.loads(os.getenv("STAGED_TAKE_PROFITS_JSON", "null")) or _DEFAULT_STAGED_TPS
+except (json.JSONDecodeError, TypeError):
+    STAGED_TAKE_PROFITS = _DEFAULT_STAGED_TPS
+
+# --- Tiered trailing stop schedule ---
+# (min_peak_gain, trail_pct)  — None trail_pct means no trail (hard stop only)
+# 0.0 trail_pct means breakeven lock
+_DEFAULT_TRAIL_SCHEDULE = [
+    [0.30, 0.0],    # +30-50%: breakeven lock
+    [0.50, 0.25],   # +50-100%: 25% trail from peak
+    [1.00, 0.20],   # +100-200%: 20% trail
+    [2.00, 0.15],   # +200-500%: 15% trail
+    [5.00, 0.12],   # +500%+: 12% trail (moonshot)
+]
+try:
+    TIERED_TRAIL_SCHEDULE = json.loads(os.getenv("TIERED_TRAIL_SCHEDULE_JSON", "null")) or _DEFAULT_TRAIL_SCHEDULE
+except (json.JSONDecodeError, TypeError):
+    TIERED_TRAIL_SCHEDULE = _DEFAULT_TRAIL_SCHEDULE
+
+
+def get_tiered_trail_pct(peak_gain: float) -> float | None:
+    """Return trail percentage based on peak gain from entry.
+    None = no trail (below +30%), rely on hard stop.
+    0.0 = breakeven lock (no trail % yet, just protect entry).
+    >0 = trail that % from peak.
+    """
+    result = None
+    for min_gain, trail_pct in TIERED_TRAIL_SCHEDULE:
+        if peak_gain >= min_gain:
+            result = trail_pct
+    return result
+
+
 EXIT_STRATEGIES = {
     "speed_demon": {
-        "staged_exits": [
-            {"at_multiple": 2.0, "sell_pct": 0.25},   # +100% → sell 25% (was 40%)
-            {"at_multiple": 3.0, "sell_pct": 0.20},   # +200% → sell 20% (was 30%)
-            {"at_multiple": 5.0, "sell_pct": 0.20},   # +400% → sell 20% (NEW)
-            # Remaining 35% rides with trailing stop
-        ],
-        "time_exit_minutes": 15,     # Was 10 — give winners more time
+        "staged_exits": [{"at_gain": g, "sell_pct": s} for g, s in STAGED_TAKE_PROFITS],
+        "time_exit_minutes": 15,
         "stop_loss_pct": 0.35,
     },
     "analyst": {
-        "staged_exits": [
-            {"at_multiple": 1.3, "sell_pct": 0.25},   # +30% — lock some profit early
-            {"at_multiple": 1.8, "sell_pct": 0.25},   # +80%
-            {"at_multiple": 3.0, "sell_pct": 0.20},   # +200%
-        ],
+        "staged_exits": [{"at_gain": g, "sell_pct": s} for g, s in STAGED_TAKE_PROFITS],
         "time_exit_minutes": 30,
         "max_hold_hours": 2,
-        "stop_loss_pct": 0.20,       # Tighter for trending tokens
+        "stop_loss_pct": 0.20,
     },
     "whale_tracker": {
-        "staged_exits": [
-            {"at_multiple": 2.0, "sell_pct": 0.20},
-            {"at_multiple": 3.0, "sell_pct": 0.20},
-            {"at_multiple": 5.0, "sell_pct": 0.20},
-            {"at_multiple": 10.0, "sell_pct": 0.20},  # NEW 10x moonshot stage
-        ],
-        "max_hold_hours": 24,        # 24h for whale/telegram conviction
+        "staged_exits": [{"at_gain": g, "sell_pct": s} for g, s in STAGED_TAKE_PROFITS],
+        "max_hold_hours": 24,
         "stop_loss_pct": 0.30,
     },
 }
@@ -1047,24 +1068,10 @@ class BotCore:
                          pos.personality, pos.mint[:12], sell_pct * 100, reason, pos.remaining_pct * 100)
 
     async def _evaluate_trailing_stop(self, pos: Position, current_price: float) -> str | None:
-        """Evaluate trailing stop for a position. Returns exit reason or None.
+        """Evaluate tiered trailing stop for a position. Returns exit reason or None.
+        Trail tightens as peak gain grows: None→breakeven→25%→20%→15%→12%.
         State persisted to PostgreSQL (source of truth), mirrored to Redis for dashboard."""
-        from services.risk_manager import TRAILING_STOP_CONFIG, TRAILING_STOP_MARKET_MULTIPLIERS
         from services.db import update_trailing_stop
-
-        config = TRAILING_STOP_CONFIG.get(pos.personality, TRAILING_STOP_CONFIG["analyst"])
-        activation_pct = config["activation_pct"]
-        base_trail_pct = config["trail_pct"]
-
-        # Market-adaptive trail distance
-        market_mode = self.portfolio.market_mode or "NORMAL"
-        trail_mult = TRAILING_STOP_MARKET_MULTIPLIERS.get(market_mode, 1.0)
-        trail_pct = base_trail_pct * trail_mult
-
-        # Tighten trailing for positions held >15 min in profit
-        hold_min = (time.time() - pos.entry_time) / 60
-        if hold_min > 15 and pos.trailing_stop_active:
-            trail_pct = min(trail_pct, 0.15)  # Max 15% trail after 15 min
 
         entry = pos.entry_price
         table = "paper_trades" if TEST_MODE else "trades"
@@ -1079,31 +1086,41 @@ class BotCore:
             pos.peak_price = current_price
             state_changed = True
 
-        # 2. Check activation
-        pnl_pct = (current_price - entry) / entry * 100
-        if not pos.trailing_stop_active and pnl_pct >= activation_pct:
+        # 2. Compute peak gain and get tiered trail percentage
+        peak_gain = (pos.peak_price - entry) / entry  # 0.0=breakeven, 1.0=+100%
+        trail_pct = get_tiered_trail_pct(peak_gain)
+
+        if trail_pct is None:
+            # Below +30% peak: no trail active, rely on hard stop only
+            if state_changed and pos.trade_id:
+                try:
+                    await update_trailing_stop(pos.trade_id, table, pos.peak_price, False, None)
+                except Exception:
+                    pass
+            return None
+
+        # 3. Activate or update trailing stop
+        if not pos.trailing_stop_active:
             pos.trailing_stop_active = True
-            pos.trailing_stop_price = pos.peak_price * (1 - trail_pct / 100)
-            pos.trailing_stop_pct = trail_pct
             state_changed = True
-            logger.info("Trailing stop ACTIVATED — %s up %.1f%% | peak=%.8f stop=%.8f",
-                         pos.mint[:12], pnl_pct, pos.peak_price, pos.trailing_stop_price)
-            await self._send_discord(
-                f"🎯 Trailing stop ACTIVATED\n"
-                f"Token: {pos.mint[:12]}...\n"
-                f"Up: +{pnl_pct:.1f}%\n"
-                f"Stop set at: {pos.trailing_stop_price:.8f}\n"
-                f"Personality: {pos.personality}"
-            )
+            logger.info("Trail ACTIVATED — %s peak_gain=+%.0f%% tier=%.0f%%",
+                        pos.mint[:12], peak_gain * 100, trail_pct * 100)
 
-        # 3. Update trailing stop level (only moves up, never down)
-        if pos.trailing_stop_active:
-            new_stop = pos.peak_price * (1 - trail_pct / 100)
-            if new_stop > pos.trailing_stop_price:
-                pos.trailing_stop_price = new_stop
-                state_changed = True
+        # 4. Compute stop level based on tier
+        if trail_pct == 0.0:
+            # Breakeven lock: stop at entry price
+            new_stop = entry
+        else:
+            # Trail from peak
+            new_stop = pos.peak_price * (1 - trail_pct)
 
-        # 4. Persist to PostgreSQL if anything changed
+        # Stop only moves up, never down
+        if new_stop > pos.trailing_stop_price:
+            pos.trailing_stop_price = new_stop
+            pos.trailing_stop_pct = trail_pct * 100  # store as percentage for DB
+            state_changed = True
+
+        # 5. Persist to PostgreSQL if anything changed
         if state_changed and pos.trade_id:
             try:
                 await update_trailing_stop(
@@ -1114,19 +1131,21 @@ class BotCore:
             except Exception as e:
                 logger.debug("Trailing stop DB update error: %s", e)
 
-        # 5. Check if trailing stop is triggered
+        # 6. Check if trailing stop / breakeven is triggered
         if pos.trailing_stop_active and pos.trailing_stop_price > 0 and current_price <= pos.trailing_stop_price:
             pnl_sol = (current_price - entry) / entry * pos.size_sol
-            logger.info("Trailing stop HIT — %s | peak=%.8f stop=%.8f current=%.8f",
-                         pos.mint[:12], pos.peak_price, pos.trailing_stop_price, current_price)
+            exit_reason = "BREAKEVEN_STOP" if trail_pct == 0.0 else "TRAILING_STOP"
+            logger.info("Trail HIT — %s | peak=%.8f stop=%.8f cur=%.8f tier=%.0f%%",
+                         pos.mint[:12], pos.peak_price, pos.trailing_stop_price,
+                         current_price, trail_pct * 100)
             await self._send_discord(
-                f"📉 Trailing stop HIT\n"
+                f"Trail {exit_reason}\n"
                 f"Token: {pos.mint[:12]}...\n"
                 f"Peak: {pos.peak_price:.8f} | Stop: {pos.trailing_stop_price:.8f} | Exit: {current_price:.8f}\n"
                 f"Est P/L: {'+' if pnl_sol >= 0 else ''}{pnl_sol:.4f} SOL\n"
                 f"Personality: {pos.personality}"
             )
-            return "TRAILING_STOP"
+            return exit_reason
 
         return None
 
@@ -1256,12 +1275,14 @@ class BotCore:
                             continue
 
                         # 2. Staged take-profits — checked BEFORE time_exit
+                        gain = multiple - 1.0  # 0.0 = breakeven, 0.50 = +50%, etc.
                         for exit_rule in strategy.get("staged_exits", []):
-                            exit_key = f"{exit_rule['at_multiple']}x"
-                            if exit_key not in pos.staged_exits_done and multiple >= exit_rule["at_multiple"]:
+                            at_gain = exit_rule.get("at_gain", exit_rule.get("at_multiple", 99) - 1)
+                            exit_key = f"+{int(at_gain * 100)}%"
+                            if exit_key not in pos.staged_exits_done and gain >= at_gain:
                                 logger.info("STAGED_TP: %s hit %s (%.1fx) — selling %d%%",
                                            pos.mint[:12], exit_key, multiple, int(exit_rule["sell_pct"] * 100))
-                                await self._close_position(pos, f"staged_{exit_key}", sell_pct=exit_rule["sell_pct"])
+                                await self._close_position(pos, f"staged_tp_{exit_key}", sell_pct=exit_rule["sell_pct"])
                                 pos.staged_exits_done.append(exit_key)
                                 if pos.trade_id:
                                     try:
