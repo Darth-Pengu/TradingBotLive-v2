@@ -1427,63 +1427,35 @@ def _check_koth_zone(bc_progress: float, personality: str, ml_score: float,
 
 
 # Direct ML engine reference — lazy-loaded and retrained on live data
-_ml_engine_instance = None
-_ml_engine_trained = False
+# Pubsub timeout tracking for circuit breaker
+_ml_pubsub_timeouts = 0
+_ml_pubsub_timeout_window_start = 0.0
 
 
-async def _get_ml_engine_async(pool=None):
-    """Lazy-load ML engine and retrain on live data if available."""
-    global _ml_engine_instance, _ml_engine_trained
-    if _ml_engine_instance is None:
-        try:
-            from services.ml_model_accelerator import AcceleratedMLEngine
-            _ml_engine_instance = AcceleratedMLEngine()
-            logger.info("ML engine loaded inline: phase=%d, n=%d, trained=%s",
-                       _ml_engine_instance.phase, _ml_engine_instance.n_samples,
-                       _ml_engine_instance.is_trained)
-        except Exception as e:
-            logger.warning("Failed to load ML engine inline: %s", e)
-            return None
+async def _request_ml_score(redis_conn: aioredis.Redis, features: dict, timeout: float = 3.0, pool=None) -> tuple[float, bool]:
+    """Score via Redis pubsub to ml_engine service (original 55-feature engine)."""
+    global _ml_pubsub_timeouts, _ml_pubsub_timeout_window_start
 
-    # Attempt live retrain once (not on every call)
-    if not _ml_engine_trained and pool is not None:
-        _ml_engine_trained = True
-        try:
-            await _ml_engine_instance.train(pool)
-            logger.info("ML engine retrained inline: phase=%d, n=%d, AUC=%.4f",
-                       _ml_engine_instance.phase, _ml_engine_instance.n_samples,
-                       _ml_engine_instance.cv_auc_mean)
-        except Exception as e:
-            logger.warning("Inline ML retrain failed: %s", e)
+    # Circuit breaker: if 5+ timeouts in 60s, return default score
+    now = time.time()
+    if now - _ml_pubsub_timeout_window_start > 60:
+        _ml_pubsub_timeouts = 0
+        _ml_pubsub_timeout_window_start = now
+    if _ml_pubsub_timeouts >= 5:
+        logger.debug("ML pubsub circuit breaker open — using default score")
+        return 50.0, False
 
-    return _ml_engine_instance
-
-
-def _get_ml_engine():
-    """Sync wrapper — returns cached instance or None."""
-    return _ml_engine_instance
-
-
-async def _request_ml_score(redis_conn: aioredis.Redis, features: dict, timeout: float = 5.0, pool=None) -> tuple[float, bool]:
-    """Score using inline ML engine (same process). Falls back to pubsub if inline fails."""
-    engine = await _get_ml_engine_async(pool)
-    if engine:
-        try:
-            score, is_trained = engine.predict(features)
-            return score, is_trained
-        except Exception as e:
-            logger.debug("Inline ML score error: %s", e)
-
-    # Fallback: pubsub (for when services run in separate processes)
-    request_id = f"req_{time.time()}"
+    request_id = f"req_{now}"
     request = {"request_id": request_id, "features": features}
     pubsub = redis_conn.pubsub()
     try:
         await pubsub.subscribe("ml:score_response")
         await redis_conn.publish("ml:score_request", json.dumps(request))
-        deadline = time.time() + timeout
+        deadline = now + timeout
         async for message in pubsub.listen():
             if time.time() > deadline:
+                _ml_pubsub_timeouts += 1
+                logger.warning("ML pubsub timeout (%d in window)", _ml_pubsub_timeouts)
                 break
             if message["type"] != "message":
                 continue
@@ -2336,7 +2308,7 @@ async def _process_graduations(redis_conn: aioredis.Redis, pool=None):
                     except Exception:
                         pass
 
-                # 4. ML score
+                # 4. ML score via pubsub to ml_engine service
                 ml_score = 50.0
                 try:
                     features = {
@@ -2347,12 +2319,7 @@ async def _process_graduations(redis_conn: aioredis.Redis, pool=None):
                         "cfgi_score": 50,
                         "mint_authority_revoked": 1,
                     }
-                    from services.ml_model_accelerator import AcceleratedMLEngine
-                    # Try inline scoring if model is loaded
-                    engine = AcceleratedMLEngine()
-                    engine.load()
-                    if engine.is_trained:
-                        ml_score, _ = engine.predict(features)
+                    ml_score, _ = await _request_ml_score(redis_conn, features)
                 except Exception:
                     pass
 
