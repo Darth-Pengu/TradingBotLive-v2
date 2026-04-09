@@ -393,7 +393,7 @@ async def rug_cascade_monitor(redis_conn: aioredis.Redis | None):
     if not redis_conn:
         return
 
-    RUG_CASCADE_THRESHOLD = 5
+    RUG_CASCADE_THRESHOLD = int(os.getenv("RUG_CASCADE_THRESHOLD", "5"))
     RUG_CASCADE_WINDOW_MINUTES = 30
     COOLDOWN_SECONDS = 3600
     last_alert_time = 0.0

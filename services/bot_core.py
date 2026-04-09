@@ -771,6 +771,16 @@ class BotCore:
                         await self.redis.publish("token:subscribe", json.dumps({"mint": mint, "action": "subscribe"}))
                     except Exception:
                         pass
+                    # Seed initial BC price so exit checker has data before first trade arrives
+                    if bc_price > 0:
+                        try:
+                            await self.redis.set(f"token:latest_price:{mint}", str(bc_price), ex=600)
+                            await self.redis.hset(f"token:reserves:{mint}", mapping={
+                                "vSol": str(v_sol), "vTokens": str(v_tokens),
+                            })
+                            await self.redis.expire(f"token:reserves:{mint}", 600)
+                        except Exception:
+                            pass
                 logger.info("PAPER ENTERED: %s %s @ $%.8f, %.4f SOL (sig: %s)",
                              personality, mint[:12], paper_result["entry_price"],
                              paper_result["amount_sol"], paper_result["signature"])

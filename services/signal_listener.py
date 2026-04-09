@@ -467,9 +467,10 @@ async def pumpportal_listener(redis_conn: aioredis.Redis | None):
                             except Exception as e:
                                 logger.debug("STATS_ERR: %s — %s", mint[:12], e)
 
-                    # Also cache price from bonding curve data in CREATE events for subscribed tokens
+                    # Cache price from bonding curve data in CREATE events for ALL tokens
+                    # (not just subscribed — exit checker needs BC price immediately on entry)
                     if tx_type == "create" or "bondingCurveKey" in data:
-                        if redis_conn and mint in _subscribed_tokens:
+                        if redis_conn:
                             try:
                                 v_sol_bc = data.get("vSolInBondingCurve") or data.get("vsolInBondingCurve")
                                 v_tokens_bc = data.get("vTokensInBondingCurve") or data.get("vtokensInBondingCurve")
