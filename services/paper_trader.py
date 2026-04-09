@@ -230,14 +230,42 @@ async def paper_sell(
     entry_time: float = 0.0,
     amount_sol: float = 0.0,
     signal_source: str = "",
+    exit_price_override: float = 0.0,
 ) -> dict:
-    """Simulate a paper sell trade. Returns result dict with P/L."""
+    """Simulate a paper sell trade. Returns result dict with P/L.
 
-    # Get current real price — use entry price if fetch fails (neutral P/L)
-    current_price = await _get_token_price(mint)
-    if current_price <= 0:
-        logger.warning("PAPER SELL: price fetch failed for %s — using entry price", mint[:12])
-        current_price = entry_price
+    exit_price_override: caller (bot_core) should ALWAYS pass the current market
+    price it already knows. This avoids a redundant Jupiter/Gecko fetch that fails
+    on bonding-curve tokens and corrupts P/L records.
+    """
+
+    if exit_price_override > 0:
+        current_price = exit_price_override
+    else:
+        # Fallback — caller should always pass exit_price_override.
+        # Log a warning so we can track any remaining call sites that don't.
+        logger.warning(
+            "paper_sell called WITHOUT exit_price_override for %s — "
+            "this is a bug, caller should always pass the price. "
+            "Trying Redis fallback.", mint[:12]
+        )
+        # Try Redis cache (same source bot_core uses)
+        if redis_conn:
+            try:
+                cached = await redis_conn.get(f"token:latest_price:{mint}")
+                if cached:
+                    current_price = float(cached)
+                    logger.info("paper_sell: Redis fallback price for %s: %.10f", mint[:12], current_price)
+                else:
+                    current_price = 0.0
+            except Exception:
+                current_price = 0.0
+        else:
+            current_price = 0.0
+
+        if current_price <= 0:
+            logger.error("paper_sell: no price anywhere for %s — recording as breakeven", mint[:12])
+            current_price = entry_price
 
     # Simulate exit slippage (selling pushes price down)
     slippage = _simulate_slippage("sell")

@@ -469,9 +469,11 @@ class BotCore:
         self.emergency_stopped = True
         logger.critical("EMERGENCY STOP: %s", reason)
 
-        # Close all open positions
+        # Close all open positions — use last known prices
+        last_prices = getattr(self, "_last_prices", {})
         for key, pos in list(self.positions.items()):
-            await self._close_position(pos, "emergency_stop")
+            price = last_prices.get(pos.mint, 0.0)
+            await self._close_position(pos, "emergency_stop", current_price=price)
 
         await self._send_discord(f"EMERGENCY STOP: {reason}\nAll positions closed. Manual restart required.")
 
@@ -864,7 +866,7 @@ class BotCore:
                 logger.warning("ENTRY FAILED: %s %s -- %s", personality, mint[:12], result.error)
 
     # --- EXIT MONITORING ---
-    async def _close_position(self, pos: Position, reason: str, sell_pct: float = 1.0):
+    async def _close_position(self, pos: Position, reason: str, sell_pct: float = 1.0, current_price: float = 0.0):
         """Close (partial or full) a position."""
         sell_amount = pos.size_sol * pos.remaining_pct * sell_pct
         if sell_amount < 0.001:
@@ -877,6 +879,7 @@ class BotCore:
                 trade_id=pos.trade_id, entry_price=pos.entry_price,
                 entry_time=pos.entry_time, amount_sol=pos.size_sol * pos.remaining_pct,
                 signal_source=pos.signal_source,
+                exit_price_override=current_price,
             )
             pos.remaining_pct *= (1 - sell_pct)
             if pos.remaining_pct <= 0.01:
@@ -1206,7 +1209,7 @@ class BotCore:
                             else:
                                 logger.info("STALE_EXIT: %s %s — no price for %.1fm, force closing",
                                            pos.personality, pos.mint[:12], elapsed_min)
-                                await self._close_position(pos, "stale_no_price")
+                                await self._close_position(pos, "stale_no_price", current_price=pos.entry_price)
                                 continue
 
                     # Update peak_price and persist to DB for staged exit tracking
@@ -1235,7 +1238,7 @@ class BotCore:
                                 pnl_pct = (current_price - entry) / entry * 100
                                 if pnl_pct < early_min_move:
                                     logger.info("NO MOMENTUM 90s: %s %.1f%%", pos.mint[:8], pnl_pct)
-                                    await self._close_position(pos, "no_momentum_90s")
+                                    await self._close_position(pos, "no_momentum_90s", current_price=current_price)
                                     continue
 
                     # Graduation-specific exit strategy (overrides standard exits)
@@ -1246,16 +1249,16 @@ class BotCore:
 
                         if elapsed_min >= grad_time_limit and current_price > 0 and entry > 0:
                             if current_price <= entry * 1.05:
-                                await self._close_position(pos, "graduation_time_exit")
+                                await self._close_position(pos, "graduation_time_exit", current_price=current_price)
                                 continue
 
                         if current_price > 0 and entry > 0:
                             if current_price <= entry * (1 - grad_stop_loss):
-                                await self._close_position(pos, "graduation_stop_loss")
+                                await self._close_position(pos, "graduation_stop_loss", current_price=current_price)
                                 continue
                             if current_price >= entry * grad_tp:
                                 # Sell 95% at +30%, keep 5% moonbag
-                                await self._close_position(pos, "graduation_tp_30pct", sell_pct=0.95)
+                                await self._close_position(pos, "graduation_tp_30pct", sell_pct=0.95, current_price=current_price)
                                 # Remaining 5% gets 15% trailing stop
                                 pos.trailing_stop_active = True
                                 pos.trailing_stop_pct = 0.15
@@ -1271,7 +1274,7 @@ class BotCore:
                         # 1. Hard stop loss — highest priority, every cycle
                         sl_pct = strategy.get("stop_loss_pct", 0.50)
                         if multiple <= (1 - sl_pct):
-                            await self._close_position(pos, f"stop_loss_{sl_pct:.0%}")
+                            await self._close_position(pos, f"stop_loss_{sl_pct:.0%}", current_price=current_price)
                             continue
 
                         # 2. Staged take-profits — checked BEFORE time_exit
@@ -1282,7 +1285,7 @@ class BotCore:
                             if exit_key not in pos.staged_exits_done and gain >= at_gain:
                                 logger.info("STAGED_TP: %s hit %s (%.1fx) — selling %d%%",
                                            pos.mint[:12], exit_key, multiple, int(exit_rule["sell_pct"] * 100))
-                                await self._close_position(pos, f"staged_tp_{exit_key}", sell_pct=exit_rule["sell_pct"])
+                                await self._close_position(pos, f"staged_tp_{exit_key}", sell_pct=exit_rule["sell_pct"], current_price=current_price)
                                 pos.staged_exits_done.append(exit_key)
                                 if pos.trade_id:
                                     try:
@@ -1297,7 +1300,7 @@ class BotCore:
                         # 3. Trailing stop — checked every cycle
                         ts_exit = await self._evaluate_trailing_stop(pos, current_price)
                         if ts_exit:
-                            await self._close_position(pos, ts_exit)
+                            await self._close_position(pos, ts_exit, current_price=current_price)
                             continue
 
                     # 4. Time-based exit (lowest priority) with momentum extension
@@ -1306,7 +1309,7 @@ class BotCore:
                         # Hard ceiling: never extend beyond 2x original time_exit
                         max_extended = time_exit * 2
                         if elapsed_min >= max_extended:
-                            await self._close_position(pos, "max_extended_hold")
+                            await self._close_position(pos, "max_extended_hold", current_price=current_price)
                             continue
 
                         if current_price > 0 and entry > 0:
@@ -1340,18 +1343,18 @@ class BotCore:
                                 continue  # Let trailing stop manage from here
 
                             elif pnl_pct < -5.0:
-                                await self._close_position(pos, "time_exit_loss")
+                                await self._close_position(pos, "time_exit_loss", current_price=current_price)
                                 continue
                             else:
-                                await self._close_position(pos, "time_exit_no_movement")
+                                await self._close_position(pos, "time_exit_no_movement", current_price=current_price)
                                 continue
                         else:
-                            await self._close_position(pos, "time_exit_no_movement")
+                            await self._close_position(pos, "time_exit_no_movement", current_price=current_price)
                             continue
 
                     max_hold = strategy.get("max_hold_hours")
                     if max_hold and elapsed_hrs >= max_hold:
-                        await self._close_position(pos, "max_hold_time")
+                        await self._close_position(pos, "max_hold_time", current_price=current_price)
                         continue
 
                 except Exception as e:
@@ -1450,20 +1453,22 @@ class BotCore:
                     if not mint:
                         continue
 
+                    last_prices = getattr(self, "_last_prices", {})
                     for key, pos in list(self.positions.items()):
                         if pos.mint == mint:
+                            price = last_prices.get(mint, 0.0)
                             if pos.personality == "whale_tracker":
                                 logger.info("WHALE PRIMARY EXIT: %s — tracked wallet selling", pos.mint[:12])
-                                await self._close_position(pos, f"whale_primary_exit: {reason}")
+                                await self._close_position(pos, f"whale_primary_exit: {reason}", current_price=price)
                             else:
                                 if pos.remaining_pct > 0.50:
-                                    await self._close_position(pos, f"smart_money_exit: {reason}", sell_pct=0.50)
+                                    await self._close_position(pos, f"smart_money_exit: {reason}", sell_pct=0.50, current_price=price)
                                 else:
                                     logger.warning(
                                         "FORCED EXIT: %s %s — reason=%s (smart money selling)",
                                         pos.personality, mint[:12], reason,
                                     )
-                                    await self._close_position(pos, reason)
+                                    await self._close_position(pos, reason, current_price=price)
                 except Exception as e:
                     logger.error("Exit check listener error: %s", e)
         finally:
