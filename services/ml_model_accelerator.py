@@ -343,11 +343,19 @@ class AcceleratedMLEngine:
         thirty_days_ago = datetime.now(timezone.utc).timestamp() - (30 * 86400)
         seven_days_ago = datetime.now(timezone.utc).timestamp() - (7 * 86400)
 
+        # Contamination cutoff: commit 9b880e1 fixed paper_trader exit pricing
+        contamination_cutoff = float(os.getenv(
+            "ML_TRAINING_CONTAMINATION_CUTOFF", "1775767260.0"  # 2026-04-09 20:41 UTC
+        ))
         try:
             rows = await pool.fetch(
                 """SELECT features_json, outcome FROM trades
-                   WHERE created_at > $1 AND features_json IS NOT NULL AND outcome IS NOT NULL""",
-                thirty_days_ago,
+                   WHERE created_at > $1 AND features_json IS NOT NULL AND outcome IS NOT NULL
+                   AND NOT (
+                       closed_at < $2
+                       AND exit_price BETWEEN entry_price * 0.97 AND entry_price * 1.03
+                   )""",
+                thirty_days_ago, contamination_cutoff,
             )
         except Exception:
             rows = []
@@ -356,11 +364,16 @@ class AcceleratedMLEngine:
         try:
             paper_rows = await pool.fetch(
                 """SELECT features_json, outcome FROM paper_trades
-                   WHERE entry_time > $1 AND features_json IS NOT NULL AND outcome IS NOT NULL""",
-                thirty_days_ago,
+                   WHERE entry_time > $1 AND features_json IS NOT NULL AND outcome IS NOT NULL
+                   AND NOT (
+                       exit_time < $2
+                       AND exit_price BETWEEN entry_price * 0.97 AND entry_price * 1.03
+                       AND exit_reason NOT IN ('no_momentum_90s', 'time_exit_no_movement', 'stale_no_price')
+                   )""",
+                thirty_days_ago, contamination_cutoff,
             )
             rows = list(rows) + list(paper_rows)
-            logger.info("Training data: %d trades + %d paper_trades = %d total",
+            logger.info("Training data: %d trades + %d paper_trades = %d total (contaminated rows excluded)",
                        len(rows) - len(paper_rows), len(paper_rows), len(rows))
         except Exception as e:
             logger.warning("Paper trades query failed: %s", e)

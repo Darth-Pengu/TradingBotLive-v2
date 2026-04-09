@@ -397,15 +397,37 @@ class MLModel:
 
         # Fetch training data from trades table
         seven_days_ago = datetime.now(timezone.utc).timestamp() - (7 * 86400)
+        # Contamination cutoff: commit 9b880e1 fixed paper_trader exit pricing
+        # Pre-fix trades with exit≈entry are contaminated (paper_sell fell back to entry_price)
+        contamination_cutoff = float(os.getenv(
+            "ML_TRAINING_CONTAMINATION_CUTOFF", "1775767260.0"  # 2026-04-09 20:41 UTC
+        ))
         try:
             rows = await pool.fetch(
                 """SELECT features_json, outcome FROM trades
-                   WHERE created_at > $1 AND features_json IS NOT NULL AND outcome IS NOT NULL""",
-                seven_days_ago,
+                   WHERE created_at > $1 AND features_json IS NOT NULL AND outcome IS NOT NULL
+                   AND NOT (
+                       closed_at < $2
+                       AND exit_price BETWEEN entry_price * 0.97 AND entry_price * 1.03
+                   )""",
+                seven_days_ago, contamination_cutoff,
             )
         except Exception as e:
             logger.warning("Could not fetch training data: %s", e)
             return
+
+        # Count excluded rows for monitoring
+        try:
+            total_rows = await pool.fetchval(
+                """SELECT COUNT(*) FROM trades
+                   WHERE created_at > $1 AND features_json IS NOT NULL AND outcome IS NOT NULL""",
+                seven_days_ago,
+            )
+            excluded = total_rows - len(rows)
+            if excluded > 0:
+                logger.info("ML training: excluded %d contaminated rows (pre-9b880e1 exit price bug)", excluded)
+        except Exception:
+            pass
 
         if len(rows) < MIN_SAMPLES_FIRST_TRAIN:
             logger.info("Only %d samples (need %d) — skipping training", len(rows), MIN_SAMPLES_FIRST_TRAIN)
@@ -851,12 +873,19 @@ async def _retrain_loop(model: MLModel, redis_conn: aioredis.Redis | None = None
 
             elif model.is_trained:
                 # Check for incremental update: new trades since last update
+                contamination_cutoff = float(os.getenv(
+                    "ML_TRAINING_CONTAMINATION_CUTOFF", "1775767260.0"
+                ))
                 try:
                     rows = await pool.fetch(
                         """SELECT features_json, outcome FROM trades
                            WHERE closed_at > $1 AND features_json IS NOT NULL AND outcome IS NOT NULL
+                           AND NOT (
+                               closed_at < $2
+                               AND exit_price BETWEEN entry_price * 0.97 AND entry_price * 1.03
+                           )
                            ORDER BY closed_at DESC""",
-                        model.last_update_time,
+                        model.last_update_time, contamination_cutoff,
                     )
                 except Exception as e:
                     logger.debug("Incremental check DB error: %s", e)
