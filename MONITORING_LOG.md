@@ -2,6 +2,31 @@
 
 ---
 
+## 2026-04-09 — Exit Strategy Fix (Tiered Trailing + Staged TPs)
+
+### Deploy
+- Commit: bf57117 (tiered trailing stops + staged take-profits)
+- bot_core deploy: ~14:05 UTC Apr 9
+- MIN_POSITION_SOL: 0.08 → 0.05 (14:25 UTC, positions were 0.0614 < 0.08)
+
+### Changes
+- Staged TPs: +50%/+100%/+200%/+400% (25% each) — was 2x/3x/5x (unreachable)
+- Tiered trail: breakeven at +30%, 25% at +50%, 20% at +100%, 15% at +200%, 12% at +500%
+- Both configurable via STAGED_TAKE_PROFITS_JSON and TIERED_TRAIL_SCHEDULE_JSON env vars
+- Old flat 8% trail (4% in HIBERNATE) replaced
+
+### Verification (7 trades, 6 closed)
+- Staged TPs: 3/3 eligible fired both +50% and +100% (100%) ✅
+- Tiered trail: activated at correct tiers (20% for +100-200%) ✅
+- Emergency stops: zero ✅
+- Cascade triggers: zero ✅
+- CAVEAT: paper_trader records wrong exit price (independent Jupiter/Gecko fetch
+  fails on bonding curve tokens, falls back to entry price). Actual trade logic
+  is correct per bot_core logs.
+- MIN_POSITION_SOL: 0.08 → 0.05 (14:25 UTC, positions were 0.0614)
+
+---
+
 ## 2026-04-09 — Cascade Fix (Exit Pricing + Emergency Stop + Sizing)
 
 ### Root Cause Chain
