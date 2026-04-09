@@ -2,6 +2,40 @@
 
 ---
 
+## 2026-04-09 — Cascade Fix (Exit Pricing + Emergency Stop + Sizing)
+
+### Root Cause Chain
+exit pricing fails → blind exits → 5 stop losses in 30min → rug cascade emergency stop → bot dead 22+ hours
+
+### Fixes Applied (commit 26e19b4)
+1. **signal_listener.py:472** — removed `_subscribed_tokens` gate from BC price caching. All new token create events now cache `token:latest_price:{mint}` and `token:reserves:{mint}` immediately.
+2. **bot_core.py:773** — seed `token:latest_price:{mint}` with BC price on position entry.
+3. **market_health.py:396** — `RUG_CASCADE_THRESHOLD` now env-var configurable (set to 15 for paper mode).
+4. **Env var: MIN_POSITION_SOL** — 0.15 → 0.08 on bot_core (multiplier stack was producing 0.1256 SOL).
+5. **Env var: RUG_CASCADE_THRESHOLD** — set to 15 on market_health.
+
+### Deployments
+- signal_listener: ~13:48 UTC (BC pricing for all tokens)
+- bot_core: 13:50 UTC (BC seed + emergency clear + lower min position)
+- market_health: ~13:50 UTC (configurable cascade threshold)
+
+### Verification (13:50-14:00 UTC)
+- NO_EXIT_PRICE count: **0** (was hundreds before)
+- TRAILING_STOP exits: **6** (exit strategy actually working now)
+- Emergency stop re-triggered: **NO**
+- Position size rejections: **0**
+- 3 restored positions showed real P/L: +30.7%, +29.6%, +15.9%
+- Positions eventually exited via trailing stop on pullback: -3.5%, -1.1%, -0.8%
+
+### Tier 2 Issues Found (NOT FIXED — see TIER2_FOLLOWUPS.md)
+1. Feature derivation timing: token:stats empty at scoring time
+2. Inline AcceleratedMLEngine bypasses ml_engine service
+3. Governance SQL type mismatch
+4. Paper trader exit price fallback
+5. Analyst auto-pause in extreme fear
+
+---
+
 ## 2026-04-09 — No-Trades Diagnosis & Fix
 
 ### Root Cause
