@@ -106,6 +106,13 @@ _trade_tracker: dict[str, dict] = {}
 TRADE_TRACKER_WINDOW = 300  # 5-minute rolling window
 TRADE_TRACKER_MAX = 2000    # Max tokens to track
 
+# --- Early subscription for feature derivation ---
+# Tokens subscribed on createEvent to populate token:stats before ML scoring.
+# Maps mint -> subscription_time. Cleaned up after EARLY_SUB_TTL seconds.
+_early_subscriptions: dict[str, float] = {}
+EARLY_SUB_TTL = 300  # 5 minutes — unsubscribe if bot_core hasn't claimed
+EARLY_SUB_MAX = 200  # Max concurrent early subscriptions
+
 
 def _update_trade_tracker(mint: str, tx_type: str):
     """Track buy/sell counts per token from the PumpPortal trade stream."""
@@ -347,6 +354,12 @@ async def _token_subscribe_listener(redis_conn: aioredis.Redis | None, ws_ref: l
                 if redis_conn:
                     await redis_conn.set(f"token:subscribed:{mint}", "1", ex=7200)
                 logger.info("PRICE_TRACK: subscribed to trades for %s", mint[:12])
+            elif action == "subscribe" and mint in _early_subscriptions:
+                # Already early-subscribed — just claim it (remove from early pool)
+                _early_subscriptions.pop(mint, None)
+                if redis_conn:
+                    await redis_conn.set(f"token:subscribed:{mint}", "1", ex=7200)
+                logger.info("PRICE_TRACK: claimed early subscription for %s", mint[:12])
             elif action == "unsubscribe" and mint in _subscribed_tokens:
                 await ws.send(json.dumps({"method": "unsubscribeTokenTrade", "keys": [mint]}))
                 _subscribed_tokens.discard(mint)
@@ -487,6 +500,18 @@ async def pumpportal_listener(redis_conn: aioredis.Redis | None):
                                         logger.info("PRICE_CREATE_BC: %s = %.10f SOL (from create event)", mint[:12], bc_price)
                             except Exception as e:
                                 logger.debug("CREATE_BC_ERR: %s — %s", mint[:12], e)
+
+                    # Early-subscribe to new token trades for feature derivation
+                    # This populates token:stats:{mint} before ML scoring runs
+                    if (tx_type == "create" or "bondingCurveKey" in data) and mint not in _subscribed_tokens and mint not in _early_subscriptions:
+                        if len(_early_subscriptions) < EARLY_SUB_MAX:
+                            try:
+                                await ws.send(json.dumps({"method": "subscribeTokenTrade", "keys": [mint]}))
+                                _early_subscriptions[mint] = time.time()
+                                _subscribed_tokens.add(mint)
+                                logger.debug("EARLY_SUB: %s (active=%d)", mint[:12], len(_early_subscriptions))
+                            except Exception as e:
+                                logger.debug("EARLY_SUB_ERR: %s — %s", mint[:12], e)
 
                     # Classify signal type
                     if tx_type == "create" or "bondingCurveKey" in data:
@@ -1309,6 +1334,32 @@ async def _resub_and_price_poller(redis_conn: aioredis.Redis | None):
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+async def _early_sub_cleanup(redis_conn: aioredis.Redis | None):
+    """Periodically unsubscribe tokens that were early-subscribed but not claimed by bot_core."""
+    while True:
+        await asyncio.sleep(60)
+        try:
+            now = time.time()
+            ws = _pumpportal_ws_ref[0]
+            expired = [m for m, t in _early_subscriptions.items() if now - t > EARLY_SUB_TTL]
+            for mint in expired:
+                _early_subscriptions.pop(mint, None)
+                _subscribed_tokens.discard(mint)
+                if ws:
+                    try:
+                        await ws.send(json.dumps({"method": "unsubscribeTokenTrade", "keys": [mint]}))
+                    except Exception:
+                        pass
+            if expired:
+                logger.info("EARLY_SUB_CLEANUP: unsubscribed %d expired tokens (active=%d, early=%d)",
+                           len(expired), len(_subscribed_tokens), len(_early_subscriptions))
+            elif len(_early_subscriptions) > 0:
+                logger.debug("EARLY_SUB: %d active early subscriptions, %d total subscriptions",
+                            len(_early_subscriptions), len(_subscribed_tokens))
+        except Exception as e:
+            logger.debug("Early sub cleanup error: %s", e)
+
+
 async def main():
     logger.info("Signal Listener starting (TEST_MODE=%s)", TEST_MODE)
 
@@ -1351,6 +1402,7 @@ async def main():
         discord_nansen_poller(redis_conn),
         helius_whale_poller(redis_conn),
         telegram_listener(redis_conn),
+        _early_sub_cleanup(redis_conn),
     )
 
 

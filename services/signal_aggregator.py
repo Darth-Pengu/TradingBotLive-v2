@@ -1791,9 +1791,13 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
                     logger.info("Helius boost %s: +%d confidence (now %d)", mint[:12], webhook_boost, confidence)
 
                 # --- Fetch fresh trade stats from Redis (published by signal_listener) ---
+                # Early subscription means stats should be populating; retry once if empty
                 live_stats = {}
                 try:
                     raw_stats = await redis_conn.hgetall(f"token:stats:{mint}")
+                    if not raw_stats:
+                        await asyncio.sleep(0.5)
+                        raw_stats = await redis_conn.hgetall(f"token:stats:{mint}")
                     if raw_stats:
                         live_stats = {k: v for k, v in raw_stats.items()}
                 except Exception:
