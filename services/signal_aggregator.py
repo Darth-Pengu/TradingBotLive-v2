@@ -1523,9 +1523,14 @@ async def _apply_entry_filter(
     if wallet_vel not in (-1, 0) and wallet_vel < ENTRY_FILTER_MIN_WALLET_VELOCITY:
         return False, f"low_wallet_velocity_{wallet_vel:.1f}"
 
-    # Filter C — All PumpPortal stats missing (blind entry)
-    pp_all_missing = (sniper_0s == -1 and tx_per_sec == -1 and sell_pressure == -1)
-    if pp_all_missing:
+    # Filter C — All data missing AND buy_sell_ratio is also zero (truly blind entry)
+    # At age 0-1s, PP stats haven't arrived yet — that's normal. We only reject
+    # when bsr is ALSO 0 (no trade data at all) AND stats stay empty after retry.
+    truly_blind = (
+        buy_sell in (-1, 0)
+        and sniper_0s == -1 and tx_per_sec == -1 and sell_pressure == -1
+    )
+    if truly_blind:
         await asyncio.sleep(ENTRY_FILTER_MISSING_DATA_RETRY_MS / 1000)
         try:
             raw_stats = await redis_conn.hgetall(f"token:stats:{mint}")
@@ -1536,6 +1541,11 @@ async def _apply_entry_filter(
                 total = buys + sells
                 tps = round(total / max(features.get("token_age_seconds", 1), 1), 4) if total > 0 else -1
                 sp = round(sells / max(total, 1), 4) if total > 0 else -1
+                # Also re-read BSR
+                new_bsr = float(raw_stats.get("bsr", 0) or 0)
+                if new_bsr > 0:
+                    features["buy_sell_ratio_5min"] = new_bsr
+                    buy_sell = new_bsr
                 features["sniper_0s_num"] = s0
                 features["tx_per_sec"] = tps
                 features["sell_pressure"] = sp
@@ -1543,8 +1553,16 @@ async def _apply_entry_filter(
         except Exception:
             pass
 
-        if sniper_0s == -1 and tx_per_sec == -1 and sell_pressure == -1:
+        # After retry: reject only if STILL completely blind (no BSR, no PP stats)
+        still_blind = (
+            buy_sell in (-1, 0)
+            and sniper_0s == -1 and tx_per_sec == -1 and sell_pressure == -1
+        )
+        if still_blind:
             return False, "blind_entry_no_stats"
+        # If BSR came back, re-check Filter A with fresh data
+        if buy_sell not in (-1, 0) and buy_sell < ENTRY_FILTER_MIN_BUY_SELL_RATIO:
+            return False, f"low_buy_sell_ratio_{buy_sell:.2f}"
 
     return True, "passed"
 
