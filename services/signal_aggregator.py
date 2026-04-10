@@ -1509,60 +1509,49 @@ async def _apply_entry_filter(
 
     buy_sell = _f("buy_sell_ratio_5min")
     wallet_vel = _f("unique_wallet_velocity")
-    sniper_0s = _f("sniper_0s_num")
     tx_per_sec = _f("tx_per_sec")
     sell_pressure = _f("sell_pressure")
 
+    # Determine if trade data actually exists (vs features defaulting to 0/-1)
+    has_trade_data = (tx_per_sec > 0 or sell_pressure > 0 or buy_sell > 0)
+
     # Filter A — Low buy pressure (the main lever)
-    # -1 = missing data (don't penalize), 0 = measured zero sells+buys (skip)
-    if buy_sell not in (-1, 0) and buy_sell < ENTRY_FILTER_MIN_BUY_SELL_RATIO:
+    # Only apply when trade data exists — bsr=0 with no trade data means
+    # "too early" not "bad signal". When trades exist, bsr < 1.0 means
+    # more selling than buying, which is the dominant loser pattern.
+    if has_trade_data and buy_sell < ENTRY_FILTER_MIN_BUY_SELL_RATIO:
         return False, f"low_buy_sell_ratio_{buy_sell:.2f}"
 
     # Filter B — Dead wallet velocity (holder_count / age_min)
-    # 0 = holder_count not available (skip), -1 = missing (skip)
-    if wallet_vel not in (-1, 0) and wallet_vel < ENTRY_FILTER_MIN_WALLET_VELOCITY:
+    # 0 = holder_count not available from GeckoTerminal (skip)
+    if wallet_vel > 0 and wallet_vel < ENTRY_FILTER_MIN_WALLET_VELOCITY:
         return False, f"low_wallet_velocity_{wallet_vel:.1f}"
 
-    # Filter C — All data missing AND buy_sell_ratio is also zero (truly blind entry)
-    # At age 0-1s, PP stats haven't arrived yet — that's normal. We only reject
-    # when bsr is ALSO 0 (no trade data at all) AND stats stay empty after retry.
-    truly_blind = (
-        buy_sell in (-1, 0)
-        and sniper_0s == -1 and tx_per_sec == -1 and sell_pressure == -1
-    )
-    if truly_blind:
+    # Filter C — Deferred retry for signals with no trade data at all
+    # At age 0-1s PumpPortal stats haven't arrived. Wait briefly and re-check.
+    if not has_trade_data:
         await asyncio.sleep(ENTRY_FILTER_MISSING_DATA_RETRY_MS / 1000)
         try:
             raw_stats = await redis_conn.hgetall(f"token:stats:{mint}")
             if raw_stats:
-                s0 = float(raw_stats.get("snipers_0s", -1))
                 buys = int(raw_stats.get("buys", 0) or 0)
                 sells = int(raw_stats.get("sells", 0) or 0)
                 total = buys + sells
-                tps = round(total / max(features.get("token_age_seconds", 1), 1), 4) if total > 0 else -1
-                sp = round(sells / max(total, 1), 4) if total > 0 else -1
-                # Also re-read BSR
-                new_bsr = float(raw_stats.get("bsr", 0) or 0)
-                if new_bsr > 0:
+                if total > 0:
+                    new_bsr = float(raw_stats.get("bsr", 0) or 0)
+                    tps = round(total / max(features.get("token_age_seconds", 1), 1), 4)
+                    sp = round(sells / max(total, 1), 4)
                     features["buy_sell_ratio_5min"] = new_bsr
-                    buy_sell = new_bsr
-                features["sniper_0s_num"] = s0
-                features["tx_per_sec"] = tps
-                features["sell_pressure"] = sp
-                sniper_0s, tx_per_sec, sell_pressure = s0, tps, sp
+                    features["tx_per_sec"] = tps
+                    features["sell_pressure"] = sp
+                    # Re-check Filter A with fresh data
+                    if new_bsr < ENTRY_FILTER_MIN_BUY_SELL_RATIO:
+                        return False, f"low_buy_sell_ratio_{new_bsr:.2f}_after_retry"
         except Exception:
             pass
-
-        # After retry: reject only if STILL completely blind (no BSR, no PP stats)
-        still_blind = (
-            buy_sell in (-1, 0)
-            and sniper_0s == -1 and tx_per_sec == -1 and sell_pressure == -1
-        )
-        if still_blind:
-            return False, "blind_entry_no_stats"
-        # If BSR came back, re-check Filter A with fresh data
-        if buy_sell not in (-1, 0) and buy_sell < ENTRY_FILTER_MIN_BUY_SELL_RATIO:
-            return False, f"low_buy_sell_ratio_{buy_sell:.2f}"
+        # If still no data after retry, let the signal through — ML + exit
+        # strategy will handle it. We don't want to reject potentially good
+        # tokens just because data is slow to arrive.
 
     return True, "passed"
 
