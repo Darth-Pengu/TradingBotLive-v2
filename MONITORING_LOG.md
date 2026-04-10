@@ -2,6 +2,24 @@
 
 ---
 
+## 2026-04-11 — API Audit + Entry Filter
+
+### API Audit (API_AUDIT_REPORT.md)
+- **Helius: CREDITS EXHAUSTED** (10.09M / 10M). Root cause: 6 duplicate Raydium webhooks (45%) + unchecked signal enrichment RPC calls (55%). HELIUS_DAILY_BUDGET=0 is cosmetic — no service checks it.
+- **Nansen: WORKING** via MCP. Credits available. 8 safeguard layers intact. Ready to re-enable.
+- **Vybe: BROKEN** — ALL token endpoints return 404. API restructured or deprecated.
+- Treasury budget guard applied (skip getBalance when HELIUS_DAILY_BUDGET=0).
+
+### Entry Filter (commits eb20d85, 33244dd, 4f4d4db)
+- Pre-ML entry filter based on 172-trade CSV analysis (bsr < 1.0, wallet_vel < 10, blind entry retry)
+- Three iterations needed: v1 rejected everything (timing issue), v2 same, v3 correctly passes tokens without trade data
+- **1-hour verification: 14 trades, 0 wins, 0 filter rejections.** Filter is correctly a no-op when trade data doesn't exist at age 0-1s. Will fire more in non-HIBERNATE markets.
+- **71% of exits are stale_no_price** — Helius credit issue, not filter-related.
+- Kill switch: `ENTRY_FILTER_ENABLED=false` on signal_aggregator.
+- Full details in ENTRY_FILTER_REPORT.md.
+
+---
+
 ## 2026-04-10 — Tier 2 Overnight: 4 Fixes
 
 ### Fix 1: ML Retrain Cleanup (commit f7ebc56)
