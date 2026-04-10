@@ -57,6 +57,8 @@ LAMPORTS_PER_SOL = 1_000_000_000
 
 async def _get_balance(session: aiohttp.ClientSession, address: str) -> float | None:
     """Get SOL balance via Helius RPC getBalance (gatekeeper fallback)."""
+    if os.getenv("HELIUS_DAILY_BUDGET", "0") == "0":
+        return None  # Helius disabled — skip RPC calls
     payload = {
         "jsonrpc": "2.0",
         "id": 1,

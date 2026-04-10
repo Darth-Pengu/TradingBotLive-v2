@@ -45,6 +45,12 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 SOCIALDATA_API_KEY = os.getenv("SOCIALDATA_API_KEY") or os.getenv("SOCIAL_DATA_API_KEY", "")
 SPEED_DEMON_FILTERS_ENABLED = os.getenv("SPEED_DEMON_FILTERS_ENABLED", "true").lower() == "true"
 
+# Entry filter — rejects low-quality signals BEFORE ML scoring
+ENTRY_FILTER_ENABLED = os.getenv("ENTRY_FILTER_ENABLED", "true").lower() == "true"
+ENTRY_FILTER_MIN_BUY_SELL_RATIO = float(os.getenv("ENTRY_FILTER_MIN_BUY_SELL_RATIO", "1.0"))
+ENTRY_FILTER_MIN_WALLET_VELOCITY = float(os.getenv("ENTRY_FILTER_MIN_WALLET_VELOCITY", "10.0"))
+ENTRY_FILTER_MISSING_DATA_RETRY_MS = int(os.getenv("ENTRY_FILTER_MISSING_DATA_RETRY_MS", "750"))
+
 # Haiku enrichment config
 HAIKU_MODEL = "claude-haiku-4-5-20251001"
 HAIKU_ENABLED = os.getenv("HAIKU_ENRICHMENT_ENABLED", "false").lower() == "true" and bool(ANTHROPIC_API_KEY)
@@ -1483,6 +1489,66 @@ async def _cleanup_seen_tokens():
             logger.debug("Cleaned %d expired tokens from dedup cache", len(expired))
 
 
+async def _apply_entry_filter(
+    mint: str, features: dict, redis_conn
+) -> tuple[bool, str]:
+    """
+    Pre-ML entry filter: rejects signals with obviously bad on-chain metrics.
+    Returns (should_enter, reject_reason).
+    All thresholds are env-var configurable. Kill switch: ENTRY_FILTER_ENABLED=false.
+    """
+    if not ENTRY_FILTER_ENABLED:
+        return True, "filter_disabled"
+
+    def _f(key, default=-1.0):
+        v = features.get(key, default)
+        try:
+            return float(v) if v is not None else default
+        except (TypeError, ValueError):
+            return default
+
+    buy_sell = _f("buy_sell_ratio_5min")
+    wallet_vel = _f("unique_wallet_velocity")
+    sniper_0s = _f("sniper_0s_num")
+    tx_per_sec = _f("tx_per_sec")
+    sell_pressure = _f("sell_pressure")
+
+    # Filter A — Low buy pressure (the main lever)
+    # -1 = missing data (don't penalize), 0 = measured zero sells+buys (skip)
+    if buy_sell not in (-1, 0) and buy_sell < ENTRY_FILTER_MIN_BUY_SELL_RATIO:
+        return False, f"low_buy_sell_ratio_{buy_sell:.2f}"
+
+    # Filter B — Dead wallet velocity (holder_count / age_min)
+    # 0 = holder_count not available (skip), -1 = missing (skip)
+    if wallet_vel not in (-1, 0) and wallet_vel < ENTRY_FILTER_MIN_WALLET_VELOCITY:
+        return False, f"low_wallet_velocity_{wallet_vel:.1f}"
+
+    # Filter C — All PumpPortal stats missing (blind entry)
+    pp_all_missing = (sniper_0s == -1 and tx_per_sec == -1 and sell_pressure == -1)
+    if pp_all_missing:
+        await asyncio.sleep(ENTRY_FILTER_MISSING_DATA_RETRY_MS / 1000)
+        try:
+            raw_stats = await redis_conn.hgetall(f"token:stats:{mint}")
+            if raw_stats:
+                s0 = float(raw_stats.get("snipers_0s", -1))
+                buys = int(raw_stats.get("buys", 0) or 0)
+                sells = int(raw_stats.get("sells", 0) or 0)
+                total = buys + sells
+                tps = round(total / max(features.get("token_age_seconds", 1), 1), 4) if total > 0 else -1
+                sp = round(sells / max(total, 1), 4) if total > 0 else -1
+                features["sniper_0s_num"] = s0
+                features["tx_per_sec"] = tps
+                features["sell_pressure"] = sp
+                sniper_0s, tx_per_sec, sell_pressure = s0, tps, sp
+        except Exception:
+            pass
+
+        if sniper_0s == -1 and tx_per_sec == -1 and sell_pressure == -1:
+            return False, "blind_entry_no_stats"
+
+    return True, "passed"
+
+
 async def _process_signals(redis_conn: aioredis.Redis, pool=None):
     """Main processing loop: read raw signals, aggregate, score, and route."""
     async with aiohttp.ClientSession() as session:
@@ -1959,6 +2025,42 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
                     today_key = f"filter:stats:{datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
                     await redis_conn.hincrby(today_key, "passed_prefilter", 1)
                     await redis_conn.expire(today_key, 172800)
+                except Exception:
+                    pass
+
+                # --- Entry filter: reject low-quality signals before ML scoring ---
+                should_enter, reject_reason = await _apply_entry_filter(mint, features, redis_conn)
+                if not should_enter:
+                    try:
+                        await redis_conn.hincrby("entry_filter:rejects", reject_reason, 1)
+                        await redis_conn.hincrby("entry_filter:rejects:total", "count", 1)
+                    except Exception:
+                        pass
+                    logger.info("ENTRY_FILTER_REJECT %s reason=%s bsr=%.2f vel=%.1f snp=%s tps=%s sp=%s",
+                                mint[:12], reject_reason,
+                                float(features.get("buy_sell_ratio_5min", -1)),
+                                float(features.get("unique_wallet_velocity", -1)),
+                                features.get("sniper_0s_num", "?"),
+                                features.get("tx_per_sec", "?"),
+                                features.get("sell_pressure", "?"))
+                    # Store in evaluated signals for dashboard visibility
+                    try:
+                        eval_entry = json.dumps({
+                            "mint": mint,
+                            "token": signal.get("raw_data", {}).get("name", signal.get("raw_data", {}).get("symbol", "")),
+                            "platform": signal.get("source", ""),
+                            "ml_score": 0,
+                            "bc_progress": round(features.get("bonding_curve_progress", 0), 3),
+                            "result": f"ENTRY_FILTER: {reject_reason}",
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        })
+                        await redis_conn.lpush("signals:evaluated", eval_entry)
+                        await redis_conn.ltrim("signals:evaluated", 0, 49)
+                    except Exception:
+                        pass
+                    continue
+                try:
+                    await redis_conn.hincrby("entry_filter:passes", "count", 1)
                 except Exception:
                     pass
 
