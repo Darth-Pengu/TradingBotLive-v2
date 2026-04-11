@@ -2,6 +2,23 @@
 
 ---
 
+## 2026-04-12 — Entry Filter v4 Bug Fix + Smart Money Diagnostic
+
+### Entry Filter v4 (commit 56421ab)
+- **Bug fixed:** `>0` changed to `!=-1` for data existence check. BSR=0 (zero buyers) was being treated as "missing data" instead of strongest reject signal. 149/211 clean trades had BSR=0 and all passed unfiltered.
+- **Thresholds tuned:** BSR 1.0→1.5, WV 10→15 (env vars, not code)
+- **1-hour verification:** 0 trades entered, ~200 filter rejections. All PumpPortal tokens have BSR=0 at age 0-1s in CFGI 16 HIBERNATE mode. Filter correctly blocks untradeable signals.
+- **Projected savings:** ~2.1 SOL/day not lost on BSR=0 trades (11.6% WR, -8.8% avg)
+- Full details: ENTRY_FILTER_v4_REPORT.md
+
+### Smart Money Diagnostic (SMART_MONEY_DIAGNOSTIC.md)
+- **Nansen SM labels don't exist at pump.fun micro-cap scale.** `token_who_bought_sold` returns buyers but no "Smart Trader" / "Fund" labels for tokens below ~$100k mcap.
+- **Wallet PnL profiler empty** for micro-cap wallets. PnL leaderboard empty for pump.fun tokens.
+- **Recommended path:** Mine bot's own 28 winning trades for repeating early buyers → build custom whale list → Redis SET lookup in existing Nansen flow → hardcoded entry rule.
+- **Helius webhook disabled confirmed.** Treasury budget guard working.
+
+---
+
 ## 2026-04-11 — API Audit + Entry Filter
 
 ### API Audit (API_AUDIT_REPORT.md)
