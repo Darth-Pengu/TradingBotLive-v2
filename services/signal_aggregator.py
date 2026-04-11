@@ -1512,19 +1512,18 @@ async def _apply_entry_filter(
     tx_per_sec = _f("tx_per_sec")
     sell_pressure = _f("sell_pressure")
 
-    # Determine if trade data actually exists (vs features defaulting to 0/-1)
-    has_trade_data = (tx_per_sec > 0 or sell_pressure > 0 or buy_sell > 0)
+    # -1 means "missing data" (feature not available). Any value >= 0 is real data.
+    has_trade_data = (tx_per_sec != -1 or sell_pressure != -1 or buy_sell != -1)
 
     # Filter A — Low buy pressure (the main lever)
-    # Only apply when trade data exists — bsr=0 with no trade data means
-    # "too early" not "bad signal". When trades exist, bsr < 1.0 means
-    # more selling than buying, which is the dominant loser pattern.
-    if has_trade_data and buy_sell < ENTRY_FILTER_MIN_BUY_SELL_RATIO:
+    # BSR=0 means zero buyers in 5-min window — strongest reject signal.
+    # Only skip when BSR==-1 (feature genuinely missing, not zero).
+    if buy_sell != -1 and buy_sell < ENTRY_FILTER_MIN_BUY_SELL_RATIO:
         return False, f"low_buy_sell_ratio_{buy_sell:.2f}"
 
     # Filter B — Dead wallet velocity (holder_count / age_min)
-    # 0 = holder_count not available from GeckoTerminal (skip)
-    if wallet_vel > 0 and wallet_vel < ENTRY_FILTER_MIN_WALLET_VELOCITY:
+    # -1 = missing (skip). 0 = holder_count was 0 from GeckoTerminal (real data, reject).
+    if wallet_vel != -1 and wallet_vel < ENTRY_FILTER_MIN_WALLET_VELOCITY:
         return False, f"low_wallet_velocity_{wallet_vel:.1f}"
 
     # Filter C — Deferred retry for signals with no trade data at all
