@@ -1851,7 +1851,8 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
                 raw = signal.get("raw_data", {})
 
                 # Prefer live Redis stats over stale raw_data for key metrics
-                live_bsr = float(live_stats.get("bsr", 0) or 0)
+                _bsr_raw = live_stats.get("bsr")
+                live_bsr = float(_bsr_raw) if _bsr_raw is not None else -1.0
                 live_buys = int(live_stats.get("buys", 0) or 0)
                 live_sells = int(live_stats.get("sells", 0) or 0)
                 live_unique = int(live_stats.get("unique_buyers", 0) or 0)
@@ -1863,7 +1864,7 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
                     "bonding_curve_progress": float(raw.get("bondingCurveProgress", raw.get("bonding_curve_progress", 0)))
                         if raw.get("bondingCurveProgress") is not None or raw.get("bonding_curve_progress") is not None
                         else (float(raw.get("vSolInBondingCurve", 0)) / 85.0 if float(raw.get("vSolInBondingCurve", 0)) > 0 else 0),
-                    "buy_sell_ratio_5min": live_bsr or float(raw.get("buy_sell_ratio_5min", 0)),
+                    "buy_sell_ratio_5min": live_bsr if live_bsr != -1 else float(raw.get("buy_sell_ratio_5min", -1) if raw.get("buy_sell_ratio_5min") is not None else -1),
                     "holder_count": int(token_details.get("holder_count", 0)) or live_unique or int(raw.get("holder_count", raw.get("holders", 0))),
                     "top10_holder_pct": float(token_details.get("top10_holder_pct", raw.get("top10_holder_pct", 0))),
                     "unique_buyers_30min": live_unique or int(raw.get("unique_buyers_30min", 0)),
@@ -1951,7 +1952,7 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
                     features["trending_strength"] = min(100, int(
                         (min(v1h, 100000) / 100000 * 40) +
                         (min(max(pch, 0), 50) / 50 * 30) +
-                        (min(bsr, 3) / 3 * 30)
+                        (min(max(bsr, 0), 3) / 3 * 30)
                     ))
 
                 # === FEATURE ENRICHMENT — use best available data sources ===
@@ -1967,19 +1968,19 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
                 features["liquidity_velocity"] = round(bc_sol / max(age_sec, 1), 6) if bc_sol > 0 else 0.0
 
                 # Buy/sell ratio — prefer PumpPortal realtime, fallback to GeckoTerminal
-                bsr = features.get("buy_sell_ratio_5min", 0)
-                if bsr == 0:
+                bsr = features.get("buy_sell_ratio_5min", -1)
+                if bsr == -1 or bsr == 0:
                     gecko_bsr = token_details.get("gecko_buy_sell_ratio", 0)
                     if gecko_bsr > 0:
                         features["buy_sell_ratio_5min"] = gecko_bsr
                         bsr = gecko_bsr
 
                 # Buy/sell ratio derivative (positive = increasing buying pressure)
-                features["buy_sell_ratio_derivative"] = round(bsr - 1.0, 4) if bsr > 0 else 0.0
+                features["buy_sell_ratio_derivative"] = round(bsr - 1.0, 4) if bsr > 0 else (-1.0 if bsr == -1 else 0.0)
 
                 # Unique wallet velocity (holders per minute)
                 holder_count = features.get("holder_count", 0)
-                features["unique_wallet_velocity"] = round(holder_count / age_min, 2) if holder_count > 0 else 0.0
+                features["unique_wallet_velocity"] = round(holder_count / age_min, 2) if holder_count > 0 else -1.0
 
                 # Volume 1h — prefer GeckoTerminal if available
                 if features.get("volume_1h_usd", 0) == 0:
@@ -1996,7 +1997,7 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
                 features.setdefault("token_age_seconds", max(1, age_sec))
                 features.setdefault("bonding_curve_progress", 0.0)
                 features.setdefault("liquidity_sol", 0.5)
-                features.setdefault("buy_sell_ratio_5min", 0)
+                features.setdefault("buy_sell_ratio_5min", -1)
                 features.setdefault("holder_count", 0)
                 features.setdefault("top10_holder_pct", 0)
                 features.setdefault("bundle_detected", 0)
