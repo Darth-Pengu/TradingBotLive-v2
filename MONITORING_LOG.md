@@ -2,6 +2,37 @@
 
 ---
 
+## 2026-04-13 — Staged TP Reporting Bug Fix
+
+### Bug discovered
+Offline analysis of paper_trades_export.csv revealed that trades with staged take-profits had their `realised_pnl_pct`/`realised_pnl_sol` computed from ONLY the final residual exit. Each `paper_sell()` call overwrites the DB row, so the last exit's P/L becomes the permanent record.
+
+**Headline impact:**
+- 19 trades mis-recorded as losses, actually winners (of 44 with staged exits)
+- Trade 3560: peaked 13.95x, 4 staged TPs fired, recorded -2.03%, true ~+137%
+- Estimated true WR: ~21.6% (recorded 12.8%), above 18.7% break-even threshold
+
+### Fix applied (commit 5b92226)
+- Added `cumulative_pnl_sol` accumulator to Position dataclass
+- After each `paper_sell()`, accumulate returned P/L
+- On final close, correct DB row with cumulative totals across all exits
+- Added `PAPER_EXIT` log for staged TP debugging
+- Deploy: 2026-04-12 22:55 UTC, bot_core only
+
+### Verification (PARTIAL — 3/5)
+- No staged TP trades occurred during 30-min window (CFGI 16 extreme fear, ML scores 2-7)
+- Non-staged trade (#3564) recorded correctly (-1.28% no_momentum_90s)
+- No crashes, clean startup
+- Live validation pending — first staged TP trade in new code will confirm
+
+### What does NOT change yet
+- Historical trade data still wrong (backfill is separate session)
+- Redis paper:stats have intermediate P/L events (not fixed)
+- ML training labels for past staged trades still wrong
+- Full details: STAGED_TP_FIX_REPORT.md
+
+---
+
 ## 2026-04-12 — Feature Default Fix + Entry Filter v4 Bug Fix + Smart Money Diagnostic
 
 ### Feature Default Fix (commit a8a390b) — THE KEY FIX
