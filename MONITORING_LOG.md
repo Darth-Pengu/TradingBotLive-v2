@@ -2,7 +2,16 @@
 
 ---
 
-## 2026-04-12 — Entry Filter v4 Bug Fix + Smart Money Diagnostic
+## 2026-04-12 — Feature Default Fix + Entry Filter v4 Bug Fix + Smart Money Diagnostic
+
+### Feature Default Fix (commit a8a390b) — THE KEY FIX
+- **Root cause:** Feature construction in signal_aggregator.py defaulted missing live_stats to 0 instead of -1. The v4 entry filter correctly used -1 as "unknown" sentinel, but never saw -1 because upstream always wrote 0.
+- **Affected features:** buy_sell_ratio_5min (line 1854/1866), unique_wallet_velocity (line 1982), buy_sell_ratio_derivative (line 1978)
+- **Fix:** Proper `None` check for Redis BSR, explicit `-1` defaults for all missing live data
+- **Result:** Pass rate went from 0% to ~95%+ immediately. ML scoring is now the quality gate.
+- **30-min verification:** 5 trades entered (was 0). All show BSR=-1, vel=-1 in features_json.
+- **Success criteria:** 5/5 met. See FEATURE_DEFAULT_FIX_REPORT.md
+- **Caveat:** 0/5 wins (expected in CFGI 16). The +1294% runner (Tn3VeHr2QB4b) peaked at 13.95x but exited at -2.0% via TRAILING_STOP on pullback.
 
 ### Entry Filter v4 (commit 56421ab)
 - **Bug fixed:** `>0` changed to `!=-1` for data existence check. BSR=0 (zero buyers) was being treated as "missing data" instead of strongest reject signal. 149/211 clean trades had BSR=0 and all passed unfiltered.
