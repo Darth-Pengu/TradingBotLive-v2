@@ -153,6 +153,7 @@ class Position:
     trailing_stop_pct: float = 0.0
     rugcheck_risk_level: str = "unknown"
     signal_type: str = "standard"  # "standard" or "graduation"
+    cumulative_pnl_sol: float = 0.0  # Accumulated P/L across all staged exits
 
 
 class BotCore:
@@ -881,11 +882,27 @@ class BotCore:
                 signal_source=pos.signal_source,
                 exit_price_override=current_price,
             )
+            # Accumulate P/L across all partial exits (staged TPs + residual)
+            pos.cumulative_pnl_sol += paper_result.get("pnl_sol", 0)
             pos.remaining_pct *= (1 - sell_pct)
             if pos.remaining_pct <= 0.01:
-                pnl_sol = paper_result.get("pnl_sol", 0)
-                pnl_pct = paper_result.get("pnl_pct", 0)
-                outcome = paper_result.get("outcome", "loss")
+                # Use cumulative P/L across ALL exits, not just this last one
+                pnl_sol = pos.cumulative_pnl_sol
+                pnl_pct = (pnl_sol / pos.size_sol) * 100 if pos.size_sol > 0 else 0
+                outcome = "profit" if pnl_sol > 0 else "loss"
+                # Correct the DB row — paper_sell wrote only this exit's P/L
+                if pos.trade_id and pos.staged_exits_done:
+                    try:
+                        table = "paper_trades" if TEST_MODE else "trades"
+                        await self.pool.execute(
+                            f"UPDATE {table} SET realised_pnl_sol=$1, realised_pnl_pct=$2 WHERE id=$3",
+                            pnl_sol, pnl_pct, pos.trade_id,
+                        )
+                    except Exception:
+                        pass
+                logger.info("PAPER_EXIT mint=%s staged=%s cumulative_pnl=%.4f SOL (%.2f%%) residual_mult=%.3f",
+                            pos.mint[:8], pos.staged_exits_done, pnl_sol, pnl_pct,
+                            current_price / pos.entry_price if pos.entry_price > 0 else 0)
                 self.portfolio.daily_pnl_sol += pnl_sol
                 self.portfolio.total_balance_sol += pnl_sol
 
