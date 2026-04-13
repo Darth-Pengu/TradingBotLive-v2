@@ -35,14 +35,25 @@ Exit checker MUST convert SOL→USD before comparing to entry_price
 Conversion: usd_price = sol_price_per_token × market:sol_price
 If market:sol_price is missing, fallback to $80 (fragile)
 Always fetch SOL/USD price in same batch as token prices
-0.4 — Trading Performance (April 5, 2026)
-Balance: 16.42 SOL (started with ~20 SOL, first paper trade March 28)
-Total PnL: -20.40 SOL all-time
-Last 2 sessions: NET POSITIVE (+1.06 SOL, +1.78 SOL)
-Win rate trending up: WR10=20%, WR25=12.8%, WR50=10%
-Best trade: +1.33 SOL (+1672.9%) — Speed Demon
-CFGI: 12 (extreme fear) — memecoins don't pump in fear markets
+0.4 — Trading Performance (April 13, 2026 — corrected)
+Balance: ~9.76 SOL (started with ~20 SOL, first paper trade March 28)
+Total PnL (all-time, old column): -8.86 SOL
+Clean baseline (259 trades since Apr 9 20:41 UTC, corrected_pnl_sol): 26.3% WR, 68 wins, +17.73 SOL
+- Pre-fix subset (id <= 3564): 218 trades, 46 wins (21.1% WR), -0.91 SOL corrected (was -4.81)
+- Post-fix subset (id > 3564): 41 trades, 22 wins (53.7% WR), +18.65 SOL
+CFGI: 16 (extreme fear) — memecoins don't pump in fear markets
 Bot is correctly selective — most entries are in extreme fear, so low WR is expected
+
+IMPORTANT — P/L Reporting Correction (April 13, 2026):
+The paper_trades.realised_pnl_sol column is HISTORICALLY BUGGY for trades
+with staged_exits_done. Always use corrected_pnl_sol for analysis, ML
+training, and dashboard display.
+- Post-fix trades (id > 3564, correction_method = 'pass_through') have
+  identical values in both columns.
+- Pre-fix staged trades (correction_method = 'staged_tp_backfill_v1') have
+  APPROXIMATE corrected values (fills assumed at exact trigger prices, not
+  real slippage — within ~5% of true P/L).
+- 19 trades reclassified from loss to win after correction.
 0.5 — Personality Status
 Personality    Trades    Wins    PnL SOL    WR    Status
 Speed Demon    511    19    -9.25    3.7%    Trading — 0.7x sizing, momentum gates active

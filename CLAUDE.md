@@ -1,25 +1,27 @@
 # ZMN Bot — Claude Code Instructions
 
-## CRITICAL BUG — EXIT PRICING (April 5, 2026)
+## Resolved Bugs (reference only — see MONITORING_LOG.md for details)
+Key fixes: exit pricing pipeline (26e19b4), paper_trader price pass-through (9b880e1), HIBERNATE bypass (47de1fa), SERVICE_NAME routing (April 3). Do NOT revert main.py to asyncio.gather all services.
 
-### Exit Checker Cannot See Prices During Hold Period
-100% of exits are "stale_no_price" or "time_exit_no_movement".
-ZERO take-profits, ZERO stop-losses, ZERO trailing stops have EVER fired in 1,800+ trades.
-Root cause: `_get_token_prices_batch()` tries Jupiter (10s timeout) then GeckoTerminal (8s timeout)
-BEFORE checking Redis cached prices. These ALWAYS fail for bonding curve tokens.
-By the time it reaches Redis, 18+ seconds wasted. With 5 positions, cycle takes 90+ seconds.
+## Trade P/L Analysis Rule (added 2026-04-13)
 
-**FIX: Check Redis cached prices FIRST (instant), then Jupiter/Gecko only for uncached mints.**
-Also: store bonding curve reserves (vSol/vTokens) from PumpPortal events in Redis for fallback pricing.
+When analyzing trade performance from paper_trades, ALWAYS use the
+`corrected_pnl_sol` and `corrected_pnl_pct` columns, NOT `realised_pnl_sol`
+or `realised_pnl_pct`. The latter are historically buggy for trades
+with staged take-profits (44 trades affected, all with id <= 3564).
 
-### Architecture: SERVICE_NAME Routing (FIXED April 3)
-Each Railway service runs ONLY its assigned service via SERVICE_NAME env var.
-The 8x duplicate bug is fixed. Do NOT revert main.py to asyncio.gather all services.
+For ML retraining: use corrected_pnl_sol to determine win/loss labels.
+For reporting: use corrected_pnl_sol for aggregate numbers.
+For forensic trade inspection: compare both columns to understand
+what the bug was hiding.
+
+Post-fix trades (id > 3564) have identical values in both columns --
+correction_method = 'pass_through' confirms this.
 
 ---
 
 ## Project
-Solana memecoin trading bot. GitHub: airy-truth/TradingBotLive-v2
+Solana memecoin trading bot. GitHub: Darth-Pengu/TradingBotLive-v2
 Domain: zmnbot.com. Railway: 8 services. PostgreSQL + Redis.
 Currently TEST_MODE=true (paper trading). Balance: ~16.42 SOL.
 
@@ -33,33 +35,33 @@ Currently TEST_MODE=true (paper trading). Balance: ~16.42 SOL.
 - treasury → services/treasury.py (balance tracking)
 - web → services/dashboard_api.py + dashboard/*.html (14-panel retro green dashboard)
 
-## Current State (April 5, 2026)
-- 1,800+ paper trades, ~59 wins (~3.2% WR overall)
-- WR last 10: 20% | WR last 25: 12.8% | WR last 50: 10% (IMPROVING)
-- Total PnL: -20.40 SOL | Last 2 sessions: NET POSITIVE (+1.06, +1.78 SOL)
-- Best single trade: +1.33 SOL (+1672.9%) — Speed Demon
-- ML AUC: 0.889 on 1,729 samples | Features: 20/58 populated
-- CFGI: 12 (extreme fear) — market not conducive to memecoins
-- Dashboard: 14/14 panels showing data (some need data fixes)
-- Speed Demon: 511 trades, 19 wins, -9.25 SOL
-- Analyst: 1,206 trades, 35 wins, -11.05 SOL
-- Whale Tracker: 2 trades, 0 wins (44 wallets in DB, 0 in Redis — broken)
+## Current State (April 13, 2026)
+- 3,605 paper trades. Balance: ~9.76 SOL.
+- Post-cleanup baseline (259 clean trades since Apr 9 20:41 UTC, using corrected_pnl_sol): 26.3% WR, 68 wins, +17.73 SOL
+- Pre-fix subset (id <= 3564): 218 trades, 46 wins (21.1% WR), -0.91 SOL (corrected from -4.81)
+- Post-fix subset (id > 3564): 41 trades, 22 wins (53.7% WR), +18.65 SOL
+- ML: CatBoost + XGBoost ensemble, 128 clean training samples, 55 FEATURE_COLUMNS but only 13-19 populated per prediction
+- CFGI: 16 (extreme fear) — market not conducive to memecoins
+- Speed Demon: sole active personality. Analyst: 0 trades (auto-paused, CFGI < 20). Whale Tracker: 4 trades.
+- WARNING: ML score inversion at 70+ bucket (0% WR, -12.62% avg P/L). See POST_TIER2_DIAGNOSIS.md.
+- 685 pre-fix trades (20.4%) have corrupted exit prices — excluded from ML training via contamination filter
 
-## Known Issues (Priority Order)
-1. EXIT PRICING: Redis checked LAST instead of FIRST — 18s wasted per token
-2. Whale wallet Redis cache: 44 in PostgreSQL, 0 loaded to Redis
-3. ML metadata not in Redis — dashboard shows AUC/Features as "--"
-4. Anthropic credits exhausted — governance dead
-5. TABPFN_TOKEN not set on ml_engine
-6. Telegram code ready but TELEGRAM_ENABLED=false
-7. 38/58 ML features still zero
-8. Dashboard: open positions empty, trades missing market cap
+## Known Issues (Priority Order, April 11)
+1. ML SCORE INVERSION: 70+ scores have 0% WR, -12.62% avg P/L. Model trained on 128 samples (6 positives) memorized spurious patterns (hour_of_day, sol_price). See POST_TIER2_DIAGNOSIS.md.
+2. FEATURE SPARSITY: 42 of 55 FEATURE_COLUMNS are permanently zero. Only ~13 features populated per prediction. Model trained to ignore dead features = noise. Consider pruning to ~20 populated features.
+3. no_momentum_90s BLEED: 51% of trades (88/171) exit via no_momentum_90s at -11.98% avg. Signal quality bottleneck.
+4. LightGBM NOT LOADING: NIXPACKS_APT_PKGS=libgomp1 is set but ml_engine needs fresh deploy to pick it up. Ensemble runs 2/3 models.
+5. Governance SQL type mismatch: `double precision > timestamp` in metrics query (cosmetic, governance still works).
+6. Analyst paused in extreme fear: CFGI < 20 auto-pauses analyst. Zero training data during fear markets.
+7. Treasury Helius errors: getBalance fails every 5min (HELIUS_DAILY_BUDGET=0 but treasury still calls).
+8. Telegram: code ready but TELEGRAM_ENABLED=false
 
 ## Read this first, every session
 - Read AGENT_CONTEXT.md completely before writing any code
 - Check what exists in services/ before building anything new
 - Never assume a file exists — always check first
 - Auto-accept all tool use and terminal commands
+- If you hit rate limits or token limits: pause, wait until reset plus 5 minutes, then resume from exactly where you left off. Do not start over. Do not ask whether to continue.
 
 ## API reference rule
 - Before fixing any API integration, check Section 21 of AGENT_CONTEXT.md
@@ -188,6 +190,14 @@ Deprecated: /swap/v1/* returns 401
 - Bonding curve: price_sol = vSolInBondingCurve / vTokensInBondingCurve
 - Price fetch order should be: Redis → bonding curve reserves → Jupiter → Gecko
 
+## Railway CLI Reference
+- Logs (streams, needs timeout): `timeout 15 railway logs -s {service} 2>&1 | tail -100`
+- Set env var: `railway variables --set "KEY=VALUE" -s {service}`
+- Read env vars: `railway variables -s {service}` or `--kv` for parseable format
+- Deploy: `railway up -s {service}` (build ~60s, container start ~60-90s after)
+- Build logs: `railway logs -s {service} -b`
+- Setting env vars triggers auto-redeploy
+
 ## Deploy Rules
 - Each service deploys separately: railway up -s {service_name}
 - Deploy takes 5-15 min. Poll Railway MCP until SUCCESS, wait 90s after.
@@ -204,12 +214,30 @@ Deprecated: /swap/v1/* returns 401
 bot:portfolio:balance, bot:consecutive_losses, bot:emergency_stop
 market:mode:override (renew daily), market:sol_price, market:health
 governance:latest_decision, ml:model:meta
-token:latest_price:{mint} (SOL, 300s TTL), token:price:{mint} (legacy)
+token:latest_price:{mint} (SOL, 1800s TTL), token:price:{mint} (legacy, 1800s TTL)
 token:subscribed:{mint}, token:reserves:{mint} (vSol/vTokens)
 token:stats:{mint} (buys/sells/bsr/unique_buyers)
 whale:watched_wallets (set — RELOAD FROM DB ON STARTUP)
 nansen:disabled, nansen:calls:{date}
 signals:evaluated (last 50), signals:raw, signals:scored
+
+## Database Access (local machine)
+- Internal URL (Railway network only): DATABASE_URL on any service
+- Public URL: `railway variables -s Postgres --kv | grep DATABASE_PUBLIC_URL`
+- Public host: gondola.proxy.rlwy.net:29062
+- paper_trades has no `created_at` column. Primary time columns: `entry_time` (epoch float), `exit_time` (epoch float). `traded_at` exists but is often NULL.
+- Use `id` ordering for recent trades, or `entry_time` for time-based queries.
+
+## Architectural Gotchas (updated April 11)
+- Emergency stop from rug cascade is IN-MEMORY only (`self.emergency_stopped`). Restarting bot_core clears it. No Redis key needed.
+- `market:mode:current == HIBERNATE` blocks ALL signals in signal_aggregator:1669 unless AGGRESSIVE_PAPER bypasses it.
+- ML scoring goes through Redis pubsub to ml_engine service (original 55-feature engine). The inline AcceleratedMLEngine was removed in commit 629c740. signal_aggregator has a 3s timeout + circuit breaker (5 timeouts/60s → default score 50.0).
+- signal_listener early-subscribes to PumpPortal trades on createEvent (5-min TTL, max 200 concurrent). This populates token:stats for ML feature derivation before scoring.
+- Rug cascade detector is in market_health.py (not bot_core). Threshold configurable via RUG_CASCADE_THRESHOLD env var (default 5, paper mode uses 15).
+- Exit strategy: tiered trailing stops + staged TPs at +50/100/200/400% (25% each). Configurable via STAGED_TAKE_PROFITS_JSON and TIERED_TRAIL_SCHEDULE_JSON env vars on bot_core. Staged TPs fire at 100% rate (verified 20/20).
+- paper_sell requires `exit_price_override` from caller (bot_core). If missing, falls back to Redis then entry_price with warning log. Never re-fetches from Jupiter/Gecko.
+- Position sizing multiplier stack: personality(0.7) × rugcheck(0.35-0.60) × confidence × base. MIN_POSITION_SOL=0.05 on bot_core.
+- ML training excludes pre-9b880e1 contaminated rows via WHERE NOT clause. Cutoff configurable: ML_TRAINING_CONTAMINATION_CUTOFF env var (default 1775767260.0 = 2026-04-09 20:41 UTC).
 
 ## Emergency Stop Reset
 1. Redis: SET bot:consecutive_losses 0
@@ -217,6 +245,7 @@ signals:evaluated (last 50), signals:raw, signals:scored
 3. Redis: DEL bot:loss_pause_until
 4. Redis: SET market:mode:override NORMAL EX 86400
 5. Restart bot_core
+(Note: rug cascade emergency stop is in-memory only — restart alone clears it without Redis changes)
 
 ## Times
 All times in Sydney AEDT. Jay is in Sydney, Australia.

@@ -2,6 +2,50 @@
 
 ---
 
+## 2026-04-13 ~14:00 AEDT — Historical Backfill + Redis Audit
+
+### What happened
+Backfilled realised_pnl_sol/pct for 44 pre-fix staged trades using
+the actual staged TP allocation formula. Added corrected_pnl_sol,
+corrected_pnl_pct, corrected_outcome, correction_applied_at, and
+correction_method columns to paper_trades. Post-fix trades (id > 3564)
+already have correct values from commit 5b92226 and were passed
+through unchanged (215 trades).
+
+### Headline correction
+| Metric | Before Backfill | After Backfill |
+|---|---|---|
+| Wins (clean) | 49 | 68 |
+| WR | 18.9% | 26.3% |
+| Total SOL | +13.83 | +17.73 |
+| Pre-fix SOL | -4.81 | -0.91 |
+
+19 trades reclassified from loss to win (all had staged TPs that
+fired profitably, but residual exit was below entry).
+
+### Redis sister-bug audit
+- Status: **confirmed** -- winning_trades overcounted (417 vs 229 true)
+- Action: deferred (dashboard reads from Postgres, not Redis)
+
+### Dashboard status
+- Reads P/L from: Postgres `realised_pnl_sol` (not Redis, not corrected column)
+- Needs update: yes (switch to `corrected_pnl_sol`)
+- Queued for: future session
+
+### Files changed
+- paper_trades schema: +5 columns (corrected_pnl_sol, corrected_pnl_pct, corrected_outcome, correction_applied_at, correction_method)
+- migrations/001_add_corrected_pnl_columns.sql
+- MONITORING_LOG.md, ZMN_ROADMAP.md, AGENT_CONTEXT.md, CLAUDE.md
+- STAGED_TP_BACKFILL_REPORT.md (new)
+
+### Open items for next session
+- ML training code update to read corrected_pnl_sol
+- TP redesign (30/30/20/10/10 allocation) -- queued
+- Dashboard source update -- queued
+- Redis sister-bug code fix (paper_sell + bot_core) -- queued
+
+---
+
 ## 2026-04-13 — Staged TP Reporting Bug Fix
 
 ### Bug discovered
