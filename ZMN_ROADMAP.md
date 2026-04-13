@@ -1,6 +1,6 @@
 # ZMN Bot — Product Roadmap & Backlog
-**Last updated:** 2026-04-13 AEDT (post staged TP backfill)
-**Previous version:** 2026-04-12 (pre-backfill)
+**Last updated:** 2026-04-13 AEDT (post dashboard Tier 1 audit)
+**Previous version:** 2026-04-13 (post backfill, pre-dashboard audit)
 
 ---
 
@@ -67,9 +67,23 @@
 - **Implication:** When April 26 credits return, concentration features will auto-populate with ZERO code changes
 - **Caveat:** Will burn credits fast unless Finding 4 fix is deployed first
 
+### Finding 6: Dashboard Tier 1 audit (2026-04-13)
+- **Result:** 15 panels audited. All P/L widgets now use corrected_pnl_sol with post-cleanup filter.
+- **CFGI source:** Alternative.me Bitcoin F&G returns 12 (correct from API). Jay compared CMC (42). Different indices. Needs data source decision.
+- **Impact:** HIBERNATE mode, Analyst paused, Speed Demon 0.75x sizing all driven by Bitcoin F&G index, not Solana-specific.
+- **Reference:** DASHBOARD_AUDIT.md
+
 ---
 
 ## IN FLIGHT — RIGHT NOW
+
+### CFGI Data Source Decision (NEEDS JAY REVIEW)
+- **Status:** DIAGNOSED, awaiting Jay's decision
+- **Options:** (a) Switch to CMC CFGI API, (b) Find Solana-specific index, (c) Keep Bitcoin F&G but adjust thresholds
+- **Why it matters:** Changes HIBERNATE/NORMAL threshold, Analyst pause, Speed Demon sizing
+- **Risk:** Changing index changes trading behavior immediately
+- **Reference:** DASHBOARD_AUDIT.md B-001
+- **Next review:** 2026-04-14
 
 ### Feature default fix + full state snapshot
 - **Status:** Prompt ready, awaiting paste

@@ -54,6 +54,22 @@ training, and dashboard display.
   APPROXIMATE corrected values (fills assumed at exact trigger prices, not
   real slippage — within ~5% of true P/L).
 - 19 trades reclassified from loss to win after correction.
+
+## Dashboard Data Source Notes (2026-04-13)
+
+Dashboard has a "Known Bugs Registry" in DASHBOARD_AUDIT.md. All
+dashboard P/L widgets use COALESCE(corrected_pnl_sol, realised_pnl_sol)
+with post-cleanup window filter (entry_time > 1775767260) after
+2026-04-13 Tier 1 session.
+
+CFGI displayed on dashboard is from Alternative.me Bitcoin F&G (value=12).
+Jay expected CMC index (~42). This is NOT a display bug -- it's a data
+source decision pending Jay's review. Both bot_core and signal_aggregator
+use the same Alternative.me source for trading decisions.
+
+Do not trust top bar CFGI or MODE values until the CFGI source decision
+is made. Use "Today's Session" and "Win Rates (Last 10/25/50)" panels
+as honest performance indicators.
 0.5 — Personality Status
 Personality    Trades    Wins    PnL SOL    WR    Status
 Speed Demon    511    19    -9.25    3.7%    Trading — 0.7x sizing, momentum gates active

@@ -2,6 +2,49 @@
 
 ---
 
+## 2026-04-13 ~16:00 AEDT — Dashboard Tier 1 Audit + Fixes
+
+### What happened
+Full panel-by-panel audit of zmnbot.com dashboard (15 panels). Fixed P/L
+data source across all widgets (corrected_pnl_sol + post-cleanup filter).
+Diagnosed CFGI source mismatch (fix deferred). Instrumented bot_core staged
+TPs for future redesign data collection.
+
+### Headline findings
+- Top bar P/L, WR, Equity Curve, Personality P/L, P/L Distribution, Win
+  Rates, Session Stats, Signal Funnel, Recent Trades, Exit Analysis all now
+  read from `COALESCE(corrected_pnl_sol, realised_pnl_sol)` with
+  `entry_time > 1775767260` post-cleanup window filter
+- CFGI displays 12 -- this IS correct per Alternative.me API (Bitcoin F&G).
+  Jay compared against CMC which uses a different index (42). NOT a display bug,
+  it's a data source decision. See DASHBOARD_AUDIT.md B-001.
+- Governance LLM text "CFGI at neutral 50" is stale/hallucinated
+- bot_core and signal_aggregator read CFGI from same Alternative.me source --
+  trading IS affected (Analyst paused, Speed Demon 0.75x sizing)
+- SOL price $0.00 fixed with Redis `market:sol_price` fallback
+- ML AUC display reduced from 4 decimal places to 1
+- 9 known bugs registered in DASHBOARD_AUDIT.md
+
+### Commits
+- dashboard P/L source update + SOL price fix + ML AUC format
+- bot_core staged TP instrumentation
+- docs + audit report
+
+### What's NOT fixed tonight (deferred)
+- CFGI data source decision (B-001) -- needs Jay review
+- Exits footer TP classification (B-004) -- needs exit_reason investigation
+- API Health false positives (B-003) -- needs health check task investigation
+- Governance stale reasoning text
+- Whale leaderboard, colour theming, CFGI auto-theming
+
+### Next session candidates
+1. CFGI fix -- dedicated session with Jay review
+2. TP redesign (waiting on 24-48h of STAGED_TP_FIRE data)
+3. ML training update to use corrected_pnl_sol
+4. Redis sister-bug code fix (paper_sell + bot_core)
+
+---
+
 ## 2026-04-13 ~14:00 AEDT — Historical Backfill + Redis Audit
 
 ### What happened
