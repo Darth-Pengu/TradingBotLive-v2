@@ -1300,9 +1300,19 @@ class BotCore:
                             at_gain = exit_rule.get("at_gain", exit_rule.get("at_multiple", 99) - 1)
                             exit_key = f"+{int(at_gain * 100)}%"
                             if exit_key not in pos.staged_exits_done and gain >= at_gain:
+                                remaining_before = pos.remaining_pct
                                 logger.info("STAGED_TP: %s hit %s (%.1fx) — selling %d%%",
                                            pos.mint[:12], exit_key, multiple, int(exit_rule["sell_pct"] * 100))
                                 await self._close_position(pos, f"staged_tp_{exit_key}", sell_pct=exit_rule["sell_pct"], current_price=current_price)
+                                logger.info(
+                                    "STAGED_TP_FIRE mint=%s stage=%s nominal_trigger=%.2fx actual_sell_price=%.10f "
+                                    "actual_sell_mult=%.2fx sell_frac_of_remaining=%.4f remaining_before=%.4f "
+                                    "remaining_after=%.4f cumulative_pnl_sol=%.6f",
+                                    pos.mint[:8], exit_key, 1.0 + at_gain, current_price,
+                                    current_price / pos.entry_price if pos.entry_price > 0 else 0,
+                                    exit_rule["sell_pct"], remaining_before, pos.remaining_pct,
+                                    pos.cumulative_pnl_sol,
+                                )
                                 pos.staged_exits_done.append(exit_key)
                                 if pos.trade_id:
                                     try:
