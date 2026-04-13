@@ -657,7 +657,7 @@ async function fetchMLStatus() {
   if (!data) { el.innerHTML = '<span style="color:var(--green-dim)">NO ML DATA</span>'; return; }
 
   const auc = data.accuracy_last_100 || 0;
-  document.getElementById('mlAucVal').textContent = auc ? auc.toFixed(4) + ' AUC' : '--';
+  document.getElementById('mlAucVal').textContent = auc ? auc.toFixed(1) + ' AUC' : '--';
 
   const phase = data.phase || (data.trained ? (data.bootstrap_mode ? '2 (Bootstrap)' : '3 (CatBoost + LightGBM)') : '1 (Cold Start)');
   const samples = data.sample_count || 0;
