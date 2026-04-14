@@ -95,9 +95,16 @@ Jay expected CMC index (~42). This is NOT a display bug -- it's a data
 source decision pending Jay's review. Both bot_core and signal_aggregator
 use the same Alternative.me source for trading decisions.
 
-Do not trust top bar CFGI or MODE values until the CFGI source decision
-is made. Use "Today's Session" and "Win Rates (Last 10/25/50)" panels
-as honest performance indicators.
+**cfgi.io Stage 1 dual-read active since 2026-04-14 ~22:25 AEDT:**
+- `market:health.cfgi` = 21.0 (Alternative.me Bitcoin F&G — legacy,
+  trading decisions still use this)
+- `market:health.cfgi_sol` = 56.5 (cfgi.io SOL — observation only,
+  not yet used for decisions)
+- Stage 2 cutover scheduled for 24h observation window completion
+- Dashboard top bar shows both: CFGI(BTC) and CFGI(SOL)
+
+Do not trust the BTC CFGI or MODE values for Solana sentiment.
+The SOL-specific value is significantly higher (56.5 vs 21).
 
 ## Service Monitoring Rule (added 2026-04-14)
 

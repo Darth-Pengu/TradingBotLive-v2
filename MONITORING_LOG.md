@@ -2,6 +2,62 @@
 
 ---
 
+## 2026-04-14 ~22:25 AEDT — cfgi.io Stage 1 (Dual-Read)
+
+### What happened
+Added cfgi.io Solana CFGI fetch to market_health, parallel to the
+existing Alternative.me Bitcoin F&G fetch. The new value is written
+to the `market:health` JSON blob as `cfgi_sol` (NOT replacing `cfgi`).
+Dashboard top bar now shows BOTH values side-by-side:
+`CFGI(BTC): 21` | `CFGI(SOL): 57`.
+
+bot_core and signal_aggregator UNCHANGED — still read `.cfgi` from
+Alternative.me for mode decisions. This is observation-only. 24-hour
+window before any Stage 2 cutover decision.
+
+### Key finding
+**The CFGI gap is massive:** BTC F&G = 21 (Extreme Fear) vs SOL CFGI
+= 56.5 (Neutral). This confirms Jay's suspicion (B-001) — the bot has
+been trading under artificially fearful conditions. When Stage 2 cuts
+over:
+- Analyst personality will likely unpause (CFGI > 20)
+- Speed Demon sizing will increase from 0.75x toward 1.0x
+- Mode may shift from HIBERNATE toward NORMAL
+
+### Phase outcomes
+- Phase 0 Pre-flight: PASSED (CFGI_API_KEY set, all services healthy)
+- Phase 1 Code audit: DONE
+- Phase 2 Add function: DONE (commit 146ca38)
+- Phase 3 Wire into update loop: SUCCEEDED (commit 859c0fa)
+- Phase 4 Dashboard update: SUCCEEDED (commit 1ac9cb8)
+- Phase 5 No-change verification: PASSED (5 new trades, mode unchanged)
+
+### Values at session end
+- market:health.cfgi (BTC, Alternative.me): 21.0
+- market:health.cfgi_sol (SOL, cfgi.io): 56.5
+- market:mode:current: HIBERNATE
+- bot_core trading: yes — 5 trades during session
+- Analyst paused: yes (1 boundary trade in 2h, mostly paused)
+- Balance: 31.93 SOL
+
+### Commits
+- 146ca38: add _fetch_cfgi_io_solana function
+- 859c0fa: wire into update loop (dual-read to cfgi_sol key)
+- 1ac9cb8: dashboard displays BTC and SOL CFGI side-by-side
+
+### What's NOT in this session
+- bot_core is not reading from cfgi.io (still Alternative.me)
+- signal_aggregator is not reading from cfgi.io (still Alternative.me)
+- Mode decision logic unchanged
+- No Stage 2 cutover yet — scheduled 24h after this deploy
+
+### Next session
+- CFGI Stage 2 cutover — scheduled for 2026-04-15 ~22:30 AEDT
+- Trigger: 24h of Stage 1 observation data available
+- Session size: 30-45 min
+
+---
+
 ## 2026-04-14 ~21:40 AEDT — Recovery + Hardening Session
 
 ### What happened

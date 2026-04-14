@@ -88,25 +88,20 @@ Decision on data source pending Jay's review (B-001).
 
 (none currently)
 
-### CFGI Stage 1 Dual-Read
-- **State:** BLOCKED on CFGI_API_KEY env var
-- **Trigger:** Jay adds CFGI_API_KEY to market_health service on Railway
-- **What:** Dual-read cfgi.io SOL CFGI alongside Alternative.me BTC F&G.
-  Dashboard shows both side-by-side. bot_core unchanged — still reads
-  Alternative.me. 24-hour observation window before any Stage 2 cutover.
-- **Why not done tonight:** CFGI_API_KEY env var not found on market_health.
-- **Next review:** 2026-04-15 (after Jay adds the key)
-- **Session size:** 30-45 min
-
 ### CFGI Stage 2 Cutover
-- **State:** BLOCKED on Stage 1
-- **Trigger:** cfgi.io dual-read has been live for 24h AND values
-  look reasonable compared to market conditions
-- **What:** Cut bot_core and signal_aggregator from reading
-  `market:health.cfgi` (Alternative.me BTC F&G) to
-  `market:health.cfgi_sol` (cfgi.io SOL). Rename keys so the
-  historical BTC value is preserved as `market:health.cfgi_btc`.
-- **Next review:** 2026-04-16 (24h after Stage 1 goes live)
+- **State:** SCHEDULED (Stage 1 deployed 2026-04-14 ~22:25 AEDT)
+- **Trigger:** 24h of dual-read observation data (earliest: 2026-04-15 ~22:25 AEDT)
+- **What:** Cut bot_core and signal_aggregator from `market:health.cfgi`
+  (Alternative.me BTC F&G) to `market:health.cfgi_sol` (cfgi.io SOL).
+  Preserve historical BTC value as `market:health.cfgi_btc` for
+  continuity. Update mode decision thresholds if SOL CFGI scale
+  differs meaningfully from BTC.
+- **Key finding from Stage 1:** BTC F&G = 21 vs SOL CFGI = 56.5.
+  Cutover will likely unpause Analyst, increase Speed Demon sizing,
+  and shift mode from HIBERNATE toward NORMAL.
+- **Risk:** Analyst may unpause and Speed Demon may return to 1.0x
+  sizing. This is expected behavior, not a bug.
+- **Next review:** 2026-04-15
 - **Session size:** 30-45 min
 
 ### Governance CFGI Hallucination Fix (B-010)
@@ -153,14 +148,15 @@ Decision on data source pending Jay's review (B-001).
 - **Session size:** 75-90 min
 
 ### CFGI Data Source Decision
-- **State:** BLOCKED on CFGI_API_KEY + Stage 1 dual-read
-- **Options:** (a) Switch to cfgi.io Solana-specific, (b) CMC API,
-  (c) Keep Bitcoin F&G but adjust thresholds
-- **Why it matters:** Changes HIBERNATE/NORMAL, Analyst pause, Speed
-  Demon sizing. cfgi.io Stage 1 dual-read needs CFGI_API_KEY env var
-  on market_health before it can proceed.
+- **State:** OBSERVATION — Stage 1 dual-read live since 2026-04-14
+- **Finding:** BTC F&G = 21 (Extreme Fear) vs SOL CFGI = 56.5 (Neutral).
+  The gap is massive — Solana market sentiment is much more favorable
+  than Bitcoin's. This confirms the bot has been under-trading due to
+  the wrong sentiment source.
+- **Decision pending:** Stage 2 cutover after 24h observation.
+  Option (a) cfgi.io SOL is the leading candidate now.
 - **Reference:** DASHBOARD_AUDIT.md B-001
-- **Next review:** 2026-04-15 (after Jay adds the key)
+- **Next review:** 2026-04-15 (24h after Stage 1 deploy)
 
 ---
 
@@ -340,6 +336,8 @@ Decision on data source pending Jay's review (B-001).
 - **2026-04-14:** State audit -- pipeline outage diagnosed (fb8a389)
 - **2026-04-14:** Recovery + hardening session -- pipeline restored,
   signal_aggregator hardened with retry + heartbeat (85768c5)
+- **2026-04-14:** cfgi.io Stage 1 dual-read -- SOL CFGI = 56.5 vs
+  BTC F&G = 21. Dashboard shows both. (146ca38, 859c0fa, 1ac9cb8)
 
 ---
 
