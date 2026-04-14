@@ -142,6 +142,7 @@ ML_BOOTSTRAP_THRESHOLDS = {
 # Paper trading mode: use low ML floor (25) to filter pure garbage
 # but allow most signals through. ML is unreliable at high scores (80+ = 0.8% WR).
 AGGRESSIVE_PAPER = os.getenv("AGGRESSIVE_PAPER_TRADING", "false").lower() == "true"
+ANALYST_DISABLED = os.getenv("ANALYST_DISABLED", "false").lower() == "true"
 if AGGRESSIVE_PAPER:
     ML_THRESHOLDS = {"speed_demon": 30, "analyst": 30, "whale_tracker": 20}
     ML_BOOTSTRAP_THRESHOLDS = {"speed_demon": 30, "analyst": 30, "whale_tracker": 20}
@@ -1789,6 +1790,8 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
 
                 # --- Classify target personalities ---
                 targets = _classify_target_personalities(signal, rugcheck)
+                if ANALYST_DISABLED and "analyst" in targets:
+                    targets = [t for t in targets if t != "analyst"]
                 raw_data = signal.get("raw_data", {})
                 bc_val = raw_data.get("bondingCurveProgress", raw_data.get("bonding_curve_progress", 0))
                 logger.info("TARGETS for %s: %s (type=%s, bc=%.2f, age=%ds, sources=%s)",
@@ -2483,7 +2486,7 @@ async def _health_heartbeat(redis_conn):
 
 
 async def main():
-    logger.info("Signal Aggregator starting (TEST_MODE=%s)", TEST_MODE)
+    logger.info("Signal Aggregator starting (TEST_MODE=%s, ANALYST_DISABLED=%s)", TEST_MODE, ANALYST_DISABLED)
 
     if TEST_MODE:
         logger.info("TEST_MODE — aggregator will process signals but not route to execution")
