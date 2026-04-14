@@ -23,7 +23,7 @@ correction_method = 'pass_through' confirms this.
 ## Project
 Solana memecoin trading bot. GitHub: Darth-Pengu/TradingBotLive-v2
 Domain: zmnbot.com. Railway: 8 services. PostgreSQL + Redis.
-Currently TEST_MODE=true (paper trading). Balance: ~16.42 SOL.
+Currently TEST_MODE=true (paper trading). Balance: 31.86 SOL.
 
 ## Services (each is a SEPARATE Railway service)
 - signal_listener → services/signal_listener.py (PumpPortal WS, trade subscriptions, telegram)
@@ -35,16 +35,45 @@ Currently TEST_MODE=true (paper trading). Balance: ~16.42 SOL.
 - treasury → services/treasury.py (balance tracking)
 - web → services/dashboard_api.py + dashboard/*.html (14-panel retro green dashboard)
 
-## Current State (April 13, 2026)
-- 3,605 paper trades. Balance: ~9.76 SOL.
-- Post-cleanup baseline (259 clean trades since Apr 9 20:41 UTC, using corrected_pnl_sol): 26.3% WR, 68 wins, +17.73 SOL
-- Pre-fix subset (id <= 3564): 218 trades, 46 wins (21.1% WR), -0.91 SOL (corrected from -4.81)
+## Current State (April 14, 2026)
+
+### Financial state
+- 3,630 paper trades total (last trade at 13:37 UTC Apr 13 when signal_aggregator crashed)
+- Paper balance: 31.8592 SOL
+- Post-cleanup baseline (259 clean trades since Apr 9 20:41 UTC, corrected_pnl_sol): 26.3% WR, 68 wins, +17.73 SOL
+- Pre-fix subset (id <= 3564): 218 trades, 46 wins (21.1% WR), -0.91 SOL corrected
 - Post-fix subset (id > 3564): 41 trades, 22 wins (53.7% WR), +18.65 SOL
-- ML: CatBoost + XGBoost ensemble, 128 clean training samples, 55 FEATURE_COLUMNS but only 13-19 populated per prediction
-- CFGI: 16 (extreme fear) — market not conducive to memecoins
-- Speed Demon: sole active personality. Analyst: 0 trades (auto-paused, CFGI < 20). Whale Tracker: 4 trades.
+- Pre-crash Apr 13 burst (30 trades): 50% WR, +5.44 SOL
+
+### Pipeline state (as of 2026-04-14 11:00 AEDT)
+- signal_listener: ALIVE (1.5M raw signals queued, no consumer)
+- signal_aggregator: **DEAD** since 13:38 UTC Apr 13 (Redis DNS failure, Railway "Completed")
+- bot_core: ALIVE but starved (0 trades in 21+ hours)
+- market_health: ALIVE (every 5 min)
+- governance: ALIVE (every 4h, but LLM hallucinates CFGI values)
+
+### ML state
+- CatBoost + XGBoost ensemble, 128 clean training samples, 55 FEATURE_COLUMNS but only 13-19 populated
+- LightGBM not loading (ensemble runs 2/3 models)
 - WARNING: ML score inversion at 70+ bucket (0% WR, -12.62% avg P/L). See POST_TIER2_DIAGNOSIS.md.
-- 685 pre-fix trades (20.4%) have corrupted exit prices — excluded from ML training via contamination filter
+- 685 pre-fix trades (20.4%) have corrupted exit prices -- excluded from ML training via contamination filter
+
+### CFGI state
+- Current value: 21 (Alternative.me Bitcoin F&G -- NOT Solana-specific)
+- See DASHBOARD_AUDIT.md B-001. cfgi.io dual-read queued for tonight.
+- bot_core and signal_aggregator read same broken source for mode decisions
+
+### Personality state
+- Speed Demon: sole active personality
+- Analyst: 0 trades recent (auto-paused, CFGI < 20 on broken source)
+- Whale Tracker: 4 historical trades, currently dormant
+
+### Known blockers
+- signal_aggregator restart needed (21+ hours down)
+- TP instrumentation committed but NOT deployed (commit 40dadb6)
+- Dashboard P/L fixes committed but NOT deployed (commit dbbffd3)
+- ML retrain blocked on 500+ clean samples AND feature cleanup
+- Helius credits exhausted until April 26
 
 ## Known Issues (Priority Order, April 11)
 1. ML SCORE INVERSION: 70+ scores have 0% WR, -12.62% avg P/L. Model trained on 128 samples (6 positives) memorized spurious patterns (hour_of_day, sol_price). See POST_TIER2_DIAGNOSIS.md.

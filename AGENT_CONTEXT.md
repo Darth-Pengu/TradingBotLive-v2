@@ -11,22 +11,30 @@ SERVICE_NAME env var in main.py. This was the #1 bug — previously
 all 8 services ran ALL code via asyncio.gather(), causing 8x duplicate
 trades, 8x API costs, and 0 working exit strategies.
 DO NOT change main.py SERVICE_NAME routing. It is correct.
-0.2 — Exit Price Pipeline (BROKEN — #1 priority)
-The exit checker in bot_core.py _check_exits() calls
-_get_token_prices_batch() which tries price sources in this order:
-CURRENT (BROKEN):
-Jupiter Price API v3 (10s timeout) → ALWAYS FAILS for bonding curve tokens
-GeckoTerminal (8s timeout × N mints) → ALWAYS FAILS for bonding curve tokens
-Redis token:latest_price:{mint} → WORKS but reached too late (18s+ wasted)
-Bonding curve reserves → Sometimes available
-CORRECT ORDER (FIX THIS):
-Redis token:latest_price:{mint} → instant, from PumpPortal trade stream
-Redis token:reserves:{mint} → bonding curve price calculation
-Jupiter (5s timeout, uncached mints only) → for graduated tokens
-GeckoTerminal (3s timeout, max 2 mints) → for graduated tokens
-The result: 1,800+ trades, ZERO take-profits, ZERO stop-losses fired.
-55 profitable trades exited via time_exit instead of staged TP.
-+1672% winner exited via timeout, not the 30% staged exit.
+0.2 — Exit Price Pipeline — FIXED April 9-13
+
+Historical note: the exit price pipeline was BROKEN for weeks before
+being progressively fixed in a chain of commits:
+
+- 26e19b4: exit pricing pipeline initial fix
+- 9b880e1: paper_trader price pass-through (resolved the 20.4% of
+  contaminated historical trades)
+- 5b92226: staged TP P/L sums across all exits (resolved residual
+  exit overwriting cumulative P/L)
+- a8a390b: feature defaults -1 not 0 (unblocked entry filter v4)
+
+The original bug: exit checker tried Jupiter/GeckoTerminal first (both
+always fail for bonding-curve tokens), only falling back to Redis
+token:latest_price too late. Result was 1800+ trades with zero TPs.
+
+The fix reordered price sources: Redis token:latest_price first, then
+bonding curve reserves, then Jupiter, then Gecko.
+
+Current state (April 13+): staged TPs fire at 100% rate (verified
+20/20 in post-fix data). Exit pipeline is working correctly. Do not
+revert these commits. Do not reintroduce the old price source order.
+
+For the full fix history see MONITORING_LOG.md entries for April 9-13.
 0.3 — Price Format Mismatch (critical to understand)
 paper_buy() stores entry_price in USD (from Jupiter/GeckoTerminal)
 PumpPortal trade stream stores prices in SOL (sol_amount / token_amount)
@@ -35,14 +43,33 @@ Exit checker MUST convert SOL→USD before comparing to entry_price
 Conversion: usd_price = sol_price_per_token × market:sol_price
 If market:sol_price is missing, fallback to $80 (fragile)
 Always fetch SOL/USD price in same batch as token prices
-0.4 — Trading Performance (April 13, 2026 — corrected)
-Balance: ~9.76 SOL (started with ~20 SOL, first paper trade March 28)
-Total PnL (all-time, old column): -8.86 SOL
-Clean baseline (259 trades since Apr 9 20:41 UTC, corrected_pnl_sol): 26.3% WR, 68 wins, +17.73 SOL
-- Pre-fix subset (id <= 3564): 218 trades, 46 wins (21.1% WR), -0.91 SOL corrected (was -4.81)
-- Post-fix subset (id > 3564): 41 trades, 22 wins (53.7% WR), +18.65 SOL
-CFGI: 16 (extreme fear) — memecoins don't pump in fear markets
-Bot is correctly selective — most entries are in extreme fear, so low WR is expected
+0.4 — Trading Performance (April 14, 2026 — current)
+Balance: 31.8592 SOL (paper mode, stable since Apr 13 13:37 UTC)
+Clean baseline (259 clean trades since Apr 9 20:41 UTC, using
+corrected_pnl_sol): 26.3% WR, 68 wins, +17.73 SOL
+- Pre-fix subset (id <= 3564): 218 trades, 46 wins (21.1% WR),
+  -0.91 SOL corrected (was -4.81 with buggy column)
+- Post-fix subset (id > 3564): 41 trades, 22 wins (53.7% WR),
+  +18.65 SOL
+
+CFGI: 21 (Alternative.me Bitcoin F&G, the current CFGI source).
+Note: this is NOT the Solana-specific CFGI Jay expected. See
+DASHBOARD_AUDIT.md B-001 — Alternative.me returns Bitcoin F&G.
+cfgi.io Stage 1 dual-read queued for tonight's recovery session.
+
+Current pipeline state as of 2026-04-14 11:00 AEDT: signal_aggregator
+has been DEAD since 13:38 UTC April 13 (21+ hours). bot_core is alive
+but starved of scored signals. Recovery session queued for tonight.
+
+Speed Demon: sole active personality (when aggregator is running).
+Analyst: 0 trades recent (auto-paused, CFGI < 20 on broken source).
+Whale Tracker: 4 historical trades, currently dormant.
+
+WARNING: ML score inversion at 70+ bucket (0% WR, -12.62% avg P/L).
+Model trained on 128 samples. See POST_TIER2_DIAGNOSIS.md.
+
+685 pre-fix trades (20.4%) have corrupted exit prices — excluded from
+ML training via contamination filter (ML_TRAINING_CONTAMINATION_CUTOFF).
 
 IMPORTANT — P/L Reporting Correction (April 13, 2026):
 The paper_trades.realised_pnl_sol column is HISTORICALLY BUGGY for trades

@@ -1,409 +1,401 @@
-# ZMN Bot — Product Roadmap & Backlog
-**Last updated:** 2026-04-13 AEDT (post dashboard Tier 1 audit)
-**Previous version:** 2026-04-13 (post backfill, pre-dashboard audit)
+# ZMN Bot -- Product Roadmap & Backlog (v4 merged)
+
+**Last updated:** 2026-04-14 AEDT (pre-recovery session)
+**Structure:** trigger conditions + review dates (v3 structure adopted)
+**Next scheduled review:** 2026-04-15 (after recovery + hardening session)
 
 ---
 
-## Where We Are Right Now
+## HOW THIS ROADMAP WORKS
 
-**Architecture:** Healthy. All 8 services UP. Zero crashes. Zero emergency stops. The Tier 2 overnight landed 4 clean fixes (f7ebc56, cb53b7a, 629c740, da964ab) + exit strategy fix (bf57117) + paper_trader price fix (9b880e1) + entry filter v4 (56421ab).
+Every item has:
+- **State:** IN-FLIGHT | READY | BLOCKED | DEFERRED | COMPLETED | DROPPED
+- **Trigger:** the specific condition under which it becomes actionable
+- **Next review:** date this item gets re-evaluated (nothing drifts forever)
+- **Blocker:** what's stopping it (if any)
 
-**P/L data:** Trustworthy. 20.4% of historical trades had corrupted exit prices biased toward winners — fixed. All pre-2026-04-09 20:41 UTC data flagged as contaminated.
-
-**Performance baseline (259 clean trades since cleanup, using corrected_pnl_sol):**
-- WR: 26.3% (68 wins) -- ABOVE 18.7% break-even threshold
-- Total SOL: +17.73 (corrected from +13.83 using old buggy column)
-- Pre-fix subset (id <= 3564): 21.1% WR, -0.91 SOL (corrected from -4.81)
-- Post-fix subset (id > 3564): 53.7% WR, +18.65 SOL
-- 19 trades reclassified loss->win after staged TP backfill (2026-04-13)
-
-**Historical backfill -- COMPLETE (2026-04-13):**
-- Added corrected_pnl_sol/pct columns to paper_trades
-- 44 pre-fix staged trades recomputed, 215 clean trades passed through
-- See STAGED_TP_BACKFILL_REPORT.md for full details
-
-**Current state (CRITICAL):** Bot is in HIBERNATE mode at CFGI 16. Entry filter v4 deployed and rejecting 100% of signals because of an UPSTREAM feature default bug — `buy_sell_ratio_5min` and `unique_wallet_velocity` default to `0` when missing instead of `-1`. The filter correctly rejects "zero buyers" but cannot distinguish from "data not yet arrived." Fix is queued (see SNAPSHOT_AND_FEATURE_FIX.md).
-
-**Helius:** Credits exhausted until April 26. Webhook disabled. `HELIUS_ENRICHMENT_ENABLED=false`. Treasury budget guard working.
-
-**Nansen:** MCP works. DRY_RUN=true on all services. Smart money labels do NOT exist at pump.fun micro-cap scale (CRITICAL FINDING from SMART_MONEY_DIAGNOSTIC).
+Items without a trigger condition get DROPPED instead of "next week'd."
+Items that sit in DEFERRED for 30 days without progress get re-evaluated
+for DROPPED or ACTUALLY-SCHEDULED.
 
 ---
 
-## NEW FINDINGS (since 2026-04-11 roadmap)
+## CURRENT BOT STATE (2026-04-14)
+
+**Architecture:** 8 services on Railway. signal_aggregator has been DEAD
+since 13:38 UTC April 13 (transient Redis DNS failure on startup, exited
+cleanly, Railway marked "Completed"). All other services healthy.
+Recovery queued for tonight.
+
+**Performance -- the corrected truth (259 clean trades):**
+- Combined: 26.3% WR, 68 wins, +17.73 SOL (using corrected_pnl_sol)
+- Pre-fix subset (id <= 3564): 218 trades, 46 wins (21.1% WR), -0.91 SOL
+- Post-fix subset (id > 3564): 41 trades, 22 wins (53.7% WR), +18.65 SOL
+- Pre-crash Apr 13 burst (30 trades): 50% WR, +5.44 SOL -- the bot was
+  performing excellently when the pipeline died
+
+**Paper balance:** 31.8592 SOL
+
+**Key finding:** the bot was never as broken as the recorded numbers
+suggested. The staged TP reporting bug (fixed in commit 5b92226) was
+hiding real profits. Post-fix data shows the bot IS profitable when
+the market has pumping tokens.
+
+**Helius:** Credits exhausted until April 26. Webhook disabled.
+`HELIUS_ENRICHMENT_ENABLED=false`. Treasury budget guard working.
+
+**Nansen:** DRY_RUN on all services. Smart money labels don't exist at
+pump.fun micro-cap scale (confirmed finding from 2026-04-12).
+
+**CFGI:** 21 (Alternative.me Bitcoin F&G -- NOT Solana-specific).
+Decision on data source pending Jay's review (B-001).
+
+---
+
+## RECENT FINDINGS (preserved from prior roadmap versions)
 
 ### Finding 1: Entry filter v3 had a logic bug (FIXED)
-- **Bug:** Used `value > 0` for "data exists" check, treating zero values as missing data when they're actually the strongest reject signal
-- **Impact:** Filter passed 98% of signals when it should have rejected ~75%
-- **Fix:** Commit 56421ab — changed to `value != -1`
-- **Status:** Deployed but blocked by Finding 2 below
+- Used `value > 0` for "data exists" check. Fix: commit 56421ab.
 
-### Finding 2: Feature default bug (PENDING FIX)
-- **Bug:** `signal_aggregator.py` defaults `buy_sell_ratio_5min` and `unique_wallet_velocity` to `0` when missing from `live_stats`. Other features (sniper_0s_num, tx_per_sec, sell_pressure) correctly default to `-1`.
-- **Evidence:** Trade 3558 features_json shows BSR=0.0 alongside sniper_0s_num=-1 (same row, two different defaults)
-- **Impact:** v4 entry filter cannot distinguish "unknown" from "zero buyers." Rejects everything.
-- **Same-bug-different-feature impact:** ML model is also training on rows where 0 means "unknown" — structured noise it can't learn around. This affects features beyond the filter (bonding_curve_progress, market_cap_usd, liquidity_velocity may have the same bug).
-- **Fix prompt ready:** SNAPSHOT_AND_FEATURE_FIX.md
-- **Status:** READY TO PASTE — highest priority
+### Finding 2: Feature default bug (FIXED)
+- `signal_aggregator.py` defaulted BSR/wallet_velocity to `0` instead
+  of `-1`. Fix: commit a8a390b.
 
-### Finding 3: Nansen smart money labels DON'T exist at pump.fun scale (CRITICAL ARCHITECTURE CHANGE)
-- **Test results:** Smart money labels appear at $100k+ market cap. Pump.fun tokens trade at $4k-$30k. Nansen profiler doesn't track wallets that only trade pump.fun tokens.
-- **What this kills:** The original "subscribe to Nansen-labeled smart money" architecture
-- **What works instead:** Mine the bot's OWN winning trades for repeating wallets via `token_who_bought_sold` (works at any market cap, just returns generic labels like "GMGN bot user" / "deployer")
-- **Build path change:** Wallet curation must come from bot's own winners, not Nansen's pre-labeled SM list
-- **Timeline change:** Mining requires ~100+ winning trades for statistical confidence, not 28. At current rate that's 50-100 days, not weeks.
-- **Reference:** SMART_MONEY_DIAGNOSTIC.md
+### Finding 3: Nansen smart money labels don't exist at pump.fun scale
+- SM labels appear at $100k+ market cap. Pump.fun tokens trade at
+  $4k-$30k. Architecture pivot: mine bot's own winners instead.
 
-### Finding 4: HELIUS_DAILY_BUDGET=0 IS A LIE
-- **Bug:** Only `dashboard_api.py` reads HELIUS_DAILY_BUDGET. Signal_aggregator, treasury, market_health, execution all bypass it.
-- **Impact:** This is how the bot burned 10M Helius credits while appearing "disabled"
-- **Partial fix:** Treasury now has a budget guard. Other services still bypass.
-- **Full fix needed:** Global `helius_call()` wrapper with Redis-based daily counter that ALL services use.
-- **Deadline:** Must be deployed BEFORE April 26 credit reset, otherwise the new credits will burn the same way.
-- **Reference:** API_AUDIT_REPORT.md
+### Finding 4: HELIUS_DAILY_BUDGET=0 is cosmetic
+- Only dashboard_api.py reads it. Other services bypass. Needs global
+  `helius_call()` wrapper. Hard deadline: before April 26 credit reset.
 
-### Finding 5: getTokenLargestAccounts pipeline is correct, just credit-starved
-- **Investigation result:** `_fetch_holder_data_helius` parses correctly, computes top10_holder_pct and holder_gini correctly, fails only because credits are exhausted
-- **Implication:** When April 26 credits return, concentration features will auto-populate with ZERO code changes
-- **Caveat:** Will burn credits fast unless Finding 4 fix is deployed first
+### Finding 5: getTokenLargestAccounts pipeline is correct
+- Just credit-starved. Will auto-populate after April 26 reset.
 
 ### Finding 6: Dashboard Tier 1 audit (2026-04-13)
-- **Result:** 15 panels audited. All P/L widgets now use corrected_pnl_sol with post-cleanup filter.
-- **CFGI source:** Alternative.me Bitcoin F&G returns 12 (correct from API). Jay compared CMC (42). Different indices. Needs data source decision.
-- **Impact:** HIBERNATE mode, Analyst paused, Speed Demon 0.75x sizing all driven by Bitcoin F&G index, not Solana-specific.
-- **Reference:** DASHBOARD_AUDIT.md
+- 15 panels audited. P/L widgets now use corrected_pnl_sol.
+- CFGI source: Alternative.me Bitcoin F&G (not Solana-specific).
+- Reference: DASHBOARD_AUDIT.md
+
+### Finding 7: signal_aggregator 21-hour outage (2026-04-14)
+- Crashed at 13:38 UTC Apr 13 due to transient Redis DNS failure.
+- No startup retry logic. Railway marked "Completed."
+- Fix: restart + add retry loop.
+- Reference: STATE_AUDIT_2026_04_14.md
 
 ---
 
-## IN FLIGHT — RIGHT NOW
+## IN-FLIGHT (tonight's recovery session)
 
-### CFGI Data Source Decision (NEEDS JAY REVIEW)
-- **Status:** DIAGNOSED, awaiting Jay's decision
-- **Options:** (a) Switch to CMC CFGI API, (b) Find Solana-specific index, (c) Keep Bitcoin F&G but adjust thresholds
-- **Why it matters:** Changes HIBERNATE/NORMAL threshold, Analyst pause, Speed Demon sizing
-- **Risk:** Changing index changes trading behavior immediately
+### Recovery + Hardening + cfgi.io Stage 1
+- **State:** IN-FLIGHT
+- **What:** Restart signal_aggregator, deploy pending commits (dashboard
+  P/L fixes, bot_core TP instrumentation), add startup retry logic,
+  trim signals:raw, cfgi.io dual-read observation mode
+- **Expected runtime:** 90-120 min
+- **Next review:** 2026-04-15 (verify pipeline resumed trading)
+
+---
+
+## READY (prompts written, ready to paste -- in priority order)
+
+### 1. TP Redesign (30/30/20/10/10 Option B2)
+- **State:** READY
+- **What:** Change staged TP allocation from "% of remaining" to "% of
+  original". Stage triggers: +50%/+100%/+250%/+500%/+1000%. Allocations:
+  30/30/20/10/10. All-out at +1000%.
+- **Why:** Front-loads protection (60% sold by +100%), extends upper
+  triggers to capture observed 10-15x peaks.
+- **Trigger:** Recovery complete + 24-48h of STAGED_TP_FIRE data
+- **Next review:** 2026-04-16
+- **Session size:** 75-90 min
+
+### 2. ML Training Code Update (read corrected_pnl_sol)
+- **State:** READY
+- **What:** Update ml_engine training/labeling code to use
+  `corrected_pnl_sol` instead of `realised_pnl_sol`.
+- **Trigger:** Backfill complete (done) AND recovery complete
+- **Next review:** 2026-04-15
+- **Session size:** 30-45 min
+
+### 3. Social Filter (Speed Demon, Option C strict)
+- **State:** READY
+- **What:** Twitter required for Stage 1, 90d age + 3k followers for
+  Stage 2, fail-closed on API errors.
+- **Trigger:** ML training update complete AND first stable day post-TP
+- **Next review:** 2026-04-17
+- **Session size:** 75-90 min
+
+### CFGI Data Source Decision
+- **State:** READY -- awaiting Jay's decision
+- **Options:** (a) Switch to cfgi.io Solana-specific, (b) CMC API,
+  (c) Keep Bitcoin F&G but adjust thresholds
+- **Why it matters:** Changes HIBERNATE/NORMAL, Analyst pause, Speed
+  Demon sizing. cfgi.io Stage 1 dual-read deploys tonight for
+  side-by-side comparison before switchover.
 - **Reference:** DASHBOARD_AUDIT.md B-001
-- **Next review:** 2026-04-14
-
-### Feature default fix + full state snapshot
-- **Status:** Prompt ready, awaiting paste
-- **File:** `/mnt/user-data/outputs/SNAPSHOT_AND_FEATURE_FIX.md`
-- **Phases:** Filter state → forensics → snapshot → fix → verify → report
-- **Expected outcome:** Pass rate 0% → some non-zero number, trades resume, bot can be honestly evaluated again
-- **Runtime:** ~80 min including 30-min verification
-- **Auto-revert:** Multiple conditions (zero trades for 30 min, volume above pre-fix baseline, crashes)
+- **Next review:** 2026-04-15 (after 24h of dual-read data)
 
 ---
 
-## SHORT-TERM — Next 1-2 weeks
+## NEAR-TERM SHORT LIST (scheduled within 14 days)
 
-### 1. Feature default fix verification (immediately after fix lands)
-- **Trigger:** After SNAPSHOT_AND_FEATURE_FIX.md completes
-- **Scope:** Wait 12-24 hours, observe what kind of trades flow now that filter can distinguish unknown from zero
-- **Decision point:** If WR climbs above 18.7% break-even → continue. If still below → tune thresholds further.
-- **Session size:** Read-only analysis on fresh CSV
+### 4. Helius Budget Enforcement (HARD DEADLINE)
+- **State:** SCHEDULED -- must be done before April 26 credit reset
+- **What:** Global `helius_call()` wrapper with Redis daily counter.
+- **Trigger:** Calendar (latest: April 23)
+- **Pairs with:** #5 (caching)
+- **Next review:** 2026-04-20
+- **Session size:** 60-90 min
 
-### 2. Broader feature default cleanup
-- **Trigger:** After Fix 1 verification confirms BSR/wallet_velocity fix worked
-- **Scope:** Audit ALL features in `_build_features` for the same `default=0` bug pattern. Likely candidates: bonding_curve_progress, market_cap_usd, liquidity_velocity, holder_count
-- **Why important:** Feeds clean data to ML model retrains
-- **Session size:** Medium, 60-90 min
-- **Risk:** Each fix is small but the cumulative effect could shift ML scores
+### 5. Helius Enrichment Caching
+- **State:** SCHEDULED -- paired with #4
+- **What:** Per-token Redis cache (300s TTL) on 4 uncached enrichment
+  functions.
+- **Next review:** 2026-04-20
 
-### 3. Helius budget enforcement (HARD DEADLINE: before April 26)
-- **Trigger:** Anytime in next 10-12 days
-- **Scope:** Create shared `helius_call()` wrapper with Redis-based daily counter that ALL services use. Replace current bypass behavior across signal_aggregator, treasury, market_health, execution.
-- **Why deadline:** Without this, new credits on April 26 will burn the same way the last batch did
-- **Session size:** Medium, 60-90 min
-- **Pairs with:** Fix 4 (caching)
+### 6. Broader Feature Default Cleanup
+- **State:** READY
+- **What:** Audit remaining features in `_build_features` for
+  default-to-zero bug. Candidates: bonding_curve_progress,
+  market_cap_usd, liquidity_velocity, holder_count.
+- **Trigger:** Before ML retrain (#10)
+- **Next review:** 2026-04-18
+- **Session size:** 60-90 min
 
-### 4. Helius enrichment caching
-- **Trigger:** Same session as Fix 3, OR standalone before April 26
-- **Scope:** Add per-token Redis cache (300s TTL) to 4 uncached enrichment functions:
-  - `_fetch_holder_data_helius` (signal_aggregator.py:686)
-  - `_check_dev_wallet_sells` (:927)
-  - `_check_bundle_detection` (:988)
-  - `_get_jito_bundle_stats` (:1234)
-- **Expected impact:** 70% reduction in enrichment RPC burn (250k → 75k credits/day)
-- **Session size:** Medium, 60-90 min
+### 7. Telegram Yeezus Listener Audit
+- **State:** READY
+- **What:** Determine current Telethon integration state for
+  `cryptoyeezuscalls`.
+- **Blocker:** Telegram API credentials may need regeneration
+- **Next review:** 2026-04-20
+- **Session size:** 30 min
 
-### 5. Helius credit reset preparation (April 24-25)
-- **Trigger:** ~2 days before April 26
-- **Tasks:**
-  - Confirm webhook stays disabled
-  - Confirm Fix 3 + Fix 4 are deployed and working
-  - Decide credit top-up amount (target: 2-3M/month, not 10M)
-  - Verify `getTokenLargestAccounts` pipeline auto-recovers when credits return
-  - Pre-write the env var changes needed when credits arrive
-- **Session size:** 30 min verification
-
-### 6. Nansen Day-1 enablement (after Fix 1 verified)
-- **Trigger:** Once entry filter is producing real trade data
-- **Scope:** Enable Nansen on signal_aggregator only, NANSEN_DAILY_BUDGET=200
-- **Purpose:** ANALYST personality enrichment, NOT Speed Demon (Nansen has 1-5 min indexing latency, too slow for Speed Demon)
-- **Session size:** Small, 15 min + monitoring
-- **Dependencies:** None — ready
-
-### 7. Wallet mining sanity check (BEFORE building wallet curation)
-- **Trigger:** Once we have 50+ post-fix winning trades (could be weeks)
-- **Scope:** Statistical check: how many unique buyer wallets across the winning sample? What's the baseline rate of "wallet appears on 3+ winners by chance"? If the dataset is too sparse to mine reliably, defer until more winners accumulate.
-- **Session size:** Read-only analysis, 15-30 min
-- **Output:** Go/no-go decision on Phase 8
-
-### 8. Smart money wallet mining (Phase 1 of curation)
-- **Trigger:** Only after Fix 7 confirms dataset is dense enough
-- **Scope:** Use Nansen `token_who_bought_sold` on top 20-50 winners. Cross-reference buyer lists to find wallets appearing on 3+ winners. Manual review.
-- **Session size:** Medium, 60-90 min
-- **Cost:** ~50 Nansen calls
-- **Output:** Curated `watched_wallets` table seed (probably 5-15 wallets initially, not 20-40)
-
-### 9. Dashboard cleanup + analytics reset
-- **Trigger:** Anytime, pure UI work, parallel to anything
-- **Scope:** STILL NEEDS USER SPECS — Jay needs to specify 3-5 concrete items
-- **Suggested items based on findings:**
-  - Reset WR/P/L displays to post-contamination window only
-  - Add per-personality breakdown
-  - Show entry filter rejection metrics (passes/rejects/by reason)
-  - Show last N trades on home page
-  - Fix API status indicators (Helius shows real state, not stale)
-  - Display feature population rates
-- **Session size:** Read-only audit + small fixes
-
-### 10. Telegram yeezus channel listener audit
-- **Scope:** Determine current state of Telethon integration for `cryptoyeezuscalls`
-- **Questions:** Is it running? Processing messages? API credentials still valid?
-- **Session size:** Small diagnostic, 30 min
-- **Dependencies:** Telegram API credential rotation may be needed first (credentials exposed in past conversation, regenerate at my.telegram.org)
-
-### 11. Telegram yeezus exit schedule
-- **Trigger:** ONLY after Fix 10 confirms listener can trigger trades
-- **Scope:** Per-source exit schedule override for yeezus trades — config change, not new code
-- **Schedule per Jay's spec:**
-  - +300% → sell 50%
-  - +500% → sell 25%
-  - +750% → sell 10%
-  - +1000% → sell 10%
-  - +2000% → sell 5% (remainder rides)
-- **Session size:** Trivial, 15-30 min
+### 8. Telegram Yeezus Exit Schedule
+- **State:** BLOCKED on #7
+- **What:** Per-source exit schedule override per Jay's spec
+  (+300%/+500%/+750%/+1000%/+2000%).
+- **Session size:** 15-30 min
 
 ---
 
-## MEDIUM-TERM — 2-4 weeks
+## MEDIUM-TERM (14-30 days)
 
-### 12. Smart money wallet system (Phase 2: monitoring)
-- **Trigger:** After Phase 1 wallet curation has at least 5 candidates AND Helius credits reset (April 26)
-- **Scope:** Configure Helius webhook with curated whale wallets (NOT Raydium infrastructure this time). Monitor SWAP events only. Handler updates Redis counter `whale_buys:{mint}` with sliding 5-min window.
-- **Session size:** Medium, 60-90 min
-- **Cost estimate:** ~90k credits/day for webhook events (well within 10M plan)
-- **Architecture note:** Bridge approach for next 14 days (before reset) is to piggyback on existing Nansen `_fetch_nansen_enrichment` flow with a Redis SET membership check. Zero additional API cost.
+### 9.5. Execution Path Audit (read-only forensics)
+- **State:** READY -- highest-priority pre-live session
+- **What:** Full read-only audit of `execution.py`, `paper_trader.py`,
+  and buy/sell code paths. Answers six unknowns about the real
+  execution pipeline (code sharing, priority fees, slippage config,
+  wallet balance reads, latency budget, error handling).
+- **Why:** Everything validated so far is PAPER. The live execution path
+  is the single biggest unvalidated assumption.
+- **Trigger:** 7 days of post-TP-redesign data + paper profitability
+  confirmed
+- **Next review:** 2026-04-20
+- **Session size:** 60-90 min (writes EXECUTION_AUDIT.md)
+- **Risk:** Zero -- read-only
 
-### 13. Smart money wallet system (Phase 3: entry trigger)
-- **Trigger:** After Phase 2 stable
-- **Scope:** Hardcoded entry rule that BOOSTS confidence when N or more watched wallets buy a token within a time window. NOT a hard pass-through trigger — bot still uses ML scoring AND entry filter, smart money signal is additive.
-- **Initial rule:** `if sm_buy_count >= 2: confidence_boost = +30`
-- **Critical caveat:** This rule is ANALYST-only. Speed Demon's timeframe (sub-second decisions) is incompatible with Nansen's 1-5 min indexing latency. Speed Demon's edge is the entry filter, not smart money.
-- **Session size:** Medium, 60 min
+### 9.6. Shadow Mode Implementation
+- **State:** BLOCKED on #9.5
+- **What:** `SHADOW_MODE` flag in `execution.py`. Constructs + simulates
+  transactions without submitting. Logs to `shadow_tx:{mint}:{ts}`.
+- **Trigger:** #9.5 complete AND critical issues fixed
+- **Next review:** 2026-04-22
+- **Session size:** 90-120 min
 
-### 14. Analyst personality rework (50-100k pullback strategy)
-- **Trigger:** After entry filter is stable AND smart money Phase 2 is live AND Analyst CFGI threshold reviewed
-- **Scope:** Entirely new strategy. Tokens with mcap $50k-$100k, recent severe upward momentum, 25-30% pullback from local peak, new holders entering with >0.5 SOL buys.
-- **Required components:**
-  - Price history tracker (per-token price arrays, not just latest)
-  - Pullback detector (local maxima + drawdown calculation)
-  - New-holder-entry tracker (requires working Vybe/Helius holder data — depends on Helius credits)
-  - New scoring path dedicated to Analyst signals
-  - Hold-time configuration for Analyst (longer than Speed Demon)
-- **Session size:** LARGE — 2-5 sessions minimum
-- **Blockers:** Helius credits reset, smart money Phase 2 live, Analyst CFGI threshold review
+### 9.7. Micro-Live Validation (Stage 2)
+- **State:** BLOCKED on #9.6
+- **What:** Secondary wallet, 0.5 SOL, 0.01 SOL/trade, 50 trade cap.
+- **Trigger:** #9.6 has 24h of clean shadow data
+- **Next review:** 2026-04-24
+- **Session size:** 60-90 min + 1-3 days monitoring
 
-### 15. Analyst CFGI threshold review
-- **Trigger:** Before Fix 14 is built
-- **Question:** Is the CFGI < 20 auto-pause correct?
-- **Evidence to review:** Currently 0 Analyst trades in 212-trade clean window. Tiny DEFENSIVE-mode sample (3 trades) showed 33% WR / +77% avg P/L.
-- **Session size:** Analysis only, 30 min
-- **Output:** Decision to keep, lower, or remove threshold
+### 9.8. Real-Size Live on Main Wallet (Stage 3)
+- **State:** BLOCKED on #9.7
+- **What:** Flip TEST_MODE=false. Start with 0.05 SOL positions, scale
+  up over 7-14 days.
+- **Trigger:** #9.7 micro-live has 100+ real trades with success
+  criteria met
+- **Next review:** 2026-05-01 earliest
+- **Absolute rule:** Do not skip stages.
 
----
+### 10. ML Model Retrain (on corrected labels)
+- **State:** BLOCKED on sample count + feature cleanup
+- **Trigger:** Backfill done + ML training code updated + feature
+  cleanup done + 500+ clean samples
+- **Sample projection:** ~70 clean post-fix samples. ETA 2026-04-25
+  to 2026-05-05.
+- **Next review:** 2026-04-21
 
-## LONG-TERM — After short + medium
+### 11. FEATURE_COLUMNS Pruning
+- **State:** PAIRED with #10
+- **What:** Prune from 55 to ~20 populated features.
 
-### 16. ML model retrain with clean data + populated features
-- **Trigger:** When clean training sample count exceeds 500 (projected after entry filter is fixed and producing real trades again)
-- **Scope:** Full retrain of original 55-feature ensemble with:
-  - All pre-2026-04-09 20:41 UTC data excluded
-  - Concentration features populated (depends on Helius credit reset + caching deploy)
-  - PumpPortal-derived features populated (already in place)
-  - All 3 models if LightGBM fresh deploy works (still needs `railway up -s ml_engine`)
-- **Session size:** Small — mostly waiting for retrain + comparing AUC
-
-### 17. FEATURE_COLUMNS pruning
-- **Trigger:** After Fix 16 retrain completes
-- **Scope:** Based on populated-feature count, prune from 55 to ~20 features that actually reach the model
-- **Risk:** Low — the 42 dead features contribute zero signal anyway
-- **Session size:** Small, 30-45 min
-
-### 18. External feature population (Vybe alternatives)
-- **Trigger:** After smart money system is stable
-- **Scope:** Vybe is currently dead (404 on all token endpoints). Decision: abandon, switch entirely to Helius+Nansen, or investigate why endpoints changed
-- **Session size:** Small investigation, 30 min
-- **Priority:** LOW — Helius + Nansen is strictly better
-
-### 19. Governance SQL type mismatch (cosmetic)
-- **Scope:** Fix `operator does not exist: double precision > timestamp with time zone` warning
-- **Impact:** Cosmetic. Governance still makes correct decisions.
-- **Priority:** LOW
+### 12. Analyst CFGI Threshold Review
+- **State:** READY
+- **What:** Decision: keep / lower / remove the CFGI < 20 auto-pause.
+- **Trigger:** Backfill complete (corrected data available)
+- **Next review:** 2026-04-17
+- **Session size:** 30 min analysis only
 
 ---
 
-## EXPLICITLY DEFERRED / DON'T BUILD
+## LONG-TERM (30+ days or triggered by external events)
 
-### 20. Kronos foundation model integration (ZMN) — DON'T DO IT
-- Wrong latency, wrong pretraining domain, tokens die before context exists
-- ZMN's edge is holder/smart money/sniper features, not OHLCV forecasting
+### 13. Smart Money Wallet Mining -- Sanity Check
+- **State:** DEFERRED -- waiting for sample count
+- **Trigger:** Winner count >= 50 AND backfill done
+- **Next review:** 2026-04-25
 
-### 21. Kronos ASX equities bot — SEPARATE PROJECT, parked
-- Evaluation prompt at `/mnt/user-data/outputs/KRONOS_EVALUATION.md`
-- 5-phase feasibility study, ~1 week of overnight sessions
-- Park until ZMN is profitable
-- DO NOT mix with ZMN codebase
+### 14. Smart Money Wallet Mining -- Curation Pipeline
+- **State:** BLOCKED on #13
+- **Trigger:** #13 confirms dataset is dense enough
+- **Session size:** 90-120 min
 
-### 22. ML feature expansion — DON'T BUILD until sample count >500
-- Curse of dimensionality: 128 samples × 55 features is over-parameterized
-- New data sources should be hardcoded entry rules, not ML features
+### 15. Smart Money Webhook Monitoring (Helius)
+- **State:** BLOCKED on #14 AND Helius credit reset
+- **Trigger:** #14 complete AND April 26 credit reset
+- **Next review:** 2026-04-28
 
-### 23. ML score cap / inversion fix — TREATING A SYMPTOM
-- The audit recommended capping at 65, but the real problem is training data quality
-- Fix the feature default bug first (Finding 2), retrain with clean labels (Fix 16), then re-evaluate
+### 16. Smart Money Entry Trigger Rule
+- **State:** BLOCKED on #15
+- **Trigger:** #15 stable for 7 days
+- **Next review:** 2026-05-05
 
-### 24. Original "subscribe to Nansen-labeled SM wallets" architecture — DEAD
-- Nansen SM labels don't exist at pump.fun scale (Finding 3)
-- Replaced by mining-the-bot's-own-winners approach (Fix 7 + Fix 8)
+### 17. Nansen Day-1 Enablement
+- **State:** DEFERRED
+- **Trigger:** Analyst unpauses OR #14 needs Nansen calls
+- **Next review:** 2026-04-25
 
----
+### 18. Analyst Personality Rework (50-100k pullback strategy)
+- **State:** DEFERRED (large multi-session work)
+- **Trigger:** #12 + Helius credits + #15 stable
+- **Next review:** 2026-05-01
+- **Session size:** 2-5 sessions
 
-## BLOCKED / WAITING
+### 19. Vybe Investigation
+- **State:** LOW priority, DEFERRED
+- **Trigger:** Only if Helius + Nansen aren't enough
+- **Next review:** 2026-05-10
 
-### Helius credit reset
-- **Date:** April 26, 2026
-- **Unblocks:** Concentration features auto-populate, smart money webhook architecture, treasury balance checks
-- **Pre-reset requirement:** Fix 3 (budget enforcement) + Fix 4 (caching) MUST be deployed
-
-### Telegram API credential rotation
-- **Needed for:** Fix 10
-- **Action:** Jay regenerates at my.telegram.org
-
-### Sample accumulation for ML retrain + wallet mining
-- **Current:** 212 clean trades, 28-30 winners
-- **Needed for retrain:** 500+ clean trades
-- **Needed for mining:** 100+ winners
-- **Rate:** Currently 0 trades/hour due to feature default bug. After fix: estimated 1-3 quality trades/hour
-- **Projection:** 500 samples in ~7-21 days post-fix
-
----
-
-## PRIORITIZED EXECUTION ORDER
-
-### Today / Tomorrow (April 12-13)
-1. ✅ Paste SNAPSHOT_AND_FEATURE_FIX.md (in flight)
-2. Read fix outcome, decide if more tuning needed
-3. SLEEP between sessions
-
-### This week (April 13-19)
-4. Verify entry filter is now producing real trade data
-5. Broader feature default cleanup (Fix 2)
-6. Helius caching deploy (Fix 4) — start of pre-reset prep
-7. Helius budget enforcement (Fix 3)
-8. Dashboard cleanup (if specs provided)
-9. Telegram yeezus audit (Fix 10)
-
-### Next week (April 20-26)
-10. Helius credit reset preparation
-11. Nansen Day-1 enablement (Fix 6)
-12. Wait for Helius credit reset April 26
-
-### Week of April 27+
-13. Verify post-reset behavior — features auto-populating
-14. Wallet mining sanity check (Fix 7) — if sample count is enough
-15. Smart money Phase 1 mining (Fix 8) — only if Fix 7 passes
-16. Smart money Phase 2 webhook architecture (Fix 12)
-17. ML retrain with clean data (Fix 16)
-18. FEATURE_COLUMNS pruning (Fix 17)
-
-### After (May+)
-19. Analyst CFGI review (Fix 15)
-20. Analyst rework (Fix 14) — multi-session
-21. Smart money Phase 3 entry trigger (Fix 13)
-22. Telegram yeezus exit schedule (Fix 11)
+### 20. Governance SQL Type Mismatch (cosmetic)
+- **State:** LOW priority
+- **Next review:** 2026-05-15
+- **Session size:** 15 min
 
 ---
 
-## SUCCESS METRICS — UPDATED TARGETS
+## DROPPED (explicitly removed, no longer in backlog)
 
-| Metric | 2026-04-10 Baseline | 2026-04-12 Current | Target W1 | Target W2 | Target W4 |
-|--------|---------------------|--------------------|-----------|-----------|-----------|
-| WR | 16.3% | 13.3% (degraded) | 22%+ | 28%+ | 35%+ |
-| Payoff ratio | 4.34x | 4.5x | 3.5x+ | 3.5x+ | 4.0x+ |
-| Avg P/L per trade | -2.28% | -3.08% | 0% | +3%+ | +8%+ |
-| Daily P/L SOL | -4.3 | unknown (0 trades) | 0 | +2 | +5 |
-| Clean training samples | 172 | 212 | 500+ | 1000+ | 2500+ |
-| Entry filter pass rate | N/A | 0% (broken) | 5-15% | 10-25% | 15-30% |
-| Trade rate per hour | ~10 | 0 | 1-3 | 3-5 | 5-8 |
-| no_momentum_90s % | 51% | 21% | <15% | <10% | <10% |
-| stale_no_price % | 3.5% | 71% | 71% (Helius) | 71% | <5% (post Apr 26) |
-| Emergency stops | 0 | 0 | 0 | 0 | 0 |
-| Helius daily burn | 541k (broken) | 0 (exhausted) | 0 | <100k | <200k |
+- **Kronos Foundation Model Integration (ZMN):** Wrong latency, wrong
+  pretraining domain. ZMN's edge is on-chain features not OHLCV.
+- **Original "Subscribe to Nansen-labeled SM" Architecture:** Finding 3
+  killed this. SM labels don't exist at pump.fun scale.
+- **ML Feature Expansion:** Blocked until sample count >= 500. Returns
+  as option after #10 retrain.
+- **ML Score Cap at 65:** Symptom fix for the score inversion. Root cause
+  is #10 retrain on corrected labels.
+- **Kronos ASX Equities Bot:** PARKED as separate project.
 
 ---
 
-## OPEN QUESTIONS FOR JAY
+## COMPLETED RECENTLY (last 7 days)
 
-1. **Dashboard cleanup items?** Still need 3-5 concrete issues to write a prompt
-2. **Telegram listener current state?** Running? Broken? Never tested?
-3. **Analyst CFGI 20 threshold — keep or lower?** Depends on whether the design predated trustworthy P/L data
-4. **Nansen enablement timing?** This week (after fix verified) or wait?
-5. **Helius plan tier at April 26 reset?** Current projections suggest 2-3M/month is enough; downgrade from 10M plan?
-6. **Smart money wallet discovery — manual or algorithmic mining?** Mining requires more winners than we currently have
-7. **Per-personality P/L breakdown on dashboard — before or after Analyst rework?**
+- **2026-04-07:** Paper trader price bug fix (9b880e1)
+- **2026-04-08:** Tier 2 overnight -- 4 fixes
+- **2026-04-09:** Exit strategy fix (bf57117)
+- **2026-04-10:** API audit complete
+- **2026-04-11:** Entry filter v4 (56421ab)
+- **2026-04-12:** Feature default fix (a8a390b)
+- **2026-04-12:** Staged TP reporting fix (5b92226)
+- **2026-04-13:** Historical backfill (cf16627, 2f76a91)
+- **2026-04-13:** Dashboard Tier 1 audit + P/L source fixes (dbbffd3,
+  40dadb6, cac5202)
+- **2026-04-14:** State audit -- pipeline outage diagnosed (fb8a389)
 
 ---
 
-## SESSION ENERGY BUDGET — REINFORCED
+## Open Bugs from Other Docs
 
-The last 48 hours validated this principle the hard way:
-- The v3 entry filter shipped in one session, three commits, with a logic bug that made it inert for 24+ hours
-- Caught only because Jay manually uploaded the CSV for offline analysis
-- Tonight's "mega session" instinct was correctly resisted
+The following bugs are tracked in dedicated files but referenced here
+so the roadmap is the single source of truth for what's open:
+
+- **Dashboard bugs:** DASHBOARD_AUDIT.md Known Bugs Registry
+  (B-001 through B-009). Review date: 2026-04-16.
+- **Pipeline bugs:** STATE_AUDIT_2026_04_14.md findings. All addressed
+  in tonight's recovery session.
+- **B-001 (CFGI source)** is cross-cutting -- affects bot_core trading
+  behavior, not just dashboard display. Tracked as "CFGI Data Source
+  Decision" item in READY section above.
+- **B-010 (Governance CFGI hallucination):** Governance LLM consistently
+  outputs "CFGI at 50" regardless of actual value. Either the prompt
+  template injects a default, or the LLM confabulates. Needs prompt
+  audit in a future governance session.
+
+Any bug that sits unreviewed past its review date in those files
+gets escalated into this roadmap's main backlog.
+
+---
+
+## THE BIG PICTURE (for Jay's sanity)
+
+The last 7 days was a sequence of interdependent bug fixes that each
+unblocked the next. You started with "bot is bleeding money." You end
+with "bot is profitable but the reporting was lying." The work wasn't
+wasted -- each fix was real, each one moved you forward, and the net
+result is:
+
+1. **The bot mechanically works on paper** -- entry, scoring, exit
+   strategy all correct
+2. **The reporting mechanically works** -- P/L is now recorded correctly
+3. **The historical record is cleaned up** -- backfill done
+4. **The ML model needs an update to use the cleaned record** -- next
+5. **The TP allocation can be optimized** -- after recovery
+
+**THE UNVALIDATED ASSUMPTION:** Everything so far is paper trading.
+The real execution path in `execution.py` has never been exercised.
+Items #9.5 through #9.8 are the progressive validation chain:
+
+- **#9.5** (read-only audit): understand what the real code does
+- **#9.6** (shadow mode): exercise real tx construction without submitting
+- **#9.7** (micro-live): 0.5 SOL secondary wallet, 50 trades max
+- **#9.8** (real-size live): main wallet, only after micro-live passes
+
+Do not skip stages. No "just flip TEST_MODE=false" on the main wallet.
+
+---
+
+## REVIEW CADENCE
+
+- **Daily during active deploy weeks** -- check top 3 priority items
+- **Weekly when stable** -- review all READY + SCHEDULED items, re-date
+- **Triggered** -- when an item hits its trigger condition, re-evaluate
+  immediately
+
+Items sitting in DEFERRED for 30+ days without status change get either
+DROPPED or explicitly re-scheduled with a new trigger. No drift.
+
+---
+
+## SESSION ENERGY BUDGET
 
 **Rules:**
 - ONE substantive lever per session
-- Verification windows BEFORE tuning anything (24h+ minimum)
+- Verification windows BEFORE tuning (24h+ minimum)
 - All deploys must have auto-revert conditions
 - All thresholds env-var-configurable for kill switch
-- Read-only diagnostic prompts BEFORE write prompts on anything ambiguous
-- Two checkpoints per session: Phase 1 findings (before code change) and Phase N verification (after deploy)
-
-**Anti-patterns observed and avoided:**
-- "Mega session" stacking 7+ unrelated changes
-- Tuning thresholds based on a 1-hour sample
-- Enabling paid APIs (Nansen, Helius) at bedtime when tired
-- Treating Claude Code's "PARTIAL — KEEP running" as definitive
-- Skipping read-only diagnostic in favor of "just fix it" prompts
+- Read-only diagnostic prompts BEFORE write prompts on ambiguous items
 
 ---
 
-## REFERENCES — KEY DOCS IN REPO
+## REFERENCES
 
-- `MONITORING_LOG.md` — chronological session log
-- `AGENT_CONTEXT.md` — bot architecture reference
-- `CLAUDE.md` — agent instructions
-- `API_AUDIT_REPORT.md` — Helius/Nansen/Vybe state
-- `SMART_MONEY_DIAGNOSTIC.md` — Nansen capability map (Finding 3)
-- `ENTRY_FILTER_v4_REPORT.md` — v4 outcome (PARTIAL, blocked by Finding 2)
-- `POST_TIER2_DIAGNOSIS.md` — bot health snapshot post Tier 2 fixes
-- `TIER2_OVERNIGHT_REPORT.md` — 4 fixes overview
-
-## REFERENCES — PROMPTS READY OR RECENT
-
-- `/mnt/user-data/outputs/SNAPSHOT_AND_FEATURE_FIX.md` — IN FLIGHT (feature default fix + state snapshot)
-- `/mnt/user-data/outputs/ENTRY_FILTER_V4_FIX.md` — DEPLOYED (commit 56421ab)
-- `/mnt/user-data/outputs/KRONOS_EVALUATION.md` — PARKED (separate ASX project)
+- `MONITORING_LOG.md` -- chronological session log
+- `AGENT_CONTEXT.md` -- bot architecture reference
+- `CLAUDE.md` -- agent instructions
+- `DASHBOARD_AUDIT.md` -- panel-by-panel findings + Known Bugs Registry
+- `STATE_AUDIT_2026_04_14.md` -- pipeline outage diagnosis
+- `STAGED_TP_BACKFILL_REPORT.md` -- historical P/L correction
+- `API_AUDIT_REPORT.md` -- Helius/Nansen/Vybe state
+- `SMART_MONEY_DIAGNOSTIC.md` -- Nansen capability map
+- `POST_TIER2_DIAGNOSIS.md` -- bot health snapshot post Tier 2

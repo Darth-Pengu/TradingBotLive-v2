@@ -2,6 +2,63 @@
 
 ---
 
+## 2026-04-14 ~11:00 AEDT -- State Audit (Read-Only)
+
+### What happened
+Read-only investigation triggered by Jay noticing the bot had been idle
+for 11+ hours with zero trade activity. Full audit of git state, Railway
+services, Redis pipeline state, Postgres trade activity, and dashboard
+data sources. No code changes, no restarts, no deployments.
+
+See STATE_AUDIT_2026_04_14.md (commit fb8a389) for the full report.
+
+### Critical findings
+
+**signal_aggregator has been dead for ~21 hours.**
+- Crashed at 13:38:16 UTC on 2026-04-13 due to transient Railway
+  internal DNS resolution failure: `Error -3 connecting to
+  redis.railway.internal:6379. Temporary failure in name resolution`
+- Exited cleanly with code 0 (no retry logic on startup Redis connect)
+- Railway marked it "Completed" and never restarted it
+- 1 minute after the last successful trade (ID 3630 at 13:37:07 UTC)
+
+**Pipeline state:**
+- signal_listener: ALIVE (1.5M+ raw signals pumped with no consumer)
+- signal_aggregator: DEAD
+- market_health: ALIVE (CFGI/mode/SOL price every 5 min)
+- bot_core: ALIVE but starved of scored signals, 0 trades in 21 hours
+- governance: ALIVE but hallucinating CFGI values ("CFGI at 50" when
+  actual is 21)
+
+**Pre-crash performance was excellent:**
+- 30 trades between 11:08-13:37 UTC on Apr 13
+- 50% WR, +5.44 SOL total P/L
+- 15 trades hit staged TPs
+
+**Shadow mode:** zero matches in committed code. Exists only as future
+roadmap item #9.6, BLOCKED on #9.5. Not built, not deployed.
+
+**Unknown Railway services:** `query-redis-keys` and `redis-query` are
+harmless one-shot diagnostic scripts from a Railway agent. Read-only.
+
+### Root cause
+signal_aggregator had NO startup retry logic for Redis connection. A
+single transient DNS failure during deploy was fatal. No health
+monitoring exists for signal_aggregator in the `service:health` system.
+
+### Commits
+- fb8a389: state audit report (STATE_AUDIT_2026_04_14.md)
+
+### What's NOT fixed (queued for recovery session tonight)
+- signal_aggregator restart + startup retry loop
+- bot_core redeploy (TP instrumentation, commit 40dadb6)
+- dashboard_api redeploy (P/L source fixes, commit dbbffd3)
+- Trim signals:raw from 1.5M to ~1000
+- Add signal_aggregator to service:health heartbeat
+- cfgi.io Stage 1 dual-read
+
+---
+
 ## 2026-04-13 ~16:00 AEDT — Dashboard Tier 1 Audit + Fixes
 
 ### What happened
