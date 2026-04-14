@@ -374,14 +374,16 @@ async def daily_health_check(redis_conn: aioredis.Redis | None):
                     logger.info("Market mode OVERRIDE active: %s", mode)
                 else:
                     mode = _determine_market_mode(dex_vol, grad_rate_estimate, pumpfun_vol_estimate)
-                sentiment = _compute_sentiment_score(cfgi, grad_rate_estimate, sol_24h_change, dex_vol, 0)
-
-                # cfgi.io Stage 1 dual-read (observation only — bot_core still reads .cfgi)
+                # Stage 2: cfgi.io SOL is PRIMARY, Alternative.me BTC is fallback
                 cfgi_sol = None
                 try:
                     cfgi_sol = await _fetch_cfgi_io_solana(session)
                 except Exception as e:
-                    logger.warning("cfgi.io dual-read failed (non-fatal): %s", e)
+                    logger.warning("cfgi.io fetch failed (non-fatal): %s", e)
+
+                # Primary CFGI = SOL (cfgi.io), fallback to BTC (Alternative.me)
+                primary_cfgi = cfgi_sol if cfgi_sol is not None else cfgi
+                sentiment = _compute_sentiment_score(primary_cfgi, grad_rate_estimate, sol_24h_change, dex_vol, 0)
 
                 state = {
                     "mode": mode,
@@ -390,7 +392,8 @@ async def daily_health_check(redis_conn: aioredis.Redis | None):
                     "sol_1h_change": round(sol_1h_change, 4),
                     "sol_24h_change": round(sol_24h_change, 4),
                     "dex_volume_24h": dex_vol,
-                    "cfgi": cfgi,
+                    "cfgi": primary_cfgi,
+                    "cfgi_btc": cfgi,
                     "pumpfun_vol_estimate": pumpfun_vol_estimate,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
