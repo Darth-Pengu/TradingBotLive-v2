@@ -578,6 +578,7 @@ async def api_positions(request):
                 positions.append({
                     "key": f"{r.get('personality', '')}:{mint}",
                     "mint": mint,
+                    "symbol": r.get("symbol", ""),
                     "mint_full": mint,
                     "mint_short": mint[:8] + "..." + mint[-4:] if len(mint) > 12 else mint,
                     "personality": r.get("personality", ""),
@@ -753,6 +754,7 @@ async def api_trades(request):
         trades.append({
             "id": r.get("id"),
             "mint": mint,
+            "symbol": r.get("symbol", ""),
             "mint_short": mint[:6] + "..." if len(mint) > 6 else mint,
             "personality": r.get("personality", ""),
             "entry_price": float(r.get("entry_price", 0) or 0),
@@ -2195,7 +2197,7 @@ async def api_signals_evaluated(request):
                     result.append({
                         "time": sig.get("timestamp", sig.get("time", "")),
                         "token": sig.get("symbol", sig.get("token", "")),
-                        "mint": (sig.get("mint", ""))[:12],
+                        "mint": sig.get("mint", ""),
                         "platform": sig.get("platform", sig.get("source", "")),
                         "ml_score": sig.get("ml_score", 0),
                         "bc_progress": sig.get("bc_progress", sig.get("bc", 0)),
