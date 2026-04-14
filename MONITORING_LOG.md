@@ -2,6 +2,27 @@
 
 ---
 
+## 2026-04-14 ~22:50 AEDT — Post-Recovery Data Review (Read-Only)
+
+Read-only analysis confirming post-recovery trading health before
+Stage 2 cutover decision.
+
+**Verdict: SAFE TO SHIP STAGE 2**
+- WR post-recovery: 28.3% (53 trades, 15 wins)
+- Total P/L since recovery: +0.0518 SOL (barely positive)
+- Pattern: A (materially worse than pre-crash 50% WR), but likely
+  random variance on small sample + different market conditions
+- Winner concentration: CRITICAL (top winner = 645% of total P/L)
+- Staged TPs working: 14 trades at 92.9% WR carrying the portfolio
+- STAGED_TP_FIRE log: NOT appearing (instrumentation bug)
+- New bug found: outcome column NULL since id=1131
+
+Full report: POST_RECOVERY_REVIEW_2026_04_14.md
+
+No code changes. No deployments. Read-only.
+
+---
+
 ## 2026-04-14 ~22:25 AEDT — cfgi.io Stage 1 (Dual-Read)
 
 ### What happened
