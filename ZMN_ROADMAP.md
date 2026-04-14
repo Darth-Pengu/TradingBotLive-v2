@@ -107,46 +107,23 @@ pump.fun micro-cap scale (confirmed finding from 2026-04-12).
 
 ---
 
-## Tomorrow's Plan (2026-04-15)
+## Current Plan (2026-04-15)
 
-**Morning (from work, 2 minutes each):**
-1. Glance at dashboard -- did dashboard session ship theme selector +
-   unified headers overnight? Try the dropdown. Try the copy buttons.
-2. Check bot is still trading: any trades in last hour?
-3. Check Stage 1 still alive: `HGET market:health cfgi_sol` should
-   return a numeric value
-4. Note the cfgi_sol value vs BTC cfgi -- is the gap stable around
-   35 points, or has it moved?
+**Completed this morning:**
+- Stage 2 cutover code deployed (commits f3a5c74, eebccf5)
+- Analyst hard-disabled via ANALYST_DISABLED=true env var
+- cfgi.io returning 402 (credits exhausted) — BTC fallback active
+- Code is correct: when credits restored, SOL CFGI auto-activates
 
-**Evening -- Stage 2 cutover (~22:25 AEDT):**
-- 24h observation window ends
-- Cut bot_core and signal_aggregator from reading `market:health.cfgi`
-  (Alternative.me BTC F&G) to `market:health.cfgi_sol` (cfgi.io SOL)
-- Preserve historical BTC value as `market:health.cfgi_btc` for
-  continuity
-- Review mode decision thresholds -- 20/40/60 on old scale may not
-  map 1:1 to new scale
-- Deploy bot_core + signal_aggregator
-- Observe first 10-20 trades under new source
-- Expected effects: Analyst unpauses, Speed Demon returns to 1.0x
-  sizing, mode may flip HIBERNATE -> NORMAL
+**Immediate action needed (Jay):**
+- Top up cfgi.io credits to activate SOL CFGI as primary source
+- Without this, the cutover code runs but falls back to BTC value
 
-**Also viable tomorrow (in priority order):**
+**Next sessions (in priority order):**
 1. Fix B-011 outcome column NULL bug + backfill (30 min)
 2. Investigate B-012 STAGED_TP_FIRE instrumentation (20-30 min)
-3. After Stage 2 stable for 2-3 hours: reassess TP redesign feasibility
-4. After Stage 2: observe whether Analyst unpausing changes the
-   signal quality picture
-
-**DO NOT DO TOMORROW:**
-- Multiple sessions in parallel
-- 5-agent overnight loops
-- "Polish" passes on the dashboard (tonight's session is the dashboard
-  session -- no more dashboard work for several days)
-- Any session that touches entry filter, ML scoring, or exit strategy
-  code (TP redesign is still blocked on instrumentation data)
-- Shipping B-011 outcome fix AND Stage 2 in the same session
-- Any session >60 minutes unless it's clearly scoped
+3. Investigate Analyst 0-2s hold pattern (30-45 min)
+4. After cfgi.io credits restored + 24h observation: reassess TP redesign
 
 ---
 
@@ -187,14 +164,16 @@ pump.fun micro-cap scale (confirmed finding from 2026-04-12).
 
 (none currently)
 
-### CFGI Stage 2 Cutover
-- **State:** SCHEDULED (Stage 1 deployed 2026-04-14 ~22:25 AEDT)
-- **Trigger:** 24h of dual-read observation data (earliest: 2026-04-15 ~22:25 AEDT)
-- **What:** Cut bot_core and signal_aggregator from `market:health.cfgi`
-  (Alternative.me BTC F&G) to `market:health.cfgi_sol` (cfgi.io SOL).
-  Preserve historical BTC value as `market:health.cfgi_btc` for
-  continuity. Update mode decision thresholds if SOL CFGI scale
-  differs meaningfully from BTC.
+### CFGI Stage 2 Cutover — CODE DEPLOYED, AWAITING CREDITS
+- **State:** DEPLOYED but DEGRADED (cfgi.io returning 402)
+- **Code commits:** f3a5c74 (Analyst disable), eebccf5 (CFGI key swap)
+- **What was done:** market_health now writes cfgi.io SOL as primary
+  `cfgi` key with Alternative.me BTC as fallback. Analyst disabled
+  via ANALYST_DISABLED=true env var.
+- **Blocker:** cfgi.io free credits exhausted (HTTP 402 since ~21:46
+  UTC Apr 14). BTC fallback active. Jay needs to top up credits.
+- **When credits restored:** SOL CFGI auto-populates as primary,
+  mode may transition from HIBERNATE, Speed Demon sizing may increase.
 - **Key finding from Stage 1:** BTC F&G = 21 vs SOL CFGI = 56.5.
   Cutover will likely unpause Analyst, increase Speed Demon sizing,
   and shift mode from HIBERNATE toward NORMAL.
@@ -213,6 +192,18 @@ pump.fun micro-cap scale (confirmed finding from 2026-04-12).
 - **Impact:** Governance mode recommendations based on fabricated CFGI.
 - **Next review:** 2026-04-16
 - **Session size:** 30 min
+
+---
+
+### Analyst Re-enable Investigation
+- **State:** BLOCKED on root cause analysis
+- **Trigger:** Understanding of why Analyst trades die in 0-2 seconds
+- **What:** Investigate 3 Analyst trades from post-recovery window
+  (IDs 3670, 3879, 3893). All entered, all held 0-2 seconds, all
+  exited via stop_loss_20%. One had ML score 54.7. Either structural
+  issue in Analyst personality, hidden rug signal, or sizing/slippage.
+- **Session size:** 30-45 min read-only investigation + optional fix
+- **Once complete:** re-enable via ANALYST_DISABLED=false env var
 
 ---
 

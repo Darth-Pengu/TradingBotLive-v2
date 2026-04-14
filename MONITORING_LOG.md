@@ -2,6 +2,51 @@
 
 ---
 
+## 2026-04-15 ~08:25 AEDT — Stage 2 Cutover (Minus Analyst)
+
+### What happened
+Cut bot_core and signal_aggregator from reading Alternative.me
+Bitcoin F&G (~21) to cfgi.io Solana CFGI for mode decisions.
+Simultaneously disabled Analyst personality via ANALYST_DISABLED
+env var pending investigation of its 0/3 loss pattern.
+
+**Important caveat:** cfgi.io is returning HTTP 402 (Payment Required)
+since ~21:46 UTC Apr 14 — free credits exhausted. The cutover code
+is correct and deployed, but the BTC fallback is active. When Jay
+tops up cfgi.io credits, the SOL value will auto-populate as the
+primary CFGI without any code changes needed.
+
+### Phase outcomes
+- Phase 0 Pre-flight: PASSED (20 trades/2h, cfgi.io 402 discovered)
+- Phase 1 Analyst disable: SUCCEEDED (commit f3a5c74)
+- Phase 2 Verify disable: PASSED (0 Analyst trades, Speed Demon only)
+- Phase 3 CFGI key swap: SUCCEEDED (commit eebccf5, BTC fallback active)
+- Phase 4-5 Observation: CLEAN (10 trades/hr, Speed Demon only)
+
+### Redis state at session end
+- market:health.cfgi: 21.0 (BTC fallback, cfgi.io 402)
+- market:health.cfgi_btc: 21.0 (new key, BTC preserved)
+- market:health.cfgi_sol: None (cfgi.io 402)
+- market:mode:current: HIBERNATE
+
+### Services modified
+- signal_aggregator: Analyst disable code + ANALYST_DISABLED=true env var
+- market_health: CFGI key writes swapped (SOL primary, BTC fallback)
+
+### Services NOT modified
+- bot_core, ml_engine, governance, web, treasury, signal_listener
+
+### Commits
+- f3a5c74: Analyst disable
+- eebccf5: CFGI key swap
+
+### Next steps
+1. Jay tops up cfgi.io credits → SOL CFGI auto-activates
+2. Investigate Analyst 0-2s hold pattern (separate session)
+3. Fix B-011, B-012, B-013
+
+---
+
 ## 2026-04-14 ~23:25 AEDT — Dashboard Enhancements (Themes + Headers)
 
 ### What happened

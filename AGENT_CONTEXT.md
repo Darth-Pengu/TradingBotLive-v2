@@ -111,16 +111,34 @@ Jay expected CMC index (~42). This is NOT a display bug -- it's a data
 source decision pending Jay's review. Both bot_core and signal_aggregator
 use the same Alternative.me source for trading decisions.
 
-**cfgi.io Stage 1 dual-read active since 2026-04-14 ~22:25 AEDT:**
-- `market:health.cfgi` = 21.0 (Alternative.me Bitcoin F&G — legacy,
-  trading decisions still use this)
-- `market:health.cfgi_sol` = 56.5 (cfgi.io SOL — observation only,
-  not yet used for decisions)
-- Stage 2 cutover scheduled for 24h observation window completion
-- Dashboard top bar shows both: CFGI(BTC) and CFGI(SOL)
+### Post-Stage-2 State (2026-04-15)
 
-Do not trust the BTC CFGI or MODE values for Solana sentiment.
-The SOL-specific value is significantly higher (56.5 vs 21).
+Stage 2-minus cutover completed. Key changes:
+
+1. **CFGI source swapped.** `market:health.cfgi` now holds cfgi.io SOL
+   value as primary, with Alternative.me BTC as fallback. BTC preserved
+   as `market:health.cfgi_btc`. **Currently in fallback mode** because
+   cfgi.io returns 402 (credits exhausted). When credits restored,
+   SOL value auto-activates.
+
+2. **Analyst hard-disabled.** ANALYST_DISABLED=true env var on
+   signal_aggregator. Analyst showed 0/3 WR (all 0-2s holds,
+   stop_loss_20%) in 348-trade post-recovery window. Do not re-enable
+   until the hold pattern is investigated.
+
+3. **Mode unchanged.** HIBERNATE persists because BTC fallback is active
+   (CFGI=21). When cfgi.io credits restored (SOL CFGI ~62), mode
+   may transition to NORMAL. Speed Demon sizing may increase from
+   0.75x toward 1.0x.
+
+### Service Configuration Snapshot (2026-04-15)
+
+Key env vars:
+- TEST_MODE=true (paper mode)
+- AGGRESSIVE_PAPER=true (bypasses HIBERNATE gating)
+- ANALYST_DISABLED=true (Stage 2-minus)
+- CFGI_API_KEY set on market_health (cfgi.io, needs credit top-up)
+- HELIUS_ENRICHMENT_ENABLED=false (credit exhaustion until Apr 26)
 
 ## Service Monitoring Rule (added 2026-04-14)
 
