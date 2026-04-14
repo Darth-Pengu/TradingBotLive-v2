@@ -373,6 +373,8 @@ async def api_status(request):
                 mh = json.loads(mh_raw)
                 sol_price = float(mh.get("sol_price", mh.get("sol_usd", 0)) or 0)
                 status_data["fear_greed"] = mh.get("cfgi", mh.get("cfgi_score", 0))
+                status_data["cfgi_sol"] = float(mh.get("cfgi_sol") or 0)
+                status_data["cfgi_sol_source"] = mh.get("cfgi_sol_source", "")
                 status_data["dex_volume_24h"] = mh.get("dex_volume_24h", 0)
                 status_data["session"] = mh.get("session", "--")
         except Exception:

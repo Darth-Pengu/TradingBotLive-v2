@@ -339,7 +339,8 @@ tbody tr:hover { background: rgba(0, 255, 65, 0.03); }
     <span class="stat-item"><span class="stat-label">BAL:</span> <span id="balanceVal" class="stat-value">--</span></span>
     <span class="stat-item"><span class="stat-label">PnL:</span> <span id="pnlVal" class="stat-value">--</span></span>
     <span class="stat-item"><span class="stat-label">SOL:</span> <span id="solPriceVal" class="stat-value">--</span></span>
-    <span class="stat-item"><span class="stat-label">CFGI:</span> <span id="cfgiVal" class="stat-value">--</span></span>
+    <span class="stat-item"><span class="stat-label">CFGI(BTC):</span> <span id="cfgiVal" class="stat-value">--</span></span>
+    <span class="stat-item"><span class="stat-label">CFGI(SOL):</span> <span id="cfgiSolVal" class="stat-value">--</span></span>
     <span class="stat-item"><span class="stat-label">WR:</span> <span id="wrVal" class="stat-value">--</span></span>
     <span class="stat-item"><span class="stat-label">ML:</span> <span id="mlAucVal" class="stat-value">--</span></span>
     <span class="stat-item"><span class="stat-label">MODE:</span> <span id="mktMode" class="stat-value">--</span></span>
@@ -639,8 +640,18 @@ async function fetchStatus() {
   const cfgi = data.fear_greed || data.cfgi || 0;
   const cfgiEl = document.getElementById('cfgiVal');
   const cfgiEmoji = cfgi < 20 ? ' \uD83D\uDD34' : cfgi < 40 ? ' \uD83D\uDFE1' : ' \uD83D\uDFE2';
-  cfgiEl.textContent = cfgi + cfgiEmoji;
+  cfgiEl.textContent = Math.round(cfgi) + cfgiEmoji;
   cfgiEl.className = 'stat-value ' + (cfgi >= 40 ? 'positive' : cfgi >= 20 ? 'warn' : 'negative');
+
+  const cfgiSol = data.cfgi_sol || 0;
+  const cfgiSolEl = document.getElementById('cfgiSolVal');
+  if (cfgiSol > 0) {
+    const solEmoji = cfgiSol < 20 ? ' \uD83D\uDD34' : cfgiSol < 40 ? ' \uD83D\uDFE1' : ' \uD83D\uDFE2';
+    cfgiSolEl.textContent = Math.round(cfgiSol) + solEmoji;
+    cfgiSolEl.className = 'stat-value ' + (cfgiSol >= 40 ? 'positive' : cfgiSol >= 20 ? 'warn' : 'negative');
+  } else {
+    cfgiSolEl.textContent = '--';
+  }
 
   const wr = data.win_rate || 0;
   const wrEl = document.getElementById('wrVal');
