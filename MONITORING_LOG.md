@@ -2,6 +2,72 @@
 
 ---
 
+## 2026-04-14 ~21:40 AEDT — Recovery + Hardening Session
+
+### What happened
+
+signal_aggregator had been dead for ~21 hours (Redis DNS failure at
+13:38 UTC Apr 13, Railway marked it Completed). This session:
+
+**Phase 1 — Recovery: SUCCEEDED**
+- Restarted signal_aggregator via Railway redeploy
+- Redeployed bot_core with TP instrumentation (commit 40dadb6)
+- Redeployed dashboard API with P/L source fixes (commit dbbffd3)
+- Trimmed signals:raw from 1,540,147 to 1,000 entries
+- Pass-through corrected_pnl for trades 3606-3630 (25 updated)
+  + 7 additional post-recovery trades
+- First post-recovery trade: ID 3631 at 11:40:49 UTC
+- 25 trades completed within ~20 min of recovery
+- NOTE: Dashboard still shows "corrected_pnl_sol does not exist"
+  warnings despite column existing in DB. Likely asyncpg schema
+  cache issue on Railway container. Non-blocking (falls back to
+  realised_pnl_sol).
+
+**Phase 2 — Hardening: SUCCEEDED**
+- Added Redis connection retry (5 attempts, exponential backoff
+  2s/4s/8s/16s/32s) to signal_aggregator startup
+- Added signal_aggregator health heartbeat to `signal_aggregator:health`
+  Redis key (30s interval, 120s TTL)
+- Deployed via `railway up -s signal_aggregator`
+- Verified: "Redis connected on attempt 1" in boot logs
+- Verified: `signal_aggregator:health` populated with fresh timestamp
+- This prevents the same silent failure mode from recurring
+
+**Phase 3 — cfgi.io Stage 1: SKIPPED**
+- CFGI_API_KEY env var not found on market_health service
+- Jay needs to add it via Railway dashboard before cfgi.io integration
+- No code changes made for this phase
+
+### Commits
+- 85768c5: Phase 2 hardening (Redis retry + health heartbeat)
+- (Phase 1 was operational only — no code changes)
+
+### Post-session state
+- signal_aggregator: Running (hardened with retry + heartbeat)
+- bot_core: Running, 25+ trades since recovery
+- signals:raw length: ~0 (actively consumed)
+- signals:scored flowing: yes (via pubsub to bot_core)
+- market:health.cfgi (BTC): 21.0
+- market:health.cfgi_sol (SOL): NOT_SET (Phase 3 skipped)
+- market:mode:current: HIBERNATE (AGGRESSIVE_PAPER bypasses)
+
+### Known issues still deferred
+- CFGI Stage 1 dual-read — needs CFGI_API_KEY env var from Jay
+- Dashboard corrected_pnl_sol column error — asyncpg schema issue
+- Governance LLM hallucinates "CFGI at 50" (B-010)
+- Exits footer TP classification (B-004)
+- Vybe endpoint false positive in API Health (B-003)
+- TP redesign — 24-48h STAGED_TP_FIRE data clock starts now
+
+### Next session candidates
+1. CFGI Stage 1 (after Jay adds CFGI_API_KEY)
+2. TP redesign (after instrumentation data accumulates)
+3. ML Training Code Update (read corrected_pnl_sol)
+4. Social filter deployment
+5. Dashboard colour theming
+
+---
+
 ## 2026-04-14 ~11:00 AEDT -- State Audit (Read-Only)
 
 ### What happened

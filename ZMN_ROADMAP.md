@@ -1,6 +1,6 @@
 # ZMN Bot -- Product Roadmap & Backlog (v4 merged)
 
-**Last updated:** 2026-04-14 AEDT (pre-recovery session)
+**Last updated:** 2026-04-14 AEDT (post-recovery session)
 **Structure:** trigger conditions + review dates (v3 structure adopted)
 **Next scheduled review:** 2026-04-15 (after recovery + hardening session)
 
@@ -22,10 +22,9 @@ for DROPPED or ACTUALLY-SCHEDULED.
 
 ## CURRENT BOT STATE (2026-04-14)
 
-**Architecture:** 8 services on Railway. signal_aggregator has been DEAD
-since 13:38 UTC April 13 (transient Redis DNS failure on startup, exited
-cleanly, Railway marked "Completed"). All other services healthy.
-Recovery queued for tonight.
+**Architecture:** 8 services on Railway. All services healthy.
+signal_aggregator recovered 2026-04-14 ~11:40 UTC after 21-hour outage.
+Now hardened with 5-attempt Redis retry + health heartbeat (commit 85768c5).
 
 **Performance -- the corrected truth (259 clean trades):**
 - Combined: 26.3% WR, 68 wins, +17.73 SOL (using corrected_pnl_sol)
@@ -77,23 +76,49 @@ Decision on data source pending Jay's review (B-001).
 - CFGI source: Alternative.me Bitcoin F&G (not Solana-specific).
 - Reference: DASHBOARD_AUDIT.md
 
-### Finding 7: signal_aggregator 21-hour outage (2026-04-14)
+### Finding 7: signal_aggregator 21-hour outage (2026-04-14) — FIXED
 - Crashed at 13:38 UTC Apr 13 due to transient Redis DNS failure.
 - No startup retry logic. Railway marked "Completed."
-- Fix: restart + add retry loop.
+- Fix: restart + add retry loop + health heartbeat (commit 85768c5).
 - Reference: STATE_AUDIT_2026_04_14.md
 
 ---
 
-## IN-FLIGHT (tonight's recovery session)
+## IN-FLIGHT
 
-### Recovery + Hardening + cfgi.io Stage 1
-- **State:** IN-FLIGHT
-- **What:** Restart signal_aggregator, deploy pending commits (dashboard
-  P/L fixes, bot_core TP instrumentation), add startup retry logic,
-  trim signals:raw, cfgi.io dual-read observation mode
-- **Expected runtime:** 90-120 min
-- **Next review:** 2026-04-15 (verify pipeline resumed trading)
+(none currently)
+
+### CFGI Stage 1 Dual-Read
+- **State:** BLOCKED on CFGI_API_KEY env var
+- **Trigger:** Jay adds CFGI_API_KEY to market_health service on Railway
+- **What:** Dual-read cfgi.io SOL CFGI alongside Alternative.me BTC F&G.
+  Dashboard shows both side-by-side. bot_core unchanged — still reads
+  Alternative.me. 24-hour observation window before any Stage 2 cutover.
+- **Why not done tonight:** CFGI_API_KEY env var not found on market_health.
+- **Next review:** 2026-04-15 (after Jay adds the key)
+- **Session size:** 30-45 min
+
+### CFGI Stage 2 Cutover
+- **State:** BLOCKED on Stage 1
+- **Trigger:** cfgi.io dual-read has been live for 24h AND values
+  look reasonable compared to market conditions
+- **What:** Cut bot_core and signal_aggregator from reading
+  `market:health.cfgi` (Alternative.me BTC F&G) to
+  `market:health.cfgi_sol` (cfgi.io SOL). Rename keys so the
+  historical BTC value is preserved as `market:health.cfgi_btc`.
+- **Next review:** 2026-04-16 (24h after Stage 1 goes live)
+- **Session size:** 30-45 min
+
+### Governance CFGI Hallucination Fix (B-010)
+- **State:** READY
+- **Trigger:** None
+- **What:** Fix the governance LLM prompt to inject real CFGI value.
+  Currently hallucinates "CFGI at 50" regardless of actual value.
+- **Root cause:** Prompt template either injects a default or LLM
+  confabulates a neutral value.
+- **Impact:** Governance mode recommendations based on fabricated CFGI.
+- **Next review:** 2026-04-16
+- **Session size:** 30 min
 
 ---
 
@@ -106,7 +131,8 @@ Decision on data source pending Jay's review (B-001).
   30/30/20/10/10. All-out at +1000%.
 - **Why:** Front-loads protection (60% sold by +100%), extends upper
   triggers to capture observed 10-15x peaks.
-- **Trigger:** Recovery complete + 24-48h of STAGED_TP_FIRE data
+- **Trigger:** 24-48h of STAGED_TP_FIRE data (clock started 2026-04-14
+  ~11:45 UTC when bot_core redeployed with instrumentation commit 40dadb6)
 - **Next review:** 2026-04-16
 - **Session size:** 75-90 min
 
@@ -127,14 +153,14 @@ Decision on data source pending Jay's review (B-001).
 - **Session size:** 75-90 min
 
 ### CFGI Data Source Decision
-- **State:** READY -- awaiting Jay's decision
+- **State:** BLOCKED on CFGI_API_KEY + Stage 1 dual-read
 - **Options:** (a) Switch to cfgi.io Solana-specific, (b) CMC API,
   (c) Keep Bitcoin F&G but adjust thresholds
 - **Why it matters:** Changes HIBERNATE/NORMAL, Analyst pause, Speed
-  Demon sizing. cfgi.io Stage 1 dual-read deploys tonight for
-  side-by-side comparison before switchover.
+  Demon sizing. cfgi.io Stage 1 dual-read needs CFGI_API_KEY env var
+  on market_health before it can proceed.
 - **Reference:** DASHBOARD_AUDIT.md B-001
-- **Next review:** 2026-04-15 (after 24h of dual-read data)
+- **Next review:** 2026-04-15 (after Jay adds the key)
 
 ---
 
@@ -312,6 +338,8 @@ Decision on data source pending Jay's review (B-001).
 - **2026-04-13:** Dashboard Tier 1 audit + P/L source fixes (dbbffd3,
   40dadb6, cac5202)
 - **2026-04-14:** State audit -- pipeline outage diagnosed (fb8a389)
+- **2026-04-14:** Recovery + hardening session -- pipeline restored,
+  signal_aggregator hardened with retry + heartbeat (85768c5)
 
 ---
 

@@ -57,9 +57,10 @@ Note: this is NOT the Solana-specific CFGI Jay expected. See
 DASHBOARD_AUDIT.md B-001 — Alternative.me returns Bitcoin F&G.
 cfgi.io Stage 1 dual-read queued for tonight's recovery session.
 
-Current pipeline state as of 2026-04-14 11:00 AEDT: signal_aggregator
-has been DEAD since 13:38 UTC April 13 (21+ hours). bot_core is alive
-but starved of scored signals. Recovery session queued for tonight.
+Current pipeline state as of 2026-04-14 21:40 AEDT: all services
+RUNNING. signal_aggregator recovered at ~11:40 UTC April 14 after 21h
+outage. Hardened with 5-attempt Redis retry + health heartbeat
+(commit 85768c5). 25+ trades completed since recovery.
 
 Speed Demon: sole active personality (when aggregator is running).
 Analyst: 0 trades recent (auto-paused, CFGI < 20 on broken source).
@@ -97,6 +98,17 @@ use the same Alternative.me source for trading decisions.
 Do not trust top bar CFGI or MODE values until the CFGI source decision
 is made. Use "Today's Session" and "Win Rates (Last 10/25/50)" panels
 as honest performance indicators.
+
+## Service Monitoring Rule (added 2026-04-14)
+
+signal_aggregator now writes a health heartbeat to
+`signal_aggregator:health` every 30 seconds with a 120s TTL.
+If this key is missing or stale, signal_aggregator is dead.
+
+Before assuming the bot is idle due to HIBERNATE mode or market
+conditions, ALWAYS check this health heartbeat first. A silent dead
+signal_aggregator was the cause of a 21-hour outage on 2026-04-13.
+
 0.5 — Personality Status
 Personality    Trades    Wins    PnL SOL    WR    Status
 Speed Demon    511    19    -9.25    3.7%    Trading — 0.7x sizing, momentum gates active
