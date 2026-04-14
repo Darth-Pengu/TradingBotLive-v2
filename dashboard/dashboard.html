@@ -8,7 +8,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
 /* ============================================================
-   ZMN BOT v2 — Retro Green CRT Terminal Dashboard
+   ZMN BOT v2 — Retro CRT Terminal Dashboard
+   THEME NOTE: 8-theme system via body.theme-* classes.
    ============================================================ */
 :root {
   --bg: #000000;
@@ -24,6 +25,72 @@
   --glow-strong: 0 0 10px rgba(0, 255, 65, 0.5), 0 0 20px rgba(0, 255, 65, 0.2);
   --font: 'VT323', monospace;
 }
+
+/* --- 8-Colour Theme Overrides --- */
+body.theme-acid {
+  --green: #00FF41; --green-dim: #008F11; --green-dark: #003B00;
+  --green-fill: rgba(0,255,65,0.1);
+  --glow: 0 0 5px rgba(0,255,65,0.3);
+  --glow-strong: 0 0 10px rgba(0,255,65,0.5), 0 0 20px rgba(0,255,65,0.2);
+}
+body.theme-amber {
+  --green: #FFB000; --green-dim: #805800; --green-dark: #332200;
+  --green-fill: rgba(255,176,0,0.1);
+  --glow: 0 0 5px rgba(255,176,0,0.3);
+  --glow-strong: 0 0 10px rgba(255,176,0,0.5), 0 0 20px rgba(255,176,0,0.2);
+  --amber: #FF6600; --amber-dim: #993D00;
+}
+body.theme-cyan {
+  --green: #00FFFF; --green-dim: #008080; --green-dark: #003333;
+  --green-fill: rgba(0,255,255,0.1);
+  --glow: 0 0 5px rgba(0,255,255,0.3);
+  --glow-strong: 0 0 10px rgba(0,255,255,0.5), 0 0 20px rgba(0,255,255,0.2);
+}
+body.theme-magenta {
+  --green: #FF00AA; --green-dim: #800055; --green-dark: #330022;
+  --green-fill: rgba(255,0,170,0.1);
+  --glow: 0 0 5px rgba(255,0,170,0.3);
+  --glow-strong: 0 0 10px rgba(255,0,170,0.5), 0 0 20px rgba(255,0,170,0.2);
+}
+body.theme-red {
+  --green: #FF3333; --green-dim: #991A1A; --green-dark: #330A0A;
+  --green-fill: rgba(255,51,51,0.1);
+  --glow: 0 0 5px rgba(255,51,51,0.3);
+  --glow-strong: 0 0 10px rgba(255,51,51,0.5), 0 0 20px rgba(255,51,51,0.2);
+  --red: #FF6600; --red-dim: #993D00;
+}
+body.theme-purple {
+  --green: #BB88FF; --green-dim: #5D4480; --green-dark: #251A33;
+  --green-fill: rgba(187,136,255,0.1);
+  --glow: 0 0 5px rgba(187,136,255,0.3);
+  --glow-strong: 0 0 10px rgba(187,136,255,0.5), 0 0 20px rgba(187,136,255,0.2);
+}
+body.theme-orange {
+  --green: #FF8800; --green-dim: #804400; --green-dark: #331B00;
+  --green-fill: rgba(255,136,0,0.1);
+  --glow: 0 0 5px rgba(255,136,0,0.3);
+  --glow-strong: 0 0 10px rgba(255,136,0,0.5), 0 0 20px rgba(255,136,0,0.2);
+  --amber: #FFD000; --amber-dim: #806800;
+}
+body.theme-blue {
+  --green: #4488FF; --green-dim: #224480; --green-dark: #0D1A33;
+  --green-fill: rgba(68,136,255,0.1);
+  --glow: 0 0 5px rgba(68,136,255,0.3);
+  --glow-strong: 0 0 10px rgba(68,136,255,0.5), 0 0 20px rgba(68,136,255,0.2);
+}
+
+/* --- Theme Picker --- */
+.theme-picker {
+  background: transparent;
+  border: 1px solid var(--green-dark);
+  color: var(--green);
+  font-family: var(--font);
+  font-size: 13px;
+  padding: 1px 4px;
+  cursor: pointer;
+  outline: none;
+}
+.theme-picker option { background: #000; color: #ccc; }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -345,6 +412,16 @@ tbody tr:hover { background: rgba(0, 255, 65, 0.03); }
     <span class="stat-item"><span class="stat-label">ML:</span> <span id="mlAucVal" class="stat-value">--</span></span>
     <span class="stat-item"><span class="stat-label">MODE:</span> <span id="mktMode" class="stat-value">--</span></span>
     <span class="clock" id="sydneyClock">--:--:--</span>
+    <select id="themePicker" class="theme-picker" onchange="setTheme(this.value)">
+      <option value="acid">ACID</option>
+      <option value="amber">AMBER</option>
+      <option value="cyan">CYAN</option>
+      <option value="magenta">MAGENTA</option>
+      <option value="red">RED</option>
+      <option value="purple">PURPLE</option>
+      <option value="orange">ORANGE</option>
+      <option value="blue">BLUE</option>
+    </select>
     <button class="logout-btn" onclick="logout()">[LOGOUT]</button>
   </div>
 </div>
@@ -444,7 +521,7 @@ tbody tr:hover { background: rgba(0, 255, 65, 0.03); }
     <div style="overflow-x:auto;">
       <table>
         <thead>
-          <tr><th>Token</th><th>Mint</th><th>Entry</th><th>Current</th><th>P/L %</th><th>P/L SOL</th><th>Size</th><th>Age</th><th>Personality</th></tr>
+          <tr><th>Time (AEDT)</th><th>Token</th><th>Address</th><th>Entry</th><th>Current</th><th>P/L %</th><th>P/L SOL</th><th>Size</th><th>Personality</th></tr>
         </thead>
         <tbody id="positionsBody">
           <tr><td colspan="9" class="loading-text">LOADING...</td></tr>
@@ -459,7 +536,7 @@ tbody tr:hover { background: rgba(0, 255, 65, 0.03); }
     <div style="overflow-x:auto;">
       <table>
         <thead>
-          <tr><th>Time</th><th>Token</th><th>Mint</th><th>Personality</th><th>Entry Mcap</th><th>Exit Mcap</th><th>P/L SOL</th><th>P/L %</th><th>Hold</th><th>Exit Reason</th></tr>
+          <tr><th>Time (AEDT)</th><th>Token</th><th>Address</th><th>Personality</th><th>Entry Mcap</th><th>Exit Mcap</th><th>P/L SOL</th><th>P/L %</th><th>Hold</th><th>Exit Reason</th></tr>
         </thead>
         <tbody id="tradesBody">
           <tr><td colspan="9" class="loading-text">LOADING...</td></tr>
@@ -474,7 +551,7 @@ tbody tr:hover { background: rgba(0, 255, 65, 0.03); }
     <div style="overflow-x:auto;">
       <table>
         <thead>
-          <tr><th>Time</th><th>Token</th><th>Platform</th><th>ML Score</th><th>BC%</th><th>Result</th></tr>
+          <tr><th>Time (AEDT)</th><th>Token</th><th>Address</th><th>Platform</th><th>ML Score</th><th>BC%</th><th>Result</th></tr>
         </thead>
         <tbody id="signalsBody">
           <tr><td colspan="6" class="loading-text">LOADING...</td></tr>
@@ -507,6 +584,27 @@ async function apiFetch(endpoint) {
 }
 
 function logout() { localStorage.removeItem('jwt_token'); window.location.href = '/login.html'; }
+
+// ---- Theme ----
+function setTheme(name) {
+  const valid = ['acid','amber','cyan','magenta','red','purple','orange','blue'];
+  if (!valid.includes(name)) name = 'acid';
+  document.body.className = 'theme-' + name;
+  try { localStorage.setItem('zmn_dashboard_theme', name); } catch(e) {}
+  const p = document.getElementById('themePicker');
+  if (p) p.value = name;
+  // Update Chart.js defaults to match theme
+  const cs = getComputedStyle(document.body);
+  if (typeof Chart !== 'undefined') {
+    Chart.defaults.color = cs.getPropertyValue('--green-dim').trim();
+  }
+}
+(function initTheme() {
+  try {
+    const s = localStorage.getItem('zmn_dashboard_theme');
+    if (s) setTheme(s);
+  } catch(e) {}
+})();
 
 // ---- Helpers ----
 function pnlClass(v) { return v >= 0 ? 'pnl-pos' : 'pnl-neg'; }
@@ -935,16 +1033,15 @@ async function fetchPositions() {
     const pnlPct = p.unrealised_pnl_pct || 0;
     const pnlSol = p.unrealised_pnl_sol || 0;
     const mint = p.mint || '';
-    const age = p.hold_seconds || 0;
     return `<tr>
-      <td>${truncMint(mint)}</td>
-      <td>${p.mint_short || truncMint(mint)} <button class="copy-btn" onclick="copyMint('${mint}', this)">CP</button></td>
+      <td style="color:var(--green-dim)">${fmtTime(p.entry_time)}</td>
+      <td>${p.symbol || truncMint(mint)}</td>
+      <td>${truncMint(mint)} <button class="copy-btn" onclick="copyMint('${mint}', this)">CP</button></td>
       <td>${(p.entry_price || 0).toExponential(2)}</td>
       <td>${p.current_price > 0 ? p.current_price.toExponential(2) : '\u2014'}</td>
       <td class="${pnlClass(pnlPct)}">${pnlPctSign(pnlPct)}</td>
       <td class="${pnlClass(pnlSol)}">${pnlSign(pnlSol)}</td>
       <td>${(p.size_sol || 0).toFixed(3)}</td>
-      <td>${fmtAge(age)}</td>
       <td style="color:var(--green-dim)">${(p.personality || '--').replace(/_/g,' ')}</td>
     </tr>`;
   }).join('');
@@ -963,8 +1060,8 @@ async function fetchTrades() {
     const mint = t.mint || '';
     return `<tr>
       <td style="color:var(--green-dim)">${fmtTime(t.exit_time)}</td>
-      <td>${truncMint(mint)}</td>
-      <td>${t.mint_short || truncMint(mint)} <button class="copy-btn" onclick="copyMint('${mint}', this)">CP</button></td>
+      <td>${t.symbol || truncMint(mint)}</td>
+      <td>${truncMint(mint)} <button class="copy-btn" onclick="copyMint('${mint}', this)">CP</button></td>
       <td style="color:var(--green-dim)">${(t.personality || '--').replace(/_/g,' ')}</td>
       <td>${t.market_cap_at_entry > 0 ? fmtMcap(t.market_cap_at_entry) : fmtMcap((t.entry_price || 0) * 1000000000)}</td>
       <td>${t.market_cap_at_exit > 0 ? fmtMcap(t.market_cap_at_exit) : fmtMcap((t.exit_price || 0) * 1000000000)}</td>
@@ -980,7 +1077,7 @@ async function fetchSignals() {
   const data = await apiFetch('/api/signals');
   const body = document.getElementById('signalsBody');
   if (!data || !Array.isArray(data) || data.length === 0) {
-    body.innerHTML = '<tr><td colspan="6" style="color:var(--green-dim);">NO EVALUATED SIGNALS</td></tr>';
+    body.innerHTML = '<tr><td colspan="7" style="color:var(--green-dim);">NO EVALUATED SIGNALS</td></tr>';
     return;
   }
   body.innerHTML = data.map(s => {
@@ -990,9 +1087,11 @@ async function fetchSignals() {
     else if (result.includes('KOTH')) cls = 'sig-koth';
     else if (result.includes('REJECT') || result.includes('RUG')) cls = 'sig-reject';
     else if (result.includes('GRAD')) cls = 'sig-grad';
+    const mint = s.mint || '';
     return `<tr>
       <td style="color:var(--green-dim)">${s.time ? fmtTime(s.time) : '--'}</td>
-      <td>${s.token || s.mint || '--'}</td>
+      <td>${s.token || truncMint(mint) || '--'}</td>
+      <td>${mint ? truncMint(mint) + ' <button class="copy-btn" onclick="copyMint(\'' + mint + '\', this)">CP</button>' : '--'}</td>
       <td style="color:var(--green-dim)">${s.platform || '--'}</td>
       <td>${s.ml_score || '--'}</td>
       <td>${s.bc_progress ? (s.bc_progress * 100).toFixed(0) + '%' : '--'}</td>
