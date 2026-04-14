@@ -2,6 +2,39 @@
 
 ---
 
+## 2026-04-14 ~23:25 AEDT — Dashboard Enhancements (Themes + Headers)
+
+### What happened
+Two dashboard features added in a bounded-scope session:
+- 8-theme colour selector with localStorage persistence
+- Unified headers across Open Positions / Recent Trades / Recent
+  Signals panels, including copiable contract address column
+
+### Features
+- **Theme selector:** 8 themes (acid, amber, cyan, magenta, red,
+  purple, orange, blue), dropdown in top bar, persists per-browser
+  via localStorage. Chart.js defaults update on theme change.
+- **Panel unification:** All three panels now lead with TIME (AEDT) /
+  TOKEN / ADDRESS columns. Address cell has copy-to-clipboard button.
+  Signals API now returns full mint (was truncated to 12 chars).
+
+### Phase outcomes
+- Phase 0 Pre-flight: PASSED (23 trades/hr, cfgi_sol=61.5)
+- Phase 1 Theme selector: DONE (commit 91a1aae)
+- Phase 2 Panel headers: DONE (commit 2bf574d)
+- Phase 3 Deploy + verify: SUCCEEDED
+
+### Trading state after session
+- Bot still trading: YES (28 trades in last 30 min)
+- Stage 1 cfgi_sol still populated: YES (62.0)
+- All API endpoints returning 200
+
+### Commits
+- 91a1aae: Theme selector (8 themes, CSS variables, localStorage)
+- 2bf574d: Panel header unification + signals full mint
+
+---
+
 ## 2026-04-14 ~22:50 AEDT — Post-Recovery Data Review (Read-Only)
 
 Read-only analysis confirming post-recovery trading health before
