@@ -376,6 +376,13 @@ async def daily_health_check(redis_conn: aioredis.Redis | None):
                     mode = _determine_market_mode(dex_vol, grad_rate_estimate, pumpfun_vol_estimate)
                 sentiment = _compute_sentiment_score(cfgi, grad_rate_estimate, sol_24h_change, dex_vol, 0)
 
+                # cfgi.io Stage 1 dual-read (observation only — bot_core still reads .cfgi)
+                cfgi_sol = None
+                try:
+                    cfgi_sol = await _fetch_cfgi_io_solana(session)
+                except Exception as e:
+                    logger.warning("cfgi.io dual-read failed (non-fatal): %s", e)
+
                 state = {
                     "mode": mode,
                     "sentiment_score": sentiment,
@@ -387,6 +394,10 @@ async def daily_health_check(redis_conn: aioredis.Redis | None):
                     "pumpfun_vol_estimate": pumpfun_vol_estimate,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
+                if cfgi_sol is not None:
+                    state["cfgi_sol"] = cfgi_sol
+                    state["cfgi_sol_source"] = "cfgi.io"
+                    state["cfgi_sol_timestamp"] = datetime.now(timezone.utc).isoformat()
                 await _publish_market_state(redis_conn, state)
 
                 # --- Broadcast current trading session (Sydney time) ---
