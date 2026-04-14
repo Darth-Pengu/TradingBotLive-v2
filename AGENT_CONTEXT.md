@@ -83,6 +83,22 @@ training, and dashboard display.
   real slippage — within ~5% of true P/L).
 - 19 trades reclassified from loss to win after correction.
 
+### Post-recovery data review (2026-04-14 evening)
+
+Detailed trading analysis since recovery is in
+POST_RECOVERY_REVIEW_2026_04_14.md. Key findings:
+- Bot is net positive but barely (+0.05 SOL on 53 trades, 28.3% WR)
+- Structural pattern: staged TP trades carry the book (14 trades,
+  92.9% WR, +1.84 SOL) while non-staged trades bleed (39 trades,
+  5.1% WR, -1.79 SOL)
+- Edge is real but thin -- depends on the ~25% of entries that pump
+  hard enough to fire at least one staged TP
+- Stage 2 (cfgi.io cutover) is SAFE TO SHIP -- it doesn't affect
+  entry/exit logic, only the CFGI data source used for mode decisions
+- Two new bugs discovered: B-011 (outcome column NULL) and
+  B-012 (STAGED_TP_FIRE log not firing) -- both in the Known Bugs
+  Registry in ZMN_ROADMAP.md
+
 ## Dashboard Data Source Notes (2026-04-13)
 
 Dashboard has a "Known Bugs Registry" in DASHBOARD_AUDIT.md. All

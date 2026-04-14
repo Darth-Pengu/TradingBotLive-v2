@@ -1,6 +1,39 @@
+> **LOST CONTEXT RECOVERY NOTE**
+>
+> If you are a NEW Claude instance reading this without prior context
+> from 2026-04-14 sessions, read these files in order:
+> 1. This roadmap (ZMN_ROADMAP.md) -- current state, bugs, plan
+> 2. MONITORING_LOG.md -- session-by-session history (most recent
+>    entries are most relevant)
+> 3. POST_RECOVERY_REVIEW_2026_04_14.md -- why trading performance
+>    is thin-edged right now, why Stage 2 is still safe
+> 4. STATE_AUDIT_2026_04_14.md -- what the 21-hour outage was and
+>    how recovery worked
+> 5. DASHBOARD_AUDIT.md -- the B-001 through B-009 bug registry plus
+>    whatever was added today
+>
+> The current working setup (as of end of 2026-04-14 ~23:00 AEDT) is:
+> - Bot is RECOVERED and trading (signal_aggregator was dead for 21h,
+>   restored via hardened restart with Redis retry loop and health
+>   heartbeat)
+> - cfgi.io Stage 1 dual-read is LIVE (SOL CFGI = 56.5 vs BTC F&G = 21)
+> - Stage 2 cutover scheduled for ~22:25 AEDT 2026-04-15
+> - TWO NEW BUGS discovered 2026-04-14: B-011 (outcome column NULL)
+>   and B-012 (STAGED_TP_FIRE log not firing)
+> - Dashboard session MAY have shipped theme selector + unified panel
+>   headers overnight (check the most recent commit on main)
+>
+> **Do NOT start any new feature work without reading these docs
+> first.** The bot is in a specific known state and uncoordinated
+> changes will compound problems.
+>
+> If Jay (the operator) asks "what were we working on yesterday" or
+> similar, point him at this note and the MONITORING_LOG.md entries
+> for 2026-04-14.
+
 # ZMN Bot -- Product Roadmap & Backlog (v4 merged)
 
-**Last updated:** 2026-04-14 AEDT (post-recovery session)
+**Last updated:** 2026-04-14 ~23:00 AEDT (overnight safety doc update)
 **Structure:** trigger conditions + review dates (v3 structure adopted)
 **Next scheduled review:** 2026-04-15 (after recovery + hardening session)
 
@@ -20,25 +53,46 @@ for DROPPED or ACTUALLY-SCHEDULED.
 
 ---
 
-## CURRENT BOT STATE (2026-04-14)
+## CURRENT BOT STATE (end of 2026-04-14 AEDT)
 
-**Architecture:** 8 services on Railway. All services healthy.
-signal_aggregator recovered 2026-04-14 ~11:40 UTC after 21-hour outage.
-Now hardened with 5-attempt Redis retry + health heartbeat (commit 85768c5).
+**Recovery complete.** signal_aggregator restored at 11:40 UTC April 14
+after 21-hour silent outage. Hardening deployed (Redis retry loop,
+health heartbeat). cfgi.io Stage 1 dual-read is LIVE as of ~22:25 AEDT.
 
-**Performance -- the corrected truth (259 clean trades):**
+**Performance (53 trades post-recovery, closed only):**
+- WR: 28.3% | Total P/L: +0.05 SOL | barely net positive
+- Staged TP trades (14): 92.9% WR, +1.84 SOL -- the edge
+- Non-staged (39): 5.1% WR, -1.79 SOL -- the drag
+- Winner concentration CRITICAL: top trade is 645% of total P/L
+- Pattern: thin edge carried by staged TP winners, bleeding on
+  no_momentum_90s losses
+
+**Corrected historical baseline (259 clean trades since Apr 9):**
 - Combined: 26.3% WR, 68 wins, +17.73 SOL (using corrected_pnl_sol)
 - Pre-fix subset (id <= 3564): 218 trades, 46 wins (21.1% WR), -0.91 SOL
 - Post-fix subset (id > 3564): 41 trades, 22 wins (53.7% WR), +18.65 SOL
-- Pre-crash Apr 13 burst (30 trades): 50% WR, +5.44 SOL -- the bot was
-  performing excellently when the pipeline died
 
-**Paper balance:** 31.8592 SOL
+**Paper balance:** 31.86 SOL
 
-**Key finding:** the bot was never as broken as the recorded numbers
-suggested. The staged TP reporting bug (fixed in commit 5b92226) was
-hiding real profits. Post-fix data shows the bot IS profitable when
-the market has pumping tokens.
+**CFGI state:**
+- market:health.cfgi (BTC, Alternative.me): 21 (Extreme Fear)
+- market:health.cfgi_sol (SOL, cfgi.io): 56.5 (Neutral)
+- Gap: 35.5 points -- structural mismatch between indices
+- bot_core still reads BTC source for mode decisions
+- 24h observation window ends ~22:25 AEDT April 15
+- Stage 2 cutover planned for ~22:30 AEDT April 15
+
+**Pipeline state:**
+- signal_listener: alive
+- signal_aggregator: alive + hardened (retry loop, heartbeat)
+- bot_core: trading, Speed Demon primary, Analyst mostly paused,
+  Whale Tracker dormant
+- market_health: alive, dual-reading BTC + SOL CFGI every 5 min
+- governance: alive (but LLM hallucinates CFGI values -- see B-010)
+- web: alive
+
+**Mode:** HIBERNATE (because bot_core reads BTC source = 21).
+**AGGRESSIVE_PAPER=true** -- bypasses mode gates for data collection.
 
 **Helius:** Credits exhausted until April 26. Webhook disabled.
 `HELIUS_ENRICHMENT_ENABLED=false`. Treasury budget guard working.
@@ -46,8 +100,53 @@ the market has pumping tokens.
 **Nansen:** DRY_RUN on all services. Smart money labels don't exist at
 pump.fun micro-cap scale (confirmed finding from 2026-04-12).
 
-**CFGI:** 21 (Alternative.me Bitcoin F&G -- NOT Solana-specific).
-Decision on data source pending Jay's review (B-001).
+**Open positions:** variable (usually 0-2 at any given time).
+
+**New bugs found today:** B-011 (outcome column NULL), B-012
+(STAGED_TP_FIRE log not firing). See Known Bugs section below.
+
+---
+
+## Tomorrow's Plan (2026-04-15)
+
+**Morning (from work, 2 minutes each):**
+1. Glance at dashboard -- did dashboard session ship theme selector +
+   unified headers overnight? Try the dropdown. Try the copy buttons.
+2. Check bot is still trading: any trades in last hour?
+3. Check Stage 1 still alive: `HGET market:health cfgi_sol` should
+   return a numeric value
+4. Note the cfgi_sol value vs BTC cfgi -- is the gap stable around
+   35 points, or has it moved?
+
+**Evening -- Stage 2 cutover (~22:25 AEDT):**
+- 24h observation window ends
+- Cut bot_core and signal_aggregator from reading `market:health.cfgi`
+  (Alternative.me BTC F&G) to `market:health.cfgi_sol` (cfgi.io SOL)
+- Preserve historical BTC value as `market:health.cfgi_btc` for
+  continuity
+- Review mode decision thresholds -- 20/40/60 on old scale may not
+  map 1:1 to new scale
+- Deploy bot_core + signal_aggregator
+- Observe first 10-20 trades under new source
+- Expected effects: Analyst unpauses, Speed Demon returns to 1.0x
+  sizing, mode may flip HIBERNATE -> NORMAL
+
+**Also viable tomorrow (in priority order):**
+1. Fix B-011 outcome column NULL bug + backfill (30 min)
+2. Investigate B-012 STAGED_TP_FIRE instrumentation (20-30 min)
+3. After Stage 2 stable for 2-3 hours: reassess TP redesign feasibility
+4. After Stage 2: observe whether Analyst unpausing changes the
+   signal quality picture
+
+**DO NOT DO TOMORROW:**
+- Multiple sessions in parallel
+- 5-agent overnight loops
+- "Polish" passes on the dashboard (tonight's session is the dashboard
+  session -- no more dashboard work for several days)
+- Any session that touches entry filter, ML scoring, or exit strategy
+  code (TP redesign is still blocked on instrumentation data)
+- Shipping B-011 outcome fix AND Stage 2 in the same session
+- Any session >60 minutes unless it's clearly scoped
 
 ---
 
@@ -357,6 +456,53 @@ so the roadmap is the single source of truth for what's open:
   outputs "CFGI at 50" regardless of actual value. Either the prompt
   template injects a default, or the LLM confabulates. Needs prompt
   audit in a future governance session.
+
+### B-011: paper_trades.outcome column NULL for ~2500 trades
+- **Observed:** The `outcome` column (win/loss text label) has been
+  NULL for all trades since id=1131 (~2500 trades ago)
+- **Root cause:** `paper_sell` or the exit logic stopped setting this
+  field. Not yet investigated.
+- **Impact:**
+  - Any SQL query using `WHERE outcome = 'win'` returns 0 rows
+  - Dashboard widgets that reference outcome directly break
+  - ML training labels are wrong if they depend on this column
+    (currently ML uses corrected_pnl_sol sign, so not affected)
+  - WR computations must derive from P/L sign instead
+- **Workaround:** All WR queries should use
+  `CASE WHEN COALESCE(corrected_pnl_sol, realised_pnl_sol) > 0
+        THEN 'win' ELSE 'loss' END`
+- **Fix:** (1) find where outcome SHOULD be set in paper_sell, fix it;
+  (2) backfill NULL outcomes via SQL UPDATE based on P/L sign
+- **Status:** DOCUMENTED
+- **Next review:** 2026-04-16
+- **Session size:** 30 min (find the bug, fix, backfill, verify)
+- **Discovered by:** POST_RECOVERY_REVIEW_2026_04_14.md
+
+### B-012: STAGED_TP_FIRE log line not appearing in bot_core logs
+- **Observed:** The STAGED_TP_FIRE log instrumentation committed in
+  40dadb6 and deployed during recovery at ~11:40 UTC April 14 is not
+  producing log output. 0 matches in bot_core logs despite Postgres
+  showing 14+ trades with staged TP exits.
+- **Impact:**
+  - TP redesign is blocked on this instrumentation data
+  - Cannot measure actual vs nominal TP fill prices in fast pumps
+  - The 5x gap between simulation and reality (from earlier CSV
+    analysis) remains unverifiable without this data
+- **Possible causes:**
+  1. bot_core may not actually be running commit 40dadb6 code
+     (check with `git log` of the deployed SHA vs local)
+  2. The log line may be using a different string than "STAGED_TP_FIRE"
+  3. The log level may be filtered out
+  4. The instrumentation may be in a code path that doesn't execute
+     on the staged TP fire (wrong function, wrong branch)
+- **Fix plan:** Grep services/bot_core.py for the actual log line
+  added in 40dadb6. Verify it's in the right function. Verify Railway
+  is running that commit. If the log line is there but not firing,
+  add a temporary debug log nearby to confirm the code path is hit.
+- **Status:** DOCUMENTED
+- **Next review:** 2026-04-16
+- **Session size:** 20-30 min
+- **Discovered by:** POST_RECOVERY_REVIEW_2026_04_14.md
 
 Any bug that sits unreviewed past its review date in those files
 gets escalated into this roadmap's main backlog.
