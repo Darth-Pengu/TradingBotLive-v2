@@ -2464,20 +2464,49 @@ async def _process_graduations(redis_conn: aioredis.Redis, pool=None):
                 await asyncio.sleep(5)
 
 
+async def _health_heartbeat(redis_conn):
+    """Write periodic heartbeat to signal_aggregator:health so dashboard can detect outages."""
+    while True:
+        try:
+            await redis_conn.set(
+                "signal_aggregator:health",
+                json.dumps({
+                    "status": "ok",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "pid": os.getpid(),
+                }),
+                ex=120,
+            )
+        except Exception as e:
+            logger.warning("Health heartbeat failed: %s", e)
+        await asyncio.sleep(30)
+
+
 async def main():
     logger.info("Signal Aggregator starting (TEST_MODE=%s)", TEST_MODE)
 
     if TEST_MODE:
         logger.info("TEST_MODE — aggregator will process signals but not route to execution")
 
-    try:
-        redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True, max_connections=20)
-        await redis_conn.ping()
-        logger.info("Redis connected: %s", REDIS_URL)
-    except Exception as e:
-        logger.error("Redis connection REQUIRED for aggregator: %s", e)
-        logger.error("Signal aggregator cannot run without Redis — exiting")
-        return
+    # Redis connection with retry (prevents transient DNS failures from killing the service)
+    redis_conn = None
+    max_attempts = 5
+    for attempt in range(1, max_attempts + 1):
+        try:
+            logger.info("Redis connection attempt %d/%d", attempt, max_attempts)
+            redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True, max_connections=20)
+            await redis_conn.ping()
+            logger.info("Redis connected on attempt %d", attempt)
+            break
+        except Exception as e:
+            if attempt < max_attempts:
+                wait_s = 2 ** attempt
+                logger.warning("Redis connection failed: %s. Retry in %ds", e, wait_s)
+                await asyncio.sleep(wait_s)
+            else:
+                logger.error("Redis connection REQUIRED but failed after %d attempts: %s", max_attempts, e)
+                logger.error("Signal aggregator cannot run without Redis — exiting")
+                return
 
     # Get DB pool for inline ML training
     pool = None
@@ -2492,6 +2521,7 @@ async def main():
         _process_signals(redis_conn, pool=pool),
         _process_graduations(redis_conn, pool=pool),
         _cleanup_seen_tokens(),
+        _health_heartbeat(redis_conn),
     )
 
 
