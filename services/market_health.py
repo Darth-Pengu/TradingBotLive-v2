@@ -181,6 +181,46 @@ async def _fetch_cfgi(session: aiohttp.ClientSession) -> float:
     return 50.0
 
 
+async def _fetch_cfgi_io_solana(session: aiohttp.ClientSession) -> float | None:
+    """Fetch Solana-specific CFGI from cfgi.io v2 API.
+
+    Returns cfgi value 0-100 or None on any failure.
+    Written to market:health.cfgi_sol (NOT .cfgi) so existing readers are unaffected.
+    """
+    api_key = os.environ.get("CFGI_API_KEY")
+    if not api_key:
+        return None
+
+    url = "https://cfgi.io/api/api_request_v2.php"
+    params = {
+        "api_key": api_key,
+        "token": "SOL",
+        "period": 2,      # 1h granularity
+        "values": 1,       # most recent value only
+        "fields": "cfgi",  # just the aggregate score
+    }
+
+    try:
+        async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+            if resp.status != 200:
+                logger.warning("cfgi.io returned HTTP %d", resp.status)
+                return None
+            data = await resp.json(content_type=None)
+            if isinstance(data, list) and len(data) > 0:
+                cfgi = data[0].get("cfgi")
+                if cfgi is not None:
+                    logger.info("cfgi.io SOL CFGI: %s", cfgi)
+                    return float(cfgi)
+            logger.warning("cfgi.io unexpected response shape: %s", data)
+            return None
+    except asyncio.TimeoutError:
+        logger.warning("cfgi.io request timed out after 10s")
+        return None
+    except Exception as e:
+        logger.warning("cfgi.io fetch failed: %s", e)
+        return None
+
+
 async def _fetch_priority_fee(session: aiohttp.ClientSession) -> dict:
     """Fetch priority fee estimate from Helius (gatekeeper fallback)."""
     payload = {
