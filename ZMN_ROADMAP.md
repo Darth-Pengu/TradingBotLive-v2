@@ -191,6 +191,13 @@ pump.fun micro-cap scale (confirmed finding from 2026-04-12).
 
 ---
 
+### Shadow Trading Phase 2 — Analysis
+- **State:** BLOCKED on 24h of shadow:measurements accumulation
+- **Trigger:** 24h after Phase 1 deploy (2026-04-16 ~12:15 UTC)
+- **What:** Analyze shadow:measurements Redis list: latency distribution,
+  staged TP overshoot patterns, peak gap at exit, price source comparison
+- **Session size:** 45-60 min read-only analysis
+
 ### Analyst Re-enable Investigation
 - **State:** BLOCKED on root cause analysis
 - **Trigger:** Understanding of why Analyst trades die in 0-2 seconds

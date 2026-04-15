@@ -49,8 +49,9 @@ Currently TEST_MODE=true (paper trading). Balance: 31.86 SOL.
 - signal_aggregator: ALIVE, hardened (Redis retry + health heartbeat),
   **ANALYST_DISABLED=true** env var set
 - bot_core: ALIVE, trading Speed Demon only, **TP redesign experiment
-  LIVE** (Option B2 at 30/30/20/10/10, observation ends 2026-04-17
-  ~11:32 UTC). DO NOT modify exit strategy until observation closes.
+  LIVE** (Option B2, observation ends 2026-04-17 ~11:32 UTC),
+  **shadow measurement logging active** (SHADOW_MEASURE events to
+  Redis shadow:measurements). DO NOT modify exit strategy.
 - market_health: ALIVE, **Stage 2 CFGI cutover deployed** (cfgi.io SOL
   primary, credits topped up, SOL CFGI = 41.5 active).
 - governance: ALIVE (every 4h, LLM hallucinates CFGI values — B-010)

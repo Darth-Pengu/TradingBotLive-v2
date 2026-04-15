@@ -177,6 +177,16 @@ change specifically.
 Baseline: TP_BASELINE_2026_04_15.md
 Revert procedure: MONITORING_LOG.md (TP redesign entry)
 
+### Shadow Trading Measurement (Phase 1, 2026-04-15)
+
+bot_core emits SHADOW_MEASURE events to stdout + Redis
+`shadow:measurements` list (48h TTL, 10k cap). Three events:
+ENTRY_FILL, EXIT_DECISION, STAGED_TP_HIT. Paper-only instrumentation.
+Does not affect trading. Early finding: staged TP overshoot is 23-29%
+(bot fires at 1.85x when trigger is 1.5x due to 2s exit checker cycle).
+Phase 2 analysis after 24h of data accumulation.
+See: SHADOW_MEASUREMENT_PLAN.md
+
 ## Service Monitoring Rule (added 2026-04-14)
 
 signal_aggregator now writes a health heartbeat to

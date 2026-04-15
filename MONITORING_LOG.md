@@ -2,6 +2,42 @@
 
 ---
 
+## 2026-04-15 ~22:20 AEDT — Shadow Trading Phase 1 (Measurement Infrastructure)
+
+### What happened
+Built measurement infrastructure to enable comparing paper simulation
+behavior against what real execution would observe. Paper mode only.
+Three measurement events added to bot_core.
+
+### What was instrumented
+- **ENTRY_FILL:** signal age, paper fill price vs BC price, decision-to-fill
+  latency (avg ~475ms, real execution adds ~1-2s on top)
+- **EXIT_DECISION:** exit reason, peak gap %, remaining position, hold time
+- **STAGED_TP_HIT:** trigger overshoot % (avg 23-29% — bot fires TPs well
+  past nominal trigger due to 2s exit checker cycle)
+
+### Early findings (first 2 trades)
+- Decision-to-fill: 423-526ms (paper). Real adds ~1-2s Solana latency.
+- Staged TP overshoot: +50% trigger fired at 1.85x (23% past nominal),
+  +100% trigger fired at 2.59x (29% past nominal). This confirms the
+  exit checker's 2s cycle causes significant overshoot.
+- New TP config CONFIRMED ACTIVE: sell_frac=0.30 at +50%, 0.4286 at +100%
+
+### Data destination
+- Stdout: `SHADOW_MEASURE <event> <json>` (Railway logs)
+- Redis: `shadow:measurements` list (48h TTL, 10k cap)
+
+### Phase outcomes
+- Phase 0: PASSED (31 trades/hr)
+- Phase 1: measurement points identified
+- Phase 2: instrumentation added (commit 0d5fb8e)
+- Phase 3: deployed, logs flowing, 13+ entries in 2 min, trading unchanged
+
+### Commits
+- 0d5fb8e: Shadow measurement instrumentation
+
+---
+
 ## 2026-04-15 ~21:35 AEDT — TP Redesign Experiment (Option B2)
 
 ### What happened
