@@ -298,6 +298,17 @@ class BotCore:
         except Exception:
             pass
 
+    async def _shadow_log(self, event: str, trade_id: int = 0, **data):
+        """Shadow measurement logging — paper mode only, no trading impact."""
+        payload = {"ts": time.time(), "event": event, "trade_id": trade_id, **data}
+        logger.info("SHADOW_MEASURE %s %s", event, json.dumps(payload))
+        try:
+            await self.redis.rpush("shadow:measurements", json.dumps(payload))
+            await self.redis.ltrim("shadow:measurements", -10000, -1)
+            await self.redis.expire("shadow:measurements", 86400 * 2)
+        except Exception:
+            pass
+
     async def _get_token_price(self, mint: str) -> float:
         """Get current token price via Jupiter."""
         prices = await self._get_token_prices_batch([mint])
@@ -722,6 +733,7 @@ class BotCore:
         logger.info("ENTERING: %s %s %.4f SOL (ML=%.1f, mode=%s)%s",
                      personality, mint[:12], size_sol, ml_score, market_mode,
                      " [PAPER]" if TEST_MODE else "")
+        entry_decision_ts = time.time()
 
         if TEST_MODE:
             # Paper trading: simulate execution, real everything else
@@ -745,6 +757,15 @@ class BotCore:
             )
             if paper_result["success"]:
                 paper_trade_id = paper_result["trade_id"]
+                # Shadow measurement: entry fill
+                age = scored_signal.get("signal", {}).get("age_seconds", 0)
+                await self._shadow_log("ENTRY_FILL", trade_id=paper_trade_id,
+                    mint=mint[:12], personality=personality,
+                    signal_age_s=age, ml_score=ml_score,
+                    paper_fill_price=paper_result["entry_price"],
+                    bc_price_usd=bc_price_usd,
+                    decision_to_fill_ms=round((time.time() - entry_decision_ts) * 1000),
+                    size_sol=paper_result["amount_sol"])
                 # Update paper_trades row with features_json for audit
                 try:
                     await self.pool.execute(
@@ -872,6 +893,15 @@ class BotCore:
         sell_amount = pos.size_sol * pos.remaining_pct * sell_pct
         if sell_amount < 0.001:
             return
+
+        # Shadow measurement: exit decision
+        peak_gap = ((pos.peak_price - current_price) / pos.peak_price * 100) if pos.peak_price > 0 and current_price > 0 else 0
+        await self._shadow_log("EXIT_DECISION", trade_id=pos.trade_id or 0,
+            mint=pos.mint[:12], reason=reason, sell_pct=sell_pct,
+            decision_price=current_price, entry_price=pos.entry_price,
+            peak_price=pos.peak_price, peak_gap_pct=round(peak_gap, 2),
+            remaining_pct=pos.remaining_pct,
+            hold_s=round(time.time() - pos.entry_time, 1))
 
         if TEST_MODE:
             # Paper trading: simulate exit
@@ -1313,6 +1343,16 @@ class BotCore:
                                     exit_rule["sell_pct"], remaining_before, pos.remaining_pct,
                                     pos.cumulative_pnl_sol,
                                 )
+                                # Shadow measurement: staged TP hit
+                                overshoot = ((multiple - (1.0 + at_gain)) / (1.0 + at_gain)) * 100 if (1.0 + at_gain) > 0 else 0
+                                await self._shadow_log("STAGED_TP_HIT", trade_id=pos.trade_id or 0,
+                                    mint=pos.mint[:12], stage=exit_key,
+                                    nominal_trigger_x=round(1.0 + at_gain, 2),
+                                    actual_mult_x=round(multiple, 3),
+                                    overshoot_pct=round(overshoot, 2),
+                                    sell_frac=exit_rule["sell_pct"],
+                                    remaining_before=round(remaining_before, 4),
+                                    remaining_after=round(pos.remaining_pct, 4))
                                 pos.staged_exits_done.append(exit_key)
                                 if pos.trade_id:
                                     try:
