@@ -283,7 +283,7 @@ async def paper_sell(
         pnl_pct = 0.0
         pnl_sol = -fees
 
-    outcome = "profit" if pnl_sol > 0 else "loss"
+    outcome = "win" if pnl_sol > 0 else "loss"
     sig = f"PAPER_{uuid.uuid4().hex[:16]}"
 
     # Calculate exit market cap
@@ -295,10 +295,10 @@ async def paper_sell(
         await pg_pool.execute(
             """UPDATE paper_trades SET exit_price=$1, exit_time=$2, hold_seconds=$3,
                realised_pnl_sol=$4, realised_pnl_pct=$5, exit_reason=$6, exit_signature=$7,
-               market_cap_at_exit=$9
+               market_cap_at_exit=$9, outcome=$10
                WHERE id=$8""",
             exit_price, time.time(), hold_seconds, pnl_sol, pnl_pct, reason, sig, trade_id,
-            market_cap_exit,
+            market_cap_exit, outcome,
         )
 
     # Update Redis stats
