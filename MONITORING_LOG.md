@@ -2,6 +2,29 @@
 
 ---
 
+## 2026-04-15 ~19:30 AEDT — CFGI Display Diagnostic (Read-Only)
+
+Read-only investigation of dashboard CFGI display discrepancy.
+
+**Bug A (BTC/SOL same value):** Dashboard API reads `market:health.cfgi`
+for the "BTC" label, but post-Stage-2 that key holds SOL value.
+`cfgi_btc` key exists in Redis but dashboard API never reads it.
+Fix: add `cfgi_btc` to API response + update HTML render. ~10 min.
+
+**Bug B (SOL 5 points off):** API uses `period=2` (1h granularity),
+cfgi.io website shows real-time. The 5-point gap is smoothing, not a
+bug. Also: cfgi.io BTC CFGI (65) differs from Alternative.me F&G (23)
+because they are different indices entirely.
+
+Severity: cosmetic, no trading impact. Logged as B-014.
+Bundle with B-013 for weekend dashboard cleanup session.
+
+Full report: CFGI_DISPLAY_DIAGNOSTIC_2026_04_15.md
+
+No code changes. No deployments. Read-only.
+
+---
+
 ## 2026-04-15 ~09:45 AEDT — B-011 + B-012 Fix Session
 
 ### What happened

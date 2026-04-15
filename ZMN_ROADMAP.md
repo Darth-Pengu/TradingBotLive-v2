@@ -494,6 +494,27 @@ so the roadmap is the single source of truth for what's open:
 - **Session size:** 20-30 min
 - **Discovered by:** POST_RECOVERY_REVIEW_2026_04_14.md
 
+### B-014: Dashboard CFGI display shows same value for BTC and SOL
+- **Observed:** Dashboard top bar shows CFGI(BTC) = 45 and
+  CFGI(SOL) = 45. cfgi.io live values: BTC ~65, SOL ~50.
+- **Root cause:** Post-Stage-2, `market:health.cfgi` holds SOL value.
+  Dashboard API reads this key for the "BTC" label (`fear_greed`
+  field). The `cfgi_btc` Redis key (23, Alternative.me) is never
+  read by the dashboard API.
+- **Secondary:** 5-point gap between our 45 and cfgi.io website 50
+  is API parameter difference (`period=2` = 1h smoothing vs website
+  real-time). Not a code bug.
+- **Note:** Alternative.me BTC F&G (23) and cfgi.io BTC CFGI (65)
+  are entirely different indices. The dashboard currently shows
+  neither correctly for BTC.
+- **Impact:** Cosmetic only. Trading uses correct SOL CFGI value.
+- **Fix:** dashboard_api.py add `cfgi_btc` field, dashboard.html
+  read it for BTC label. ~10 min.
+- **Status:** DOCUMENTED
+- **Next review:** 2026-04-17
+- **Session size:** 10 min (bundle with B-013)
+- **Discovered by:** Jay, evening 2026-04-15
+
 Any bug that sits unreviewed past its review date in those files
 gets escalated into this roadmap's main backlog.
 
