@@ -137,8 +137,28 @@ Key env vars:
 - TEST_MODE=true (paper mode)
 - AGGRESSIVE_PAPER=true (bypasses HIBERNATE gating)
 - ANALYST_DISABLED=true (Stage 2-minus)
-- CFGI_API_KEY set on market_health (cfgi.io, needs credit top-up)
+- CFGI_API_KEY set on market_health (cfgi.io, 100k credits topped up)
 - HELIUS_ENRICHMENT_ENABLED=false (credit exhaustion until Apr 26)
+
+### B-011 + B-012 Fix State (2026-04-15)
+
+1. **B-011 RESOLVED:** paper_sell and bot_core._close_position now
+   write `outcome` column on trade exit. 2,966 historical NULL
+   outcomes backfilled from P/L sign. `WHERE outcome = 'win'` queries
+   now return correct data. Distribution: 448 win, 3,647 loss,
+   1 breakeven.
+
+2. **B-012 CLOSED (false positive):** STAGED_TP_FIRE log line IS
+   firing correctly in bot_core. Confirmed with live data (e.g.,
+   DbQwDAWL +50% at 1.90x, +100% at 2.45x). TP redesign data IS
+   accumulating. Earlier report of 0 matches was due to Railway log
+   stream timeout limitation.
+
+3. **cfgi.io credits topped up.** 100k credits. SOL CFGI now active
+   as primary: 41.5. Mode still HIBERNATE (mode determined by DEX
+   volume thresholds in _determine_market_mode, not CFGI directly).
+   CFGI affects Analyst pause threshold and Speed Demon sizing
+   multiplier, but the mode gate is volumetric.
 
 ## Service Monitoring Rule (added 2026-04-14)
 

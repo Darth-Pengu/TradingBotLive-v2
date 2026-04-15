@@ -61,10 +61,9 @@ Currently TEST_MODE=true (paper trading). Balance: 31.86 SOL.
 - 685 pre-fix trades excluded from ML training via contamination filter
 
 ### CFGI state
-- Primary source: **cfgi.io Solana** (was Alternative.me Bitcoin)
-- market:health.cfgi = BTC fallback (~21) because cfgi.io returns 402
-- market:health.cfgi_btc = Alternative.me Bitcoin F&G (~21)
-- When cfgi.io credits restored: cfgi will auto-switch to SOL (~62)
+- Primary source: **cfgi.io Solana** — NOW ACTIVE (credits topped up)
+- market:health.cfgi = 41.5 (cfgi.io SOL, primary)
+- market:health.cfgi_btc = 23.0 (Alternative.me BTC, preserved)
 - Stage 2 cutover code deployed (commit eebccf5)
 
 ### Personality state
@@ -74,12 +73,11 @@ Currently TEST_MODE=true (paper trading). Balance: 31.86 SOL.
 - Whale Tracker: dormant
 
 ### Known blockers
-- cfgi.io credits exhausted (HTTP 402) — Jay needs to top up
-- B-011: paper_trades.outcome column NULL since id=1131
-- B-012: STAGED_TP_FIRE log instrumentation not firing
 - B-013: Dashboard token name shows truncated mint instead of symbol
 - ML retrain blocked on 500+ clean samples AND feature cleanup
 - Helius credits exhausted until April 26
+- B-011: RESOLVED (77d6a8a, 429dd87) — outcome column now written
+- B-012: FALSE POSITIVE, CLOSED — STAGED_TP_FIRE is firing correctly
 
 ## Known Issues (Priority Order, April 11)
 1. ML SCORE INVERSION: 70+ scores have 0% WR, -12.62% avg P/L. Model trained on 128 samples (6 positives) memorized spurious patterns (hour_of_day, sol_price). See POST_TIER2_DIAGNOSIS.md.
@@ -90,6 +88,35 @@ Currently TEST_MODE=true (paper trading). Balance: 31.86 SOL.
 6. Analyst paused in extreme fear: CFGI < 20 auto-pauses analyst. Zero training data during fear markets.
 7. Treasury Helius errors: getBalance fails every 5min (HELIUS_DAILY_BUDGET=0 but treasury still calls).
 8. Telegram: code ready but TELEGRAM_ENABLED=false
+
+## Operating Principles for Claude Code Sessions
+
+These were learned through several sessions in April 2026. Follow by
+default unless Jay explicitly overrides.
+
+- **One lever per session.** Each session changes ONE thing. Multiple
+  parallel changes make failure attribution impossible.
+- **Gated phases.** Multi-phase sessions have explicit pass/fail
+  conditions between phases. If Phase N fails, later phases skip.
+- **Always update all four canonical docs.** Every session that changes
+  state must update MONITORING_LOG.md, ZMN_ROADMAP.md, CLAUDE.md, and
+  AGENT_CONTEXT.md.
+- **Auto-revert on failure.** `git revert <hash>` only. Never
+  force-push, never rebase, never delete commits.
+- **No agent loops on live services.** Single-pass, bounded,
+  reversible deployments only.
+- **Speed Demon trading logic is sacred.** Do not modify entry filter,
+  ML scoring, position sizing, or exit strategy unless the session is
+  specifically scoped to that change AND backed by data analysis.
+- **Read-only diagnostic before write prompts.** When state is
+  ambiguous, run a read-only audit BEFORE modifying anything.
+- **Verify before shipping.** Don't ship optimization based on
+  simulation alone. Always have actual instrumentation data.
+- **Bounded scope, hard stops.** Every prompt has a max wall clock.
+  When reached, commit whatever's done and stop. No "while we're here."
+- **Paper mode is non-negotiable.** TEST_MODE=true stays true.
+- **Trust the data.** Speed Demon +22 SOL in 36h = real edge.
+  Analyst 0/3 in 0-2s = real problem.
 
 ## Read this first, every session
 - Read AGENT_CONTEXT.md completely before writing any code

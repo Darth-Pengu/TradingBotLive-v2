@@ -109,21 +109,17 @@ pump.fun micro-cap scale (confirmed finding from 2026-04-12).
 
 ## Current Plan (2026-04-15)
 
-**Completed this morning:**
-- Stage 2 cutover code deployed (commits f3a5c74, eebccf5)
-- Analyst hard-disabled via ANALYST_DISABLED=true env var
-- cfgi.io returning 402 (credits exhausted) — BTC fallback active
-- Code is correct: when credits restored, SOL CFGI auto-activates
-
-**Immediate action needed (Jay):**
-- Top up cfgi.io credits to activate SOL CFGI as primary source
-- Without this, the cutover code runs but falls back to BTC value
+**Completed today:**
+- Stage 2 cutover deployed (f3a5c74, eebccf5) + Analyst disabled
+- cfgi.io credits topped up (100k) — SOL CFGI = 41.5 now ACTIVE
+- B-011 fixed: outcome column written + 2,966 rows backfilled (77d6a8a, 429dd87)
+- B-012 closed: STAGED_TP_FIRE IS firing (false positive, confirmed in logs)
 
 **Next sessions (in priority order):**
-1. Fix B-011 outcome column NULL bug + backfill (30 min)
-2. Investigate B-012 STAGED_TP_FIRE instrumentation (20-30 min)
-3. Investigate Analyst 0-2s hold pattern (30-45 min)
-4. After cfgi.io credits restored + 24h observation: reassess TP redesign
+1. TP redesign (UNBLOCKED — STAGED_TP_FIRE confirmed) — 75-90 min
+2. ML training code update to use corrected_pnl_sol (30-45 min)
+3. Analyst re-enable investigation (30-45 min, read-only)
+4. B-013 dashboard token name fix (15-20 min)
 
 ---
 
@@ -448,11 +444,14 @@ so the roadmap is the single source of truth for what's open:
   template injects a default, or the LLM confabulates. Needs prompt
   audit in a future governance session.
 
-### B-011: paper_trades.outcome column NULL for ~2500 trades
+### B-011: paper_trades.outcome column NULL for ~2500 trades — RESOLVED
 - **Observed:** The `outcome` column (win/loss text label) has been
   NULL for all trades since id=1131 (~2500 trades ago)
-- **Root cause:** `paper_sell` or the exit logic stopped setting this
-  field. Not yet investigated.
+- **Root cause:** paper_trader.paper_sell() computed outcome but never
+  included it in the UPDATE SQL. Also used "profit" instead of "win".
+  Second location in bot_core._close_position() had same bug.
+- **Status:** RESOLVED 2026-04-15 (commits 77d6a8a, 429dd87)
+- **Backfill:** 2,966 rows updated from NULL to win/loss via P/L sign.
 - **Impact:**
   - Any SQL query using `WHERE outcome = 'win'` returns 0 rows
   - Dashboard widgets that reference outcome directly break
@@ -469,7 +468,7 @@ so the roadmap is the single source of truth for what's open:
 - **Session size:** 30 min (find the bug, fix, backfill, verify)
 - **Discovered by:** POST_RECOVERY_REVIEW_2026_04_14.md
 
-### B-012: STAGED_TP_FIRE log line not appearing in bot_core logs
+### B-012: STAGED_TP_FIRE log line not appearing — FALSE POSITIVE, CLOSED
 - **Observed:** The STAGED_TP_FIRE log instrumentation committed in
   40dadb6 and deployed during recovery at ~11:40 UTC April 14 is not
   producing log output. 0 matches in bot_core logs despite Postgres

@@ -2,6 +2,55 @@
 
 ---
 
+## 2026-04-15 ~09:45 AEDT — B-011 + B-012 Fix Session
+
+### What happened
+Combined session to fix two bugs from yesterday's post-recovery review.
+
+### Phase outcomes
+- Phase 0 Pre-flight: PASSED (11 trades/hr, cfgi.io SOL=41.0 ACTIVE)
+- Phase 1 B-011 root cause: found in paper_trader.py:296 (outcome
+  computed but never included in UPDATE statement)
+- Phase 2 B-011 code fix: SUCCEEDED (commit 77d6a8a)
+- Phase 3 B-011 backfill: SUCCEEDED (2,966 rows updated)
+- Phase 4 B-012 root cause: NOT A BUG — STAGED_TP_FIRE is firing
+  correctly. Earlier diagnosis was false positive from insufficient
+  log observation window.
+- Phase 5 B-011 companion fix in bot_core._close_position: also
+  had "profit" instead of "win" and didn't write outcome to DB on
+  staged TP full close (commit 429dd87)
+
+### B-011 details
+- Root cause: paper_trader.paper_sell() computed outcome = "profit"
+  (wrong value, should be "win") and never included it in the UPDATE
+  SQL. Also, bot_core._close_position() had same bug for staged TP
+  cumulative close path.
+- Fix: both locations now write outcome="win"/"loss" to DB
+- Backfill: 2,966 rows updated from NULL to win/loss via P/L sign
+- Verification: fresh trades have outcome populated correctly
+- Distribution after fix: 3,647 loss, 448 win, 1 breakeven
+
+### B-012 details
+- STAGED_TP_FIRE IS firing correctly. Confirmed in bot_core logs
+  with multiple entries (e.g., DbQwDAWL +50% at 1.90x, +100% at 2.45x).
+- Earlier report of 0 matches was due to Railway log stream timeout
+  (only captures ~15s of streaming activity).
+- B-012 reclassified as FALSE POSITIVE. CLOSED.
+- TP redesign data IS accumulating as intended.
+
+### cfgi.io credit topup status
+- Jay topped up 100k credits
+- cfgi.io SOL CFGI now live as primary: 41.5
+- cfgi_btc preserved: 23.0
+- Mode still HIBERNATE (mode determined by DEX volume, not CFGI)
+
+### Commits
+- 77d6a8a: B-011 paper_sell outcome fix
+- 429dd87: B-011 companion bot_core outcome fix + B-012 closed
+- (this commit): docs
+
+---
+
 ## 2026-04-15 ~08:25 AEDT — Stage 2 Cutover (Minus Analyst)
 
 ### What happened
