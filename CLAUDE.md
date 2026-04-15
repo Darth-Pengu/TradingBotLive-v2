@@ -48,10 +48,11 @@ Currently TEST_MODE=true (paper trading). Balance: 31.86 SOL.
 - signal_listener: ALIVE
 - signal_aggregator: ALIVE, hardened (Redis retry + health heartbeat),
   **ANALYST_DISABLED=true** env var set
-- bot_core: ALIVE, trading Speed Demon only
+- bot_core: ALIVE, trading Speed Demon only, **TP redesign experiment
+  LIVE** (Option B2 at 30/30/20/10/10, observation ends 2026-04-17
+  ~11:32 UTC). DO NOT modify exit strategy until observation closes.
 - market_health: ALIVE, **Stage 2 CFGI cutover deployed** (cfgi.io SOL
-  primary with BTC fallback). cfgi.io currently returning 402 (credits
-  exhausted), so BTC fallback active until Jay tops up credits.
+  primary, credits topped up, SOL CFGI = 41.5 active).
 - governance: ALIVE (every 4h, LLM hallucinates CFGI values — B-010)
 
 ### ML state
@@ -73,11 +74,13 @@ Currently TEST_MODE=true (paper trading). Balance: 31.86 SOL.
 - Whale Tracker: dormant
 
 ### Known blockers
+- **TP redesign experiment in progress** — do NOT modify Speed Demon
+  exit strategy until observation window closes (2026-04-17 ~11:32 UTC)
+  or revert criteria hit
 - B-013: Dashboard token name shows truncated mint instead of symbol
+- B-014: Dashboard CFGI(BTC) shows SOL value (cosmetic)
 - ML retrain blocked on 500+ clean samples AND feature cleanup
 - Helius credits exhausted until April 26
-- B-011: RESOLVED (77d6a8a, 429dd87) — outcome column now written
-- B-012: FALSE POSITIVE, CLOSED — STAGED_TP_FIRE is firing correctly
 
 ## Known Issues (Priority Order, April 11)
 1. ML SCORE INVERSION: 70+ scores have 0% WR, -12.62% avg P/L. Model trained on 128 samples (6 positives) memorized spurious patterns (hour_of_day, sol_price). See POST_TIER2_DIAGNOSIS.md.

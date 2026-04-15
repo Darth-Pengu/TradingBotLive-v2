@@ -2,6 +2,87 @@
 
 ---
 
+## 2026-04-15 ~21:35 AEDT — TP Redesign Experiment (Option B2)
+
+### What happened
+First experimental change to Speed Demon exit strategy. Changed staged
+TP config from 50/100/200/400% at 25% each to 50/100/250/500/1000% at
+30/30/20/10/10% (of original position, converted to % of remaining).
+
+### Baseline (pinned in TP_BASELINE_2026_04_15.md)
+- 545 closed trades, 40.6% WR, +0.0653 SOL/trade, +35.61 SOL total
+- Staged 213 trades at 96.7% WR, +51.19 SOL
+
+### Phase outcomes
+- Phase 0 Pre-flight + baseline validation: PASSED (all within range)
+- Phase 1 Baseline pinned: DONE (commit 1e5e169)
+- Phase 2 TP config found: env var STAGED_TAKE_PROFITS_JSON (unset, using code default)
+- Phase 3 New config deployed: SUCCEEDED via env var on bot_core
+- Phase 4 Verification: PARTIAL — 1 staged trade (4183 at +50%) observed, insufficient
+  for full confirmation. Need to observe +250% level (new-only) to confirm.
+
+### Config change
+- OLD: `[[0.50,0.25],[1.00,0.25],[2.00,0.25],[4.00,0.25]]` (code default)
+- NEW: `[[0.50,0.30],[1.00,0.4286],[2.50,0.50],[5.00,0.50],[10.00,1.00]]` (env var)
+- Semantic: sell_pct is % of REMAINING position (existing semantic, no code change)
+- Conversion from % of original: 30%/30%/20%/10%/10%
+
+### Deploy epoch
+2026-04-15 11:32:07 UTC (epoch 1776252727)
+Reference point for observation queries.
+
+### Revert criteria (hard rules — any Claude MUST honor)
+1. WR < 35.6% over any 100-trade window → REVERT
+2. Avg P/L < 0.049 SOL/trade over any 100-trade window → REVERT
+3. Staged WR < 86.7% over any 50-trade staged window → REVERT
+4. Rolling 50-trade P/L negative (after first 25 trades) → REVERT
+5. Any deploy issue, crash, or trading stoppage → REVERT immediately
+
+### Revert procedure (any Claude can execute)
+```bash
+# 1. Reset env var to old config
+railway variables --set 'STAGED_TAKE_PROFITS_JSON=[[0.50,0.25],[1.00,0.25],[2.00,0.25],[4.00,0.25]]' -s bot_core
+# 2. Force redeploy
+railway up -s bot_core
+# 3. Verify next 5 trades use OLD levels (200%, 400%)
+# 4. Document revert in this monitoring log
+```
+
+### Observation query (run every 12h)
+```sql
+WITH post_redesign AS (
+  SELECT *, COALESCE(corrected_pnl_sol, realised_pnl_sol) AS pnl
+  FROM paper_trades
+  WHERE entry_time > 1776252727 AND exit_time IS NOT NULL
+),
+staged AS (
+  SELECT * FROM post_redesign
+  WHERE staged_exits_done IS NOT NULL
+    AND staged_exits_done NOT IN ('[]', '{}', '')
+)
+SELECT
+  (SELECT COUNT(*) FROM post_redesign) AS total_trades,
+  (SELECT ROUND(100.0 * SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END)
+                / NULLIF(COUNT(*), 0), 1) FROM post_redesign) AS wr_pct,
+  (SELECT ROUND(AVG(pnl)::numeric, 4) FROM post_redesign) AS avg_pnl,
+  (SELECT ROUND(SUM(pnl)::numeric, 4) FROM post_redesign) AS total_pnl,
+  (SELECT COUNT(*) FROM staged) AS staged_trades,
+  (SELECT ROUND(100.0 * SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END)
+                / NULLIF(COUNT(*), 0), 1) FROM staged) AS staged_wr_pct;
+```
+
+First check due: 2026-04-15 ~23:32 UTC (12h after deploy)
+Observation window ends: 2026-04-17 ~11:32 UTC (48h after deploy)
+
+### Success criteria
+48h observation, >= 200 trades, NO revert criteria hit →
+redesign is SUCCESSFUL. Update baseline to new config.
+
+### Commits
+- 1e5e169: Baseline pinned
+
+---
+
 ## 2026-04-15 ~19:30 AEDT — CFGI Display Diagnostic (Read-Only)
 
 Read-only investigation of dashboard CFGI display discrepancy.

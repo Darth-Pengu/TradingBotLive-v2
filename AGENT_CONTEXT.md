@@ -160,6 +160,23 @@ Key env vars:
    CFGI affects Analyst pause threshold and Speed Demon sizing
    multiplier, but the mode gate is volumetric.
 
+### TP Redesign Experiment (2026-04-15 11:32 UTC)
+
+First experimental change to Speed Demon exit strategy. A/B test with
+explicit revert criteria (see MONITORING_LOG.md).
+
+Config: 50/100/250/500/1000% at 30/30/20/10/10 (vs baseline
+50/100/200/400% at 25% each). Env var STAGED_TAKE_PROFITS_JSON on
+bot_core. No code change — semantic is still % of remaining.
+
+During observation window (ends 2026-04-17 ~11:32 UTC), NO other
+changes to bot_core, Speed Demon, exit strategy, or entry filter.
+Multiple concurrent changes prevent attributing results to the TP
+change specifically.
+
+Baseline: TP_BASELINE_2026_04_15.md
+Revert procedure: MONITORING_LOG.md (TP redesign entry)
+
 ## Service Monitoring Rule (added 2026-04-14)
 
 signal_aggregator now writes a health heartbeat to

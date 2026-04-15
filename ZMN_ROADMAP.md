@@ -205,17 +205,14 @@ pump.fun micro-cap scale (confirmed finding from 2026-04-12).
 
 ## READY (prompts written, ready to paste -- in priority order)
 
-### 1. TP Redesign (30/30/20/10/10 Option B2)
-- **State:** READY
-- **What:** Change staged TP allocation from "% of remaining" to "% of
-  original". Stage triggers: +50%/+100%/+250%/+500%/+1000%. Allocations:
-  30/30/20/10/10. All-out at +1000%.
-- **Why:** Front-loads protection (60% sold by +100%), extends upper
-  triggers to capture observed 10-15x peaks.
-- **Trigger:** 24-48h of STAGED_TP_FIRE data (clock started 2026-04-14
-  ~11:45 UTC when bot_core redeployed with instrumentation commit 40dadb6)
-- **Next review:** 2026-04-16
-- **Session size:** 75-90 min
+### 1. TP Redesign (30/30/20/10/10 Option B2) — LIVE EXPERIMENT
+- **State:** IN-FLIGHT — deployed 2026-04-15 11:32 UTC
+- **Config:** 50/100/250/500/1000% triggers at 30/30/20/10/10 (of original)
+- **Env var:** `STAGED_TAKE_PROFITS_JSON=[[0.50,0.30],[1.00,0.4286],[2.50,0.50],[5.00,0.50],[10.00,1.00]]`
+- **Baseline:** TP_BASELINE_2026_04_15.md (545 trades, 40.6% WR, +35.61 SOL)
+- **Observation window:** 48h (ends 2026-04-17 ~11:32 UTC)
+- **Revert criteria + procedure:** MONITORING_LOG.md (TP redesign entry)
+- **DO NOT modify Speed Demon exit strategy until observation window closes**
 
 ### 2. ML Training Code Update (read corrected_pnl_sol)
 - **State:** READY
