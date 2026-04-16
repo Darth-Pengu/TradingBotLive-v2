@@ -2,6 +2,21 @@
 
 ---
 
+## 2026-04-16 ~20:45 AEDT — Jito Tip Configurability + Trial Safety Env Vars
+
+Made Jito tips and priority fees env-var configurable in execution.py.
+Defaults unchanged. Set trial safety: MAX_SD_POSITIONS=2.
+DAILY_LOSS_LIMIT_SOL=1.0 hardcoded in risk_manager.py (already correct).
+MAX_TRADES_PER_HOUR=500 (effectively unlimited, Jay's preference).
+TEST_MODE still true. No tip values changed from defaults.
+
+Commit: d3fb18e (execution.py configurability)
+
+Remaining for live trial: override 0.15 SOL position floor in
+bot_core.py + flip TEST_MODE=false.
+
+---
+
 ## 2026-04-16 ~20:25 AEDT — Trade Mode Segregation (Clean Slate for Live)
 
 ### What happened

@@ -119,11 +119,12 @@ pump.fun micro-cap scale (confirmed finding from 2026-04-12).
 
 **Before flipping TEST_MODE=false:**
 1. ~~Fix Helius Staked URL~~ DONE
-2. ~~Trade mode segregation~~ DONE — dashboard shows clean slate on LIVE
-3. Override MIN_POSITION floor 0.15->0.05 SOL (code change)
-4. Tighten safety limits (MAX_DAILY_LOSS, MAX_SD_POSITIONS)
-5. Flip TEST_MODE=false on bot_core
-6. Monitor first 5-10 real trades
+2. ~~Trade mode segregation~~ DONE
+3. ~~Tip/fee env-var configurability~~ DONE
+4. ~~Trial safety env vars~~ DONE (MAX_SD_POSITIONS=2, loss 1.0 SOL)
+5. Override MIN_POSITION floor 0.15->0.05 SOL (code change)
+6. Flip TEST_MODE=false on bot_core
+7. Monitor first 5-10 real trades
 
 **Also queued:**
 - TP redesign observation window (ends ~Apr 17 11:32 UTC)

@@ -47,7 +47,10 @@ Currently TEST_MODE=true (paper trading). Balance: 31.86 SOL.
 - Execution audit: ALL infrastructure exists, 0 code gaps
 - Trade mode segregation deployed: paper_trades has trade_mode column,
   dashboard filters by mode, LIVE view starts at zero
-- 1 minor config gap: position floor hard-coded at 0.15 SOL, need 0.05
+- Tip/fee env-var configurability deployed (defaults unchanged)
+- Trial safety: MAX_SD_POSITIONS=2, DAILY_LOSS_LIMIT_SOL=1.0,
+  MAX_TRADES_PER_HOUR=500 (unlimited)
+- 1 remaining gap: position floor hard-coded at 0.15 SOL, need 0.05
 - IMPORTANT: TEST_MODE is still true. Do NOT change without explicit
   Jay approval in a dedicated live-trading session.
 

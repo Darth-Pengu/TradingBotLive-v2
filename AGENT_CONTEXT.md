@@ -236,6 +236,18 @@ Dashboard HTML has mode badge + toggle dropdown. When TEST_MODE flips
 to false, new trades get 'live', dashboard auto-shows LIVE view (zero
 counters). Paper history preserved for ML training and analysis.
 
+### Tip/Fee Configurability (2026-04-16)
+
+execution.py: JITO_TIPS_LAMPORTS and PRIORITY_FEE_TIERS are env-var
+driven. Defaults match pre-session hardcoded values. Override via:
+JITO_TIP_LAMPORTS_NORMAL/COMPETITIVE/FRENZY,
+PRIORITY_FEE_TIER_1_SOL through _5_SOL. EXECUTION_CONFIG log on boot.
+Tip tuning is REACTIVE — only adjust if live fee burn exceeds projected
+0.0042 SOL/trade.
+
+Trial safety env vars on bot_core: MAX_SD_POSITIONS=2,
+DAILY_LOSS_LIMIT_SOL=1.0 (hardcoded), MAX_TRADES_PER_HOUR=500.
+
 ## Service Monitoring Rule (added 2026-04-14)
 
 signal_aggregator now writes a health heartbeat to
