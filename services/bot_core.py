@@ -53,7 +53,7 @@ PERSONALITY_SIZE_ADJUSTMENT = {
 }
 
 # Import sibling modules
-from services.execution import execute_trade, Token, ExecutionResult
+from services.execution import execute_trade, Token, ExecutionResult, set_live_log_pool, live_execution_log
 from services.risk_manager import (
     calculate_position_size,
     check_emergency_conditions,
@@ -166,6 +166,7 @@ class BotCore:
 
     async def init(self):
         self.pool = await get_pool()
+        set_live_log_pool(self.pool)
         await self._load_state()
         await self._reconcile_positions()
 
@@ -656,7 +657,7 @@ class BotCore:
             return
 
         # Enforce min/max limits only if risk manager approved
-        size_sol = max(0.15, min(size_sol, 1.50))
+        size_sol = max(float(os.environ.get("MIN_POSITION_SOL", "0.15")), min(size_sol, float(os.environ.get("MAX_POSITION_SOL", "1.50"))))
 
         # CHANGE 4: Time-of-day sizing (AEDT — Sydney) — data-driven from 426-trade analysis
         from datetime import timedelta as _td
@@ -681,7 +682,7 @@ class BotCore:
             logger.info("WEEKEND_BOOST: day=%d — 1.25x sizing", aedt_weekday)
 
         # Re-enforce limits after multipliers
-        size_sol = max(0.15, min(size_sol, 1.50))
+        size_sol = max(float(os.environ.get("MIN_POSITION_SOL", "0.15")), min(size_sol, float(os.environ.get("MAX_POSITION_SOL", "1.50"))))
 
         logger.info(
             "POSITION SIZE: %s base=%.2f conf_mult=%.2f rc_mult=%.2f "

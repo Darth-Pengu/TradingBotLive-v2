@@ -54,6 +54,48 @@ JITO_DONTFRONT_PUBKEY = "jitodontfront111111111111111111111111111111"
 SOL_MINT = "So11111111111111111111111111111111111111112"
 LAMPORTS_PER_SOL = 1_000_000_000
 
+# --- Live execution logging (writes to live_trade_log Postgres table) ---
+_live_log_pool = None
+
+def set_live_log_pool(pool):
+    """bot_core calls this at startup to wire in DB pool for live logging."""
+    global _live_log_pool
+    _live_log_pool = pool
+
+async def live_execution_log(event_type, trade_id=None, mint=None, signature=None,
+                              bundle_id=None, action=None, size_sol=None,
+                              expected_price=None, actual_price=None,
+                              jito_tip_lamports=None, priority_fee_lamports=None,
+                              rpc_url_hint=None, error_msg=None, extra=None):
+    """Log a live execution event. Non-fatal. Skipped in TEST_MODE."""
+    if TEST_MODE:
+        return
+    ts_ms = int(time.time() * 1000)
+    slippage_pct = None
+    if expected_price and actual_price and expected_price > 0:
+        slippage_pct = ((actual_price - expected_price) / expected_price) * 100
+    logger.info("LIVE_EVENT %s trade_id=%s mint=%s sig=%s action=%s size=%s slip=%s tip=%s",
+                event_type, trade_id, (mint or "")[:12], (signature or "")[:16],
+                action, size_sol, f"{slippage_pct:.2f}%" if slippage_pct else "n/a",
+                jito_tip_lamports)
+    if _live_log_pool is None:
+        return
+    try:
+        raw = dict(extra or {})
+        if error_msg:
+            raw["error_msg"] = error_msg
+        await _live_log_pool.execute(
+            """INSERT INTO live_trade_log (trade_id, event_type, ts_ms, mint, signature,
+               bundle_id, action, size_sol, expected_price, actual_price, slippage_pct,
+               jito_tip_lamports, priority_fee_lamports, rpc_url_hint, error_msg, raw_payload)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb)""",
+            trade_id, event_type, ts_ms, mint, signature, bundle_id,
+            action, size_sol, expected_price, actual_price, slippage_pct,
+            jito_tip_lamports, priority_fee_lamports, rpc_url_hint,
+            error_msg, json.dumps(raw) if raw else None)
+    except Exception as e:
+        logger.warning("live_execution_log DB write failed (non-fatal): %s", e)
+
 # --- Slippage configs (from AGENT_CONTEXT Section 5) ---
 PUMPPORTAL_SLIPPAGE = {
     "alpha_snipe": 25,
@@ -335,6 +377,8 @@ async def _execute_pumpportal_local(
                     continue
                 signature = result["result"]
                 logger.info("PumpPortal Local %s executed: sig=%s", action, signature[:16])
+                await live_execution_log(event_type="TX_SUBMIT", mint=mint, action=action,
+                    size_sol=amount_sol, signature=signature, rpc_url_hint=rpc_url[:40])
                 return signature
         except Exception as e:
             logger.warning("PumpPortal Local sendTransaction failed on %s: %s", rpc_url[:40], e)
@@ -434,6 +478,8 @@ async def _execute_jupiter(
     signature = result.get("signature", "")
     logger.info("Jupiter V2 swap executed: sig=%s slot=%s", signature[:16] if signature else "?",
                 result.get("slot", "?"))
+    await live_execution_log(event_type="TX_SUBMIT", mint=output_mint if action == "buy" else input_mint,
+        action=action, size_sol=amount_sol, signature=signature, rpc_url_hint="jupiter_v2_execute")
     return signature
 
 
@@ -697,9 +743,13 @@ async def execute_trade(
         except ExecutionError as e:
             last_error = str(e)
             logger.warning("Execution attempt %d/%d failed: %s", attempt, RETRY_CONFIG["max_retries"], e)
+            await live_execution_log(event_type="ERROR", mint=token.mint, action=action,
+                size_sol=amount_sol, error_msg=str(e), extra={"attempt": attempt})
         except Exception as e:
             last_error = str(e)
             logger.error("Unexpected execution error attempt %d: %s", attempt, e)
+            await live_execution_log(event_type="ERROR", mint=token.mint, action=action,
+                size_sol=amount_sol, error_msg=str(e), extra={"attempt": attempt})
 
         if attempt < RETRY_CONFIG["max_retries"]:
             await asyncio.sleep(delay_ms / 1000.0)
