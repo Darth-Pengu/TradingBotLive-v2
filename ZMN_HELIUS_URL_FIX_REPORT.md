@@ -146,34 +146,28 @@ also wrong — couldn't wait to fix in the same commit.
 
 ---
 
-## 5. Post-deploy verification (Phase 5)
+## 5. Post-deploy verification (Phase 5) — ALL PASS
 
-_To be filled once deploy completes._
+New container booted 21:44:21 UTC (~08:44 AEDT) with
+`Bot Core starting (TEST_MODE=True)`. No RuntimeError, no startup failure.
 
-### 5.1 zero "no Helius URL" errors in last 10 min
-```sql
-SELECT COUNT(*) FROM live_trade_log
-WHERE error_msg LIKE '%no Helius URL%'
-  AND ts_ms > (EXTRACT(EPOCH FROM NOW() - INTERVAL '10 minutes') * 1000)::bigint;
-```
-Expected: 0. Actual: _TBD_
+| check | expected | actual |
+|---|---|---|
+| 5.1 "no Helius URL" errors, last 10 min | 0 | **0** ✓ |
+| 5.2 live_trade_log events, last 10 min | 0 (paper mode) | 0 ✓ |
+| 5.2b paper trades, last 15 min | 5–15 | **7** ✓ |
+| 5.3 any mint with >5 sell errors, last 15 min | 0 | 0 ✓ |
+| 5.4 any ERRORs at all, last 10 min | 0 | 0 ✓ |
 
-### 5.2 paper tx flowing
-Expected: 5–15 paper trades in last 15 min. Actual: _TBD_
-
-### 5.3 circuit breaker not needed while paper
-In paper mode `_close_position` takes the `paper_sell` branch, not the
-`execute_trade` branch. The circuit breaker applies only to live. So we
-expect zero `PARK mint` events in paper verification — the breaker is
-"code in place, cannot be exercised with TEST_MODE=true." Real exercise
-waits for the next live trial.
+Circuit breaker code path not exercised — paper mode uses `paper_sell`,
+not `execute_trade`. Real exercise waits for the next live trial.
 
 ---
 
 ## 6. Residual issues
 
 1. **reconcile is startup-only.** See 2.5 — not a code bug, but a contract
-   to codify. Recommend adding to CLAUDE.md as an explicit rule.
+   to codify. Added to CLAUDE.md as an explicit rule this session.
 2. **PumpPortal 400s** need inspection once the new 2048-char body logging
    lands. 311 hits overnight with body truncated at `Bad Request`. No idea
    which field PumpPortal is rejecting. One session of observation after
@@ -184,7 +178,33 @@ waits for the next live trial.
    "blocked" to "resolved." The outstanding blocker is no longer signing,
    it is configuration hygiene (env vars + reconcile).
 4. **Briefing claim "4 TX_SUBMITs at 06:37"** was wrong — actual count was
-   50+ and the window stretched to 08:23 AEDT. Docs should be updated.
+   50+ and the window stretched to 08:23 AEDT. Wallet went 5.0 → 3.677 SOL.
+   Docs updated to reflect the actual trial outcome.
+5. **live_trade_log sell events undercounted.** Cross-check: 3 buys
+   (AXjqQgtYWkiD, 7TiRb9nwGNVs, EExc7FMH2SyL) appeared without matching
+   sell events in live_trade_log, but all three were sold successfully
+   on-chain (verified via getTokenAccountsByOwner — zero balance). Sell
+   path likely takes a branch that skips the `live_execution_log(event_type=
+   'TX_SUBMIT')` call. Not a safety bug — current wallet has ZERO live
+   exposure. But it does mean live_trade_log is unreliable for trade
+   accounting; use on-chain signatures. Worth a brief audit next session.
+
+## 6b. Stuck-position audit (added after Jay's question)
+
+Cross-checked the three "buy without logged sell" mints against on-chain
+state:
+
+| mint | bought | sold (on-chain) | still held? |
+|---|---|---|---|
+| EExc7FMH2SyL… | 08:15:32 AEDT | 08:22:41 full exit | no |
+| AXjqQgtYWkiD… (pump) | 08:03:33 AEDT | 08:14:26 full exit (1 failed retry at 08:13:57) | no |
+| 7TiRb9nwGNVs… (pump) | 08:09:10 AEDT | sold between 08:09 and 08:24 | no |
+
+Wallet currently: 3.677355 SOL + USDC 3.37 + USDT 6.72 + one unknown dust
+position (2K8h3T21nXJDe7bx, 0.063). None of the dust relates to the v4
+live trial.
+
+**Conclusion: zero live exposure.** Safe for restart-before-reflip.
 
 ---
 
