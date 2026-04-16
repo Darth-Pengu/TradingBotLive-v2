@@ -280,6 +280,12 @@ bot:status but never removes closed ones from the Redis cache.
 Needs code fix: when a position is closed, also delete it from
 bot:status and paper:positions:{mint}.
 
+### Dashboard Mode Filter Complete (2026-04-17)
+All main dashboard widgets (status, trades, positions, session-stats,
+personality-stats, exit-analysis, win-rates, pnl-distribution,
+portfolio-history-daily, signal-funnel) now filter by trade_mode.
+LIVE view shows zeros until live trades exist.
+
 ## Service Monitoring Rule (added 2026-04-14)
 
 signal_aggregator now writes a health heartbeat to

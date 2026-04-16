@@ -2,6 +2,20 @@
 
 ---
 
+## 2026-04-17 ~09:30 AEDT — Dashboard Honesty + Solders v2 Deploy
+
+### Dashboard mode filter complete
+All main dashboard widgets now filter by trade_mode. LIVE view shows
+zeros when no live trades exist. PAPER view unchanged.
+Commit: 09ed21f
+
+### Solders signing v2
+VersionedTransaction(message, [keypair]) constructor — verified locally
+with realistic SOL transfer instruction round-trip.
+Commit: ce86cd5
+
+---
+
 ## 2026-04-17 ~09:00 AEDT — Solders Signing Fix v2 (Constructor API)
 
 ### What happened

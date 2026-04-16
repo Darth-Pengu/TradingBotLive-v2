@@ -135,6 +135,7 @@ pump.fun micro-cap scale (confirmed finding from 2026-04-12).
 
 **Before live trial v3:**
 1. ~~FIX SIGNING~~ DONE (ce86cd5) — constructor API verified locally
+1b. ~~Dashboard mode filter~~ DONE (09ed21f) — LIVE view = zeros
 2. Clear stale Redis positions
 3. Verify signed tx passes simulation
 4. Flip TEST_MODE=false

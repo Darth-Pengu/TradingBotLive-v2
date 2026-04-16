@@ -74,6 +74,11 @@ Devnet test before any mainnet live retry is mandatory.
 5. Verify TEST_MODE=false propagates (check startup log)
 6. Clear stale Redis positions before going live
 
+### Dashboard mode filter
+All main dashboard widgets filter by trade_mode. LIVE view = zeros
+until live trades exist. Secondary endpoints (analytics, ml_status)
+still unfiltered. Dashboard LIVE view must be zero until live trades exist.
+
 ### Known Redis cache bugs
 - bot:status accumulates positions but never removes closed ones.
   On restart, bot_core rebuilds from DB, but the stale Redis entries
