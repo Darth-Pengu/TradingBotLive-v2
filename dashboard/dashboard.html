@@ -399,7 +399,7 @@ tbody tr:hover { background: rgba(0, 255, 65, 0.03); }
 <div class="topbar">
   <div class="topbar-left">
     <span class="topbar-title">ZMN BOT v2</span>
-    <span id="paperBadge" class="badge-paper" style="display:none;">PAPER</span>
+    <span id="modeBadge" class="badge-paper" style="display:none;">PAPER</span>
     <span><span id="statusDot" class="status-dot"></span> <span id="statusText" style="font-size:14px;">CONNECTING...</span></span>
   </div>
   <div class="topbar-right">
@@ -412,6 +412,11 @@ tbody tr:hover { background: rgba(0, 255, 65, 0.03); }
     <span class="stat-item"><span class="stat-label">ML:</span> <span id="mlAucVal" class="stat-value">--</span></span>
     <span class="stat-item"><span class="stat-label">MODE:</span> <span id="mktMode" class="stat-value">--</span></span>
     <span class="clock" id="sydneyClock">--:--:--</span>
+    <select id="modeToggle" class="theme-picker" onchange="switchMode(this.value)">
+      <option value="">AUTO</option>
+      <option value="paper">PAPER</option>
+      <option value="live">LIVE</option>
+    </select>
     <select id="themePicker" class="theme-picker" onchange="setTheme(this.value)">
       <option value="acid">ACID</option>
       <option value="amber">AMBER</option>
@@ -572,6 +577,12 @@ function authHeaders() { return { 'Authorization': 'Bearer ' + token, 'Content-T
 
 async function apiFetch(endpoint) {
   try {
+    // Append mode override if set
+    const mo = window.__modeOverride;
+    if (mo) {
+      const sep = endpoint.includes('?') ? '&' : '?';
+      endpoint = endpoint + sep + 'mode=' + mo;
+    }
     const res = await fetch(endpoint, { headers: authHeaders() });
     if (res.status === 401 || res.status === 403) {
       localStorage.removeItem('jwt_token');
@@ -603,6 +614,28 @@ function setTheme(name) {
   try {
     const s = localStorage.getItem('zmn_dashboard_theme');
     if (s) setTheme(s);
+  } catch(e) {}
+})();
+
+// ---- Mode ----
+function switchMode(mode) {
+  if (mode === 'paper' || mode === 'live') {
+    window.__modeOverride = mode;
+    try { localStorage.setItem('zmn_mode_override', mode); } catch(e) {}
+  } else {
+    delete window.__modeOverride;
+    try { localStorage.removeItem('zmn_mode_override'); } catch(e) {}
+  }
+  if (typeof init === 'function') init();
+}
+(function initMode() {
+  try {
+    const s = localStorage.getItem('zmn_mode_override');
+    if (s === 'paper' || s === 'live') {
+      window.__modeOverride = s;
+      const sel = document.getElementById('modeToggle');
+      if (sel) sel.value = s;
+    }
   } catch(e) {}
 })();
 
@@ -758,8 +791,12 @@ async function fetchStatus() {
   wrEl.textContent = wr.toFixed(1) + '%';
   wrEl.className = 'stat-value ' + (wr >= 30 ? 'positive' : wr >= 15 ? 'warn' : 'negative');
 
-  const badge = document.getElementById('paperBadge');
-  badge.style.display = data.test_mode ? 'inline' : 'none';
+  const badge = document.getElementById('modeBadge');
+  const cm = (data.current_mode || 'paper').toUpperCase();
+  badge.textContent = cm;
+  badge.style.display = 'inline';
+  badge.style.background = cm === 'LIVE' ? '#ff3333' : 'var(--amber)';
+  badge.style.color = '#000';
 }
 
 async function fetchMLStatus() {

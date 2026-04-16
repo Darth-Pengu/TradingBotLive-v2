@@ -40,6 +40,7 @@ logger = logging.getLogger("dashboard_api")
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 TEST_MODE = os.getenv("TEST_MODE", "true").lower() == "true"
+DEFAULT_TRADE_MODE = "paper" if TEST_MODE else "live"
 DASHBOARD_SECRET = os.getenv("DASHBOARD_SECRET", "")
 HELIUS_RPC_URL = os.getenv("HELIUS_RPC_URL", "")
 HELIUS_GATEKEEPER_URL = os.getenv("HELIUS_GATEKEEPER_URL", "")
@@ -268,6 +269,12 @@ async def _query_db(query: str, *args) -> list[dict]:
         return []
 
 
+def _get_mode(request) -> str:
+    """Extract trade_mode from query param, default to backend mode."""
+    mode = request.query.get("mode", "")
+    return mode if mode in ("paper", "live") else DEFAULT_TRADE_MODE
+
+
 # --- Wallet balance helper ---
 async def _get_sol_balance(address: str) -> float | None:
     if not address:
@@ -307,8 +314,9 @@ async def handle_static(request):
 
 
 async def api_status(request):
+    mode = _get_mode(request)
     redis_conn = request.app.get("redis")
-    status_data = {}
+    status_data = {"current_mode": mode, "test_mode": TEST_MODE}
     if redis_conn:
         try:
             t0 = time.time()
@@ -347,10 +355,10 @@ async def api_status(request):
     if trading_balance is None:
         trading_balance = await _get_sol_balance(TRADING_WALLET_ADDRESS)
 
-    # Bug 3 fix: count open positions from paper_trades
+    # Bug 3 fix: count open positions from paper_trades (mode-filtered)
     active_count = 0
     try:
-        rows = await _query_db("SELECT COUNT(*) as count FROM paper_trades WHERE exit_time IS NULL")
+        rows = await _query_db("SELECT COUNT(*) as count FROM paper_trades WHERE exit_time IS NULL AND trade_mode = $1", mode)
         if rows:
             active_count = int(rows[0].get("count", 0))
     except Exception:
@@ -424,49 +432,49 @@ async def api_status(request):
             sol_price = 0
     status_data["sol_price"] = sol_price
 
-    # Total P&L from paper_trades (use corrected column, post-cleanup window)
+    # Total P&L from paper_trades (mode-filtered)
     try:
         pnl_rows = await _query_db(
             """SELECT COALESCE(SUM(COALESCE(corrected_pnl_sol, realised_pnl_sol)), 0) as pnl
             FROM paper_trades
-            WHERE exit_time IS NOT NULL AND entry_time > 1775767260""")
+            WHERE exit_time IS NOT NULL AND trade_mode = $1""", mode)
         if pnl_rows:
             status_data["total_pnl"] = round(float(pnl_rows[0].get("pnl", 0) or 0), 4)
     except Exception:
         pass
 
-    # Today's P&L
+    # Today's P&L (mode-filtered)
     try:
         today_rows = await _query_db(
             """SELECT COALESCE(SUM(COALESCE(corrected_pnl_sol, realised_pnl_sol)), 0) as pnl
             FROM paper_trades
-            WHERE exit_time IS NOT NULL
-            AND exit_time > EXTRACT(EPOCH FROM NOW() - INTERVAL '24 hours')""")
+            WHERE exit_time IS NOT NULL AND trade_mode = $1
+            AND exit_time > EXTRACT(EPOCH FROM NOW() - INTERVAL '24 hours')""", mode)
         if today_rows:
             status_data["today_pnl"] = round(float(today_rows[0].get("pnl", 0) or 0), 4)
     except Exception:
         pass
 
-    # Win rate windows
+    # Win rate windows (mode-filtered)
     for window, key in [(10, "wr_10"), (25, "wr_25"), (50, "wr_50")]:
         try:
             wr_rows = await _query_db(
                 f"""SELECT ROUND(100.0 * COUNT(CASE WHEN COALESCE(corrected_pnl_sol, realised_pnl_sol) > 0 THEN 1 END)
                     / NULLIF(COUNT(*), 0), 1) as wr
                 FROM (SELECT COALESCE(corrected_pnl_sol, realised_pnl_sol) as pnl FROM paper_trades
-                      WHERE exit_time IS NOT NULL
-                      ORDER BY exit_time DESC LIMIT {window}) t""")
+                      WHERE exit_time IS NOT NULL AND trade_mode = $1
+                      ORDER BY exit_time DESC LIMIT {window}) t""", mode)
             if wr_rows and wr_rows[0].get("wr") is not None:
                 status_data[key] = float(wr_rows[0]["wr"])
         except Exception:
             pass
 
-    # Overall win rate (post-cleanup window)
+    # Overall win rate (mode-filtered)
     try:
         wr_all = await _query_db(
             """SELECT COUNT(*) as total,
                SUM(CASE WHEN COALESCE(corrected_pnl_sol, realised_pnl_sol) > 0 THEN 1 ELSE 0 END) as wins
-            FROM paper_trades WHERE exit_time IS NOT NULL AND entry_time > 1775767260""")
+            FROM paper_trades WHERE exit_time IS NOT NULL AND trade_mode = $1""", mode)
         if wr_all:
             total = int(wr_all[0].get("total", 0) or 0)
             wins = int(wr_all[0].get("wins", 0) or 0)
@@ -565,6 +573,7 @@ async def api_stats(request):
 async def api_positions(request):
     """Return currently open positions from Redis bot:status, enriched with live price and P/L.
     Falls back to paper_trades DB if bot:status has no positions."""
+    mode = _get_mode(request)
     positions = []
     redis_conn = request.app.get("redis")
     if not redis_conn:
@@ -574,7 +583,7 @@ async def api_positions(request):
         if not raw or not json.loads(raw).get("positions"):
             # Fallback: read open positions from DB with Redis prices
             db_rows = await _query_db(
-                "SELECT * FROM paper_trades WHERE exit_time IS NULL ORDER BY entry_time DESC"
+                "SELECT * FROM paper_trades WHERE exit_time IS NULL AND trade_mode = $1 ORDER BY entry_time DESC", mode
             )
             now = time.time()
             for r in db_rows:
@@ -770,9 +779,10 @@ def _safe_isoformat(val) -> str | None:
 
 async def api_trades(request):
     """Return last N closed paper trades with formatted fields."""
+    mode = _get_mode(request)
     limit = int(request.query.get("limit", "50"))
     rows = await _query_db(
-        "SELECT * FROM paper_trades WHERE exit_time IS NOT NULL ORDER BY exit_time DESC LIMIT $1", limit)
+        "SELECT * FROM paper_trades WHERE exit_time IS NOT NULL AND trade_mode = $1 ORDER BY exit_time DESC LIMIT $2", mode, limit)
     trades = []
     for r in rows:
         mint = r.get("mint", "")
