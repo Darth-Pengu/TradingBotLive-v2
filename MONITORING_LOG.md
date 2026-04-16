@@ -2,6 +2,26 @@
 
 ---
 
+## 2026-04-17 ~09:50 AEDT — Trial v4 Overnight Result: EMPTY
+
+Monitor ran 1 minute before hitting 10-consecutive-error stop.
+3,358 sell errors (stale paper positions), 0 buys attempted, 0 on-chain
+transactions. Wallet untouched at 5.0000 SOL.
+
+Root cause: bot_core never restarted to pick up reconcile fix (4b647a7).
+In-memory self.positions still had stale paper entries, blocking buys
+via MAX_SD_POSITIONS and generating sell errors.
+
+Signing verdict: INCONCLUSIVE (never exercised on buys).
+SignatureFailure count: 0 (consistent with v3 findings).
+
+Action needed: flip TEST_MODE=true (restart), verify clean state,
+then flip back for v5 with fresh reconcile.
+
+Full report: ZMN_LIVE_TRIAL_V4_RESULT.md
+
+---
+
 ## 2026-04-17 ~11:30 AEDT — Trial v3 Cleanup + Reconcile Fix
 
 Trial v3: signing VERIFIED (0 SignatureFailure in 83+ attempts), BLOCKED

@@ -136,7 +136,7 @@ pump.fun micro-cap scale (confirmed finding from 2026-04-12).
 **Live trial v3 (2026-04-17):** SIGNING VERIFIED (0 SigFail in 83 attempts),
 BLOCKED by stale paper positions filling MAX_SD_POSITIONS=2.
 
-**Live trial v4 — READY:**
+**Live trial v4 — EMPTY (overnight, 0 buys, stale in-memory positions):**
 - ~~Signing~~ DONE (constructor API, mainnet-verified)
 - ~~Dashboard~~ DONE (LIVE view honest, MCAP columns)
 - ~~Stale positions~~ CLEANED (2 closed, Redis cleared)

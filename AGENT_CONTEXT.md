@@ -62,7 +62,9 @@ Live trial history:
 - v2 (2026-04-17 08:00 AEDT): FAILED — populate() invalid signatures
 - v3 (2026-04-17 10:00 AEDT): SIGNING VERIFIED (0 SigFail in 83 attempts),
   BLOCKED by stale paper positions filling MAX_SD_POSITIONS=2
-- v4: ACTIVE — reconcile fix deployed, positions cleared, MAX_SD=20
+- v4 (overnight): EMPTY — 3358 sell errors, 0 buys, stale in-memory
+  positions. Reconcile fix deployed but bot never restarted to pick it up.
+- v5: READY — restart needed to activate reconcile filtering
 
 Paper trading (current):
 - Exit pipeline healthy, ~8 entries per 15 min

@@ -1,0 +1,7 @@
+23:45:09 Monitor started. Wallet=5.0 SOL. Kill at 1.0 SOL.
+23:46:12 T+1m | W:5.0000 (D+0.0000) | L:0/0 | PnL:0.0000 | E:153 S:0 C:0
+23:46:12   ERROR(153x): PumpPortal Local: no Helius URL available for transaction submission
+23:46:12 STOP: 10 consecutive errors
+23:46:12 END after 1m. Reason: 10 consecutive errors
+23:46:12 Milestones: {}
+23:46:12 Wallet: 5.0 -> lo=5.0000 hi=5.0000

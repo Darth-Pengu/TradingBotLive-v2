@@ -172,6 +172,10 @@ default unless Jay explicitly overrides.
   Always clear stale positions before mode flip.
 - **DAILY_LOSS_LIMIT_SOL=4.0** for trial v4: kill at wallet 1.0 SOL.
   risk_manager.py reads from env var (was hardcoded). Per Jay's choice.
+- **Reconcile fix only works on restart.** DB cleanup of stale positions
+  doesn't clear bot_core's in-memory self.positions. The reconcile code
+  runs on startup only. Must restart bot_core (flip TEST_MODE or redeploy)
+  after any position cleanup for it to take effect.
 - **Deploy discipline — no duplicate deploys.** Railway auto-deploys
   on git push to main (GitHub webhook). `railway up` ALSO triggers a
   deploy. NEVER use both in the same session — it causes duplicate
