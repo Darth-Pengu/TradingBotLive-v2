@@ -52,7 +52,7 @@ MAX_CONCURRENT_PER_PERSONALITY = 3
 MAX_CONCURRENT_WHALE = 2
 PORTFOLIO_MAX_EXPOSURE = 0.25   # 25% total — never exceed
 RESERVE_FLOOR_PCT = 0.60        # Always keep 60% in reserve
-DAILY_LOSS_LIMIT_SOL = 1.0      # Triggers EMERGENCY_STOP
+DAILY_LOSS_LIMIT_SOL = float(os.environ.get("DAILY_LOSS_LIMIT_SOL", "1.0"))  # Triggers EMERGENCY_STOP
 CORRELATION_HAIRCUT = 0.70       # pump.fun tokens ~70% correlated
 
 # --- Drawdown-based position scaling (Section 4) ---

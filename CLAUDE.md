@@ -170,6 +170,8 @@ default unless Jay explicitly overrides.
 - **TEST_MODE flip doesn't reset positions.** bot_core reconcile MUST
   filter by trade_mode or paper positions block live MAX_SD_POSITIONS.
   Always clear stale positions before mode flip.
+- **DAILY_LOSS_LIMIT_SOL=4.0** for trial v4: kill at wallet 1.0 SOL.
+  risk_manager.py reads from env var (was hardcoded). Per Jay's choice.
 - **Deploy discipline — no duplicate deploys.** Railway auto-deploys
   on git push to main (GitHub webhook). `railway up` ALSO triggers a
   deploy. NEVER use both in the same session — it causes duplicate

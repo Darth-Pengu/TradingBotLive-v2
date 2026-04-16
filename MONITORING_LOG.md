@@ -12,7 +12,8 @@ Cleanup (TEST_MODE=false, wallet safe):
 - Redis bot:status + paper:positions:* cleared
 - bot_core._reconcile_positions + _load_state now filter by trade_mode
   (commit 4b647a7) — paper positions don't block live MAX_SD_POSITIONS
-- MAX_SD_POSITIONS: 2 -> 20, DAILY_LOSS_LIMIT_SOL: set 1.0
+- MAX_SD_POSITIONS: 2 -> 20, DAILY_LOSS_LIMIT_SOL: 4.0 (kill at wallet 1.0 SOL)
+- risk_manager.py: DAILY_LOSS_LIMIT_SOL now reads from env var (was hardcoded 1.0)
 
 Trial v4: ready for overnight run. Bot on TEST_MODE=false with zero
 positions, reconcile filtering live-only, 20 slots available.
