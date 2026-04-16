@@ -6,7 +6,7 @@ aiohttp-sse-client>=0.2.1
 telethon>=1.34.0
 
 # Solana
-solders>=0.20.0
+solders>=0.21.0,<1.0.0  # VersionedTransaction.populate API (0.21+), .sign removed
 solana>=0.34.0
 base58>=2.1.1
 
