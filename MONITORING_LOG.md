@@ -2,6 +2,38 @@
 
 ---
 
+## 2026-04-16 ~20:25 AEDT — Trade Mode Segregation (Clean Slate for Live)
+
+### What happened
+Added `trade_mode` column to paper_trades ('paper' default NOT NULL).
+Updated paper_trader INSERT to write mode from TEST_MODE. Dashboard API
+filters key queries by mode, defaults to backend mode. Dashboard HTML
+shows mode badge (PAPER amber / LIVE red) + toggle dropdown.
+
+### Schema
+- ALTER TABLE paper_trades ADD COLUMN trade_mode TEXT NOT NULL DEFAULT 'paper'
+- Index: idx_paper_trades_mode_time on (trade_mode, entry_time DESC)
+- 4,977 existing rows auto-populated as 'paper'
+- New trades writing 'paper' (TEST_MODE=true confirmed)
+
+### Verification
+- Paper view: shows current numbers (all queries return paper rows)
+- LIVE view (via ?mode=live or toggle): all zeros (clean slate)
+- Bot still trading: 4 trades in 10 min post-deploy
+- TP observation query: unaffected (doesn't filter by mode)
+
+### Commits
+- 2860bce: paper_trader INSERT + TRADE_MODE constant
+- c6b2447: dashboard API mode filter + HTML badge/toggle
+
+### What's NOT done
+- Not all ~40 paper_trades queries have mode filter (only key endpoints:
+  status, trades, positions). Secondary endpoints (equity curve,
+  exit-analysis, personality-stats, etc.) still show all-mode data.
+  These can be updated incrementally if needed.
+
+---
+
 ## 2026-04-16 ~19:45 AEDT — Helius RPC Audit v2 + Endpoint Switch
 
 Tested all 3 Helius endpoints under single-call and burst conditions.

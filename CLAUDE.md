@@ -45,6 +45,8 @@ Currently TEST_MODE=true (paper trading). Balance: 31.86 SOL.
 ### Live trading preparation
 - Shadow analysis: 90.9% winner survival rate, STRONG edge assessment
 - Execution audit: ALL infrastructure exists, 0 code gaps
+- Trade mode segregation deployed: paper_trades has trade_mode column,
+  dashboard filters by mode, LIVE view starts at zero
 - 1 minor config gap: position floor hard-coded at 0.15 SOL, need 0.05
 - IMPORTANT: TEST_MODE is still true. Do NOT change without explicit
   Jay approval in a dedicated live-trading session.

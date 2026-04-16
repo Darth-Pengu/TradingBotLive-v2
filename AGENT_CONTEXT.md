@@ -227,6 +227,15 @@ Bot now uses:
 Go/No-Go: **READY for live trial.** All execution APIs confirmed.
 See: EXTERNAL_API_AUDIT.md
 
+### Trade Mode Segregation (2026-04-16)
+
+paper_trades has `trade_mode` column ('paper' or 'live', DEFAULT 'paper').
+Set on INSERT from TEST_MODE env var. Dashboard API filters key queries
+by mode (status, trades, positions). ?mode=paper|live override param.
+Dashboard HTML has mode badge + toggle dropdown. When TEST_MODE flips
+to false, new trades get 'live', dashboard auto-shows LIVE view (zero
+counters). Paper history preserved for ML training and analysis.
+
 ## Service Monitoring Rule (added 2026-04-14)
 
 signal_aggregator now writes a health heartbeat to

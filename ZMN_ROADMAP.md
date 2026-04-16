@@ -111,16 +111,19 @@ pump.fun micro-cap scale (confirmed finding from 2026-04-12).
 
 **Completed:**
 - Shadow Phase 2: 90.9% winner survival, 19% median discount
-- Execution audit: ALL infrastructure exists, position floor gap
-- Dashboard: real wallet balances (trading 5.0 SOL, treasury 0.098 SOL)
-- External API audit: all critical APIs working EXCEPT Helius Staked (522)
+- Execution audit: ALL infrastructure exists
+- Dashboard: real wallet balances + mode segregation (clean slate)
+- External API audit: all critical APIs working
+- Helius RPC switched to Standard (48ms)
+- Trade mode column + dashboard filter deployed
 
 **Before flipping TEST_MODE=false:**
-1. ~~Fix Helius Staked URL~~ DONE — switched to Standard RPC (48ms)
-2. Override MIN_POSITION floor 0.15->0.05 SOL (code change)
-3. Tighten safety limits (MAX_DAILY_LOSS=0.50, MAX_POSITIONS=2)
-4. Flip TEST_MODE=false on bot_core
-5. Monitor first 5-10 real trades
+1. ~~Fix Helius Staked URL~~ DONE
+2. ~~Trade mode segregation~~ DONE — dashboard shows clean slate on LIVE
+3. Override MIN_POSITION floor 0.15->0.05 SOL (code change)
+4. Tighten safety limits (MAX_DAILY_LOSS, MAX_SD_POSITIONS)
+5. Flip TEST_MODE=false on bot_core
+6. Monitor first 5-10 real trades
 
 **Also queued:**
 - TP redesign observation window (ends ~Apr 17 11:32 UTC)
