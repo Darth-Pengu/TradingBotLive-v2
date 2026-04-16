@@ -68,11 +68,26 @@ JUPITER_SLIPPAGE_BPS = {
     "graduated_shallow": 350,   # 3.5% — pools <$100K
 }
 
-# --- Jito tip tiers (from AGENT_CONTEXT Section 5) ---
+# --- Env var helpers ---
+def _env_int(name: str, default: int) -> int:
+    try:
+        val = os.environ.get(name, "")
+        return int(val) if val else default
+    except (ValueError, TypeError):
+        return default
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        val = os.environ.get(name, "")
+        return float(val) if val else default
+    except (ValueError, TypeError):
+        return default
+
+# --- Jito tip tiers (env-var overridable, defaults from AGENT_CONTEXT Section 5) ---
 JITO_TIPS_LAMPORTS = {
-    "normal": 1_000_000,        # 0.001 SOL
-    "competitive": 10_000_000,  # 0.01 SOL
-    "frenzy_snipe": 100_000_000,  # 0.1 SOL — hard maximum, never exceed
+    "normal": _env_int("JITO_TIP_LAMPORTS_NORMAL", 1_000_000),
+    "competitive": _env_int("JITO_TIP_LAMPORTS_COMPETITIVE", 10_000_000),
+    "frenzy_snipe": _env_int("JITO_TIP_LAMPORTS_FRENZY", 100_000_000),
 }
 
 # --- Retry config ---
@@ -86,8 +101,17 @@ RETRY_CONFIG = {
     "encoding": "base64",
 }
 
-# --- Priority fee tiers (for escalation on retry) ---
-PRIORITY_FEE_TIERS = [0.0001, 0.0005, 0.001, 0.005, 0.01]  # SOL
+# --- Priority fee tiers (env-var overridable, for retry escalation) ---
+PRIORITY_FEE_TIERS = [
+    _env_float("PRIORITY_FEE_TIER_1_SOL", 0.0001),
+    _env_float("PRIORITY_FEE_TIER_2_SOL", 0.0005),
+    _env_float("PRIORITY_FEE_TIER_3_SOL", 0.001),
+    _env_float("PRIORITY_FEE_TIER_4_SOL", 0.005),
+    _env_float("PRIORITY_FEE_TIER_5_SOL", 0.01),
+]
+
+logger.info("EXECUTION_CONFIG jito_tips_lamports=%s priority_fee_tiers=%s",
+            JITO_TIPS_LAMPORTS, PRIORITY_FEE_TIERS)
 
 
 class ExecutionError(Exception):
