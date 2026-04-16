@@ -2,6 +2,54 @@
 
 ---
 
+## 2026-04-17 ~morning AEDT — Helius URL resolver + sell-storm circuit breaker
+
+### Diagnosis
+Overnight 2026-04-17 `live_trade_log` between 20:56 Apr 16 and 07:07 Apr 17
+showed 7,448 `PumpPortal Local: no Helius URL available for transaction
+submission` errors across 1,475 distinct mints. `_execute_pumpportal_local`
+iterated only `(HELIUS_STAKED_URL, HELIUS_RPC_URL)` and fell through when both
+were empty. `HELIUS_GATEKEEPER_URL` was set but unread by that send path.
+
+Separately, bot_core's `HELIUS_STAKED_URL` was pointing at the plain
+`mainnet.helius-rpc.com` URL instead of the real `ardith-mo8tnm-fast-mainnet`
+staked endpoint (which web + signal_aggregator had correctly).
+
+Once `HELIUS_RPC_URL` resolved at 06:37, the bot produced 50+ TX_SUBMITs
+through 08:23 AEDT — signing works, wallet drained from 5.0 to 3.677 SOL
+across the successful window. Zero `SignatureFailure` in 83+ on-chain
+attempts.
+
+### Shipped (commit cd266de)
+- `services/execution.py`: `_execute_pumpportal_local` and
+  `_send_transaction` now include `HELIUS_GATEKEEPER_URL` as final fallback
+- `services/execution.py`: startup `RuntimeError` if TEST_MODE=false with
+  no Helius URLs configured (was silent → 10h of retries)
+- `services/execution.py`: 4xx/5xx body truncation 200 → 2048 for diagnosis
+- `services/bot_core.py`: sell-storm circuit breaker — park a mint after
+  `SELL_FAIL_THRESHOLD` (default 8) consecutive live-sell `ExecutionError`s
+  for `SELL_PARK_DURATION_SEC` (default 300s)
+
+### Env var reset on bot_core
+`HELIUS_STAKED_URL` changed from `mainnet.helius-rpc.com` to
+`ardith-mo8tnm-fast-mainnet.helius-rpc.com` (now matches web).
+
+### Verified
+- Syntax check passes both files
+- Startup validation raises RuntimeError when all URLs empty + live mode
+- Imports clean in paper mode with no URLs (bypass works)
+- TEST_MODE=true for deploy
+
+### Not fixed (documented for next session)
+Reconcile filter IS correct — `_load_state` and `_reconcile_positions` both
+filter by `trade_mode`. But both run only in `__init__`, so a TEST_MODE flip
+without container restart leaves paper positions in `self.positions`. Root
+cause of v4 EMPTY — not a reconcile bug, a restart-discipline bug.
+
+Full session report: `ZMN_HELIUS_URL_FIX_REPORT.md`
+
+---
+
 ## 2026-04-17 ~09:50 AEDT — Trial v4 Overnight Result: EMPTY
 
 Monitor ran 1 minute before hitting 10-consecutive-error stop.

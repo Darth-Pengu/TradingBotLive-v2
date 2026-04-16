@@ -186,6 +186,21 @@ default unless Jay explicitly overrides.
 - **Paper mode is non-negotiable.** TEST_MODE=true stays true.
 - **Trust the data.** Speed Demon +22 SOL in 36h = real edge.
   Analyst 0/3 in 0-2s = real problem.
+- **Helius URL resolver must include all three tiers.** `_execute_pumpportal_local`
+  and `_send_transaction` must iterate `(HELIUS_STAKED_URL, HELIUS_RPC_URL,
+  HELIUS_GATEKEEPER_URL)`. Missing GATEKEEPER as fallback caused 7,448 silent
+  errors on 2026-04-17 when STAKED + RPC were empty. Also: `services/execution.py`
+  now raises `RuntimeError` at import if TEST_MODE=false with no Helius URLs —
+  fail loudly instead of looping quietly.
+- **TEST_MODE flip alone does not reset in-memory state.** `_load_state` and
+  `_reconcile_positions` run only in `__init__`. A mode flip without a bot_core
+  container restart leaves stale paper positions in `self.positions`, causing
+  zombie sell attempts on closed paper mints. Every TEST_MODE flip requires
+  a bot_core restart (or env var change that triggers one).
+- **Sell-storm circuit breaker is live.** After 8 consecutive `ExecutionError`s
+  on the same mint during live sells, bot_core parks the mint for 5 min
+  (env-tunable via `SELL_FAIL_THRESHOLD`, `SELL_PARK_DURATION_SEC`). Kill
+  switch: set threshold to 1000 to disable.
 
 ## Read this first, every session
 - Read AGENT_CONTEXT.md completely before writing any code

@@ -53,18 +53,45 @@ Always fetch SOL/USD price in same batch as token prices
 
 0.4 — Trading Performance (2026-04-17 — current)
 
-Trading wallet: 5.0000 SOL (mainnet, untouched — zero trades on-chain)
+Trading wallet: 3.6774 SOL (mainnet, 1.32 SOL spent in v4 live window)
 Treasury wallet: 0.0984 SOL
-Mode: Live (TEST_MODE=false) — trial v4 active after reconcile fix
+Mode: Paper (TEST_MODE=true) — safe following cd266de deploy
 
 Live trial history:
 - v1 (2026-04-16 22:00 AEDT): FAILED — solders .sign() removed in 0.21+
 - v2 (2026-04-17 08:00 AEDT): FAILED — populate() invalid signatures
 - v3 (2026-04-17 10:00 AEDT): SIGNING VERIFIED (0 SigFail in 83 attempts),
   BLOCKED by stale paper positions filling MAX_SD_POSITIONS=2
-- v4 (overnight): EMPTY — 3358 sell errors, 0 buys, stale in-memory
-  positions. Reconcile fix deployed but bot never restarted to pick it up.
-- v5: READY — restart needed to activate reconcile filtering
+- v4 (overnight → 2026-04-17 ~08:23 AEDT):
+  Briefing described as EMPTY. Actual: PARTIAL SUCCESS once
+  HELIUS_RPC_URL appeared at 06:37 — 50+ TX_SUBMITs, 10+ OK on-chain
+  signatures, zero SignatureFailure. Wallet 5.0 → 3.677 SOL.
+  7,448 "no Helius URL" errors were sell attempts against zombie paper
+  positions in bot_core's in-memory state (TEST_MODE flipped without
+  restart). Not a trade-path failure.
+- v5: READY after cd266de deploy settles. Restart bot_core before flipping
+  TEST_MODE=false to clear in-memory positions.
+
+0.5 — Execution URL resolution (2026-04-17)
+
+`services/execution.py` now reads URLs in this order for tx submission:
+- `_execute_pumpportal_local`: STAKED, RPC, GATEKEEPER
+- `_send_transaction`: STAKED, RPC, GATEKEEPER
+- `_get_dynamic_priority_fee`: RPC, GATEKEEPER (read-only)
+- `_get_token_balance`: RPC, GATEKEEPER (read-only)
+
+Startup validation: if TEST_MODE=false and all three URLs are empty,
+the module raises RuntimeError at import. Fails loudly rather than
+looping quietly (which is what produced the 7,448-error overnight
+storm before the fix).
+
+0.6 — Sell-storm circuit breaker (2026-04-17)
+
+bot_core parks a mint after `SELL_FAIL_THRESHOLD` (default 8) consecutive
+live-sell ExecutionErrors. Parked mints get silent-skipped for
+`SELL_PARK_DURATION_SEC` (default 300). One retry allowed after cool-off.
+PARK event logged to live_trade_log with `event_type=ERROR,
+extra.parked=True`. Kill switch: set `SELL_FAIL_THRESHOLD=1000` on bot_core.
 
 Paper trading (current):
 - Exit pipeline healthy, ~8 entries per 15 min

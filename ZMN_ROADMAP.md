@@ -136,13 +136,20 @@ pump.fun micro-cap scale (confirmed finding from 2026-04-12).
 **Live trial v3 (2026-04-17):** SIGNING VERIFIED (0 SigFail in 83 attempts),
 BLOCKED by stale paper positions filling MAX_SD_POSITIONS=2.
 
-**Live trial v4 — EMPTY (overnight, 0 buys, stale in-memory positions):**
-- ~~Signing~~ DONE (constructor API, mainnet-verified)
+**Live trial v4 — actually PARTIAL (corrected 2026-04-17):**
+- Briefing said EMPTY, but on-chain check shows 1.32 SOL spent across
+  50+ TX_SUBMITs from 06:37 to 08:23 AEDT. Wallet went 5.0 → 3.677 SOL.
+- 7,448 "no Helius URL" errors were TRIAGE noise, not the trade path —
+  those errors were sell attempts on closed paper mints still held in
+  bot_core's `self.positions` after a TEST_MODE flip without restart.
+- ~~Signing~~ DONE (constructor API, mainnet-verified, zero SignatureFailure)
+- ~~URL resolver~~ DONE (cd266de, Gatekeeper fallback + startup validation)
+- ~~Sell-storm circuit breaker~~ DONE (cd266de, 8-fail park 5min cool-off)
 - ~~Dashboard~~ DONE (LIVE view honest, MCAP columns)
 - ~~Stale positions~~ CLEANED (2 closed, Redis cleared)
-- ~~Reconcile fix~~ DONE (4b647a7, trade_mode filter)
+- ~~Reconcile filter~~ DONE (4b647a7, trade_mode filter)
 - ~~MAX_SD_POSITIONS~~ 20 (was 2)
-- TEST_MODE=false already active, deploy incoming
+- Known residual: reconcile is startup-only, TEST_MODE flips need restart
 
 **Also queued:**
 - Fix bot:status cache leak (positions never removed on close)
@@ -442,6 +449,14 @@ BLOCKED by stale paper positions filling MAX_SD_POSITIONS=2.
 
 ## COMPLETED RECENTLY (last 7 days)
 
+- **2026-04-17:** Helius URL resolver + sell-storm circuit breaker (cd266de).
+  `_execute_pumpportal_local` and `_send_transaction` now include
+  `HELIUS_GATEKEEPER_URL` as final fallback. Startup `RuntimeError` if live
+  mode with no URLs. 4xx/5xx body truncation 200 → 2048. Per-mint sell
+  failure parking after 8 consecutive `ExecutionError`s (5 min cool-off).
+  bot_core `HELIUS_STAKED_URL` corrected to `ardith-mo8tnm-fast-mainnet`
+  (was standard RPC). Sell-storm circuit breaker DONE. Reconcile-restart
+  discipline noted as residual issue (not a bug, contract to codify).
 - **2026-04-07:** Paper trader price bug fix (9b880e1)
 - **2026-04-08:** Tier 2 overnight -- 4 fixes
 - **2026-04-09:** Exit strategy fix (bf57117)
