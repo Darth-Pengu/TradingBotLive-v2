@@ -76,8 +76,9 @@ Devnet test before any mainnet live retry is mandatory.
 
 ### Dashboard mode filter
 All main dashboard widgets filter by trade_mode. LIVE view = zeros
-until live trades exist. Secondary endpoints (analytics, ml_status)
-still unfiltered. Dashboard LIVE view must be zero until live trades exist.
+until live trades exist. OPEN POSITIONS skips Redis bot:status when
+mode=live (Redis only has paper). OPEN POSITIONS + RECENT TRADES both
+use MCAP columns (USD) — consistent convention across all trade tables.
 
 ### Known Redis cache bugs
 - bot:status accumulates positions but never removes closed ones.

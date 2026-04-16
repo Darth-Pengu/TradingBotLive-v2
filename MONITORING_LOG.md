@@ -2,6 +2,16 @@
 
 ---
 
+## 2026-04-17 ~10:00 AEDT — Open Positions Mode Filter + MCAP Columns
+
+Fixed OPEN POSITIONS showing 4 paper trades in LIVE view. Root cause:
+api_positions read Redis bot:status first (paper-only). Now skips Redis
+when mode=live, queries DB directly. Also changed Entry/Current columns
+to Entry Mcap / Current Mcap (USD, matching RECENT TRADES convention).
+Commit: c328784
+
+---
+
 ## 2026-04-17 ~09:30 AEDT — Dashboard Honesty + Solders v2 Deploy
 
 ### Dashboard mode filter complete
