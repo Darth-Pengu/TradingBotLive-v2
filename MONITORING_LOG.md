@@ -2,6 +2,37 @@
 
 ---
 
+## 2026-04-16 ~23:00 AEDT — Live Trial Post-Mortem + Fixes
+
+### What happened
+Live trial flipped TEST_MODE=false at ~22:00 AEDT. 244/244 execution
+attempts failed with `'VersionedTransaction' object has no attribute 'sign'`.
+Zero trades landed on-chain. Wallet untouched (5.0 SOL).
+
+### Root cause
+solders >= 0.21 made VersionedTransaction immutable, removing `.sign()`.
+execution.py was written for the old 0.18 API. requirements.txt had
+`>=0.20.0` with no ceiling — Railway installed 0.27+.
+
+### Corrective actions
+- **TEST_MODE:** Found still false at session start. SET TO TRUE immediately.
+- **Solders fix:** Rewrote 3 signing blocks to use `populate()` API.
+  Pinned `solders>=0.21.0,<1.0.0` (commit f59f025).
+- **Helius budget:** Restored HELIUS_DAILY_BUDGET=100000 on web service
+  (was 0 from debug session).
+- **Ghost positions:** Only 1 open (not 1,689 Jay reported — likely stale
+  dashboard cache). Bulk close skipped.
+- **Dashboard currency:** Already SOL-primary. No change needed.
+
+### Current state
+- TEST_MODE: true (paper mode)
+- Wallet: 5.0000 SOL
+- Open positions: 1
+- Helius: budget restored to 100k
+- Solders: fixed, awaiting deploy
+
+---
+
 ## 2026-04-16 ~20:45 AEDT — Jito Tip Configurability + Trial Safety Env Vars
 
 Made Jito tips and priority fees env-var configurable in execution.py.

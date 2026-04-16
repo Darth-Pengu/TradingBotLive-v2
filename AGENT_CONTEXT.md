@@ -248,6 +248,20 @@ Tip tuning is REACTIVE — only adjust if live fee burn exceeds projected
 Trial safety env vars on bot_core: MAX_SD_POSITIONS=2,
 DAILY_LOSS_LIMIT_SOL=1.0 (hardcoded), MAX_TRADES_PER_HOUR=500.
 
+### Live Trial v1 Post-Mortem (2026-04-16)
+
+Live trial failed: 244/244 execution attempts errored on
+`VersionedTransaction.sign()` (removed in solders 0.21+).
+Zero trades landed on-chain. Wallet untouched (5.0 SOL).
+
+Fix: rewrote 3 signing blocks in execution.py to use
+`VersionedTransaction.populate(msg, [sig])` API (commit f59f025).
+Pinned solders>=0.21.0,<1.0.0.
+
+Helius budget restored from 0 to 100,000/day on web service.
+TEST_MODE reverted to true. Paper stability observation 24-48h
+before live retry v2.
+
 ## Service Monitoring Rule (added 2026-04-14)
 
 signal_aggregator now writes a health heartbeat to

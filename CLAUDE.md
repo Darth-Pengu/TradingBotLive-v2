@@ -44,15 +44,21 @@ Currently TEST_MODE=true (paper trading). Balance: 31.86 SOL.
 
 ### Live trading preparation
 - Shadow analysis: 90.9% winner survival rate, STRONG edge assessment
-- Execution audit: ALL infrastructure exists, 0 code gaps
-- Trade mode segregation deployed: paper_trades has trade_mode column,
-  dashboard filters by mode, LIVE view starts at zero
-- Tip/fee env-var configurability deployed (defaults unchanged)
-- Trial safety: MAX_SD_POSITIONS=2, DAILY_LOSS_LIMIT_SOL=1.0,
-  MAX_TRADES_PER_HOUR=500 (unlimited)
-- 1 remaining gap: position floor hard-coded at 0.15 SOL, need 0.05
-- IMPORTANT: TEST_MODE is still true. Do NOT change without explicit
-  Jay approval in a dedicated live-trading session.
+- Execution audit: ALL infrastructure exists
+- Trade mode segregation deployed
+- Tip/fee env-var configurability deployed
+- Position floor now env-var overridable (MIN_POSITION_SOL=0.05)
+- **Solders fix deployed:** VersionedTransaction.populate() API (f59f025)
+- **Live trial v1 FAILED** (244/244 solders errors, 0 trades on-chain)
+- Helius budget restored to 100k/day
+- TEST_MODE=true. Live retry after 24-48h paper stability observation.
+
+### Pre-live checklist (MUST verify before any TEST_MODE=false)
+1. Verify solders signing works: import + sign a dummy message
+2. Verify Helius budget > 0
+3. Verify wallet balance >= 3 SOL
+4. Verify TEST_MODE=false propagates (check startup log after deploy)
+5. Pin solders version exactly in requirements.txt
 
 ### Pipeline state (as of 2026-04-15)
 - signal_listener: ALIVE

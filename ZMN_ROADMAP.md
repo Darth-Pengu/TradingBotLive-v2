@@ -117,14 +117,19 @@ pump.fun micro-cap scale (confirmed finding from 2026-04-12).
 - Helius RPC switched to Standard (48ms)
 - Trade mode column + dashboard filter deployed
 
-**Before flipping TEST_MODE=false:**
-1. ~~Fix Helius Staked URL~~ DONE
-2. ~~Trade mode segregation~~ DONE
-3. ~~Tip/fee env-var configurability~~ DONE
-4. ~~Trial safety env vars~~ DONE (MAX_SD_POSITIONS=2, loss 1.0 SOL)
-5. Override MIN_POSITION floor 0.15->0.05 SOL (code change)
-6. Flip TEST_MODE=false on bot_core
-7. Monitor first 5-10 real trades
+**Live trial v1 FAILED (2026-04-16 22:00 AEDT):**
+- 244/244 execution attempts errored on solders API mismatch
+- Zero trades on-chain, wallet untouched (5.0 SOL)
+- Root cause: solders VersionedTransaction.sign() removed in 0.21+
+- Fix: rewrote signing to populate() API + pinned version (f59f025)
+
+**Before live trial v2:**
+1. ~~Fix solders signing~~ DONE (f59f025)
+2. ~~Restore Helius budget~~ DONE (100k/day)
+3. Observe paper trading 24-48h with fixed solders
+4. Run pre-live checklist (verify signing on Railway, verify TEST_MODE propagation)
+5. Flip TEST_MODE=false
+6. Monitor first 5-10 real trades
 
 **Also queued:**
 - TP redesign observation window (ends ~Apr 17 11:32 UTC)
