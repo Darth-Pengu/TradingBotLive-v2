@@ -526,7 +526,7 @@ tbody tr:hover { background: rgba(0, 255, 65, 0.03); }
     <div style="overflow-x:auto;">
       <table>
         <thead>
-          <tr><th>Time (AEDT)</th><th>Token</th><th>Address</th><th>Entry</th><th>Current</th><th>P/L %</th><th>P/L SOL</th><th>Size</th><th>Personality</th></tr>
+          <tr><th>Time (AEDT)</th><th>Token</th><th>Address</th><th>Entry Mcap</th><th>Current Mcap</th><th>P/L %</th><th>P/L SOL</th><th>Size</th><th>Personality</th></tr>
         </thead>
         <tbody id="positionsBody">
           <tr><td colspan="9" class="loading-text">LOADING...</td></tr>
@@ -1076,8 +1076,8 @@ async function fetchPositions() {
       <td style="color:var(--green-dim)">${fmtTime(p.entry_time)}</td>
       <td>${p.symbol || truncMint(mint)}</td>
       <td>${truncMint(mint)} <button class="copy-btn" onclick="copyMint('${mint}', this)">CP</button></td>
-      <td>${(p.entry_price || 0).toExponential(2)}</td>
-      <td>${p.current_price > 0 ? p.current_price.toExponential(2) : '\u2014'}</td>
+      <td>${fmtMcap(p.market_cap_at_entry)}</td>
+      <td>${fmtMcap(p.current_market_cap)}</td>
       <td class="${pnlClass(pnlPct)}">${pnlPctSign(pnlPct)}</td>
       <td class="${pnlClass(pnlSol)}">${pnlSign(pnlSol)}</td>
       <td>${(p.size_sol || 0).toFixed(3)}</td>

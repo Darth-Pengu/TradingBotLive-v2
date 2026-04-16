@@ -586,9 +586,10 @@ async def api_positions(request):
     if not redis_conn:
         return web.json_response(positions)
     try:
-        raw = await redis_conn.get("bot:status")
+        # When viewing LIVE mode, always use DB (Redis bot:status only has paper positions)
+        raw = None if mode == "live" else await redis_conn.get("bot:status")
         if not raw or not json.loads(raw).get("positions"):
-            # Fallback: read open positions from DB with Redis prices
+            # Read open positions from DB with Redis prices
             db_rows = await _query_db(
                 "SELECT * FROM paper_trades WHERE exit_time IS NULL AND trade_mode = $1 ORDER BY entry_time DESC", mode
             )
@@ -616,6 +617,11 @@ async def api_positions(request):
                 unrealised_pnl_pct = ((current_price - entry_price) / entry_price * 100) if entry_price > 0 else 0
                 unrealised_pnl_sol = ((current_price - entry_price) / entry_price * size_sol) if entry_price > 0 else 0
 
+                entry_mcap = float(r.get("market_cap_at_entry", 0) or 0)
+                if entry_mcap <= 0 and entry_price > 0:
+                    entry_mcap = entry_price * 1_000_000_000
+                current_mcap = current_price * 1_000_000_000 if current_price > 0 else entry_mcap
+
                 positions.append({
                     "key": f"{r.get('personality', '')}:{mint}",
                     "mint": mint,
@@ -626,6 +632,8 @@ async def api_positions(request):
                     "size_sol": size_sol,
                     "entry_price": entry_price,
                     "current_price": current_price,
+                    "market_cap_at_entry": entry_mcap,
+                    "current_market_cap": current_mcap,
                     "remaining_pct": 1.0,
                     "entry_time": entry_time,
                     "hold_seconds": int(now - entry_time) if entry_time > 0 else 0,
@@ -712,6 +720,9 @@ async def api_positions(request):
 
             hold_seconds = int(now - entry_time) if entry_time > 0 else 0
 
+            entry_mcap = entry_price * 1_000_000_000 if entry_price > 0 else 0
+            current_mcap = current_price * 1_000_000_000 if current_price > 0 else entry_mcap
+
             positions.append({
                 "key": key,
                 "mint": mint,
@@ -721,6 +732,8 @@ async def api_positions(request):
                 "size_sol": size_sol,
                 "entry_price": entry_price,
                 "current_price": current_price,
+                "market_cap_at_entry": entry_mcap,
+                "current_market_cap": current_mcap,
                 "remaining_pct": remaining_pct,
                 "entry_time": entry_time,
                 "hold_seconds": hold_seconds,
