@@ -83,8 +83,8 @@ Currently TEST_MODE=true (paper trading). Balance: 31.86 SOL.
 - **TP redesign experiment in progress** — do NOT modify Speed Demon
   exit strategy until observation window closes (2026-04-17 ~11:32 UTC)
   or revert criteria hit
-- B-013: Dashboard token name shows truncated mint instead of symbol
-- B-014: Dashboard CFGI(BTC) shows SOL value (cosmetic)
+- B-013: DEFERRED — symbol column empty, needs paper_trader fix
+- B-014: OBSOLETE — CFGI(BTC) removed from dashboard
 - ML retrain blocked on 500+ clean samples AND feature cleanup
 - Helius credits exhausted until April 26
 

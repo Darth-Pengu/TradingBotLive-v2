@@ -2,6 +2,32 @@
 
 ---
 
+## 2026-04-16 ~18:50 AEDT — Dashboard Rewrite (Real Wallets + CFGI Cleanup)
+
+### What happened
+Replaced paper balance display with real on-chain trading wallet SOL
+(Helius getBalance, 30s Redis cache). Added Treasury wallet display
+(60s cache). Removed CFGI(BTC) from top bar. CFGI(SOL) renamed to
+just "CFGI". B-013 DEFERRED (symbol column empty for all trades).
+
+### Verification
+- Trading wallet: 5.0000 SOL (real on-chain) 
+- Treasury wallet: 0.0984 SOL (real on-chain)
+- CFGI(BTC) removed: confirmed
+- Bot still trading: 11 trades/15min
+- Dashboard loads cleanly: yes
+
+### Bugs
+- B-013: DEFERRED — symbol column empty for all 4963 paper_trades.
+  paper_buy doesn't populate it. Needs upstream fix in paper_trader or
+  signal enrichment. Not a dashboard fix.
+- B-014: OBSOLETE — CFGI(BTC) removed from display entirely
+
+### Commits
+- a2a32bb: Dashboard code changes
+
+---
+
 ## 2026-04-16 ~18:15 AEDT — Shadow Phase 2 Analysis + Execution Audit (Read-Only)
 
 ### What happened

@@ -504,7 +504,15 @@ so the roadmap is the single source of truth for what's open:
 - **Session size:** 20-30 min
 - **Discovered by:** POST_RECOVERY_REVIEW_2026_04_14.md
 
-### B-014: Dashboard CFGI display shows same value for BTC and SOL
+### B-013: Recent Trades token symbol display — DEFERRED
+- **Status:** DEFERRED 2026-04-16
+- **Root cause:** paper_trades.symbol column is empty for ALL trades.
+  paper_buy() in paper_trader.py does not populate it. Needs upstream
+  fix: either enrich from PumpPortal metadata at buy time or look up
+  from Jupiter token list.
+- **Session size:** 30 min (paper_trader fix + backfill from metadata)
+
+### B-014: Dashboard CFGI display shows same value for BTC and SOL — OBSOLETE
 - **Observed:** Dashboard top bar shows CFGI(BTC) = 45 and
   CFGI(SOL) = 45. cfgi.io live values: BTC ~65, SOL ~50.
 - **Root cause:** Post-Stage-2, `market:health.cfgi` holds SOL value.

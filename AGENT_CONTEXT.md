@@ -203,6 +203,15 @@ Execution audit found ALL infrastructure exists (execution.py):
 
 See: SHADOW_ANALYSIS_2026_04_16.md, EXECUTION_AUDIT_2026_04_16.md
 
+### Dashboard Real Wallet Displays (2026-04-16)
+
+Dashboard top bar now shows real on-chain SOL balances:
+- TRADE: trading wallet (TRADING_WALLET_ADDRESS) via Helius getBalance, 30s cache
+- TREASURY: holding wallet (HOLDING_WALLET_ADDRESS) via Helius getBalance, 60s cache
+- CFGI(BTC) removed, only CFGI (SOL from cfgi.io) displayed
+- B-013 DEFERRED: symbol column empty, paper_buy doesn't populate it
+- B-014 OBSOLETE: BTC display removed
+
 ## Service Monitoring Rule (added 2026-04-14)
 
 signal_aggregator now writes a health heartbeat to
