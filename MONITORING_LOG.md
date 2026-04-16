@@ -2,6 +2,16 @@
 
 ---
 
+## 2026-04-17 ~10:30 AEDT — Deploy Discipline Rule Added
+
+Documented in CLAUDE.md and AGENT_CONTEXT.md: never use git push AND
+railway up in the same session. GitHub webhook auto-deploys on push,
+so railway up is redundant and causes duplicate builds. Default to
+git push only. Also updated AGENT_CONTEXT.md Section 0.4 with current
+trading state (wallet 5.0 SOL, live trial history, paper health).
+
+---
+
 ## 2026-04-17 ~10:00 AEDT — Open Positions Mode Filter + MCAP Columns
 
 Fixed OPEN POSITIONS showing 4 paper trades in LIVE view. Root cause:

@@ -167,6 +167,13 @@ default unless Jay explicitly overrides.
   simulation alone. Always have actual instrumentation data.
 - **Bounded scope, hard stops.** Every prompt has a max wall clock.
   When reached, commit whatever's done and stop. No "while we're here."
+- **Deploy discipline — no duplicate deploys.** Railway auto-deploys
+  on git push to main (GitHub webhook). `railway up` ALSO triggers a
+  deploy. NEVER use both in the same session — it causes duplicate
+  deploys, wastes build minutes, and doubles wait time. Default: use
+  `git push` ONLY. Use `railway up` ONLY for deploying uncommitted
+  local changes (rare) or explicitly bypassing git (very rare). Before
+  any deploy, self-check: am I about to trigger two deploy paths?
 - **Paper mode is non-negotiable.** TEST_MODE=true stays true.
 - **Trust the data.** Speed Demon +22 SOL in 36h = real edge.
   Analyst 0/3 in 0-2s = real problem.

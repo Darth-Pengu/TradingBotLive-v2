@@ -43,61 +43,35 @@ Exit checker MUST convert SOL→USD before comparing to entry_price
 Conversion: usd_price = sol_price_per_token × market:sol_price
 If market:sol_price is missing, fallback to $80 (fragile)
 Always fetch SOL/USD price in same batch as token prices
-0.4 — Trading Performance (April 14, 2026 — current)
-Balance: 31.8592 SOL (paper mode, stable since Apr 13 13:37 UTC)
-Clean baseline (259 clean trades since Apr 9 20:41 UTC, using
-corrected_pnl_sol): 26.3% WR, 68 wins, +17.73 SOL
-- Pre-fix subset (id <= 3564): 218 trades, 46 wins (21.1% WR),
-  -0.91 SOL corrected (was -4.81 with buggy column)
-- Post-fix subset (id > 3564): 41 trades, 22 wins (53.7% WR),
-  +18.65 SOL
+### Railway deploy rules
+- `git push origin main` → auto-deploys via GitHub webhook (DEFAULT)
+- `railway up` → also triggers deploy (USE ONLY when skipping git)
+- NEVER use both together. Duplicate deploys waste build minutes.
+- Env var changes in Railway UI → triggers deploy of that service only
+- Batch env var changes with `railway variables --set A=X --set B=Y`
+  in ONE call to avoid N redeploys
 
-CFGI: 21 (Alternative.me Bitcoin F&G, the current CFGI source).
-Note: this is NOT the Solana-specific CFGI Jay expected. See
-DASHBOARD_AUDIT.md B-001 — Alternative.me returns Bitcoin F&G.
-cfgi.io Stage 1 dual-read queued for tonight's recovery session.
+0.4 — Trading Performance (2026-04-17 — current)
 
-Current pipeline state as of 2026-04-14 21:40 AEDT: all services
-RUNNING. signal_aggregator recovered at ~11:40 UTC April 14 after 21h
-outage. Hardened with 5-attempt Redis retry + health heartbeat
-(commit 85768c5). 25+ trades completed since recovery.
+Trading wallet: 5.0000 SOL (mainnet, untouched — zero trades on-chain)
+Treasury wallet: 0.0984 SOL
+Mode: Paper (TEST_MODE=true) — live trial v3 pending solders mainnet test
 
-Speed Demon: sole active personality (when aggregator is running).
-Analyst: 0 trades recent (auto-paused, CFGI < 20 on broken source).
-Whale Tracker: 4 historical trades, currently dormant.
+Live trial history:
+- v1 (2026-04-16 22:00 AEDT): FAILED — solders .sign() removed in 0.21+
+- v2 (2026-04-17 08:00 AEDT): FAILED — populate() invalid signatures
+- v3: pending — VersionedTransaction(msg, [kp]) constructor, verified locally
 
-WARNING: ML score inversion at 70+ bucket (0% WR, -12.62% avg P/L).
-Model trained on 128 samples. See POST_TIER2_DIAGNOSIS.md.
+Paper trading (current):
+- Exit pipeline healthy, ~8 entries per 15 min
+- Win rate last 50: ~36%
+- Ghost position Redis cache cleaned (1,458 stale from April 5)
 
-685 pre-fix trades (20.4%) have corrupted exit prices — excluded from
-ML training via contamination filter (ML_TRAINING_CONTAMINATION_CUTOFF).
-
-IMPORTANT — P/L Reporting Correction (April 13, 2026):
-The paper_trades.realised_pnl_sol column is HISTORICALLY BUGGY for trades
-with staged_exits_done. Always use corrected_pnl_sol for analysis, ML
-training, and dashboard display.
-- Post-fix trades (id > 3564, correction_method = 'pass_through') have
-  identical values in both columns.
-- Pre-fix staged trades (correction_method = 'staged_tp_backfill_v1') have
-  APPROXIMATE corrected values (fills assumed at exact trigger prices, not
-  real slippage — within ~5% of true P/L).
-- 19 trades reclassified from loss to win after correction.
-
-### Post-recovery data review (2026-04-14 evening)
-
-Detailed trading analysis since recovery is in
-POST_RECOVERY_REVIEW_2026_04_14.md. Key findings:
-- Bot is net positive but barely (+0.05 SOL on 53 trades, 28.3% WR)
-- Structural pattern: staged TP trades carry the book (14 trades,
-  92.9% WR, +1.84 SOL) while non-staged trades bleed (39 trades,
-  5.1% WR, -1.79 SOL)
-- Edge is real but thin -- depends on the ~25% of entries that pump
-  hard enough to fire at least one staged TP
-- Stage 2 (cfgi.io cutover) is SAFE TO SHIP -- it doesn't affect
-  entry/exit logic, only the CFGI data source used for mode decisions
-- Two new bugs discovered: B-011 (outcome column NULL) and
-  B-012 (STAGED_TP_FIRE log not firing) -- both in the Known Bugs
-  Registry in ZMN_ROADMAP.md
+Dashboard state:
+- LIVE view: all zeros (no live trades yet)
+- PAPER view: current activity
+- OPEN POSITIONS + RECENT TRADES: MCAP columns (USD)
+- Mode toggle filters all main widgets
 
 ## Dashboard Data Source Notes (2026-04-13)
 
