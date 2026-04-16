@@ -2,6 +2,59 @@
 
 ---
 
+## 2026-04-17 ~08:30 AEDT — Ghost Position Cleanup + Live Trial v2 Findings
+
+### Ghost positions (1,458 in Redis, 2 in DB)
+Dashboard showed 1,486 "open positions" from April 5. Root cause:
+Redis `bot:status` key held 1,458 stale position entries that were
+never cleaned when paper_trades rows were closed. Dashboard API reads
+bot:status FIRST and only falls back to DB if it's empty.
+
+**Fix:** Deleted bot:status (1,458 entries) + 176 paper:positions:*
+keys from Redis. Dashboard now falls back to DB (2 actual open).
+
+### Live trial v2 (TEST_MODE=false flipped by Jay ~08:00 AEDT)
+- Solders populate() fix COMPILES and SIGNS — no more AttributeError
+- BUT: transactions fail on-chain with `SignatureFailure`
+- "Transaction simulation failed: Transaction did not pass signature verification"
+- The populate(message, [sig]) reconstruction from a deserialized tx
+  doesn't preserve message fidelity — the signature doesn't match
+  what validators expect
+- ALL 177+ events are sell ERRORs (trying to exit stale paper positions)
+- Zero live trades landed. Wallet untouched (5.0 SOL)
+- **TEST_MODE should be reverted to true**
+
+### Signing root cause (deeper than first post-mortem)
+The `populate()` API works for constructing NEW transactions, but
+round-tripping through `from_bytes() → .message → sign → populate()`
+loses message integrity. The PumpPortal API returns a pre-built
+unsigned transaction. We need to sign it WITHOUT reconstructing.
+
+Correct approach (for next fix session):
+```python
+# DON'T reconstruct:
+tx = VersionedTransaction.from_bytes(tx_bytes)
+sig = keypair.sign_message(bytes(tx.message))
+signed_tx = VersionedTransaction.populate(tx.message, [sig])  # BREAKS
+
+# DO sign the raw message bytes from the original tx:
+from solders.message import MessageV0
+from solders.signature import Signature
+tx = VersionedTransaction.from_bytes(tx_bytes)
+msg_bytes = bytes(tx.message)
+sig = keypair.sign_message(msg_bytes)
+# Need to construct with the ORIGINAL message object, not re-parsed
+```
+
+The exact fix requires testing against the solders API to find the
+correct serialization path. May need `solders.transaction.VersionedTransaction`
+constructor that takes (signatures, message) directly.
+
+### Commits
+- (none this session — diagnosis + Redis cleanup only)
+
+---
+
 ## 2026-04-16 ~23:00 AEDT — Live Trial Post-Mortem + Fixes
 
 ### What happened

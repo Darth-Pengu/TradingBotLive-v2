@@ -248,19 +248,36 @@ Tip tuning is REACTIVE — only adjust if live fee burn exceeds projected
 Trial safety env vars on bot_core: MAX_SD_POSITIONS=2,
 DAILY_LOSS_LIMIT_SOL=1.0 (hardcoded), MAX_TRADES_PER_HOUR=500.
 
-### Live Trial v1 Post-Mortem (2026-04-16)
+### Live Trial v1 + v2 Post-Mortem (2026-04-16/17)
 
-Live trial failed: 244/244 execution attempts errored on
-`VersionedTransaction.sign()` (removed in solders 0.21+).
-Zero trades landed on-chain. Wallet untouched (5.0 SOL).
+**v1 (Apr 16 22:00 AEDT):** 244/244 `.sign()` AttributeError.
+**v2 (Apr 17 08:00 AEDT):** `populate()` compiles but produces
+invalid signatures. On-chain `SignatureFailure` from validators.
 
-Fix: rewrote 3 signing blocks in execution.py to use
-`VersionedTransaction.populate(msg, [sig])` API (commit f59f025).
-Pinned solders>=0.21.0,<1.0.0.
+Root cause: `from_bytes() → .message → sign → populate()` round-trip
+doesn't preserve message integrity. The populate() API works for
+constructing NEW transactions but not for re-signing deserialized ones.
 
-Helius budget restored from 0 to 100,000/day on web service.
-TEST_MODE reverted to true. Paper stability observation 24-48h
-before live retry v2.
+**Signing is the SOLE blocker for live trading.** All other
+infrastructure (Helius, Jupiter, PumpPortal, Jito, wallet, safety
+rails, dashboard, trade_mode segregation) is ready.
+
+Wallet untouched at 5.0 SOL across both trials. Zero trades
+ever landed on-chain.
+
+### Ghost Position Cache Bug (2026-04-17)
+
+Redis `bot:status` accumulated 1,458 positions from April 5 that
+were never removed when paper_trades rows were closed. Dashboard
+API reads bot:status first, showing ghost positions.
+
+Cleaned: DEL bot:status + 176 paper:positions:* keys.
+Dashboard now shows 2 actual open positions from DB fallback.
+
+**Bug still exists in code:** bot_core publishes positions to
+bot:status but never removes closed ones from the Redis cache.
+Needs code fix: when a position is closed, also delete it from
+bot:status and paper:positions:{mint}.
 
 ## Service Monitoring Rule (added 2026-04-14)
 

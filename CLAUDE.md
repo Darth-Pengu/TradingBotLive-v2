@@ -42,23 +42,33 @@ Currently TEST_MODE=true (paper trading). Balance: 31.86 SOL.
 - Paper balance: ~50.95 SOL
 - Trading wallet: 5.00 SOL real SOL on mainnet (for trial trading)
 
-### Live trading preparation
-- Shadow analysis: 90.9% winner survival rate, STRONG edge assessment
-- Execution audit: ALL infrastructure exists
-- Trade mode segregation deployed
-- Tip/fee env-var configurability deployed
-- Position floor now env-var overridable (MIN_POSITION_SOL=0.05)
-- **Solders fix deployed:** VersionedTransaction.populate() API (f59f025)
-- **Live trial v1 FAILED** (244/244 solders errors, 0 trades on-chain)
+### Live trading preparation — BLOCKED ON SIGNING
+- Shadow analysis: 90.9% winner survival rate, STRONG edge
+- Execution infrastructure exists but **signing is broken**
+- **Live trial v1 FAILED:** 244/244 solders `.sign()` AttributeError
+- **Live trial v2 FAILED:** populate() fix compiles but produces
+  invalid signatures on-chain (`SignatureFailure` from validators)
+- Root cause: `from_bytes() → .message → sign → populate()` round-trip
+  loses message integrity. Need different serialization approach.
+- Ghost positions: 1,458 stale Redis entries cleaned (bot:status + paper:positions:*)
 - Helius budget restored to 100k/day
-- TEST_MODE=true. Live retry after 24-48h paper stability observation.
+- Wallet untouched: 5.0 SOL (zero trades ever landed on-chain)
 
 ### Pre-live checklist (MUST verify before any TEST_MODE=false)
-1. Verify solders signing works: import + sign a dummy message
-2. Verify Helius budget > 0
-3. Verify wallet balance >= 3 SOL
-4. Verify TEST_MODE=false propagates (check startup log after deploy)
-5. Pin solders version exactly in requirements.txt
+1. **Fix signing:** must produce valid on-chain signatures (test with
+   actual PumpPortal tx bytes, not just dummy messages)
+2. Verify signed tx passes simulation: `simulateTransaction` RPC call
+3. Verify Helius budget > 0
+4. Verify wallet balance >= 3 SOL
+5. Verify TEST_MODE=false propagates (check startup log)
+6. Clear stale Redis positions before going live
+
+### Known Redis cache bugs
+- bot:status accumulates positions but never removes closed ones.
+  On restart, bot_core rebuilds from DB, but the stale Redis entries
+  persist until manually deleted. Dashboard reads Redis first.
+- paper:positions:* keys have no TTL and persist across restarts.
+- **Workaround:** DEL bot:status + paper:positions:* before going live.
 
 ### Pipeline state (as of 2026-04-15)
 - signal_listener: ALIVE

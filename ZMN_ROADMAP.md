@@ -118,21 +118,32 @@ pump.fun micro-cap scale (confirmed finding from 2026-04-12).
 - Trade mode column + dashboard filter deployed
 
 **Live trial v1 FAILED (2026-04-16 22:00 AEDT):**
-- 244/244 execution attempts errored on solders API mismatch
-- Zero trades on-chain, wallet untouched (5.0 SOL)
-- Root cause: solders VersionedTransaction.sign() removed in 0.21+
-- Fix: rewrote signing to populate() API + pinned version (f59f025)
+- 244/244 solders `.sign()` AttributeError — API removed in 0.21+
 
-**Before live trial v2:**
-1. ~~Fix solders signing~~ DONE (f59f025)
-2. ~~Restore Helius budget~~ DONE (100k/day)
-3. Observe paper trading 24-48h with fixed solders
-4. Run pre-live checklist (verify signing on Railway, verify TEST_MODE propagation)
-5. Flip TEST_MODE=false
-6. Monitor first 5-10 real trades
+**Live trial v2 FAILED (2026-04-17 08:00 AEDT):**
+- populate() fix compiles + signs but produces INVALID signatures
+- On-chain: `SignatureFailure` from validators
+- Root cause: from_bytes() → .message → sign → populate() round-trip
+  loses message integrity
+- 177+ sell errors (all on stale paper positions), 0 buys attempted
+- Wallet untouched (5.0 SOL), zero trades ever landed on-chain
+
+**Ghost positions cleaned (2026-04-17 08:30 AEDT):**
+- DEL bot:status (1,458 stale entries from Apr 5)
+- DEL 176 paper:positions:* keys
+- Dashboard now shows 2 actual open positions from DB
+
+**Before live trial v3 (BLOCKED):**
+1. **FIX SIGNING** — the critical blocker. Need to find correct
+   solders serialization path that produces valid on-chain signatures.
+   Test with actual PumpPortal tx bytes + simulateTransaction RPC.
+2. Clear stale Redis positions
+3. Verify signed tx passes simulation
+4. Flip TEST_MODE=false
+5. Monitor first 5-10 real trades
 
 **Also queued:**
-- TP redesign observation window (ends ~Apr 17 11:32 UTC)
+- Fix bot:status cache leak (positions never removed on close)
 - Anthropic credit top-up (governance LLM dead)
 - ML training code update (30-45 min)
 - Analyst re-enable investigation (30-45 min)
