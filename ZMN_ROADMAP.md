@@ -133,10 +133,8 @@ pump.fun micro-cap scale (confirmed finding from 2026-04-12).
 - DEL 176 paper:positions:* keys
 - Dashboard now shows 2 actual open positions from DB
 
-**Before live trial v3 (BLOCKED):**
-1. **FIX SIGNING** — the critical blocker. Need to find correct
-   solders serialization path that produces valid on-chain signatures.
-   Test with actual PumpPortal tx bytes + simulateTransaction RPC.
+**Before live trial v3:**
+1. ~~FIX SIGNING~~ DONE (ce86cd5) — constructor API verified locally
 2. Clear stale Redis positions
 3. Verify signed tx passes simulation
 4. Flip TEST_MODE=false

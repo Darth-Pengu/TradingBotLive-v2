@@ -254,9 +254,10 @@ DAILY_LOSS_LIMIT_SOL=1.0 (hardcoded), MAX_TRADES_PER_HOUR=500.
 **v2 (Apr 17 08:00 AEDT):** `populate()` compiles but produces
 invalid signatures. On-chain `SignatureFailure` from validators.
 
-Root cause: `from_bytes() → .message → sign → populate()` round-trip
-doesn't preserve message integrity. The populate() API works for
-constructing NEW transactions but not for re-signing deserialized ones.
+**v3 fix (ce86cd5):** Use `VersionedTransaction(tx.message, [keypair])`
+constructor. Neither `.sign()` nor `populate()` work. The constructor
+is the only API that correctly signs a deserialized VersionedTransaction.
+Verified locally with realistic SOL transfer instruction round-trip.
 
 **Signing is the SOLE blocker for live trading.** All other
 infrastructure (Helius, Jupiter, PumpPortal, Jito, wallet, safety

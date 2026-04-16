@@ -42,7 +42,18 @@ Currently TEST_MODE=true (paper trading). Balance: 31.86 SOL.
 - Paper balance: ~50.95 SOL
 - Trading wallet: 5.00 SOL real SOL on mainnet (for trial trading)
 
-### Live trading preparation — BLOCKED ON SIGNING
+### Solders signing — THE CORRECT API (learned the hard way)
+The ONLY correct way to sign a VersionedTransaction in solders >= 0.21:
+```python
+tx = VersionedTransaction.from_bytes(tx_bytes)
+signed_tx = VersionedTransaction(tx.message, [keypair])  # constructor signs
+```
+- `.sign([keypair])` — REMOVED in 0.21 (AttributeError)
+- `populate(msg, [sig])` — COMPILES but produces INVALID signatures
+- `VersionedTransaction(msg, [keypair])` — CORRECT, verified locally
+Devnet test before any mainnet live retry is mandatory.
+
+### Live trading preparation — SIGNING FIX DEPLOYED (v3 constructor)
 - Shadow analysis: 90.9% winner survival rate, STRONG edge
 - Execution infrastructure exists but **signing is broken**
 - **Live trial v1 FAILED:** 244/244 solders `.sign()` AttributeError

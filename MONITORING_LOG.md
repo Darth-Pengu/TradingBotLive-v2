@@ -2,6 +2,37 @@
 
 ---
 
+## 2026-04-17 ~09:00 AEDT — Solders Signing Fix v2 (Constructor API)
+
+### What happened
+Found the correct solders signing API. The VersionedTransaction
+CONSTRUCTOR `VersionedTransaction(message, [keypair])` handles signing
+internally. Neither `.sign()` (v1 attempt) nor `populate(msg, [sig])`
+(v2 attempt) work for re-signing deserialized transactions.
+
+### What was wrong with each attempt
+- **v1 (.sign):** API removed in solders 0.21+ (AttributeError)
+- **v2 (populate):** Compiles but produces invalid signatures.
+  `populate(msg, [sig])` builds the tx but the signature doesn't match
+  what validators expect — the message serialization differs between
+  `sign_message(bytes(msg))` and what the constructor produces internally.
+- **v3 (constructor):** `VersionedTransaction(tx.message, [keypair])`
+  — the constructor handles the full sign-then-assemble flow correctly.
+
+### Verification
+Tested locally with realistic SOL transfer instruction (not toy/default):
+- CompiledInstruction with System Transfer, proper header, 3 accounts
+- Round-trip: from_bytes → constructor re-sign → verify_with_results = [True]
+- Bytes match after round-trip
+
+### Commit
+ce86cd5: 3 signing blocks updated (lines 275, 351, 455)
+
+### Next step
+Deploy → Jay flips TEST_MODE=false for 1-trade live test → flip back.
+
+---
+
 ## 2026-04-17 ~08:30 AEDT — Ghost Position Cleanup + Live Trial v2 Findings
 
 ### Ghost positions (1,458 in Redis, 2 in DB)
