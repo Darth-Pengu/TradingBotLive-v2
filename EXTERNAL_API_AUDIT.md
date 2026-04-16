@@ -1,8 +1,29 @@
 # External API Audit — 2026-04-16
 
+## Update — Helius Endpoint Switched (same day)
+
+The Secure RPC endpoint (ardith-mo8tnm-fast-mainnet) is limited to
+**5 TPS per IP** and returns 522 on all attempts. Not suitable for bot.
+
+**Action taken:** HELIUS_STAKED_URL switched from Secure → Standard RPC.
+Gatekeeper beta kept as HELIUS_GATEKEEPER_URL fallback.
+
+| Endpoint | Single Median | Burst 20/2s | Burst Median | Verdict |
+|----------|-------------|-------------|-------------|---------|
+| Standard | 47ms | 20/20 (100%) | 48ms | **PRIMARY** |
+| Gatekeeper | 436ms | 20/20 (100%) | 430ms | BACKUP |
+| Secure (5TPS) | all 522 | 0/20 (0%) | N/A | REMOVED |
+
+Standard is ~10x faster than Gatekeeper with identical reliability.
+Secure RPC permanently removed from bot rotation.
+
+---
+
 ## Executive Summary
 
-Most execution-critical APIs are working. **One critical gap:** Helius
+Most execution-critical APIs are working. **Helius Staked issue
+RESOLVED** — switched from Secure RPC (5 TPS, 522) to Standard RPC
+(48ms, 100% burst success). All execution APIs now confirmed working. Helius
 Staked RPC (the fast tx submission endpoint) returns HTTP 522 on every
 attempt. This is the PRIMARY endpoint for real trade submission in
 execution.py. The standard Helius RPC works fine (285ms median) and

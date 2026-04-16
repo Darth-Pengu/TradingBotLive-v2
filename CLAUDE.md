@@ -88,8 +88,7 @@ Currently TEST_MODE=true (paper trading). Balance: 31.86 SOL.
 - Go/No-Go: **READY WITH ONE FIX** (Helius Staked URL)
 
 ### Known blockers
-- **Helius Staked URL returning 522** — needs new URL from Helius
-  dashboard or accept standard RPC fallback for tx submission
+- ~~Helius Staked URL 522~~ RESOLVED — switched to Standard RPC (48ms)
 - TP redesign experiment active (ends 2026-04-17 ~11:32 UTC)
 - B-013: DEFERRED — symbol column empty, needs paper_trader fix
 - ML retrain blocked on 500+ clean samples

@@ -2,6 +2,22 @@
 
 ---
 
+## 2026-04-16 ~19:45 AEDT — Helius RPC Audit v2 + Endpoint Switch
+
+Tested all 3 Helius endpoints under single-call and burst conditions.
+Standard RPC won decisively (48ms median, 20/20 burst) vs Gatekeeper
+(430ms, 20/20) vs Secure (all 522, 0/20).
+
+**Action:** HELIUS_STAKED_URL switched from Secure → Standard RPC.
+Gatekeeper kept as HELIUS_GATEKEEPER_URL fallback. No code changes.
+
+**Verification:** bot_core redeployed cleanly, exit evaluator running,
+signals flowing. Dashboard still healthy.
+
+**Helius Staked 522 blocker: RESOLVED.** All execution APIs now ready.
+
+---
+
 ## 2026-04-16 ~19:30 AEDT — External API Audit (Read-Only)
 
 Read-only audit of every external service the bot depends on.

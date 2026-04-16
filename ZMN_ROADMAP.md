@@ -116,8 +116,7 @@ pump.fun micro-cap scale (confirmed finding from 2026-04-12).
 - External API audit: all critical APIs working EXCEPT Helius Staked (522)
 
 **Before flipping TEST_MODE=false:**
-1. **Fix Helius Staked URL** (generate new from Helius dashboard, or
-   accept standard RPC fallback — 5 min env var change)
+1. ~~Fix Helius Staked URL~~ DONE — switched to Standard RPC (48ms)
 2. Override MIN_POSITION floor 0.15->0.05 SOL (code change)
 3. Tighten safety limits (MAX_DAILY_LOSS=0.50, MAX_POSITIONS=2)
 4. Flip TEST_MODE=false on bot_core

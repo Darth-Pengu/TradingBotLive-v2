@@ -212,15 +212,19 @@ Dashboard top bar now shows real on-chain SOL balances:
 - B-013 DEFERRED: symbol column empty, paper_buy doesn't populate it
 - B-014 OBSOLETE: BTC display removed
 
-### External API Audit (2026-04-16)
+### External API Audit + Helius Switch (2026-04-16)
 
-Every external service tested. Critical finding: Helius Staked RPC
-returns 522 (primary tx submission endpoint DOWN). Standard Helius
-RPC works (285ms) as fallback. All other execution APIs (Jupiter V2,
-PumpPortal, Jito) working. cfgi.io working (60.5). Anthropic credits
-exhausted. SocialData credits exhausted.
+Every external service tested. Helius Staked was Secure RPC (5 TPS,
+all 522). **FIXED:** switched to Standard RPC (48ms median, 20/20
+burst). Gatekeeper beta kept as fallback (430ms, 20/20 burst).
 
-Go/No-Go: READY WITH ONE FIX (Helius Staked URL).
+Bot now uses:
+- HELIUS_STAKED_URL = Standard RPC (mainnet.helius-rpc.com) — fastest
+- HELIUS_GATEKEEPER_URL = Gatekeeper beta (beta.helius-rpc.com) — backup
+- HELIUS_RPC_URL = Standard RPC (unchanged)
+- Secure RPC (ardith-...) removed permanently (5 TPS per IP limit)
+
+Go/No-Go: **READY for live trial.** All execution APIs confirmed.
 See: EXTERNAL_API_AUDIT.md
 
 ## Service Monitoring Rule (added 2026-04-14)
