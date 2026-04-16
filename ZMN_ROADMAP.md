@@ -107,19 +107,25 @@ pump.fun micro-cap scale (confirmed finding from 2026-04-12).
 
 ---
 
-## Current Plan (2026-04-15)
+## Current Plan (2026-04-16)
 
-**Completed today:**
-- Stage 2 cutover deployed (f3a5c74, eebccf5) + Analyst disabled
-- cfgi.io credits topped up (100k) — SOL CFGI = 41.5 now ACTIVE
-- B-011 fixed: outcome column written + 2,966 rows backfilled (77d6a8a, 429dd87)
-- B-012 closed: STAGED_TP_FIRE IS firing (false positive, confirmed in logs)
+**Completed:**
+- Shadow Phase 2 analysis: 90.9% winner survival, 19% median discount
+- Execution audit: ALL infrastructure exists, 1 minor gap (position floor)
+- Trading wallet: 5.00 SOL funded on mainnet
 
-**Next sessions (in priority order):**
-1. TP redesign (UNBLOCKED — STAGED_TP_FIRE confirmed) — 75-90 min
-2. ML training code update to use corrected_pnl_sol (30-45 min)
-3. Analyst re-enable investigation (30-45 min, read-only)
-4. B-013 dashboard token name fix (15-20 min)
+**Live trial trading preparation (NEXT):**
+1. Override MIN_POSITION floor 0.15->0.05 SOL (~30 min session)
+2. Tighten safety limits for trial (MAX_DAILY_LOSS=0.50, MAX_POSITIONS=2)
+3. Flip TEST_MODE=false on bot_core
+4. Monitor first 5-10 real trades
+5. 50-trade minimum observation before scaling
+
+**Also queued:**
+- TP redesign observation window still active (ends ~Apr 17 11:32 UTC)
+- ML training code update (30-45 min)
+- Analyst re-enable investigation (30-45 min)
+- B-013/B-014 dashboard cleanup (30 min)
 
 ---
 

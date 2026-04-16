@@ -35,14 +35,19 @@ Currently TEST_MODE=true (paper trading). Balance: 31.86 SOL.
 - treasury → services/treasury.py (balance tracking)
 - web → services/dashboard_api.py + dashboard/*.html (14-panel retro green dashboard)
 
-## Current State (April 15, 2026)
+## Current State (April 16, 2026)
 
 ### Financial state
-- 3,990 paper trades total
-- Paper balance: 42.67 SOL
-- Post-recovery window (348 closed trades since 11:40 UTC Apr 14):
-  Speed Demon 345 trades, 38.6% WR, +11.46 SOL. Analyst 3 trades,
-  0% WR, -0.44 SOL (all 0-2s holds, stop_loss_20%).
+- ~4,945 paper trades total
+- Paper balance: ~50.95 SOL
+- Trading wallet: 5.00 SOL real SOL on mainnet (for trial trading)
+
+### Live trading preparation
+- Shadow analysis: 90.9% winner survival rate, STRONG edge assessment
+- Execution audit: ALL infrastructure exists, 0 code gaps
+- 1 minor config gap: position floor hard-coded at 0.15 SOL, need 0.05
+- IMPORTANT: TEST_MODE is still true. Do NOT change without explicit
+  Jay approval in a dedicated live-trading session.
 
 ### Pipeline state (as of 2026-04-15)
 - signal_listener: ALIVE

@@ -2,6 +2,49 @@
 
 ---
 
+## 2026-04-16 ~18:15 AEDT — Shadow Phase 2 Analysis + Execution Audit (Read-Only)
+
+### What happened
+Combined read-only session analyzing 20h of shadow execution
+measurements (2,959 entries) and auditing real execution infrastructure.
+
+### Shadow Analysis findings
+- 2,959 measurements over 20.0 hours (734 entries, 1477 exits, 748 staged TPs)
+- Decision-to-fill: median 483ms (real adds ~1-2s)
+- Paper vs BC price gap: median 2.98%
+- Peak-to-exit gap: median 28.2% (trailing stops fire after significant peak drop)
+- Staged TP overshoot: +50% fires at median 1.81x (20.9% past trigger)
+- **Winner survival rate: 90.9%** (308 of 339 paper winners survive live)
+- Median execution discount: 19% (paper overstates live P/L by ~1/5)
+- **Live edge assessment: STRONG**
+
+### Execution Audit findings
+- Complete execution infrastructure EXISTS (execution.py, 704 lines)
+- Jupiter V2 swap: COMPLETE
+- PumpPortal local buy/sell: COMPLETE
+- Jito MEV bundle: COMPLETE (3 tip tiers: 0.001/0.01/0.1 SOL)
+- Tx signing: COMPLETE (Keypair from env var)
+- RPC: Helius paid (staked + standard endpoints)
+- Trading wallet: 5.00 SOL funded
+- Safety rails: comprehensive (position limits, loss limits, circuit breakers)
+- **Gaps to close: 1 minor** (position floor hard-coded at 0.15 SOL, need 0.05 override)
+- **Estimated prep session: ~30 min**
+
+### Reports
+- SHADOW_ANALYSIS_2026_04_16.md
+- EXECUTION_AUDIT_2026_04_16.md
+
+### Next steps for trial trading
+1. Override MIN_POSITION floor from 0.15 to 0.05 SOL
+2. Tighten safety limits (MAX_DAILY_LOSS=0.50, MAX_POSITIONS=2)
+3. Flip TEST_MODE=false on bot_core
+4. Monitor first 5-10 real trades
+5. 50-trade minimum observation before scaling up
+
+No code changes. No deploys. Read-only.
+
+---
+
 ## 2026-04-15 ~22:20 AEDT — Shadow Trading Phase 1 (Measurement Infrastructure)
 
 ### What happened

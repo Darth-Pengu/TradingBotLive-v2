@@ -187,6 +187,22 @@ Does not affect trading. Early finding: staged TP overshoot is 23-29%
 Phase 2 analysis after 24h of data accumulation.
 See: SHADOW_MEASUREMENT_PLAN.md
 
+### Shadow Phase 2 + Execution Audit (2026-04-16)
+
+Shadow analysis of 2,959 measurements over 20h found:
+- Winner survival rate: 90.9% (STRONG — 9/10 paper wins survive live)
+- Median execution discount: 19% (paper overstates by ~1/5)
+- Staged TP overshoot: 20-49% (bot fires above trigger, favorable)
+- Peak-to-exit gap: median 28.2% (trailing stop reaction latency)
+
+Execution audit found ALL infrastructure exists (execution.py):
+- Jupiter V2 swap, PumpPortal local, Jito bundle, Helius RPC
+- Trading wallet: 5.00 SOL funded on mainnet
+- Clean TEST_MODE branch in bot_core (paper vs live paths)
+- 1 gap: position floor hard-coded at 0.15 SOL, need 0.05 for trial
+
+See: SHADOW_ANALYSIS_2026_04_16.md, EXECUTION_AUDIT_2026_04_16.md
+
 ## Service Monitoring Rule (added 2026-04-14)
 
 signal_aggregator now writes a health heartbeat to
