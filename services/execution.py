@@ -272,8 +272,7 @@ async def _execute_pumpportal(
 
     keypair = Keypair.from_base58_string(TRADING_WALLET_PRIVATE_KEY)
     tx = VersionedTransaction.from_bytes(tx_bytes)
-    sig = keypair.sign_message(bytes(tx.message))
-    signed_tx = VersionedTransaction.populate(tx.message, [sig])
+    signed_tx = VersionedTransaction(tx.message, [keypair])
 
     # Send via Jito bundle for MEV protection (Jupiter has built-in MEV — no Jito needed)
     signed_bytes = bytes(signed_tx)
@@ -349,8 +348,7 @@ async def _execute_pumpportal_local(
 
     keypair = Keypair.from_base58_string(TRADING_WALLET_PRIVATE_KEY)
     tx = VersionedTransaction.from_bytes(tx_bytes)
-    sig = keypair.sign_message(bytes(tx.message))
-    signed_tx = VersionedTransaction.populate(tx.message, [sig])
+    signed_tx = VersionedTransaction(tx.message, [keypair])
     signed_bytes = bytes(signed_tx)
 
     # Send via Helius RPC
@@ -454,8 +452,7 @@ async def _execute_jupiter(
     tx_bytes = base64.b64decode(tx_b64)
     tx = VersionedTransaction.from_bytes(tx_bytes)
     keypair = Keypair.from_base58_string(TRADING_WALLET_PRIVATE_KEY)
-    sig = keypair.sign_message(bytes(tx.message))
-    signed_tx = VersionedTransaction.populate(tx.message, [sig])
+    signed_tx = VersionedTransaction(tx.message, [keypair])
     signed_b64 = base64.b64encode(bytes(signed_tx)).decode("utf-8")
 
     # Step 3: POST /swap/v2/execute — managed landing (confirmed on-chain)
