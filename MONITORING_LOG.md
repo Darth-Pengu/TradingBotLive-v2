@@ -2,6 +2,34 @@
 
 ---
 
+## 2026-04-16 ~19:30 AEDT — External API Audit (Read-Only)
+
+Read-only audit of every external service the bot depends on.
+
+### Critical findings
+- **Helius Staked RPC: DOWN (522)** — primary tx submit endpoint.
+  Fallback to standard RPC works (285ms). Needs new URL from Helius
+  dashboard or accept standard RPC for live.
+- **Anthropic: CREDITS EXHAUSTED** — governance LLM non-functional
+- **SocialData: CREDITS EXHAUSTED** — social enrichment dead
+- All other execution-critical APIs: WORKING
+
+### Latency (median from Sydney, Railway will be faster)
+- Helius RPC: 285ms (GOOD)
+- Jupiter V2: 365ms (GOOD)
+- Jito: 629ms (OK)
+- CoinGecko: 48ms (EXCELLENT)
+
+### Verdict: READY WITH ONE FIX
+- Fix or accept Helius Staked URL (standard RPC fallback exists)
+- Everything else ready for TEST_MODE=false
+
+Full report: EXTERNAL_API_AUDIT.md
+
+No code changes. No deploys. No real trades. Read-only.
+
+---
+
 ## 2026-04-16 ~18:50 AEDT — Dashboard Rewrite (Real Wallets + CFGI Cleanup)
 
 ### What happened

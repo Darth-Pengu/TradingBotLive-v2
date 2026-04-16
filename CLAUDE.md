@@ -59,7 +59,7 @@ Currently TEST_MODE=true (paper trading). Balance: 31.86 SOL.
   Redis shadow:measurements). DO NOT modify exit strategy.
 - market_health: ALIVE, **Stage 2 CFGI cutover deployed** (cfgi.io SOL
   primary, credits topped up, SOL CFGI = 41.5 active).
-- governance: ALIVE (every 4h, LLM hallucinates CFGI values — B-010)
+- governance: ALIVE but **Anthropic credits exhausted** — LLM non-functional
 
 ### ML state
 - CatBoost + XGBoost ensemble, 128 clean training samples
@@ -79,14 +79,21 @@ Currently TEST_MODE=true (paper trading). Balance: 31.86 SOL.
   0/3 WR with 0-2s holds pending investigation.
 - Whale Tracker: dormant
 
+### External API readiness (2026-04-16)
+- Execution APIs: ALL working EXCEPT **Helius Staked RPC (522)**
+- Helius standard RPC: OK (285ms), fallback viable for live
+- Jupiter V2: OK (365ms), Jito: OK (629ms), PumpPortal: OK
+- **Anthropic: CREDITS EXHAUSTED** — governance non-functional
+- **SocialData: CREDITS EXHAUSTED** — social enrichment dead
+- Go/No-Go: **READY WITH ONE FIX** (Helius Staked URL)
+
 ### Known blockers
-- **TP redesign experiment in progress** — do NOT modify Speed Demon
-  exit strategy until observation window closes (2026-04-17 ~11:32 UTC)
-  or revert criteria hit
+- **Helius Staked URL returning 522** — needs new URL from Helius
+  dashboard or accept standard RPC fallback for tx submission
+- TP redesign experiment active (ends 2026-04-17 ~11:32 UTC)
 - B-013: DEFERRED — symbol column empty, needs paper_trader fix
-- B-014: OBSOLETE — CFGI(BTC) removed from dashboard
-- ML retrain blocked on 500+ clean samples AND feature cleanup
-- Helius credits exhausted until April 26
+- ML retrain blocked on 500+ clean samples
+- Anthropic credits exhausted (governance dead)
 
 ## Known Issues (Priority Order, April 11)
 1. ML SCORE INVERSION: 70+ scores have 0% WR, -12.62% avg P/L. Model trained on 128 samples (6 positives) memorized spurious patterns (hour_of_day, sol_price). See POST_TIER2_DIAGNOSIS.md.
