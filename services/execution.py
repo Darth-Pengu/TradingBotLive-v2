@@ -42,6 +42,16 @@ TRADING_WALLET_PRIVATE_KEY = os.getenv("TRADING_WALLET_PRIVATE_KEY", "")
 TRADING_WALLET_ADDRESS = os.getenv("TRADING_WALLET_ADDRESS", "")
 JUPITER_API_KEY = os.getenv("JUPITER_API_KEY", "").strip()
 
+if not TEST_MODE:
+    _helius_urls = [u for u in (HELIUS_STAKED_URL, HELIUS_RPC_URL, HELIUS_GATEKEEPER_URL) if u]
+    if not _helius_urls:
+        raise RuntimeError(
+            "execution.py: TEST_MODE=false but no Helius URL configured. "
+            "Set at least one of HELIUS_STAKED_URL / HELIUS_RPC_URL / HELIUS_GATEKEEPER_URL. "
+            "Refusing to start — would produce silent sell-storm errors."
+        )
+    logger.info("execution.py: live mode OK, %d Helius URL(s) configured", len(_helius_urls))
+
 # --- Endpoints ---
 PUMPPORTAL_TRADE_URL = "https://pumpportal.fun/api/trade-local"
 JUPITER_ORDER_URL = "https://api.jup.ag/swap/v2/order"
@@ -263,7 +273,7 @@ async def _execute_pumpportal(
     async with session.post(PUMPPORTAL_TRADE_URL, json=payload, timeout=aiohttp.ClientTimeout(total=30)) as resp:
         if resp.status != 200:
             body = await resp.text()
-            raise ExecutionError(f"PumpPortal HTTP {resp.status}: {body[:200]}")
+            raise ExecutionError(f"PumpPortal HTTP {resp.status}: {body[:2048]}")
         tx_bytes = await resp.read()
 
     # Sign with trading wallet keypair
@@ -339,7 +349,7 @@ async def _execute_pumpportal_local(
     ) as resp:
         if resp.status != 200:
             body = await resp.text()
-            raise ExecutionError(f"PumpPortal Local HTTP {resp.status}: {body[:200]}")
+            raise ExecutionError(f"PumpPortal Local HTTP {resp.status}: {body[:2048]}")
         tx_bytes = await resp.read()
 
     # Sign with trading wallet keypair
@@ -364,7 +374,7 @@ async def _execute_pumpportal_local(
         }],
     }
 
-    for rpc_url in (HELIUS_STAKED_URL, HELIUS_RPC_URL):
+    for rpc_url in (HELIUS_STAKED_URL, HELIUS_RPC_URL, HELIUS_GATEKEEPER_URL):
         if not rpc_url:
             continue
         try:
@@ -529,7 +539,7 @@ async def _send_transaction(session: aiohttp.ClientSession, tx_bytes: bytes, ski
     }
     last_error = ""
     helius_api_key = os.getenv("HELIUS_API_KEY", "").strip()
-    for rpc_url in (HELIUS_STAKED_URL, HELIUS_GATEKEEPER_URL):
+    for rpc_url in (HELIUS_STAKED_URL, HELIUS_RPC_URL, HELIUS_GATEKEEPER_URL):
         if not rpc_url:
             continue
         try:

@@ -53,7 +53,7 @@ PERSONALITY_SIZE_ADJUSTMENT = {
 }
 
 # Import sibling modules
-from services.execution import execute_trade, Token, ExecutionResult, set_live_log_pool, live_execution_log
+from services.execution import execute_trade, Token, ExecutionResult, ExecutionError, set_live_log_pool, live_execution_log
 from services.risk_manager import (
     calculate_position_size,
     check_emergency_conditions,
@@ -156,6 +156,10 @@ class Position:
     cumulative_pnl_sol: float = 0.0  # Accumulated P/L across all staged exits
 
 
+SELL_FAIL_THRESHOLD = int(os.getenv("SELL_FAIL_THRESHOLD", "8"))
+SELL_PARK_DURATION_SEC = int(os.getenv("SELL_PARK_DURATION_SEC", "300"))
+
+
 class BotCore:
     def __init__(self):
         self.positions: dict[str, Position] = {}  # key: f"{personality}:{mint}"
@@ -163,6 +167,10 @@ class BotCore:
         self.emergency_stopped = False
         self.pool = None
         self.redis: aioredis.Redis | None = None
+        # Sell-storm circuit breaker: park a mint after N consecutive live-sell failures.
+        # Prevents same-mint retry loops from generating thousands of identical errors.
+        self._sell_failure_counts: dict[str, int] = {}
+        self._parked_mints: dict[str, float] = {}  # mint -> unix_ts when parked
 
     async def init(self):
         self.pool = await get_pool()
@@ -1032,11 +1040,42 @@ class BotCore:
                              pos.personality, pos.mint[:12], sell_pct*100, reason, pos.remaining_pct*100)
             return
 
+        park_ts = self._parked_mints.get(pos.mint)
+        if park_ts is not None:
+            if (time.time() - park_ts) < SELL_PARK_DURATION_SEC:
+                return  # silently skip — avoids log spam during the cool-off window
+            # cool-off expired: unpark and allow one retry
+            self._parked_mints.pop(pos.mint, None)
+            self._sell_failure_counts[pos.mint] = 0
+
         token = Token(mint=pos.mint, bonding_curve_progress=pos.bonding_curve_progress)
-        result = await execute_trade(
-            "sell", token, sell_amount, slippage_tier="sell",
-            bonding_curve_progress=pos.bonding_curve_progress,
-        )
+        try:
+            result = await execute_trade(
+                "sell", token, sell_amount, slippage_tier="sell",
+                bonding_curve_progress=pos.bonding_curve_progress,
+            )
+        except ExecutionError as e:
+            err_class = f"{type(e).__name__}:{str(e)[:40]}"
+            fails = self._sell_failure_counts.get(pos.mint, 0) + 1
+            self._sell_failure_counts[pos.mint] = fails
+            if fails >= SELL_FAIL_THRESHOLD:
+                self._parked_mints[pos.mint] = time.time()
+                logger.error(
+                    "PARK mint=%s after %d consecutive sell failures (last: %s). Cooling off %ds.",
+                    pos.mint[:12], SELL_FAIL_THRESHOLD, err_class, SELL_PARK_DURATION_SEC,
+                )
+                try:
+                    await live_execution_log(
+                        event_type="ERROR", mint=pos.mint, action="sell",
+                        error_msg=f"PARKED after {SELL_FAIL_THRESHOLD} failures: {err_class}",
+                        extra={"parked": True, "consecutive_failures": SELL_FAIL_THRESHOLD,
+                               "last_error": err_class},
+                    )
+                except Exception:
+                    pass
+            raise
+        # success — reset the counter for this mint
+        self._sell_failure_counts.pop(pos.mint, None)
 
         pos.remaining_pct *= (1 - sell_pct)
         current_price = await self._get_token_price(pos.mint)
