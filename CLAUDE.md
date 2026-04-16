@@ -167,6 +167,9 @@ default unless Jay explicitly overrides.
   simulation alone. Always have actual instrumentation data.
 - **Bounded scope, hard stops.** Every prompt has a max wall clock.
   When reached, commit whatever's done and stop. No "while we're here."
+- **TEST_MODE flip doesn't reset positions.** bot_core reconcile MUST
+  filter by trade_mode or paper positions block live MAX_SD_POSITIONS.
+  Always clear stale positions before mode flip.
 - **Deploy discipline — no duplicate deploys.** Railway auto-deploys
   on git push to main (GitHub webhook). `railway up` ALSO triggers a
   deploy. NEVER use both in the same session — it causes duplicate

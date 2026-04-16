@@ -133,13 +133,16 @@ pump.fun micro-cap scale (confirmed finding from 2026-04-12).
 - DEL 176 paper:positions:* keys
 - Dashboard now shows 2 actual open positions from DB
 
-**Before live trial v3:**
-1. ~~FIX SIGNING~~ DONE (ce86cd5) — constructor API verified locally
-1b. ~~Dashboard mode filter~~ DONE (09ed21f + c328784) — LIVE view fully honest, MCAP columns
-2. Clear stale Redis positions
-3. Verify signed tx passes simulation
-4. Flip TEST_MODE=false
-5. Monitor first 5-10 real trades
+**Live trial v3 (2026-04-17):** SIGNING VERIFIED (0 SigFail in 83 attempts),
+BLOCKED by stale paper positions filling MAX_SD_POSITIONS=2.
+
+**Live trial v4 — READY:**
+- ~~Signing~~ DONE (constructor API, mainnet-verified)
+- ~~Dashboard~~ DONE (LIVE view honest, MCAP columns)
+- ~~Stale positions~~ CLEANED (2 closed, Redis cleared)
+- ~~Reconcile fix~~ DONE (4b647a7, trade_mode filter)
+- ~~MAX_SD_POSITIONS~~ 20 (was 2)
+- TEST_MODE=false already active, deploy incoming
 
 **Also queued:**
 - Fix bot:status cache leak (positions never removed on close)

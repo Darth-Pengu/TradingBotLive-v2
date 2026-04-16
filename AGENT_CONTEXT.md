@@ -55,12 +55,14 @@ Always fetch SOL/USD price in same batch as token prices
 
 Trading wallet: 5.0000 SOL (mainnet, untouched — zero trades on-chain)
 Treasury wallet: 0.0984 SOL
-Mode: Paper (TEST_MODE=true) — live trial v3 pending solders mainnet test
+Mode: Live (TEST_MODE=false) — trial v4 active after reconcile fix
 
 Live trial history:
 - v1 (2026-04-16 22:00 AEDT): FAILED — solders .sign() removed in 0.21+
 - v2 (2026-04-17 08:00 AEDT): FAILED — populate() invalid signatures
-- v3: pending — VersionedTransaction(msg, [kp]) constructor, verified locally
+- v3 (2026-04-17 10:00 AEDT): SIGNING VERIFIED (0 SigFail in 83 attempts),
+  BLOCKED by stale paper positions filling MAX_SD_POSITIONS=2
+- v4: ACTIVE — reconcile fix deployed, positions cleared, MAX_SD=20
 
 Paper trading (current):
 - Exit pipeline healthy, ~8 entries per 15 min

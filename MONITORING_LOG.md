@@ -2,6 +2,23 @@
 
 ---
 
+## 2026-04-17 ~11:30 AEDT — Trial v3 Cleanup + Reconcile Fix
+
+Trial v3: signing VERIFIED (0 SignatureFailure in 83+ attempts), BLOCKED
+by 2 stale paper positions filling MAX_SD_POSITIONS=2.
+
+Cleanup (TEST_MODE=false, wallet safe):
+- 2 stale positions closed (exit_reason='mode_flip_cleanup')
+- Redis bot:status + paper:positions:* cleared
+- bot_core._reconcile_positions + _load_state now filter by trade_mode
+  (commit 4b647a7) — paper positions don't block live MAX_SD_POSITIONS
+- MAX_SD_POSITIONS: 2 -> 20, DAILY_LOSS_LIMIT_SOL: set 1.0
+
+Trial v4: ready for overnight run. Bot on TEST_MODE=false with zero
+positions, reconcile filtering live-only, 20 slots available.
+
+---
+
 ## 2026-04-17 ~10:30 AEDT — Deploy Discipline Rule Added
 
 Documented in CLAUDE.md and AGENT_CONTEXT.md: never use git push AND
