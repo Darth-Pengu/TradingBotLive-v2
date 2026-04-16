@@ -35,6 +35,8 @@ logging.basicConfig(
 logger = logging.getLogger("paper_trader")
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
+_TEST_MODE = os.getenv("TEST_MODE", "true").lower() == "true"
+TRADE_MODE = "paper" if _TEST_MODE else "live"
 
 # Slippage simulation ranges (percentage)
 SLIPPAGE_RANGES = {
@@ -169,12 +171,13 @@ async def paper_buy(
         """INSERT INTO paper_trades
            (mint, personality, entry_price, amount_sol, slippage_pct, fees_sol,
             entry_time, signal_source, ml_score, entry_signature,
-            market_mode_at_entry, fear_greed_at_entry, rugcheck_risk, market_cap_at_entry)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+            market_mode_at_entry, fear_greed_at_entry, rugcheck_risk, market_cap_at_entry,
+            trade_mode)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
            RETURNING id""",
         mint, personality, entry_price, net_amount, slippage, fees,
         now, signal_source, ml_score, sig, market_mode, fear_greed, rugcheck_risk,
-        market_cap,
+        market_cap, TRADE_MODE,
     )
 
     # Store in Redis for live tracking
