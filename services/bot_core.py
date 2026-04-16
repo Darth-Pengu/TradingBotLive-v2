@@ -175,8 +175,10 @@ class BotCore:
         try:
             table = "paper_trades" if TEST_MODE else "trades"
             exit_col = "exit_time" if TEST_MODE else "closed_at"
+            current_mode = "paper" if TEST_MODE else "live"
+            mode_clause = f" AND trade_mode = '{current_mode}'" if table == "paper_trades" else ""
             rows = await self.pool.fetch(
-                f"SELECT mint, personality FROM {table} WHERE {exit_col} IS NULL"
+                f"SELECT mint, personality FROM {table} WHERE {exit_col} IS NULL{mode_clause}"
             )
             db_mints = {r["mint"] for r in rows}
             logger.info("Startup reconciliation: %d open positions in DB", len(db_mints))
@@ -222,11 +224,14 @@ class BotCore:
             logger.info("Paper mode: peak_balance set to %.4f SOL (prevents false drawdown stop)", self.portfolio.total_balance_sol)
 
         # Reload open positions from DB (with trailing stop state)
+        # Filter by trade_mode so paper positions don't block live MAX_SD_POSITIONS
         try:
             table = "paper_trades" if TEST_MODE else "trades"
             exit_col = "exit_time" if TEST_MODE else "closed_at"
+            current_mode = "paper" if TEST_MODE else "live"
+            mode_clause = f" AND trade_mode = '{current_mode}'" if table == "paper_trades" else ""
             rows = await self.pool.fetch(
-                f"SELECT * FROM {table} WHERE {exit_col} IS NULL ORDER BY id ASC"
+                f"SELECT * FROM {table} WHERE {exit_col} IS NULL{mode_clause} ORDER BY id ASC"
             )
             restored = 0
             for r in rows:
