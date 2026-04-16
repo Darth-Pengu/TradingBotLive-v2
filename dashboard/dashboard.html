@@ -403,11 +403,11 @@ tbody tr:hover { background: rgba(0, 255, 65, 0.03); }
     <span><span id="statusDot" class="status-dot"></span> <span id="statusText" style="font-size:14px;">CONNECTING...</span></span>
   </div>
   <div class="topbar-right">
-    <span class="stat-item"><span class="stat-label">BAL:</span> <span id="balanceVal" class="stat-value">--</span></span>
+    <span class="stat-item"><span class="stat-label">TRADE:</span> <span id="balanceVal" class="stat-value">--</span></span>
+    <span class="stat-item"><span class="stat-label">TREASURY:</span> <span id="treasuryVal" class="stat-value">--</span></span>
     <span class="stat-item"><span class="stat-label">PnL:</span> <span id="pnlVal" class="stat-value">--</span></span>
     <span class="stat-item"><span class="stat-label">SOL:</span> <span id="solPriceVal" class="stat-value">--</span></span>
-    <span class="stat-item"><span class="stat-label">CFGI(BTC):</span> <span id="cfgiVal" class="stat-value">--</span></span>
-    <span class="stat-item"><span class="stat-label">CFGI(SOL):</span> <span id="cfgiSolVal" class="stat-value">--</span></span>
+    <span class="stat-item"><span class="stat-label">CFGI:</span> <span id="cfgiSolVal" class="stat-value">--</span></span>
     <span class="stat-item"><span class="stat-label">WR:</span> <span id="wrVal" class="stat-value">--</span></span>
     <span class="stat-item"><span class="stat-label">ML:</span> <span id="mlAucVal" class="stat-value">--</span></span>
     <span class="stat-item"><span class="stat-label">MODE:</span> <span id="mktMode" class="stat-value">--</span></span>
@@ -724,8 +724,15 @@ async function fetchStatus() {
   document.getElementById('statusDot').classList.remove('offline');
   document.getElementById('statusText').textContent = 'ONLINE';
 
-  const bal = data.trading_balance || 0;
-  document.getElementById('balanceVal').textContent = bal.toFixed(2) + ' SOL';
+  // Trading wallet (real on-chain balance)
+  const tradeBal = data.trading_wallet_sol;
+  document.getElementById('balanceVal').textContent =
+    tradeBal != null ? tradeBal.toFixed(4) + ' SOL' : (data.trading_balance || 0).toFixed(2) + ' SOL';
+
+  // Treasury wallet (real on-chain balance)
+  const treasBal = data.treasury_wallet_sol;
+  document.getElementById('treasuryVal').textContent =
+    treasBal != null ? treasBal.toFixed(2) + ' SOL' : '-- SOL';
 
   const pnl = data.total_pnl || 0;
   const pnlEl = document.getElementById('pnlVal');
@@ -735,13 +742,8 @@ async function fetchStatus() {
   const sol = data.sol_price || 0;
   document.getElementById('solPriceVal').textContent = '$' + sol.toFixed(2);
 
-  const cfgi = data.fear_greed || data.cfgi || 0;
-  const cfgiEl = document.getElementById('cfgiVal');
-  const cfgiEmoji = cfgi < 20 ? ' \uD83D\uDD34' : cfgi < 40 ? ' \uD83D\uDFE1' : ' \uD83D\uDFE2';
-  cfgiEl.textContent = Math.round(cfgi) + cfgiEmoji;
-  cfgiEl.className = 'stat-value ' + (cfgi >= 40 ? 'positive' : cfgi >= 20 ? 'warn' : 'negative');
-
-  const cfgiSol = data.cfgi_sol || 0;
+  // CFGI (SOL via cfgi.io — primary source post-Stage-2)
+  const cfgiSol = data.cfgi_sol || data.fear_greed || data.cfgi || 0;
   const cfgiSolEl = document.getElementById('cfgiSolVal');
   if (cfgiSol > 0) {
     const solEmoji = cfgiSol < 20 ? ' \uD83D\uDD34' : cfgiSol < 40 ? ' \uD83D\uDFE1' : ' \uD83D\uDFE2';

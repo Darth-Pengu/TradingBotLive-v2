@@ -361,6 +361,31 @@ async def api_status(request):
     status_data["trading_wallet_balance"] = trading_balance
     status_data["trading_balance"] = trading_balance
     status_data["holding_wallet_balance"] = holding_balance
+
+    # Real on-chain wallet balances (cached in Redis for 30-60s)
+    if redis_conn:
+        try:
+            cached_tw = await redis_conn.get("dashboard:wallet:trading")
+            if cached_tw is not None:
+                status_data["trading_wallet_sol"] = float(cached_tw)
+            else:
+                tw_bal = await _get_sol_balance(TRADING_WALLET_ADDRESS)
+                if tw_bal is not None:
+                    status_data["trading_wallet_sol"] = tw_bal
+                    await redis_conn.set("dashboard:wallet:trading", str(tw_bal), ex=30)
+        except Exception:
+            pass
+        try:
+            cached_hw = await redis_conn.get("dashboard:wallet:treasury")
+            if cached_hw is not None:
+                status_data["treasury_wallet_sol"] = float(cached_hw)
+            else:
+                hw_bal = await _get_sol_balance(HOLDING_WALLET_ADDRESS)
+                if hw_bal is not None:
+                    status_data["treasury_wallet_sol"] = hw_bal
+                    await redis_conn.set("dashboard:wallet:treasury", str(hw_bal), ex=60)
+        except Exception:
+            pass
     status_data["app_version"] = APP_VERSION
     status_data["test_mode"] = TEST_MODE
 
