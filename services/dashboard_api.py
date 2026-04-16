@@ -275,6 +275,12 @@ def _get_mode(request) -> str:
     return mode if mode in ("paper", "live") else DEFAULT_TRADE_MODE
 
 
+def _mode_filter(mode: str) -> str:
+    """Return SQL fragment for trade_mode filter. Mode is validated by _get_mode."""
+    assert mode in ("paper", "live"), f"invalid mode: {mode}"
+    return f"trade_mode = '{mode}'"
+
+
 # --- Wallet balance helper ---
 async def _get_sol_balance(address: str) -> float | None:
     if not address:
@@ -489,6 +495,8 @@ async def api_status(request):
 
 async def api_stats(request):
     """Overall performance stats from paper_trades + trades tables."""
+    mode = _get_mode(request)
+    mf = _mode_filter(mode)
     result = {
         "total_trades": 0, "winning_trades": 0, "win_rate": 0.0,
         "total_pnl_sol": 0.0, "today_pnl_sol": 0.0, "total_pnl_pct": 0.0,
@@ -508,8 +516,7 @@ async def api_stats(request):
                 COALESCE(MAX(COALESCE(corrected_pnl_sol, realised_pnl_sol)), 0) as best,
                 COALESCE(MIN(COALESCE(corrected_pnl_sol, realised_pnl_sol)), 0) as worst
             FROM paper_trades
-            WHERE exit_time IS NOT NULL
-            AND entry_time > 1775767260""")
+            WHERE exit_time IS NOT NULL AND {mf}""")
         if rows and rows[0]["total"] > 0:
             r = rows[0]
             result["total_trades"] = r["total"]
@@ -525,7 +532,7 @@ async def api_stats(request):
         today_rows = await _query_db(
             """SELECT COALESCE(SUM(COALESCE(corrected_pnl_sol, realised_pnl_sol)), 0) as today_pnl
             FROM paper_trades
-            WHERE exit_time IS NOT NULL
+            WHERE exit_time IS NOT NULL AND {mf}
             AND exit_time >= EXTRACT(EPOCH FROM date_trunc('day', NOW()))""")
         if today_rows:
             result["today_pnl_sol"] = round(float(today_rows[0].get("today_pnl", 0) or 0), 4)
@@ -543,22 +550,22 @@ async def api_stats(request):
                 )
             ) as avg_hold
             FROM paper_trades
-            WHERE entry_time > EXTRACT(EPOCH FROM NOW()) - 86400""")
+            WHERE {mf} AND entry_time > EXTRACT(EPOCH FROM NOW()) - 86400""")
         if hold_rows and hold_rows[0].get("avg_hold"):
             result["avg_hold_minutes"] = round(float(hold_rows[0]["avg_hold"]) / 60, 1)
 
         # Bug 3 fix: active position count from DB
-        open_rows = await _query_db("SELECT COUNT(*) as count FROM paper_trades WHERE exit_time IS NULL")
+        open_rows = await _query_db(f"SELECT COUNT(*) as count FROM paper_trades WHERE exit_time IS NULL AND {mf}")
         if open_rows:
             result["active_positions"] = int(open_rows[0].get("count", 0))
 
         for p in ["speed_demon", "analyst", "whale_tracker"]:
             prows = await _query_db(
-                """SELECT COUNT(*) as trades,
+                f"""SELECT COUNT(*) as trades,
                     SUM(CASE WHEN COALESCE(corrected_pnl_sol, realised_pnl_sol) > 0 THEN 1 ELSE 0 END) as wins,
                     COALESCE(SUM(COALESCE(corrected_pnl_sol, realised_pnl_sol)), 0) as pnl
                 FROM paper_trades WHERE exit_time IS NOT NULL
-                AND entry_time > 1775767260 AND personality = $1""", p)
+                AND {mf} AND personality = $1""", p)
             if prows and prows[0]["trades"] > 0:
                 result["by_personality"][p] = {
                     "trades": prows[0]["trades"],
@@ -812,8 +819,10 @@ async def api_trades(request):
 
 async def api_trades_active(request):
     """Return currently open trades with explicit field mapping."""
+    mode = _get_mode(request)
+    mf = _mode_filter(mode)
     # Try paper_trades first (paper mode), fall back to trades
-    rows = await _query_db("SELECT * FROM paper_trades WHERE exit_time IS NULL ORDER BY entry_time DESC")
+    rows = await _query_db(f"SELECT * FROM paper_trades WHERE exit_time IS NULL AND {mf} ORDER BY entry_time DESC")
     using_paper = bool(rows)
     if not rows:
         rows = await _query_db("SELECT * FROM trades WHERE closed_at IS NULL ORDER BY created_at DESC")
@@ -854,16 +863,17 @@ async def api_trades_active(request):
 
 async def api_personality_stats(request):
     """Per-personality stats with best trade info."""
+    mode = _get_mode(request)
+    mf = _mode_filter(mode)
     stats = {}
     for personality in ["speed_demon", "analyst", "whale_tracker"]:
-        # Try paper_trades first (primary in paper mode)
         rows = await _query_db(
-            """SELECT COUNT(*) as total_trades,
+            f"""SELECT COUNT(*) as total_trades,
                 SUM(CASE WHEN COALESCE(corrected_pnl_sol, realised_pnl_sol) > 0 THEN 1 ELSE 0 END) as wins,
                 SUM(CASE WHEN COALESCE(corrected_pnl_sol, realised_pnl_sol) <= 0 THEN 1 ELSE 0 END) as losses,
                 COALESCE(SUM(COALESCE(corrected_pnl_sol, realised_pnl_sol)), 0) as total_pnl_sol
             FROM paper_trades WHERE exit_time IS NOT NULL
-            AND entry_time > 1775767260 AND personality = $1""",
+            AND {mf} AND personality = $1""",
             personality,
         )
         if rows and rows[0].get("total_trades", 0) > 0:
@@ -879,11 +889,10 @@ async def api_personality_stats(request):
             }
             # Best trade per personality (corrected column, post-cleanup)
             best = await _query_db(
-                """SELECT mint, COALESCE(corrected_pnl_sol, realised_pnl_sol) as pnl_sol,
+                f"""SELECT mint, COALESCE(corrected_pnl_sol, realised_pnl_sol) as pnl_sol,
                     COALESCE(corrected_pnl_pct, realised_pnl_pct) as pnl_pct, entry_time,
                     COALESCE(exit_time - entry_time, 0) as hold_sec
-                FROM paper_trades WHERE exit_time IS NOT NULL AND personality = $1
-                    AND entry_time > 1775767260
+                FROM paper_trades WHERE exit_time IS NOT NULL AND {mf} AND personality = $1
                 ORDER BY COALESCE(corrected_pnl_sol, realised_pnl_sol) DESC LIMIT 1""",
                 personality,
             )
@@ -2143,6 +2152,8 @@ async def api_signal_metrics(request):
 
 async def api_session_stats(request):
     """Today's trading session stats (last 24h)."""
+    mode = _get_mode(request)
+    mf = _mode_filter(mode)
     result = {
         "session_pnl": 0, "trades_today": 0, "wins_today": 0,
         "win_rate_today": 0, "best_trade": 0, "worst_trade": 0,
@@ -2150,12 +2161,12 @@ async def api_session_stats(request):
     }
     try:
         rows = await _query_db(
-            """SELECT COUNT(*) as trades,
+            f"""SELECT COUNT(*) as trades,
                 COUNT(CASE WHEN COALESCE(corrected_pnl_sol, realised_pnl_sol) > 0 THEN 1 END) as wins,
                 COALESCE(SUM(COALESCE(corrected_pnl_sol, realised_pnl_sol)), 0) as pnl,
                 COALESCE(MAX(COALESCE(corrected_pnl_sol, realised_pnl_sol)), 0) as best,
                 COALESCE(MIN(COALESCE(corrected_pnl_sol, realised_pnl_sol)), 0) as worst
-            FROM paper_trades WHERE exit_time IS NOT NULL
+            FROM paper_trades WHERE exit_time IS NOT NULL AND {mf}
             AND exit_time > EXTRACT(EPOCH FROM NOW() - INTERVAL '24 hours')""")
         if rows and rows[0]["trades"]:
             r = rows[0]
@@ -2165,7 +2176,7 @@ async def api_session_stats(request):
             result["best_trade"] = round(float(r["best"] or 0), 4)
             result["worst_trade"] = round(float(r["worst"] or 0), 4)
             result["win_rate_today"] = round((r["wins"] or 0) / r["trades"] * 100, 1) if r["trades"] > 0 else 0
-        open_rows = await _query_db("SELECT COUNT(*) as c FROM paper_trades WHERE exit_time IS NULL")
+        open_rows = await _query_db(f"SELECT COUNT(*) as c FROM paper_trades WHERE exit_time IS NULL AND {mf}")
         if open_rows:
             result["open_positions"] = int(open_rows[0].get("c", 0))
     except Exception as e:
@@ -2175,6 +2186,8 @@ async def api_session_stats(request):
 
 async def api_signal_funnel(request):
     """Signal pipeline funnel counts from Redis filter stats + DB totals."""
+    mode = _get_mode(request)
+    mf = _mode_filter(mode)
     result = {
         "signals_received": 0, "passed_filters": 0,
         "ml_scored_50plus": 0, "trades_entered": 0, "wins": 0,
@@ -2203,7 +2216,7 @@ async def api_signal_funnel(request):
     # DB totals as fallback/supplement (corrected column)
     try:
         total_rows = await _query_db(
-            "SELECT COUNT(*) as t, COUNT(CASE WHEN COALESCE(corrected_pnl_sol, realised_pnl_sol) > 0 THEN 1 END) as w FROM paper_trades WHERE exit_time IS NOT NULL")
+            f"SELECT COUNT(*) as t, COUNT(CASE WHEN COALESCE(corrected_pnl_sol, realised_pnl_sol) > 0 THEN 1 END) as w FROM paper_trades WHERE exit_time IS NOT NULL AND {mf}")
         if total_rows:
             if result["trades_entered"] == 0:
                 result["trades_entered"] = int(total_rows[0].get("t", 0))
@@ -2247,14 +2260,16 @@ async def api_signals_evaluated(request):
 
 async def api_portfolio_history_daily(request):
     """Daily cumulative PnL for equity curve — one point per day."""
+    mode = _get_mode(request)
+    mf = _mode_filter(mode)
     result = []
     try:
         rows = await _query_db(
-            """SELECT DATE(to_timestamp(exit_time) AT TIME ZONE 'Australia/Sydney') as date,
+            f"""SELECT DATE(to_timestamp(exit_time) AT TIME ZONE 'Australia/Sydney') as date,
                 SUM(SUM(COALESCE(corrected_pnl_sol, realised_pnl_sol))) OVER (ORDER BY DATE(to_timestamp(exit_time) AT TIME ZONE 'Australia/Sydney')) as cumulative_pnl,
                 COUNT(*) as trades,
                 COUNT(CASE WHEN COALESCE(corrected_pnl_sol, realised_pnl_sol) > 0 THEN 1 END) as wins
-            FROM paper_trades WHERE exit_time IS NOT NULL AND entry_time > 1775767260
+            FROM paper_trades WHERE exit_time IS NOT NULL AND {mf}
             GROUP BY DATE(to_timestamp(exit_time) AT TIME ZONE 'Australia/Sydney')
             ORDER BY date""")
         for r in rows:
@@ -2378,14 +2393,15 @@ async def api_consolidated_health(request):
 
 async def api_exit_analysis(request):
     """Exit reason breakdown with counts and avg PnL."""
+    mode = _get_mode(request)
+    mf = _mode_filter(mode)
     try:
         rows = await _query_db(
-            """SELECT exit_reason, COUNT(*) as count,
+            f"""SELECT exit_reason, COUNT(*) as count,
                 ROUND(AVG(COALESCE(corrected_pnl_sol, realised_pnl_sol))::numeric, 4) as avg_pnl,
                 SUM(CASE WHEN COALESCE(corrected_pnl_sol, realised_pnl_sol) > 0 THEN 1 ELSE 0 END) as wins
             FROM paper_trades
-            WHERE exit_time IS NOT NULL AND exit_reason IS NOT NULL
-            AND entry_time > 1775767260
+            WHERE exit_time IS NOT NULL AND exit_reason IS NOT NULL AND {mf}
             GROUP BY exit_reason ORDER BY count DESC"""
         )
         # Convert Decimal values to float for JSON serialization
@@ -2404,6 +2420,8 @@ async def api_exit_analysis(request):
 
 async def api_win_rates(request):
     """Rolling win rates: last 10, 25, 50 trades with win/total counts."""
+    mode = _get_mode(request)
+    mf = _mode_filter(mode)
     result = {"wr_10": 0, "wr_25": 0, "wr_50": 0,
               "wins_10": 0, "total_10": 0,
               "wins_25": 0, "total_25": 0,
@@ -2416,7 +2434,7 @@ async def api_win_rates(request):
                     ROUND(100.0 * COUNT(CASE WHEN pnl > 0 THEN 1 END)
                     / NULLIF(COUNT(*), 0), 1) as wr
                 FROM (SELECT COALESCE(corrected_pnl_sol, realised_pnl_sol) as pnl FROM paper_trades
-                      WHERE exit_time IS NOT NULL
+                      WHERE exit_time IS NOT NULL AND {mf}
                       ORDER BY exit_time DESC LIMIT {window}) t"""
             )
             if rows and rows[0].get("wr") is not None:
@@ -2430,7 +2448,9 @@ async def api_win_rates(request):
 
 async def api_pnl_distribution(request):
     """P/L distribution tiers (Axiom-style)."""
-    rows = await _query_db("""
+    mode = _get_mode(request)
+    mf = _mode_filter(mode)
+    rows = await _query_db(f"""
         SELECT
             CASE
                 WHEN COALESCE(corrected_pnl_pct, realised_pnl_pct) > 500 THEN '>500%%'
@@ -2445,7 +2465,7 @@ async def api_pnl_distribution(request):
             COUNT(*) as count,
             ROUND(COALESCE(SUM(COALESCE(corrected_pnl_sol, realised_pnl_sol)), 0)::numeric, 4) as total_pnl
         FROM paper_trades
-        WHERE exit_time IS NOT NULL AND entry_time > 1775767260
+        WHERE exit_time IS NOT NULL AND {mf}
         GROUP BY 1
         ORDER BY MIN(COALESCE(corrected_pnl_pct, realised_pnl_pct)) DESC
     """)
