@@ -16,7 +16,12 @@ scripts/*.exe
 Include/
 pyvenv.cfg
 .railway/
-.claude/
+.claude/*
+!.claude/skills/
+!.claude/skills/**
+.claude/keys/
+.claude/keys/*
+.claude/settings.local.json
 data/whale_wallets.json
 data/memetrans/
 data/whale_wallets_pending.json

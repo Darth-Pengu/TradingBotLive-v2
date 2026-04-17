@@ -1,0 +1,79 @@
+{
+  "mcpServers": {
+    "railway": {
+      "command": "C:\\Users\\jay.zeman\\AppData\\Local\\node-v22.16.0-win-x64\\npx.cmd",
+      "args": ["-y", "@railway/mcp-server"]
+    },
+    "redis": {
+      "command": "C:\\Users\\jay.zeman\\AppData\\Local\\node-v22.16.0-win-x64\\npx.cmd",
+      "args": ["-y", "@gongrzhe/server-redis-mcp"],
+      "env": {
+        "REDIS_URL": "${REDIS_URL}"
+      }
+    },
+    "helius": {
+      "command": "C:\\Users\\jay.zeman\\AppData\\Local\\node-v22.16.0-win-x64\\npx.cmd",
+      "args": ["-y", "helius-mcp@latest"],
+      "env": {
+        "HELIUS_API_KEY": "${HELIUS_API_KEY}"
+      }
+    },
+    "nansen": {
+      "type": "http",
+      "url": "https://mcp.nansen.ai/ra/mcp",
+      "headers": {
+        "NANSEN-API-KEY": "${NANSEN_API_KEY}"
+      }
+    },
+    "vybe": {
+      "command": "C:\\Users\\jay.zeman\\AppData\\Local\\node-v22.16.0-win-x64\\npx.cmd",
+      "args": ["-y", "@vybe-network/mcp-server"],
+      "env": {
+        "VYBE_API_KEY": "${VYBE_API_KEY}"
+      }
+    },
+    "coingecko": {
+      "command": "C:\\Users\\jay.zeman\\AppData\\Local\\node-v22.16.0-win-x64\\npx.cmd",
+      "args": ["-y", "mcp-remote", "https://mcp.api.coingecko.com/mcp"]
+    },
+    "dexpaprika": {
+      "type": "http",
+      "url": "https://mcp.dexpaprika.com/streamable-http"
+    },
+    "defillama": {
+      "type": "http",
+      "url": "https://mcp.defillama.com/mcp"
+    },
+    "rugcheck": {
+      "command": "C:\\Users\\jay.zeman\\AppData\\Local\\node-v22.16.0-win-x64\\npx.cmd",
+      "args": ["-y", "@aethercore/rugcheck-mcp"]
+    },
+    "birdeye": {
+      "type": "http",
+      "url": "https://mcp.birdeye.so/mcp",
+      "headers": {
+        "X-API-KEY": "${BIRDEYE_API_KEY}"
+      }
+    },
+    "sentry": {
+      "type": "http",
+      "url": "https://mcp.sentry.dev/mcp"
+    },
+    "github": {
+      "type": "http",
+      "url": "https://api.githubcopilot.com/mcp/"
+    },
+    "playwright": {
+      "command": "C:\\Users\\jay.zeman\\AppData\\Local\\node-v22.16.0-win-x64\\npx.cmd",
+      "args": ["-y", "@playwright/mcp@latest"]
+    },
+    "shadcn": {
+      "command": "C:\\Users\\jay.zeman\\AppData\\Local\\node-v22.16.0-win-x64\\npx.cmd",
+      "args": ["-y", "shadcn@latest", "registry:mcp"]
+    },
+    "socket": {
+      "type": "http",
+      "url": "https://mcp.socket.dev/"
+    }
+  }
+}

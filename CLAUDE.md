@@ -1,5 +1,19 @@
 # ZMN Bot — Claude Code Instructions
 
+## Tooling
+
+This repo has a Claude-Code-specific tooling inventory at
+`docs/CLAUDE_TOOLING_INVENTORY.md`. Read it during Step 0 of every session.
+
+- MCP servers registered: 15 (active + stubbed) — see `.mcp.json`
+- Skills installed: 4 (project-scoped under `.claude/skills/`)
+- Last updated: 2026-04-17
+
+Prefer registered MCPs over generic tools: Helius over curl-to-RPC, Postgres MCP
+over raw psql (once installed), Playwright MCP over `requests` for dashboard
+scraping, Railway MCP over shelling out to `railway` CLI. Inventory doc has a
+usage cheat sheet listing when to reach for each MCP.
+
 ## Resolved Bugs (reference only — see MONITORING_LOG.md for details)
 Key fixes: exit pricing pipeline (26e19b4), paper_trader price pass-through (9b880e1), HIBERNATE bypass (47de1fa), SERVICE_NAME routing (April 3). Do NOT revert main.py to asyncio.gather all services.
 
