@@ -1,5 +1,8 @@
 # ZMN repo — orphan file audit
 
+> **STATUS (2026-04-19):** This audit's actionable items are consolidated in `ZMN_ROADMAP.md`. Refer there for current status, priority, and dependencies. This doc is retained as evidence / deep-dive detail.
+
+
 **Date:** 2026-04-19
 **Scope:** tracked files only (git ls-files). Untracked template leftovers
 (`components/`, `css/`, `pages/`, `sections/`, `static/`, `svg/`,

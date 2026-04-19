@@ -1,5 +1,8 @@
 # ZMN CC handover pack — 2026-04-19
 
+> **STATUS (2026-04-19):** This audit's actionable items are consolidated in `ZMN_ROADMAP.md`. Refer there for current status, priority, and dependencies. This doc is retained as evidence / deep-dive detail.
+
+
 **Author:** Claude Opus 4.7. **Audience:** the next CC session, or a fresh Claude chat that needs to get caught up on ZMN in one read.
 **Length budget:** intentionally short. For depth, follow the links.
 

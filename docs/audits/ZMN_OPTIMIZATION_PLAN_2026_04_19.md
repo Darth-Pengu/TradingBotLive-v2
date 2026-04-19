@@ -1,5 +1,8 @@
 # ZMN optimization plan (deep recon synthesis) — 2026-04-19
 
+> **STATUS (2026-04-19):** This audit's actionable items are consolidated in `ZMN_ROADMAP.md`. Refer there for current status, priority, and dependencies. This doc is retained as evidence / deep-dive detail.
+
+
 **Author:** Claude Opus 4.7 · **Status:** plan only, no execution this session.
 **Inputs:** `CC_TOOL_SURFACE_2026_04_19.md` (what's possible now) + `ZMN_RE_DIAGNOSIS_2026_04_19.md` (what the data says).
 **Constraint:** every Tier 1 item is gated on the rules-refresh prompt landing first (CLAUDE.md "Paper mode is non-negotiable" still in repo, blocks anything that touches live state).

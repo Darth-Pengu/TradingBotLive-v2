@@ -10,6 +10,25 @@ This repo has a Claude-Code-specific tooling inventory at
 - Last updated: 2026-04-19
 - **New machine?** See `docs/SETUP_NEW_MACHINE.md` for the bootstrap checklist.
 
+## Roadmap
+
+The canonical work queue lives at `ZMN_ROADMAP.md` at repo root. Every session's
+first step is to read that roadmap to know what's in flight, what's queued, and
+what's blocked. Audit docs under `docs/audits/` remain as evidence/context — use
+them for depth; use `ZMN_ROADMAP.md` for priorities.
+
+Update `ZMN_ROADMAP.md` at the end of every session that completes or changes
+an item's status. Append a changelog entry.
+
+For Sentry-captured errors (8 services live as of `cb45d6b`):
+```
+mcp__sentry__search_issues(
+  organizationSlug='rz-consulting',
+  projectSlugOrId='zmn-<service>',
+  naturalLanguageQuery='unresolved errors from last 24h')
+```
+Use `mcp__sentry__analyze_issue_with_seer` on any specific issue ID for AI-driven root cause.
+
 Prefer registered MCPs over generic tools: Helius over curl-to-RPC, Postgres MCP
 over raw psql (once installed), Playwright MCP over `requests` for dashboard
 scraping, Railway MCP over shelling out to `railway` CLI. Inventory doc has a

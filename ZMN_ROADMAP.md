@@ -1,673 +1,264 @@
-> **LOST CONTEXT RECOVERY NOTE**
+# ZMN Roadmap
+
+> **Single source of truth for all ZMN work items.** Last updated: 2026-04-19.
 >
-> If you are a NEW Claude instance reading this without prior context
-> from 2026-04-14 sessions, read these files in order:
-> 1. This roadmap (ZMN_ROADMAP.md) -- current state, bugs, plan
-> 2. MONITORING_LOG.md -- session-by-session history (most recent
->    entries are most relevant)
-> 3. POST_RECOVERY_REVIEW_2026_04_14.md -- why trading performance
->    is thin-edged right now, why Stage 2 is still safe
-> 4. STATE_AUDIT_2026_04_14.md -- what the 21-hour outage was and
->    how recovery worked
-> 5. DASHBOARD_AUDIT.md -- the B-001 through B-009 bug registry plus
->    whatever was added today
+> All prior audit docs remain in `docs/audits/` as evidence and context; their
+> actionable items are consolidated here. Update this roadmap at the end of every
+> session that completes or changes an item's status. Append a changelog entry.
 >
-> The current working setup (as of end of 2026-04-14 ~23:00 AEDT) is:
-> - Bot is RECOVERED and trading (signal_aggregator was dead for 21h,
->   restored via hardened restart with Redis retry loop and health
->   heartbeat)
-> - cfgi.io Stage 1 dual-read is LIVE (SOL CFGI = 56.5 vs BTC F&G = 21)
-> - Stage 2 cutover scheduled for ~22:25 AEDT 2026-04-15
-> - TWO NEW BUGS discovered 2026-04-14: B-011 (outcome column NULL)
->   and B-012 (STAGED_TP_FIRE log not firing)
-> - Dashboard session MAY have shipped theme selector + unified panel
->   headers overnight (check the most recent commit on main)
->
-> **Do NOT start any new feature work without reading these docs
-> first.** The bot is in a specific known state and uncoordinated
-> changes will compound problems.
->
-> If Jay (the operator) asks "what were we working on yesterday" or
-> similar, point him at this note and the MONITORING_LOG.md entries
-> for 2026-04-14.
-
-# ZMN Bot -- Product Roadmap & Backlog (v4 merged)
-
-**Last updated:** 2026-04-14 ~23:00 AEDT (overnight safety doc update)
-**Structure:** trigger conditions + review dates (v3 structure adopted)
-**Next scheduled review:** 2026-04-15 (after recovery + hardening session)
+> Audit docs are linked in the **Source** column of each item below — open the
+> audit for evidence; trust the roadmap for current status and priority.
 
 ---
 
-## HOW THIS ROADMAP WORKS
+## Current state snapshot — 2026-04-19
 
-Every item has:
-- **State:** IN-FLIGHT | READY | BLOCKED | DEFERRED | COMPLETED | DROPPED
-- **Trigger:** the specific condition under which it becomes actionable
-- **Next review:** date this item gets re-evaluated (nothing drifts forever)
-- **Blocker:** what's stopping it (if any)
+| Field | Value |
+|---|---|
+| Mode | `TEST_MODE=true` (paper). Live mode is now session-gated per CLAUDE.md "Live trading mode — session-gated" (no longer "non-negotiable"). |
+| Trading wallet (on-chain) | **1.658 SOL** (`4h4pst…ii8xJ`) |
+| Holding wallet (on-chain) | 0.098 SOL (`2gfHQ…ttWJ9`) |
+| Paper portfolio balance | ~195 SOL (Redis `bot:portfolio:balance`) |
+| 7-day Speed Demon perf | 2,256 trades · +428 SOL paper · 43.3% WR |
+| Active personalities | Speed Demon (sole gating personality). Whale Tracker dormant-but-routing (+4.2 SOL on 11 trades 7d). Analyst hard-disabled. |
+| Open positions | typically 0–3 paper |
+| Latest commits | `cb45d6b` Sentry SDK, `1b40df3` forensics, `e9de6d7` rules refresh, `4a37598` deep recon, `d7ae512` Vybe MCP URL fix |
+| Sentry integration | ✅ live across 8 services (8 projects in `rz-consulting` org); `zmn-signal-aggregator` actively capturing SocialData credit-exhaustion events |
+| Blocking issues | None CRITICAL/HIGH. Outstanding MEDIUM: secret rotation (Redis/Postgres URLs in env are exposed via Railway MCP `list-variables`); Playwright headless instability blocks dashboard regression suite |
 
-Items without a trigger condition get DROPPED instead of "next week'd."
-Items that sit in DEFERRED for 30 days without progress get re-evaluated
-for DROPPED or ACTUALLY-SCHEDULED.
+### Trading-tune env vars currently deployed (verified 2026-04-19)
 
----
-
-## CURRENT BOT STATE (end of 2026-04-14 AEDT)
-
-**Recovery complete.** signal_aggregator restored at 11:40 UTC April 14
-after 21-hour silent outage. Hardening deployed (Redis retry loop,
-health heartbeat). cfgi.io Stage 1 dual-read is LIVE as of ~22:25 AEDT.
-
-**Performance (53 trades post-recovery, closed only):**
-- WR: 28.3% | Total P/L: +0.05 SOL | barely net positive
-- Staged TP trades (14): 92.9% WR, +1.84 SOL -- the edge
-- Non-staged (39): 5.1% WR, -1.79 SOL -- the drag
-- Winner concentration CRITICAL: top trade is 645% of total P/L
-- Pattern: thin edge carried by staged TP winners, bleeding on
-  no_momentum_90s losses
-
-**Corrected historical baseline (259 clean trades since Apr 9):**
-- Combined: 26.3% WR, 68 wins, +17.73 SOL (using corrected_pnl_sol)
-- Pre-fix subset (id <= 3564): 218 trades, 46 wins (21.1% WR), -0.91 SOL
-- Post-fix subset (id > 3564): 41 trades, 22 wins (53.7% WR), +18.65 SOL
-
-**Paper balance:** 31.86 SOL
-
-**CFGI state:**
-- market:health.cfgi (BTC, Alternative.me): 21 (Extreme Fear)
-- market:health.cfgi_sol (SOL, cfgi.io): 56.5 (Neutral)
-- Gap: 35.5 points -- structural mismatch between indices
-- bot_core still reads BTC source for mode decisions
-- 24h observation window ends ~22:25 AEDT April 15
-- Stage 2 cutover planned for ~22:30 AEDT April 15
-
-**Pipeline state:**
-- signal_listener: alive
-- signal_aggregator: alive + hardened (retry loop, heartbeat)
-- bot_core: trading, Speed Demon primary, Analyst mostly paused,
-  Whale Tracker dormant
-- market_health: alive, dual-reading BTC + SOL CFGI every 5 min
-- governance: alive (but LLM hallucinates CFGI values -- see B-010)
-- web: alive
-
-**Mode:** HIBERNATE (because bot_core reads BTC source = 21).
-**AGGRESSIVE_PAPER=true** -- bypasses mode gates for data collection.
-
-**Helius:** Credits exhausted until April 26. Webhook disabled.
-`HELIUS_ENRICHMENT_ENABLED=false`. Treasury budget guard working.
-
-**Nansen:** DRY_RUN on all services. Smart money labels don't exist at
-pump.fun micro-cap scale (confirmed finding from 2026-04-12).
-
-**Open positions:** variable (usually 0-2 at any given time).
-
-**New bugs found today:** B-011 (outcome column NULL), B-012
-(STAGED_TP_FIRE log not firing). See Known Bugs section below.
+| Variable | Service | Value |
+|---|---|---|
+| `STAGED_TAKE_PROFITS_JSON` | bot_core | `[[2.00, 0.20], [5.00, 0.375], [10.00, 1.00]]` |
+| `TIERED_TRAIL_SCHEDULE_JSON` | bot_core | `[[0.30, 0.35], [0.75, 0.25], [2.00, 0.18], [5.00, 0.14], [10.00, 0.12]]` (BREAKEVEN_STOP fixed structurally — zero firings since 2026-04-16) |
+| `MIN_POSITION_SOL` | bot_core | 0.05 |
+| `MAX_SD_POSITIONS` | bot_core | 20 |
+| `DAILY_LOSS_LIMIT_SOL` | bot_core | 4.0 |
+| `ML_THRESHOLD_SPEED_DEMON` | signal_aggregator (gating) | 40 |
+| `ML_THRESHOLD_SPEED_DEMON` | bot_core (unused) | 30 — see TUNE-003 |
+| `TEST_MODE` | bot_core / all services | true |
+| `ANALYST_DISABLED` | signal_aggregator | true |
 
 ---
 
-## Current Plan (2026-04-16)
+## How to read this roadmap
 
-**Completed:**
-- Shadow Phase 2: 90.9% winner survival, 19% median discount
-- Execution audit: ALL infrastructure exists
-- Dashboard: real wallet balances + mode segregation (clean slate)
-- External API audit: all critical APIs working
-- Helius RPC switched to Standard (48ms)
-- Trade mode column + dashboard filter deployed
+**Status legend:** ✅ COMPLETED · 🟡 IN_PROGRESS · 📋 QUEUED · ⏸️ DEFERRED · ⛔ SUPERSEDED · ❓ UNKNOWN (needs verification)
 
-**Live trial v1 FAILED (2026-04-16 22:00 AEDT):**
-- 244/244 solders `.sign()` AttributeError — API removed in 0.21+
+**Tier semantics:**
+- **Tier 1** — env-var / docs / single-file changes; low risk; ≤30 min sessions
+- **Tier 2** — single-session MCP integrations or focused features; 30–180 min; medium risk
+- **Tier 3** — multi-session projects; high scope; coordinated across weeks
+- **Tier 4** — prerequisites that gate other tiers (handle first)
 
-**Live trial v2 FAILED (2026-04-17 08:00 AEDT):**
-- populate() fix compiles + signs but produces INVALID signatures
-- On-chain: `SignatureFailure` from validators
-- Root cause: from_bytes() → .message → sign → populate() round-trip
-  loses message integrity
-- 177+ sell errors (all on stale paper positions), 0 buys attempted
-- Wallet untouched (5.0 SOL), zero trades ever landed on-chain
-
-**Ghost positions cleaned (2026-04-17 08:30 AEDT):**
-- DEL bot:status (1,458 stale entries from Apr 5)
-- DEL 176 paper:positions:* keys
-- Dashboard now shows 2 actual open positions from DB
-
-**Live trial v3 (2026-04-17):** SIGNING VERIFIED (0 SigFail in 83 attempts),
-BLOCKED by stale paper positions filling MAX_SD_POSITIONS=2.
-
-**Live trial v4 — actually PARTIAL (corrected 2026-04-17):**
-- Briefing said EMPTY, but on-chain check shows 1.32 SOL spent across
-  50+ TX_SUBMITs from 06:37 to 08:23 AEDT. Wallet went 5.0 → 3.677 SOL.
-- 7,448 "no Helius URL" errors were TRIAGE noise, not the trade path —
-  those errors were sell attempts on closed paper mints still held in
-  bot_core's `self.positions` after a TEST_MODE flip without restart.
-- ~~Signing~~ DONE (constructor API, mainnet-verified, zero SignatureFailure)
-- ~~URL resolver~~ DONE (cd266de, Gatekeeper fallback + startup validation)
-- ~~Sell-storm circuit breaker~~ DONE (cd266de, 8-fail park 5min cool-off)
-- ~~Dashboard~~ DONE (LIVE view honest, MCAP columns)
-- ~~Stale positions~~ CLEANED (2 closed, Redis cleared)
-- ~~Reconcile filter~~ DONE (4b647a7, trade_mode filter)
-- ~~MAX_SD_POSITIONS~~ 20 (was 2)
-- Known residual: reconcile is startup-only, TEST_MODE flips need restart
-
-**Also queued:**
-- Fix bot:status cache leak (positions never removed on close)
-- Anthropic credit top-up (governance LLM dead)
-- ML training code update (30-45 min)
-- Analyst re-enable investigation (30-45 min)
+**ID scheme:** `TUNE-*` trading tuning · `DOCS-*` documentation · `OBS-*` observability · `INFRA-*` infrastructure · `DASH-*` dashboard structure · `DASH-B-*` specific dashboard bugs · `ML-*` model · `WHALE-*` smart-money · `MCP-*` MCP-build candidates · `LIVE-*` live-trading enablement · `SEC-*` security · `BUG-*` other known bugs · `CLEAN-*` cleanup · `TG-*` telegram
 
 ---
 
-## RECENT FINDINGS (preserved from prior roadmap versions)
+## Tier 4 — Prerequisites (gate-keepers)
 
-### Finding 1: Entry filter v3 had a logic bug (FIXED)
-- Used `value > 0` for "data exists" check. Fix: commit 56421ab.
+| ID | Title | Status | Source | Notes |
+|---|---|---|---|---|
+| GATE-001 | Durable rules refresh (`TEST_MODE` flip session-gated) | ✅ COMPLETED `e9de6d7` | `ZMN_OPTIMIZATION_PLAN_2026_04_19.md` Tier 4 | CLAUDE.md "Live trading mode — session-gated" replaces "Paper mode is non-negotiable". |
+| GATE-002 | Live-trade forensics (resolve 2.07 SOL drain open thread) | ✅ COMPLETED `1b40df3` | `ZMN_LIVE_TRADE_FORENSICS_2026_04_19.md` | Verdict A — phantom drain. Real v4 cost ~3.4 SOL (not 1.32). All execution paths properly TEST_MODE-guarded. |
+| GATE-003 | Sentry SDK integration (8 services) | ✅ COMPLETED `cb45d6b` | `session_outputs/ZMN_SENTRY_INTEGRATION_DONE.md` | 8 projects in rz-consulting; `zmn-signal-aggregator` capturing live events. |
 
-### Finding 2: Feature default bug (FIXED)
-- `signal_aggregator.py` defaulted BSR/wallet_velocity to `0` instead
-  of `-1`. Fix: commit a8a390b.
-
-### Finding 3: Nansen smart money labels don't exist at pump.fun scale
-- SM labels appear at $100k+ market cap. Pump.fun tokens trade at
-  $4k-$30k. Architecture pivot: mine bot's own winners instead.
-
-### Finding 4: HELIUS_DAILY_BUDGET=0 is cosmetic
-- Only dashboard_api.py reads it. Other services bypass. Needs global
-  `helius_call()` wrapper. Hard deadline: before April 26 credit reset.
-
-### Finding 5: getTokenLargestAccounts pipeline is correct
-- Just credit-starved. Will auto-populate after April 26 reset.
-
-### Finding 6: Dashboard Tier 1 audit (2026-04-13)
-- 15 panels audited. P/L widgets now use corrected_pnl_sol.
-- CFGI source: Alternative.me Bitcoin F&G (not Solana-specific).
-- Reference: DASHBOARD_AUDIT.md
-
-### Finding 7: signal_aggregator 21-hour outage (2026-04-14) — FIXED
-- Crashed at 13:38 UTC Apr 13 due to transient Redis DNS failure.
-- No startup retry logic. Railway marked "Completed."
-- Fix: restart + add retry loop + health heartbeat (commit 85768c5).
-- Reference: STATE_AUDIT_2026_04_14.md
+**No outstanding Tier 4 items.** Tiers 1-3 are unblocked.
 
 ---
 
-## IN-FLIGHT
+## Tier 1 — Immediate wins (env vars, docs, single-file)
 
-(none currently)
-
-### CFGI Stage 2 Cutover — CODE DEPLOYED, AWAITING CREDITS
-- **State:** DEPLOYED but DEGRADED (cfgi.io returning 402)
-- **Code commits:** f3a5c74 (Analyst disable), eebccf5 (CFGI key swap)
-- **What was done:** market_health now writes cfgi.io SOL as primary
-  `cfgi` key with Alternative.me BTC as fallback. Analyst disabled
-  via ANALYST_DISABLED=true env var.
-- **Blocker:** cfgi.io free credits exhausted (HTTP 402 since ~21:46
-  UTC Apr 14). BTC fallback active. Jay needs to top up credits.
-- **When credits restored:** SOL CFGI auto-populates as primary,
-  mode may transition from HIBERNATE, Speed Demon sizing may increase.
-- **Key finding from Stage 1:** BTC F&G = 21 vs SOL CFGI = 56.5.
-  Cutover will likely unpause Analyst, increase Speed Demon sizing,
-  and shift mode from HIBERNATE toward NORMAL.
-- **Risk:** Analyst may unpause and Speed Demon may return to 1.0x
-  sizing. This is expected behavior, not a bug.
-- **Next review:** 2026-04-15
-- **Session size:** 30-45 min
-
-### Governance CFGI Hallucination Fix (B-010)
-- **State:** READY
-- **Trigger:** None
-- **What:** Fix the governance LLM prompt to inject real CFGI value.
-  Currently hallucinates "CFGI at 50" regardless of actual value.
-- **Root cause:** Prompt template either injects a default or LLM
-  confabulates a neutral value.
-- **Impact:** Governance mode recommendations based on fabricated CFGI.
-- **Next review:** 2026-04-16
-- **Session size:** 30 min
+| ID | Title | Status | Est | Impact | Depends on | Source |
+|---|---|---|---:|---|---|---|
+| TUNE-001 | Lower trail activation tier from `[[0.30, 0.35], …]` to `[[0.10, 0.30], …]` | 📋 QUEUED | 15m + 24h obs | **+20-30 SOL/wk paper** | none | `ZMN_OPTIMIZATION_PLAN_2026_04_19.md` Tier 1 §1.1; `ZMN_RE_DIAGNOSIS_2026_04_19.md` pain 1 |
+| TUNE-002 | `SD_EARLY_CHECK_SECONDS=60` + `SD_EARLY_MIN_MOVE_PCT=3.0` (60s momentum + 3% bar) | 📋 QUEUED | 15m + 24h obs | +5-15 SOL/wk paper | none | `ZMN_OPTIMIZATION_PLAN_2026_04_19.md` §1.2 |
+| TUNE-003 | Align bot_core `ML_THRESHOLD_SPEED_DEMON=40` (cosmetic — gate is signal_aggregator) | 📋 QUEUED | 5m | 0 (clarity) | none | `ZMN_OPTIMIZATION_PLAN_2026_04_19.md` §1.3 |
+| DOCS-001 | Correct v4 cost in CLAUDE.md and ZMN_POSTMORTEM_2026_04_16.md (~3.4 SOL not 1.32) | 📋 QUEUED | 15m | clarity for next live-enable | none | `ZMN_LIVE_TRADE_FORENSICS_2026_04_19.md` finding #2 |
+| DOCS-002 | Remove stale "ML inverts above 40" Issue #1 in CLAUDE.md (already superseded by data block, but the original line still reads scary) | 📋 QUEUED (partially done in `e9de6d7`) | 15m | clarity | none | `ZMN_OPTIMIZATION_PLAN_2026_04_19.md` §1.4 |
+| DOCS-003 | Add Sentry MCP debugging recipe to CLAUDE.md (`search_issues` + `analyze_issue_with_seer` per service) | 📋 QUEUED | 15m | makes Sentry actually used | GATE-003 ✅ | `ZMN_SENTRY_INTEGRATION_DONE.md` |
+| SEC-001 | Rotate Redis + Postgres passwords on Railway (currently exposed in env vars; secrets scan was clean for tracked files but env-var leakage is a separate axis) | 📋 QUEUED | 30m | security hygiene | none | `SECRETS_SCAN_2026_04_19.md` (preventive recommendation), inferred from session-by-session env exposure |
+| SEC-002 | Pre-commit `detect-secrets` hook | 📋 QUEUED | 30m | prevents future leaks | none | `SECRETS_SCAN_2026_04_19.md` recommendation #1 |
+| SEC-003 | Enable GitHub native secret scanning (settings toggle) | 📋 QUEUED | 5m | safety net | none (requires repo admin) | `SECRETS_SCAN_2026_04_19.md` recommendation #2 |
+| BUG-010 | Governance CFGI hallucination fix (LLM outputs "CFGI at 50" regardless of actual) | 📋 QUEUED | 30m | governance correctness | Anthropic credits | prior `ZMN_ROADMAP.md` IN-FLIGHT, prior `DASHBOARD_AUDIT.md` B-010 |
+| DASH-B-013 | `paper_trades.symbol` empty for all rows — populate via paper_trader fix + backfill | ⏸️ DEFERRED | 30m | dashboard "Recent Trades" symbol display | none | prior `ZMN_ROADMAP.md` |
+| DASH-B-014 | Dashboard CFGI shows same value for BTC + SOL (cosmetic) — add `cfgi_btc` field | 📋 QUEUED | 10m | cosmetic | none | prior `ZMN_ROADMAP.md` |
+| BUG-019 | Governance SQL type mismatch (`double precision > timestamp` in metrics query — cosmetic) | 📋 QUEUED | 15m | log noise | none | prior `ZMN_ROADMAP.md` #20 |
+| INFRA-001 | Register postgres-mcp in `.mcp.json` (already pipx-installed; `--access-mode=restricted` mandatory) | 📋 QUEUED | 15m | replaces asyncpg shim in future sessions | none | `CC_TOOL_SURFACE_2026_04_19.md`; `docs/CLAUDE_TOOLING_INVENTORY.md` |
+| LIVE-001 | Tier 1 trading-tune session bundle (TUNE-001 + TUNE-002 + TUNE-003 in one batch) | 📋 QUEUED | 30m + 24h obs | +25-45 SOL/wk paper combined | none (Tier 4 cleared) | `ZMN_OPTIMIZATION_PLAN_2026_04_19.md` "Ranked next 5 sessions" #2 |
 
 ---
 
-### Shadow Trading Phase 2 — Analysis
-- **State:** BLOCKED on 24h of shadow:measurements accumulation
-- **Trigger:** 24h after Phase 1 deploy (2026-04-16 ~12:15 UTC)
-- **What:** Analyze shadow:measurements Redis list: latency distribution,
-  staged TP overshoot patterns, peak gap at exit, price source comparison
-- **Session size:** 45-60 min read-only analysis
+## Tier 2 — One-session MCP integrations / focused features
 
-### Analyst Re-enable Investigation
-- **State:** BLOCKED on root cause analysis
-- **Trigger:** Understanding of why Analyst trades die in 0-2 seconds
-- **What:** Investigate 3 Analyst trades from post-recovery window
-  (IDs 3670, 3879, 3893). All entered, all held 0-2 seconds, all
-  exited via stop_loss_20%. One had ML score 54.7. Either structural
-  issue in Analyst personality, hidden rug signal, or sizing/slippage.
-- **Session size:** 30-45 min read-only investigation + optional fix
-- **Once complete:** re-enable via ANALYST_DISABLED=false env var
-
----
-
-## READY (prompts written, ready to paste -- in priority order)
-
-### 1. TP Redesign (30/30/20/10/10 Option B2) — LIVE EXPERIMENT
-- **State:** IN-FLIGHT — deployed 2026-04-15 11:32 UTC
-- **Config:** 50/100/250/500/1000% triggers at 30/30/20/10/10 (of original)
-- **Env var:** `STAGED_TAKE_PROFITS_JSON=[[0.50,0.30],[1.00,0.4286],[2.50,0.50],[5.00,0.50],[10.00,1.00]]`
-- **Baseline:** TP_BASELINE_2026_04_15.md (545 trades, 40.6% WR, +35.61 SOL)
-- **Observation window:** 48h (ends 2026-04-17 ~11:32 UTC)
-- **Revert criteria + procedure:** MONITORING_LOG.md (TP redesign entry)
-- **DO NOT modify Speed Demon exit strategy until observation window closes**
-
-### 2. ML Training Code Update (read corrected_pnl_sol)
-- **State:** READY
-- **What:** Update ml_engine training/labeling code to use
-  `corrected_pnl_sol` instead of `realised_pnl_sol`.
-- **Trigger:** Backfill complete (done) AND recovery complete
-- **Next review:** 2026-04-15
-- **Session size:** 30-45 min
-
-### 3. Social Filter (Speed Demon, Option C strict)
-- **State:** READY
-- **What:** Twitter required for Stage 1, 90d age + 3k followers for
-  Stage 2, fail-closed on API errors.
-- **Trigger:** ML training update complete AND first stable day post-TP
-- **Next review:** 2026-04-17
-- **Session size:** 75-90 min
-
-### CFGI Data Source Decision
-- **State:** OBSERVATION — Stage 1 dual-read live since 2026-04-14
-- **Finding:** BTC F&G = 21 (Extreme Fear) vs SOL CFGI = 56.5 (Neutral).
-  The gap is massive — Solana market sentiment is much more favorable
-  than Bitcoin's. This confirms the bot has been under-trading due to
-  the wrong sentiment source.
-- **Decision pending:** Stage 2 cutover after 24h observation.
-  Option (a) cfgi.io SOL is the leading candidate now.
-- **Reference:** DASHBOARD_AUDIT.md B-001
-- **Next review:** 2026-04-15 (24h after Stage 1 deploy)
+| ID | Title | Status | Est | Impact | Depends on | Source |
+|---|---|---|---:|---|---|---|
+| OBS-001 | DexPaprika fallback in exit-price cascade (5th-rank after Redis/BC/Jupiter/Gecko) | 📋 QUEUED | 45m + 24h obs | resilience for `stale_no_price` | none | `ZMN_OPTIMIZATION_PLAN_2026_04_19.md` §2.2 |
+| OBS-002 | Helius `getPriorityFeeEstimate` in `services/execution.py` (replace hardcoded tiers) | 📋 QUEUED | 90m (devnet test included) | live trial reliability | DEVNET-OK | `ZMN_OPTIMIZATION_PLAN_2026_04_19.md` §2.3 |
+| OBS-003 | Vybe pre-entry concentration measurement (metrics-only N days) | 📋 QUEUED | 60m + 7d obs + 45m analysis | TBD — measurement-first | none | `ZMN_OPTIMIZATION_PLAN_2026_04_19.md` §2.4; `ZMN_RE_DIAGNOSIS_2026_04_19.md` pain 5 |
+| WHALE-001 | Nansen-MCP-based `watched_wallets` refresh job | 📋 QUEUED | 120m | unblocks Whale Tracker entry-decision wiring | none | `ZMN_OPTIMIZATION_PLAN_2026_04_19.md` §2.5; `ZMN_RE_DIAGNOSIS_2026_04_19.md` pain 4 (44 wallets, 0 active in 14d) |
+| OBS-004 | Playwright headless triage on Win11 (unblocks dashboard regression suite) | 📋 QUEUED | 30m | unblocks DASH-T-001 | none | `ZMN_OPTIMIZATION_PLAN_2026_04_19.md` §2.6; `DASHBOARD_TESTING_PLAN_2026_04_19.md` |
+| OBS-005 | Live-trade table forensics + reconciliation (find why `trades` table writes in TEST_MODE) | ✅ COMPLETED `1b40df3` | — | answered: bot_core.py:793 unconditional INSERT for ML training audit | — | merged into GATE-002 |
+| OBS-006 | Add real on-chain `getBalance` polling to `portfolio_snapshots` (mark `market_mode='LIVE_ONCHAIN'`) | 📋 QUEUED | 60m | prevents future "stale snapshot inherited as on-chain balance" confusion | none | `ZMN_LIVE_TRADE_FORENSICS_2026_04_19.md` finding #1 |
+| ML-001 | ML training code update — read `corrected_pnl_sol` not `realised_pnl_sol` | 📋 QUEUED | 30-45m | model labels correct after backfill | none | prior `ZMN_ROADMAP.md` READY #2 |
+| INFRA-002 | Helius budget enforcement — global `helius_call()` wrapper with Redis daily counter | 📋 QUEUED (HARD DEADLINE 2026-04-23) | 60-90m | prevents next budget exhaustion | none | prior `ZMN_ROADMAP.md` #4 |
+| INFRA-003 | Helius enrichment caching (300s TTL on 4 uncached enrichment functions) | 📋 QUEUED | paired with INFRA-002 | reduces Helius spend | INFRA-002 | prior `ZMN_ROADMAP.md` #5 |
+| ML-002 | Broader feature default cleanup — audit remaining features in `_build_features` for default-to-zero bug | 📋 QUEUED | 60-90m | prerequisites for ML retrain | none | prior `ZMN_ROADMAP.md` #6 |
+| TG-001 | Telegram Yeezus listener audit — determine current Telethon integration state | 📋 QUEUED | 30m | unblocks TG-002 | Telegram credentials may need regen | prior `ZMN_ROADMAP.md` #7 |
+| TG-002 | Telegram Yeezus per-source exit schedule override (+300/500/750/1000/2000%) | 📋 QUEUED | 15-30m | enables Yeezus calls | TG-001 | prior `ZMN_ROADMAP.md` #8 |
+| ML-003 | Analyst CFGI threshold review (keep / lower / remove the CFGI<20 auto-pause) | 📋 QUEUED | 30m | inform Analyst revival | corrected data available ✅ | prior `ZMN_ROADMAP.md` #12 |
+| ML-004 | Analyst re-enable investigation (3 trades id=3670/3879/3893 — all 0-2s holds, all stop_loss_20%) | 📋 QUEUED | 30-45m | go/no-go for Analyst revival | none | prior `ZMN_ROADMAP.md` IN-FLIGHT |
+| OBS-007 | Shadow Trading Phase 2 analysis (`shadow:measurements` Redis list — latency dist, TP overshoot, peak gap) | 📋 QUEUED | 45-60m read-only | informs TP / trail tuning | 24h+ shadow data accumulated ✅ | prior `ZMN_ROADMAP.md` IN-FLIGHT |
+| INFRA-004 | CFGI Stage 2 cutover — top up cfgi.io credits + verify SOL CFGI repopulates as primary | 📋 QUEUED | 30-45m | trading-mode accuracy | Jay tops up cfgi.io credits | prior `ZMN_ROADMAP.md` IN-FLIGHT |
+| LIVE-002 | Supervised live-enable session (Steps A-I from `ZMN_LIVE_ENABLE_HANDOFF_2026_04_19.md`) | 📋 QUEUED | 3 hours incl. 30 min obs | begins live operation | LIVE-001 + DOCS-001 ideally first | `ZMN_OPTIMIZATION_PLAN_2026_04_19.md` Tier 3 §3.7 + abort-report checklist |
 
 ---
 
-## NEAR-TERM SHORT LIST (scheduled within 14 days)
+## Tier 3 — Multi-session projects
 
-### 4. Helius Budget Enforcement (HARD DEADLINE)
-- **State:** SCHEDULED -- must be done before April 26 credit reset
-- **What:** Global `helius_call()` wrapper with Redis daily counter.
-- **Trigger:** Calendar (latest: April 23)
-- **Pairs with:** #5 (caching)
-- **Next review:** 2026-04-20
-- **Session size:** 60-90 min
-
-### 5. Helius Enrichment Caching
-- **State:** SCHEDULED -- paired with #4
-- **What:** Per-token Redis cache (300s TTL) on 4 uncached enrichment
-  functions.
-- **Next review:** 2026-04-20
-
-### 6. Broader Feature Default Cleanup
-- **State:** READY
-- **What:** Audit remaining features in `_build_features` for
-  default-to-zero bug. Candidates: bonding_curve_progress,
-  market_cap_usd, liquidity_velocity, holder_count.
-- **Trigger:** Before ML retrain (#10)
-- **Next review:** 2026-04-18
-- **Session size:** 60-90 min
-
-### 7. Telegram Yeezus Listener Audit
-- **State:** READY
-- **What:** Determine current Telethon integration state for
-  `cryptoyeezuscalls`.
-- **Blocker:** Telegram API credentials may need regeneration
-- **Next review:** 2026-04-20
-- **Session size:** 30 min
-
-### 8. Telegram Yeezus Exit Schedule
-- **State:** BLOCKED on #7
-- **What:** Per-source exit schedule override per Jay's spec
-  (+300%/+500%/+750%/+1000%/+2000%).
-- **Session size:** 15-30 min
+| ID | Title | Status | Est | Impact | Depends on | Source |
+|---|---|---|---:|---|---|---|
+| DASH-001 | Dashboard v2 build (Concept C "Unified Cockpit" per `frontend-design` skill, in `dashboard/v2/` with `?v=2` flag) | 📋 QUEUED | 4-6 sessions × 3 hours | resolves B-001 to B-014 by construction | none | `DASHBOARD_REDESIGN_2026_04_19.md`; `DASHBOARD_ANALYSIS_2026_04_19.md` |
+| DASH-T-001 | Dashboard regression suite (Playwright + webapp-testing skill) — covers B-001 to B-014 | 📋 QUEUED | 3-4 hours | prevents dashboard regression | OBS-004 (Playwright triage) | `DASHBOARD_TESTING_PLAN_2026_04_19.md` |
+| WHALE-002 | Whale Tracker entry-signal wiring (after `watched_wallets.last_active_at` fresh) | 📋 QUEUED | 90m | activates Whale Tracker as entry-decision driver | WHALE-001 | `ZMN_OPTIMIZATION_PLAN_2026_04_19.md` §3.2 |
+| MCP-001 | PumpPortal MCP build (read-only tools: `getTokenStats`, `getRecentTrades`, `getNewLaunches`, `getBondingCurveState`) | 📋 QUEUED | 90-120m | unlocks per-mint forensics; Whale Tracker signal | none | `MCP_BUILDER_CANDIDATES_2026_04_19.md` #1 |
+| SKILL-001 | Build `zmn-trade-analysis` skill (corrected_pnl_sol gotcha + 7d exit-reason / ML-band queries + wallet-drain forensics pattern) | 📋 QUEUED | 75m | future sessions skip rediscovery | none | `ZMN_OPTIMIZATION_PLAN_2026_04_19.md` §3.4; `MCP_BUILDER_CANDIDATES_2026_04_19.md` |
+| ML-005 | ML model retrain on corrected labels | 📋 QUEUED (BLOCKED) | 120m when unblocked | 70+ clean post-fix samples accumulating | 500+ clean samples (ETA 2026-04-25 to 05-05) | prior `ZMN_ROADMAP.md` #10 |
+| ML-006 | FEATURE_COLUMNS pruning (55 → ~20 populated features) | 📋 QUEUED | paired with ML-005 | reduces noise pre-retrain | ML-005 | prior `ZMN_ROADMAP.md` #11 |
+| WHALE-003 | Smart Money Wallet Mining sanity check (winner count >= 50 AND backfill done) | ⏸️ DEFERRED | TBD | trigger-gated | winner count >= 50 AND backfill done ✅ | prior `ZMN_ROADMAP.md` #13 |
+| WHALE-004 | Smart Money Wallet Mining curation pipeline | ⏸️ DEFERRED | 90-120m | refines Whale Tracker source | WHALE-003 | prior `ZMN_ROADMAP.md` #14 |
+| WHALE-005 | Smart Money Webhook Monitoring (Helius webhooks for watched wallets) | ⏸️ DEFERRED | TBD | real-time whale signals | WHALE-004 + Helius credit reset (April 26) | prior `ZMN_ROADMAP.md` #15 |
+| WHALE-006 | Smart Money Entry Trigger Rule (ENTRY decision based on whale activity) | ⏸️ DEFERRED | TBD | trade off whale signal directly | WHALE-005 stable for 7 days | prior `ZMN_ROADMAP.md` #16 |
+| WHALE-007 | Nansen Day-1 Enablement (re-enable Nansen for Analyst signal source) | ⏸️ DEFERRED | TBD | depends on Analyst revival | ML-004 unpauses Analyst OR WHALE-004 needs Nansen | prior `ZMN_ROADMAP.md` #17 |
+| ML-007 | Analyst personality rework (50-100k pullback strategy) | ⏸️ DEFERRED | 2-5 sessions | rebuilds Analyst from scratch | ML-003 + Helius credits + WHALE-005 stable | prior `ZMN_ROADMAP.md` #18 |
+| ML-008 | Vybe investigation (only if Helius + Nansen aren't enough) | ⏸️ DEFERRED | TBD | additional smart-money source | review 2026-05-10 | prior `ZMN_ROADMAP.md` #19 |
+| ML-009 | Social filter (Speed Demon Option C strict — Twitter required Stage 1, 90d age + 3k followers Stage 2) | 📋 QUEUED | 75-90m | additive entry filter | ML-001 + first stable post-TP day | prior `ZMN_ROADMAP.md` READY #3 |
+| MCP-002 | Jito MCP build (getBundleStatus, getRecentTipFloor, getValidatorList) | ⏸️ DEFERRED | 60-90m | partial overlap with Helius MCP — only if needed during live debugging | none | `MCP_BUILDER_CANDIDATES_2026_04_19.md` #2 |
+| MCP-003 | SocialData MCP build | ⏸️ DEFERRED | 60-75m | low ROI until ML-009 ships | ML-009 | `MCP_BUILDER_CANDIDATES_2026_04_19.md` #3 |
+| CLEAN-001 | Archive 30 root-level session-report `.md` files to `docs/archive/` | 📋 QUEUED | 30m | root directory readability | none | `DEPLOYMENT_BLOAT_2026_04_19.md`; `ORPHAN_FILES_2026_04_19.md` |
+| CLEAN-002 | requirements.txt audit (find unused deps) — needs runtime introspection | ⏸️ DEFERRED | 60-90m | smaller container images | none | `DEPLOYMENT_BLOAT_2026_04_19.md` |
 
 ---
 
-## MEDIUM-TERM (14-30 days)
+## Open threads (surfaced but not yet tiered — review each session)
 
-> **Note (2026-04-19):** the staged progression #9.5–9.8 below was designed
-> pre-live. Stages 9.5–9.7 are complete; 9.8 is in progress. The
-> "absolute rule: do not skip stages" line below and at the end of this
-> roadmap is historical — see `CLAUDE.md` "Live trading mode —
-> session-gated" for the current authorization model. Future live-trading
-> sessions are gated per-session, not by completion of the staged chain.
-
-### 9.5. Execution Path Audit (read-only forensics)
-- **State:** **COMPLETED** (2026-04-16, see `EXECUTION_AUDIT_2026_04_16.md`)
-- **What:** Full read-only audit of `execution.py`, `paper_trader.py`,
-  and buy/sell code paths. Answers six unknowns about the real
-  execution pipeline (code sharing, priority fees, slippage config,
-  wallet balance reads, latency budget, error handling).
-- **Why:** Everything validated so far is PAPER. The live execution path
-  is the single biggest unvalidated assumption.
-- **Result:** EXECUTION_AUDIT_2026_04_16.md confirmed all infrastructure
-  exists; identified the solders signing API drift that drove v1/v2
-  failures. Direct precursor to the v3/v4 trials.
-
-### 9.6. Shadow Mode Implementation
-- **State:** **PARTIAL / SUPERSEDED** — shadow measurements collected
-  via `shadow:measurements` Redis list (`SHADOW_ANALYSIS_2026_04_16.md`,
-  90.9% winner-survival rate, 19% median discount). The formal
-  `SHADOW_MODE` flag in `execution.py` was never implemented; superseded
-  by v3 live verification on mainnet.
-- **What was originally planned:** `SHADOW_MODE` flag constructing +
-  simulating transactions without submitting. Logging to
-  `shadow_tx:{mint}:{ts}`.
-- **What actually happened:** instrumentation-only shadow logging from
-  bot_core; v3 live trial verified the path on real mainnet without
-  needing the flag.
-
-### 9.7. Micro-Live Validation (Stage 2)
-- **State:** **COMPLETED** — live trials v3 + v4 on the **main** wallet
-  (skipped the secondary-wallet step), 2026-04-16/17.
-- **What was originally planned:** Secondary wallet, 0.5 SOL, 0.01
-  SOL/trade, 50 trade cap.
-- **What actually happened:** main-wallet trials with 0.05 SOL positions.
-  v3 verified signing (0 SignatureFailure in 83 attempts). v4 executed
-  4+ TX_SUBMITs on-chain at 06:37 AEDT 2026-04-17, wallet moved
-  5.0 → 3.677 SOL. See `ZMN_HELIUS_URL_FIX_REPORT.md`,
-  `ZMN_LIVE_TRIAL_V4_RESULT.md`, `ZMN_POSTMORTEM_2026_04_16.md`.
-
-### 9.8. Real-Size Live on Main Wallet (Stage 3)
-- **State:** **IN PROGRESS** — 0.05 SOL position size, 1.32 SOL traded
-  in the v4 window so far. Currently paused pending TP redesign ship and
-  the rules-refresh + supervised-enable session sequence (see
-  `docs/audits/ZMN_OPTIMIZATION_PLAN_2026_04_19.md` and
-  `docs/audits/ZMN_LIVE_ENABLE_HANDOFF_2026_04_19.md`).
-- **What:** Flip TEST_MODE=false. Start with 0.05 SOL positions, scale
-  up over 7-14 days.
-- **Current rule:** future live-trading sessions require explicit
-  session-level authorization per `CLAUDE.md` "Live trading mode —
-  session-gated." Position sizing may not exceed 0.05 SOL without a
-  separate explicit authorization. See also
-  `docs/audits/ZMN_OPTIMIZATION_PLAN_2026_04_19.md` Tier 4 for the
-  ordering of upcoming sessions.
-
-### 10. ML Model Retrain (on corrected labels)
-- **State:** BLOCKED on sample count + feature cleanup
-- **Trigger:** Backfill done + ML training code updated + feature
-  cleanup done + 500+ clean samples
-- **Sample projection:** ~70 clean post-fix samples. ETA 2026-04-25
-  to 2026-05-05.
-- **Next review:** 2026-04-21
-
-### 11. FEATURE_COLUMNS Pruning
-- **State:** PAIRED with #10
-- **What:** Prune from 55 to ~20 populated features.
-
-### 12. Analyst CFGI Threshold Review
-- **State:** READY
-- **What:** Decision: keep / lower / remove the CFGI < 20 auto-pause.
-- **Trigger:** Backfill complete (corrected data available)
-- **Next review:** 2026-04-17
-- **Session size:** 30 min analysis only
+| Thread | Status | Notes |
+|---|---|---|
+| `ML_THRESHOLD_SPEED_DEMON` env-var split (bot_core=30 unused vs signal_aggregator=40 gating) | merged into TUNE-003 | confirmed via Railway MCP `list-variables` |
+| Birdeye MCP session expiry on first call | open | requires session-refresh story for any auto-loop using Birdeye; no current dependency |
+| `bot_core.py:793` unconditional `INSERT INTO trades` (dual-write, not a security bug — recording duplication) | open (merged into LOW finding) | per `ZMN_LIVE_TRADE_FORENSICS_2026_04_19.md` finding #3 — either document the dual-purpose or add a `mode` column to `trades` |
+| `live_trade_log` retention (9,044 historical errors from v4 era make "errors in last 7d" queries misleading) | open | per forensics LOW finding — TTL or docs note |
+| Dashboard on-chain balance widget (forensics LOW finding #5) | open | bundle into DASH-001 |
+| `2gfHQ…` holding wallet 0.098 SOL — does treasury sweep ever clear it? | open | low-priority unknown |
+| Reconcile-on-mode-flip residual (CLAUDE.md flags as "discipline to codify") | open | sell-storm circuit breaker is the safety net; explicit codification deferred |
+| ZMN-SIGNAL-AGGREGATOR-1 SocialData credits exhausted (Sentry-captured) | open | first triage decision: top up SocialData credits OR mark as known/wontfix in Sentry until ML-009 ships |
 
 ---
 
-## LONG-TERM (30+ days or triggered by external events)
+## Completed items (recent — for changelog reference)
 
-### 13. Smart Money Wallet Mining -- Sanity Check
-- **State:** DEFERRED -- waiting for sample count
-- **Trigger:** Winner count >= 50 AND backfill done
-- **Next review:** 2026-04-25
+| Date | ID | Title | Commit |
+|---|---|---|---|
+| 2026-04-19 | GATE-003 | Sentry SDK integration across 8 services (8 projects in rz-consulting org) | `cb45d6b` |
+| 2026-04-19 | GATE-002 | Live trade forensics — Verdict A: phantom drain, real v4 cost ~3.4 SOL | `1b40df3` |
+| 2026-04-19 | GATE-001 | Durable rules refresh — TEST_MODE flip is now session-gated | `e9de6d7` |
+| 2026-04-19 | (audit) | Deep recon — 7 audit docs covering tool surface, re-diagnosis, optimization plan, handover, dashboard, mcp-builder candidates | `4a37598` |
+| 2026-04-19 | (audit) | MCP fixes — Vybe MCP URL corrected to docs.vybenetwork.com/mcp | `d7ae512` |
+| 2026-04-19 | (audit) | GitHub MCP PAT-based replaces Copilot MCP | `b6083ab` |
+| 2026-04-19 | (audit) | 4 broken MCP registrations corrected | `41192b0` |
+| 2026-04-17 | LIVE-pre-001 | Helius URL resolver (3-tier fallback) + sell-storm circuit breaker (cd266de) | `cd266de` |
+| 2026-04-17 | (live trial) | Live trial v3 — signing verified on mainnet, 0 SignatureFailure / 83 attempts | `cd266de` |
+| 2026-04-17 | (live trial) | Live trial v4 — 4+ TX_SUBMITs on-chain, wallet 5.0 → 1.6 SOL (~3.4 SOL traded) | `cd266de` |
+| 2026-04-17 | DASH (Tier 1) | Dashboard mode filter + MCAP columns + LIVE view honest | (commits in roadmap COMPLETED RECENTLY section) |
+| 2026-04-15 | BUG-011 | `paper_trades.outcome` column NULL — RESOLVED (backfill 2,966 rows) | `77d6a8a`, `429dd87` |
+| 2026-04-14 | (recovery) | signal_aggregator restored after 21-hour outage; hardened with retry + heartbeat | `85768c5` |
+| 2026-04-14 | INFRA (CFGI) | cfgi.io Stage 1 dual-read deployed | `146ca38`, `859c0fa`, `1ac9cb8` |
+| 2026-04-13 | (audit) | Dashboard Tier 1 audit + P/L source fixes | `dbbffd3`, `40dadb6`, `cac5202` |
+| 2026-04-13 | (data) | Historical paper_trades backfill | `cf16627`, `2f76a91` |
+| 2026-04-12 | TUNE | Feature default fix (BSR/wallet_velocity) | `a8a390b` |
+| 2026-04-12 | TUNE | Staged TP reporting fix | `5b92226` |
+| 2026-04-11 | TUNE | Entry filter v4 | `56421ab` |
+| 2026-04-09 | TUNE | Exit strategy fix | `bf57117` |
+| 2026-04-07 | TUNE | Paper trader price bug fix | `9b880e1` |
+| 2026-04-19 | CLEAN-pre | js/ orphan files deleted (~4.2 MB off every Railway deploy) | (in deep recon commit set) |
 
-### 14. Smart Money Wallet Mining -- Curation Pipeline
-- **State:** BLOCKED on #13
-- **Trigger:** #13 confirms dataset is dense enough
-- **Session size:** 90-120 min
+### Completed staged-progression items (#9.5 - #9.7)
 
-### 15. Smart Money Webhook Monitoring (Helius)
-- **State:** BLOCKED on #14 AND Helius credit reset
-- **Trigger:** #14 complete AND April 26 credit reset
-- **Next review:** 2026-04-28
-
-### 16. Smart Money Entry Trigger Rule
-- **State:** BLOCKED on #15
-- **Trigger:** #15 stable for 7 days
-- **Next review:** 2026-05-05
-
-### 17. Nansen Day-1 Enablement
-- **State:** DEFERRED
-- **Trigger:** Analyst unpauses OR #14 needs Nansen calls
-- **Next review:** 2026-04-25
-
-### 18. Analyst Personality Rework (50-100k pullback strategy)
-- **State:** DEFERRED (large multi-session work)
-- **Trigger:** #12 + Helius credits + #15 stable
-- **Next review:** 2026-05-01
-- **Session size:** 2-5 sessions
-
-### 19. Vybe Investigation
-- **State:** LOW priority, DEFERRED
-- **Trigger:** Only if Helius + Nansen aren't enough
-- **Next review:** 2026-05-10
-
-### 20. Governance SQL Type Mismatch (cosmetic)
-- **State:** LOW priority
-- **Next review:** 2026-05-15
-- **Session size:** 15 min
+| Original ID | Status | Notes |
+|---|---|---|
+| #9.5 Execution Path Audit | ✅ COMPLETED 2026-04-16 | `EXECUTION_AUDIT_2026_04_16.md` — found solders signing API drift, drove v1/v2 fix |
+| #9.6 Shadow Mode Implementation | ⛔ SUPERSEDED | Shadow measurements collected via Redis instrumentation; formal `SHADOW_MODE` flag never built — v3 verified path directly on mainnet |
+| #9.7 Micro-Live Validation | ✅ COMPLETED 2026-04-16/17 | Done on main wallet at 0.05 SOL position (skipped originally-planned secondary wallet) |
+| #9.8 Real-Size Live on Main Wallet | 🟡 IN_PROGRESS | 1.32 SOL traded in v4 window so far; paused pending LIVE-001 + LIVE-002 |
 
 ---
 
-## DROPPED (explicitly removed, no longer in backlog)
+## Deferred / Superseded items
 
-- **Kronos Foundation Model Integration (ZMN):** Wrong latency, wrong
-  pretraining domain. ZMN's edge is on-chain features not OHLCV.
-- **Original "Subscribe to Nansen-labeled SM" Architecture:** Finding 3
-  killed this. SM labels don't exist at pump.fun scale.
-- **ML Feature Expansion:** Blocked until sample count >= 500. Returns
-  as option after #10 retrain.
-- **ML Score Cap at 65:** Symptom fix for the score inversion. Root cause
-  is #10 retrain on corrected labels.
-- **Kronos ASX Equities Bot:** PARKED as separate project.
-
----
-
-## COMPLETED RECENTLY (last 7 days)
-
-- **2026-04-17:** Helius URL resolver + sell-storm circuit breaker (cd266de).
-  `_execute_pumpportal_local` and `_send_transaction` now include
-  `HELIUS_GATEKEEPER_URL` as final fallback. Startup `RuntimeError` if live
-  mode with no URLs. 4xx/5xx body truncation 200 → 2048. Per-mint sell
-  failure parking after 8 consecutive `ExecutionError`s (5 min cool-off).
-  bot_core `HELIUS_STAKED_URL` corrected to `ardith-mo8tnm-fast-mainnet`
-  (was standard RPC). Sell-storm circuit breaker DONE. Reconcile-restart
-  discipline noted as residual issue (not a bug, contract to codify).
-- **2026-04-07:** Paper trader price bug fix (9b880e1)
-- **2026-04-08:** Tier 2 overnight -- 4 fixes
-- **2026-04-09:** Exit strategy fix (bf57117)
-- **2026-04-10:** API audit complete
-- **2026-04-11:** Entry filter v4 (56421ab)
-- **2026-04-12:** Feature default fix (a8a390b)
-- **2026-04-12:** Staged TP reporting fix (5b92226)
-- **2026-04-13:** Historical backfill (cf16627, 2f76a91)
-- **2026-04-13:** Dashboard Tier 1 audit + P/L source fixes (dbbffd3,
-  40dadb6, cac5202)
-- **2026-04-14:** State audit -- pipeline outage diagnosed (fb8a389)
-- **2026-04-14:** Recovery + hardening session -- pipeline restored,
-  signal_aggregator hardened with retry + heartbeat (85768c5)
-- **2026-04-14:** cfgi.io Stage 1 dual-read -- SOL CFGI = 56.5 vs
-  BTC F&G = 21. Dashboard shows both. (146ca38, 859c0fa, 1ac9cb8)
+| ID | Title | Reason | Source |
+|---|---|---|---|
+| DROPPED-001 | Kronos Foundation Model Integration | Wrong latency, wrong pretraining domain. ZMN's edge is on-chain features, not OHLCV. | prior `ZMN_ROADMAP.md` DROPPED |
+| DROPPED-002 | Original "Subscribe to Nansen-labeled SM" architecture | SM labels don't exist at pump.fun scale (Finding 3) | prior `ZMN_ROADMAP.md` |
+| DROPPED-003 | ML Feature Expansion (pre-retrain) | Returns as option after ML-005 retrain | prior `ZMN_ROADMAP.md` |
+| DROPPED-004 | ML Score Cap at 65 | Was symptom-fix for "score inversion" claim now SUPERSEDED by data showing higher scores win more | prior `ZMN_ROADMAP.md`; `ZMN_RE_DIAGNOSIS_2026_04_19.md` ML band table |
+| DROPPED-005 | Kronos ASX Equities Bot | Parked as separate project | prior `ZMN_ROADMAP.md` |
+| ⛔ MCP-LETSBONK | LetsBonk MCP build | Low ROI; LetsBonk volume tiny fraction of pump.fun's ~$50M/day | `MCP_BUILDER_CANDIDATES_2026_04_19.md` #4 |
+| ⛔ DASH-PATCH | Patch dashboard B-001 to B-014 individually | Per `frontend-design` skill: rebuild-not-patch (DASH-001) — every B-fix risks compounding the design debt that caused the bugs | `DASHBOARD_ANALYSIS_2026_04_19.md` |
+| ⛔ MCP-RUGCHECK | Rugcheck MCP registration | Not on npm; current `services/signal_aggregator.py` calls rugcheck.xyz API directly with `RUGCHECK_REJECT_THRESHOLD=2000` env gate — no MCP needed | inferred from `.mcp.json` audit + env vars |
+| ⛔ DOCKERIGNORE | Add `.dockerignore` | Nixpacks (current builder) ignores `.dockerignore` — no effect | `DEPLOYMENT_BLOAT_2026_04_19.md` |
+| ⛔ ML_INVERSION | "ML inverts above 40" guidance | Pre-2026-04-12 claim, superseded by 7d data (every band 30→80+ profitable, WR climbs with score) | `ZMN_RE_DIAGNOSIS_2026_04_19.md` pain 2; CLAUDE.md ML-state block |
+| ⛔ STAGED-CHAIN-RULE | "Do not skip stages" rule for live trading | Overtaken by events on 2026-04-16/17 (live trials v3+v4); replaced by CLAUDE.md "Live trading mode — session-gated" | `e9de6d7` rules refresh |
 
 ---
 
-## Open Bugs from Other Docs
+## Source audit cross-references
 
-The following bugs are tracked in dedicated files but referenced here
-so the roadmap is the single source of truth for what's open:
+When investigating an item's evidence, open the linked audit doc:
 
-- **Dashboard bugs:** DASHBOARD_AUDIT.md Known Bugs Registry
-  (B-001 through B-009). Review date: 2026-04-16.
-- **Pipeline bugs:** STATE_AUDIT_2026_04_14.md findings. All addressed
-  in tonight's recovery session.
-- **B-001 (CFGI source)** is cross-cutting -- affects bot_core trading
-  behavior, not just dashboard display. Tracked as "CFGI Data Source
-  Decision" item in READY section above.
-- **B-010 (Governance CFGI hallucination):** Governance LLM consistently
-  outputs "CFGI at 50" regardless of actual value. Either the prompt
-  template injects a default, or the LLM confabulates. Needs prompt
-  audit in a future governance session.
-
-### B-011: paper_trades.outcome column NULL for ~2500 trades — RESOLVED
-- **Observed:** The `outcome` column (win/loss text label) has been
-  NULL for all trades since id=1131 (~2500 trades ago)
-- **Root cause:** paper_trader.paper_sell() computed outcome but never
-  included it in the UPDATE SQL. Also used "profit" instead of "win".
-  Second location in bot_core._close_position() had same bug.
-- **Status:** RESOLVED 2026-04-15 (commits 77d6a8a, 429dd87)
-- **Backfill:** 2,966 rows updated from NULL to win/loss via P/L sign.
-- **Impact:**
-  - Any SQL query using `WHERE outcome = 'win'` returns 0 rows
-  - Dashboard widgets that reference outcome directly break
-  - ML training labels are wrong if they depend on this column
-    (currently ML uses corrected_pnl_sol sign, so not affected)
-  - WR computations must derive from P/L sign instead
-- **Workaround:** All WR queries should use
-  `CASE WHEN COALESCE(corrected_pnl_sol, realised_pnl_sol) > 0
-        THEN 'win' ELSE 'loss' END`
-- **Fix:** (1) find where outcome SHOULD be set in paper_sell, fix it;
-  (2) backfill NULL outcomes via SQL UPDATE based on P/L sign
-- **Status:** DOCUMENTED
-- **Next review:** 2026-04-16
-- **Session size:** 30 min (find the bug, fix, backfill, verify)
-- **Discovered by:** POST_RECOVERY_REVIEW_2026_04_14.md
-
-### B-012: STAGED_TP_FIRE log line not appearing — FALSE POSITIVE, CLOSED
-- **Observed:** The STAGED_TP_FIRE log instrumentation committed in
-  40dadb6 and deployed during recovery at ~11:40 UTC April 14 is not
-  producing log output. 0 matches in bot_core logs despite Postgres
-  showing 14+ trades with staged TP exits.
-- **Impact:**
-  - TP redesign is blocked on this instrumentation data
-  - Cannot measure actual vs nominal TP fill prices in fast pumps
-  - The 5x gap between simulation and reality (from earlier CSV
-    analysis) remains unverifiable without this data
-- **Possible causes:**
-  1. bot_core may not actually be running commit 40dadb6 code
-     (check with `git log` of the deployed SHA vs local)
-  2. The log line may be using a different string than "STAGED_TP_FIRE"
-  3. The log level may be filtered out
-  4. The instrumentation may be in a code path that doesn't execute
-     on the staged TP fire (wrong function, wrong branch)
-- **Fix plan:** Grep services/bot_core.py for the actual log line
-  added in 40dadb6. Verify it's in the right function. Verify Railway
-  is running that commit. If the log line is there but not firing,
-  add a temporary debug log nearby to confirm the code path is hit.
-- **Status:** DOCUMENTED
-- **Next review:** 2026-04-16
-- **Session size:** 20-30 min
-- **Discovered by:** POST_RECOVERY_REVIEW_2026_04_14.md
-
-### B-013: Recent Trades token symbol display — DEFERRED
-- **Status:** DEFERRED 2026-04-16
-- **Root cause:** paper_trades.symbol column is empty for ALL trades.
-  paper_buy() in paper_trader.py does not populate it. Needs upstream
-  fix: either enrich from PumpPortal metadata at buy time or look up
-  from Jupiter token list.
-- **Session size:** 30 min (paper_trader fix + backfill from metadata)
-
-### B-014: Dashboard CFGI display shows same value for BTC and SOL — OBSOLETE
-- **Observed:** Dashboard top bar shows CFGI(BTC) = 45 and
-  CFGI(SOL) = 45. cfgi.io live values: BTC ~65, SOL ~50.
-- **Root cause:** Post-Stage-2, `market:health.cfgi` holds SOL value.
-  Dashboard API reads this key for the "BTC" label (`fear_greed`
-  field). The `cfgi_btc` Redis key (23, Alternative.me) is never
-  read by the dashboard API.
-- **Secondary:** 5-point gap between our 45 and cfgi.io website 50
-  is API parameter difference (`period=2` = 1h smoothing vs website
-  real-time). Not a code bug.
-- **Note:** Alternative.me BTC F&G (23) and cfgi.io BTC CFGI (65)
-  are entirely different indices. The dashboard currently shows
-  neither correctly for BTC.
-- **Impact:** Cosmetic only. Trading uses correct SOL CFGI value.
-- **Fix:** dashboard_api.py add `cfgi_btc` field, dashboard.html
-  read it for BTC label. ~10 min.
-- **Status:** DOCUMENTED
-- **Next review:** 2026-04-17
-- **Session size:** 10 min (bundle with B-013)
-- **Discovered by:** Jay, evening 2026-04-15
-
-Any bug that sits unreviewed past its review date in those files
-gets escalated into this roadmap's main backlog.
+| Audit doc | What it covers | Items it informs |
+|---|---|---|
+| `docs/audits/CC_TOOL_SURFACE_2026_04_19.md` | Per-MCP smoke tests, JSON-typing failure modes, skill descriptions | INFRA-001, MCP-001, OBS-004 |
+| `docs/audits/ZMN_RE_DIAGNOSIS_2026_04_19.md` | 6 pain points re-examined with fresh data | TUNE-001/002/003, OBS-001/003, WHALE-001 |
+| `docs/audits/ZMN_OPTIMIZATION_PLAN_2026_04_19.md` | Tier 1/2/3 ranked plan with expected SOL impact | TUNE-*, OBS-*, WHALE-001, LIVE-001/002, MCP-001 |
+| `docs/audits/ZMN_CC_HANDOVER_2026_04_19.md` | Single-file context pack (state snapshot + open threads) | All — meta |
+| `docs/audits/ZMN_LIVE_TRADE_FORENSICS_2026_04_19.md` | Wallet drain forensics — Verdict A | DOCS-001, OBS-006, GATE-002 |
+| `docs/audits/ZMN_LIVE_ENABLE_HANDOFF_2026_04_19.md` | Abort report with paste-able Steps A-I checklist | LIVE-002 |
+| `docs/audits/DASHBOARD_REDESIGN_2026_04_19.md` | Current state inventory + Concept A/B/C | DASH-001 |
+| `docs/audits/DASHBOARD_ANALYSIS_2026_04_19.md` | frontend-design skill applied to dashboard bugs (rebuild-not-patch) | DASH-001 |
+| `docs/audits/DASHBOARD_TESTING_PLAN_2026_04_19.md` | Playwright regression suite plan (blocked on stability) | DASH-T-001, OBS-004 |
+| `docs/audits/MCP_BUILDER_CANDIDATES_2026_04_19.md` | 4 candidate MCPs scoped (PumpPortal/Jito/SocialData/LetsBonk) | MCP-001/002/003, MCP-LETSBONK |
+| `docs/audits/DEPLOYMENT_BLOAT_2026_04_19.md` | Railway upload audit | CLEAN-001/002 |
+| `docs/audits/ORPHAN_FILES_2026_04_19.md` | Orphan file scan | CLEAN-001 |
+| `docs/audits/SECRETS_SCAN_2026_04_19.md` | Tracked-files secrets scan (clean) | SEC-002, SEC-003 |
+| `session_outputs/ZMN_SENTRY_INTEGRATION_DONE.md` | Sentry SDK integration outcome | GATE-003 |
+| `session_outputs/ZMN_SENTRY_DSNS.md` (gitignored) | DSN reference for the 8 Sentry projects | GATE-003 reference only |
 
 ---
 
-## THE BIG PICTURE (for Jay's sanity)
+## Operating principles (preserved from prior roadmap)
 
-The last 7 days was a sequence of interdependent bug fixes that each
-unblocked the next. You started with "bot is bleeding money." You end
-with "bot is profitable but the reporting was lying." The work wasn't
-wasted -- each fix was real, each one moved you forward, and the net
-result is:
-
-1. **The bot mechanically works on paper** -- entry, scoring, exit
-   strategy all correct
-2. **The reporting mechanically works** -- P/L is now recorded correctly
-3. **The historical record is cleaned up** -- backfill done
-4. **The ML model needs an update to use the cleaned record** -- next
-5. **The TP allocation can be optimized** -- after recovery
-
-**THE UNVALIDATED ASSUMPTION:** Everything so far is paper trading.
-The real execution path in `execution.py` was never exercised when this
-section was originally written. That changed on 2026-04-16/17 with live
-trials v3 + v4. The progressive validation chain (#9.5 through #9.8)
-played out as:
-
-- **#9.5** (read-only audit): COMPLETED 2026-04-16. Found solders
-  signing API drift; informed the v1/v2 fixes.
-- **#9.6** (shadow mode): SUPERSEDED — shadow measurements collected via
-  Redis instrumentation; the formal flag was never implemented because
-  v3 verified the live path directly.
-- **#9.7** (micro-live): COMPLETED — done on main wallet at 0.05 SOL
-  position size rather than the originally planned secondary wallet.
-- **#9.8** (real-size live): IN PROGRESS — 1.32 SOL traded so far;
-  paused pending the rules-refresh + supervised-enable session sequence.
-
-The original wording said "do not skip stages. No 'just flip
-TEST_MODE=false' on the main wallet." That rule was correct in spirit
-when written but was overtaken by events on 2026-04-16/17. The current
-authorization model for `TEST_MODE=false` is per-session and lives in
-`CLAUDE.md` "Live trading mode — session-gated." Future live sessions
-must satisfy the four preconditions in that rule rather than complete
-this chain.
+- **One substantive lever per session** — multiple parallel changes make failure attribution impossible
+- **Verification windows BEFORE tuning** (24h+ minimum) — don't tune without observation data
+- **All deploys must have auto-revert conditions** — `git revert <hash>` is the rollback
+- **All thresholds env-var-configurable** for kill switch — never hardcode trading parameters
+- **Read-only diagnostic prompts BEFORE write prompts** on ambiguous items
+- **Never deploy multiple Railway services simultaneously** (per CLAUDE.md)
+- **No `railway up` AND `git push` in the same session** (duplicate deploys waste build minutes)
+- **Update this roadmap at the end of every session** — append a changelog entry
 
 ---
 
-## REVIEW CADENCE
+## Review cadence
 
-- **Daily during active deploy weeks** -- check top 3 priority items
-- **Weekly when stable** -- review all READY + SCHEDULED items, re-date
-- **Triggered** -- when an item hits its trigger condition, re-evaluate
-  immediately
+- **Daily during active deploy weeks** — check top-3 priority Tier 1 items
+- **Weekly when stable** — review all 📋 QUEUED + ⏸️ DEFERRED items, re-date or promote
+- **Triggered** — when a `Depends on` clears, re-evaluate that item immediately
 
-Items sitting in DEFERRED for 30+ days without status change get either
-DROPPED or explicitly re-scheduled with a new trigger. No drift.
+Items sitting in ⏸️ DEFERRED for 30+ days without a status change get either DROPPED or re-scheduled with a new trigger. No drift.
 
 ---
 
-## SESSION ENERGY BUDGET
+## Changelog
 
-**Rules:**
-- ONE substantive lever per session
-- Verification windows BEFORE tuning (24h+ minimum)
-- All deploys must have auto-revert conditions
-- All thresholds env-var-configurable for kill switch
-- Read-only diagnostic prompts BEFORE write prompts on ambiguous items
-
----
-
-## REFERENCES
-
-- `MONITORING_LOG.md` -- chronological session log
-- `AGENT_CONTEXT.md` -- bot architecture reference
-- `CLAUDE.md` -- agent instructions
-- `DASHBOARD_AUDIT.md` -- panel-by-panel findings + Known Bugs Registry
-- `STATE_AUDIT_2026_04_14.md` -- pipeline outage diagnosis
-- `STAGED_TP_BACKFILL_REPORT.md` -- historical P/L correction
-- `API_AUDIT_REPORT.md` -- Helius/Nansen/Vybe state
-- `SMART_MONEY_DIAGNOSTIC.md` -- Nansen capability map
-- `POST_TIER2_DIAGNOSIS.md` -- bot health snapshot post Tier 2
+- **2026-04-19** — initial consolidated roadmap. Merged from prior `ZMN_ROADMAP.md` (20+ items) + 13 audit docs under `docs/audits/` + 1 session-output. All actionable items now use the unified ID schema and tier system. Audit docs retained as evidence (each gets a header pointing here for current status). Dashboard, forensics, rules-refresh, and Sentry sessions reflected in COMPLETED. Prior roadmap items #1–#20 + B-001/B-014 mapped to new IDs. No actionable items lost; superseded items moved to the Deferred / Superseded section with explicit reason.

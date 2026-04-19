@@ -1,5 +1,8 @@
 # ZMN re-diagnosis with the upgraded tool surface — 2026-04-19
 
+> **STATUS (2026-04-19):** This audit's actionable items are consolidated in `ZMN_ROADMAP.md`. Refer there for current status, priority, and dependencies. This doc is retained as evidence / deep-dive detail.
+
+
 **Author:** Claude Opus 4.7 (1M-context, autonomous deep recon).
 **Companion docs:** `CC_TOOL_SURFACE_2026_04_19.md` (which tools are now available), `ZMN_OPTIMIZATION_PLAN_2026_04_19.md` (what to do about it).
 **Method:** every claim below is backed by a Postgres MCP / Redis MCP / Helius MCP / Railway MCP query run **today** against the live DB and Redis, not the 5,831-row CSV snapshot.

@@ -1,5 +1,8 @@
 # MCP-builder skill — candidate ZMN MCPs to build
 
+> **STATUS (2026-04-19):** This audit's actionable items are consolidated in `ZMN_ROADMAP.md`. Refer there for current status, priority, and dependencies. This doc is retained as evidence / deep-dive detail.
+
+
 **Author:** Claude Opus 4.7 · **Date:** 2026-04-19 · **Status:** scoping only, no build this session.
 **Skill reference:** `.claude/skills/mcp-builder/SKILL.md` (read this session). Recommends TypeScript SDK + Streamable HTTP for remote, stdio for local. Workflow tools vs. comprehensive coverage tradeoff. Stateless JSON over stateful sessions. Pydantic/Zod schemas with examples in field descriptions.
 

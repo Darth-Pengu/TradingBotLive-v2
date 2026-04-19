@@ -1,5 +1,8 @@
 # Dashboard regression-testing plan — Playwright + webapp-testing skill
 
+> **STATUS (2026-04-19):** This audit's actionable items are consolidated in `ZMN_ROADMAP.md`. Refer there for current status, priority, and dependencies. This doc is retained as evidence / deep-dive detail.
+
+
 **Author:** Claude Opus 4.7 · **Date:** 2026-04-19 · **Status:** plan only, blocked on Playwright headless stability fix.
 **Skill reference:** `.claude/skills/webapp-testing/SKILL.md` — uses native Python Playwright scripts, has `scripts/with_server.py` helper for server lifecycle, recommends "reconnaissance-then-action" pattern (navigate → wait for `networkidle` → screenshot → identify selectors → execute).
 

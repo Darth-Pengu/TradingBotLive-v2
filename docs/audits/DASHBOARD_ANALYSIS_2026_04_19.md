@@ -1,5 +1,8 @@
 # Dashboard analysis — frontend-design lens applied to known bugs
 
+> **STATUS (2026-04-19):** This audit's actionable items are consolidated in `ZMN_ROADMAP.md`. Refer there for current status, priority, and dependencies. This doc is retained as evidence / deep-dive detail.
+
+
 **Author:** Claude Opus 4.7 · **Date:** 2026-04-19 · **Status:** addendum to `DASHBOARD_REDESIGN_2026_04_19.md`.
 
 This is a 3-paragraph addendum applying the `frontend-design` skill's lens to the existing dashboard bug list (`DASHBOARD_AUDIT.md`, B-001 through B-009 / B-014). The skill emphasizes intentional aesthetic direction, refined typography, cohesive color systems, atmospheric backgrounds, and meticulous spacing — and explicitly counsels against generic AI-slop aesthetics (Inter font, purple-on-white gradients, predictable card layouts).
