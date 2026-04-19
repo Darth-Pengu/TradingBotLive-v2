@@ -55,7 +55,10 @@ Always fetch SOL/USD price in same batch as token prices
 
 Trading wallet: 3.6774 SOL (mainnet, 1.32 SOL spent in v4 live window)
 Treasury wallet: 0.0984 SOL
-Mode: Paper (TEST_MODE=true) — safe following cd266de deploy
+Mode: Paper (TEST_MODE=true) — safe following cd266de deploy.
+  Authorization for `TEST_MODE=false` is governed by `CLAUDE.md` "Live
+  trading mode — session-gated" (single source of truth; 4 preconditions
+  per session).
 
 Live trial history:
 - v1 (2026-04-16 22:00 AEDT): FAILED — solders .sign() removed in 0.21+

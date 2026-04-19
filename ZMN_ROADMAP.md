@@ -329,43 +329,63 @@ BLOCKED by stale paper positions filling MAX_SD_POSITIONS=2.
 
 ## MEDIUM-TERM (14-30 days)
 
+> **Note (2026-04-19):** the staged progression #9.5–9.8 below was designed
+> pre-live. Stages 9.5–9.7 are complete; 9.8 is in progress. The
+> "absolute rule: do not skip stages" line below and at the end of this
+> roadmap is historical — see `CLAUDE.md` "Live trading mode —
+> session-gated" for the current authorization model. Future live-trading
+> sessions are gated per-session, not by completion of the staged chain.
+
 ### 9.5. Execution Path Audit (read-only forensics)
-- **State:** READY -- highest-priority pre-live session
+- **State:** **COMPLETED** (2026-04-16, see `EXECUTION_AUDIT_2026_04_16.md`)
 - **What:** Full read-only audit of `execution.py`, `paper_trader.py`,
   and buy/sell code paths. Answers six unknowns about the real
   execution pipeline (code sharing, priority fees, slippage config,
   wallet balance reads, latency budget, error handling).
 - **Why:** Everything validated so far is PAPER. The live execution path
   is the single biggest unvalidated assumption.
-- **Trigger:** 7 days of post-TP-redesign data + paper profitability
-  confirmed
-- **Next review:** 2026-04-20
-- **Session size:** 60-90 min (writes EXECUTION_AUDIT.md)
-- **Risk:** Zero -- read-only
+- **Result:** EXECUTION_AUDIT_2026_04_16.md confirmed all infrastructure
+  exists; identified the solders signing API drift that drove v1/v2
+  failures. Direct precursor to the v3/v4 trials.
 
 ### 9.6. Shadow Mode Implementation
-- **State:** BLOCKED on #9.5
-- **What:** `SHADOW_MODE` flag in `execution.py`. Constructs + simulates
-  transactions without submitting. Logs to `shadow_tx:{mint}:{ts}`.
-- **Trigger:** #9.5 complete AND critical issues fixed
-- **Next review:** 2026-04-22
-- **Session size:** 90-120 min
+- **State:** **PARTIAL / SUPERSEDED** — shadow measurements collected
+  via `shadow:measurements` Redis list (`SHADOW_ANALYSIS_2026_04_16.md`,
+  90.9% winner-survival rate, 19% median discount). The formal
+  `SHADOW_MODE` flag in `execution.py` was never implemented; superseded
+  by v3 live verification on mainnet.
+- **What was originally planned:** `SHADOW_MODE` flag constructing +
+  simulating transactions without submitting. Logging to
+  `shadow_tx:{mint}:{ts}`.
+- **What actually happened:** instrumentation-only shadow logging from
+  bot_core; v3 live trial verified the path on real mainnet without
+  needing the flag.
 
 ### 9.7. Micro-Live Validation (Stage 2)
-- **State:** BLOCKED on #9.6
-- **What:** Secondary wallet, 0.5 SOL, 0.01 SOL/trade, 50 trade cap.
-- **Trigger:** #9.6 has 24h of clean shadow data
-- **Next review:** 2026-04-24
-- **Session size:** 60-90 min + 1-3 days monitoring
+- **State:** **COMPLETED** — live trials v3 + v4 on the **main** wallet
+  (skipped the secondary-wallet step), 2026-04-16/17.
+- **What was originally planned:** Secondary wallet, 0.5 SOL, 0.01
+  SOL/trade, 50 trade cap.
+- **What actually happened:** main-wallet trials with 0.05 SOL positions.
+  v3 verified signing (0 SignatureFailure in 83 attempts). v4 executed
+  4+ TX_SUBMITs on-chain at 06:37 AEDT 2026-04-17, wallet moved
+  5.0 → 3.677 SOL. See `ZMN_HELIUS_URL_FIX_REPORT.md`,
+  `ZMN_LIVE_TRIAL_V4_RESULT.md`, `ZMN_POSTMORTEM_2026_04_16.md`.
 
 ### 9.8. Real-Size Live on Main Wallet (Stage 3)
-- **State:** BLOCKED on #9.7
+- **State:** **IN PROGRESS** — 0.05 SOL position size, 1.32 SOL traded
+  in the v4 window so far. Currently paused pending TP redesign ship and
+  the rules-refresh + supervised-enable session sequence (see
+  `docs/audits/ZMN_OPTIMIZATION_PLAN_2026_04_19.md` and
+  `docs/audits/ZMN_LIVE_ENABLE_HANDOFF_2026_04_19.md`).
 - **What:** Flip TEST_MODE=false. Start with 0.05 SOL positions, scale
   up over 7-14 days.
-- **Trigger:** #9.7 micro-live has 100+ real trades with success
-  criteria met
-- **Next review:** 2026-05-01 earliest
-- **Absolute rule:** Do not skip stages.
+- **Current rule:** future live-trading sessions require explicit
+  session-level authorization per `CLAUDE.md` "Live trading mode —
+  session-gated." Position sizing may not exceed 0.05 SOL without a
+  separate explicit authorization. See also
+  `docs/audits/ZMN_OPTIMIZATION_PLAN_2026_04_19.md` Tier 4 for the
+  ordering of upcoming sessions.
 
 ### 10. ML Model Retrain (on corrected labels)
 - **State:** BLOCKED on sample count + feature cleanup
@@ -592,15 +612,28 @@ result is:
 5. **The TP allocation can be optimized** -- after recovery
 
 **THE UNVALIDATED ASSUMPTION:** Everything so far is paper trading.
-The real execution path in `execution.py` has never been exercised.
-Items #9.5 through #9.8 are the progressive validation chain:
+The real execution path in `execution.py` was never exercised when this
+section was originally written. That changed on 2026-04-16/17 with live
+trials v3 + v4. The progressive validation chain (#9.5 through #9.8)
+played out as:
 
-- **#9.5** (read-only audit): understand what the real code does
-- **#9.6** (shadow mode): exercise real tx construction without submitting
-- **#9.7** (micro-live): 0.5 SOL secondary wallet, 50 trades max
-- **#9.8** (real-size live): main wallet, only after micro-live passes
+- **#9.5** (read-only audit): COMPLETED 2026-04-16. Found solders
+  signing API drift; informed the v1/v2 fixes.
+- **#9.6** (shadow mode): SUPERSEDED — shadow measurements collected via
+  Redis instrumentation; the formal flag was never implemented because
+  v3 verified the live path directly.
+- **#9.7** (micro-live): COMPLETED — done on main wallet at 0.05 SOL
+  position size rather than the originally planned secondary wallet.
+- **#9.8** (real-size live): IN PROGRESS — 1.32 SOL traded so far;
+  paused pending the rules-refresh + supervised-enable session sequence.
 
-Do not skip stages. No "just flip TEST_MODE=false" on the main wallet.
+The original wording said "do not skip stages. No 'just flip
+TEST_MODE=false' on the main wallet." That rule was correct in spirit
+when written but was overtaken by events on 2026-04-16/17. The current
+authorization model for `TEST_MODE=false` is per-session and lives in
+`CLAUDE.md` "Live trading mode — session-gated." Future live sessions
+must satisfy the four preconditions in that rule rather than complete
+this chain.
 
 ---
 

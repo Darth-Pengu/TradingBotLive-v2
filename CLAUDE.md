@@ -117,8 +117,17 @@ use MCAP columns (USD) — consistent convention across all trade tables.
 ### ML state
 - CatBoost + XGBoost ensemble, 128 clean training samples
 - LightGBM not loading (ensemble runs 2/3 models)
-- WARNING: ML score inversion at 70+ bucket. See POST_TIER2_DIAGNOSIS.md.
 - 685 pre-fix trades excluded from ML training via contamination filter
+- **ML threshold — corrected 2026-04-17.** Prior claim "ML inverts above 40; working range is 35-40 only" was accurate pre-2026-04-12 but became stale after the feature-default fix (commit a8a390b). Verified in 7d of SD paper data (also re-confirmed 2026-04-19 against 2,256 trades — `docs/audits/ZMN_RE_DIAGNOSIS_2026_04_19.md`):
+
+| ML band | n | WR | Total PnL |
+|---|---:|---:|---:|
+| 35-40 | 21 | 4.76% | -1.16 SOL (only loss band above 0-35) |
+| 40-50 | 496 | 39.1% | +88.9 SOL |
+| 60-70 | 333 | 50.5% | +67.7 SOL |
+| 80+ | 172 | 52.9% | +57.5 SOL |
+
+  **Current policy:** `ML_THRESHOLD_SPEED_DEMON` floor = 40 (gated at signal_aggregator). No upper bound. Higher scores are better, not worse. The Issue #1 entry below is historical and superseded by this block.
 
 ### CFGI state
 - Primary source: **cfgi.io Solana** — NOW ACTIVE (credits topped up)
@@ -148,7 +157,7 @@ use MCAP columns (USD) — consistent convention across all trade tables.
 - Anthropic credits exhausted (governance dead)
 
 ## Known Issues (Priority Order, April 11)
-1. ML SCORE INVERSION: 70+ scores have 0% WR, -12.62% avg P/L. Model trained on 128 samples (6 positives) memorized spurious patterns (hour_of_day, sol_price). See POST_TIER2_DIAGNOSIS.md.
+1. ~~ML SCORE INVERSION: 70+ scores have 0% WR, -12.62% avg P/L.~~ **SUPERSEDED 2026-04-17/19.** See "ML threshold — corrected 2026-04-17" block above. Higher scores win more. Threshold floor = 40, no upper bound.
 2. FEATURE SPARSITY: 42 of 55 FEATURE_COLUMNS are permanently zero. Only ~13 features populated per prediction. Model trained to ignore dead features = noise. Consider pruning to ~20 populated features.
 3. no_momentum_90s BLEED: 51% of trades (88/171) exit via no_momentum_90s at -11.98% avg. Signal quality bottleneck.
 4. LightGBM NOT LOADING: NIXPACKS_APT_PKGS=libgomp1 is set but ml_engine needs fresh deploy to pick it up. Ensemble runs 2/3 models.
@@ -198,7 +207,16 @@ default unless Jay explicitly overrides.
   `git push` ONLY. Use `railway up` ONLY for deploying uncommitted
   local changes (rare) or explicitly bypassing git (very rare). Before
   any deploy, self-check: am I about to trigger two deploy paths?
-- **Paper mode is non-negotiable.** TEST_MODE=true stays true.
+- **Live trading mode — session-gated.**
+  *Historical note:* earlier versions of this file said "paper mode is non-negotiable." That was accurate when written but became stale on 2026-04-16/17 when live trials v3 and v4 executed real on-chain trades. See `ZMN_HELIUS_URL_FIX_REPORT.md` (commit cd266de — 4+ TX_SUBMITs confirmed) and `ZMN_POSTMORTEM_2026_04_16.md`. Wallet moved 5.0 → 3.677 SOL via real trades.
+  *Current rule:* a session may set `TEST_MODE=false` on `bot_core` only when ALL of the following are true:
+  1. The session prompt **explicitly** requests live enablement, naming the variable by name and stating intent. Generic "make the bot trade well" requests are not sufficient.
+  2. The prompt includes explicit rollback steps and acknowledges the current on-chain balance.
+  3. Before flipping, verify: (a) `DAILY_LOSS_LIMIT_SOL` is set on `bot_core` (default 1.0 is too loose for main wallet — current trials use 4.0); (b) `market:mode:override` Redis key is `NORMAL` with TTL > 3600s; (c) on-chain balance via Helius `getBalance` is within 0.01 SOL of the latest `portfolio_snapshots.total_balance_sol` row; (d) sell-storm circuit breaker from cd266de is present in `services/bot_core.py`.
+  4. After flipping, monitor for ≥30 minutes. On any of these, revert immediately to `TEST_MODE=true`: RuntimeError at startup, EMERGENCY_STOP trip, sell-storm (any mint > 8 errors), HIBERNATE rejection, drawdown log > 5% on a fresh restart.
+  5. If a live session aborts, the next session defaults back to `TEST_MODE=true` and does NOT re-flip without new explicit authorization.
+  *What this rule does NOT allow:* silent live trading based on inferred intent; keeping `TEST_MODE=false` across sessions without re-verification of the 4 preconditions; bypassing `DAILY_LOSS_LIMIT_SOL` (if wallet hits the limit, `TEST_MODE` flips back to true regardless of session authorization); scaling position size above 0.05 SOL without a separate authorization; live trading on any wallet other than the declared `TRADING_WALLET_ADDRESS`.
+  The staged-progression chain in `ZMN_ROADMAP.md` #9.5–9.8 was designed before any live trading. Stages 9.5 (execution audit), 9.6 (shadow mode), 9.7 (micro-live), and 9.8 (main wallet live) are now either complete or superseded by the 2026-04-16/17 live trials. That chain is historical reference, not a current gate.
 - **Trust the data.** Speed Demon +22 SOL in 36h = real edge.
   Analyst 0/3 in 0-2s = real problem.
 - **Helius URL resolver must include all three tiers.** `_execute_pumpportal_local`
@@ -230,7 +248,7 @@ default unless Jay explicitly overrides.
 ## Non-negotiable rules
 - All Python is async/await — no sync blocking calls
 - Never hardcode API keys, private keys, or wallet addresses
-- TEST_MODE=true means paper trades only
+- `TEST_MODE` controls real-vs-paper execution. Flipping `TEST_MODE=false` is governed by **"Live trading mode — session-gated"** in the Operating Principles above — that rule supersedes any "paper-only" wording elsewhere in this doc.
 - MAX_WALLET_EXPOSURE is 0.25 (25%)
 - Run python -m py_compile services/<file>.py before committing
 
