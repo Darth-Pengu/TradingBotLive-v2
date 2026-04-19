@@ -1100,6 +1100,95 @@ class BotCore:
                 current_price, pnl_sol, pnl_pct, outcome, time.time(), pos.trade_id,
             )
 
+            # === Session 2 v2: live-mode write-back to paper_trades (dashboard) ===
+            # Live entry inserts only into `trades`, not paper_trades — so dashboard
+            # queries `SELECT * FROM paper_trades WHERE trade_mode='live'` return
+            # nothing. Fix: INSERT a full paper_trades row at terminal close.
+            # We INSERT (not UPDATE) because:
+            #   (a) no matching paper_trades row exists for live trades, and
+            #   (b) pos.trade_id in live mode refers to trades.id; the id-spaces
+            #       overlap with paper_trades.id, so UPDATE WHERE id=pos.trade_id
+            #       would touch an unrelated paper row and corrupt its data.
+            try:
+                _pt_outcome = "win" if pnl_sol > 0 else "loss"
+                _pt_exit_time = time.time()
+                _pt_hold = max(0.0, _pt_exit_time - pos.entry_time) if pos.entry_time > 0 else 0.0
+                _pt_mcap_entry = pos.entry_price * 1_000_000_000 if pos.entry_price > 0 else 0
+                _pt_mcap_exit = current_price * 1_000_000_000 if current_price > 0 else 0
+                _pt_exit_sig = getattr(result, "signature", None)
+                await self.pool.execute(
+                    """INSERT INTO paper_trades
+                       (mint, personality, entry_price, amount_sol, entry_time,
+                        exit_price, exit_time, hold_seconds,
+                        realised_pnl_sol, realised_pnl_pct, exit_reason, exit_signature,
+                        market_cap_at_entry, market_cap_at_exit, outcome,
+                        signal_source, ml_score, rugcheck_risk,
+                        market_mode_at_entry, fear_greed_at_entry, trade_mode)
+                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+                               $13, $14, $15, $16, $17, $18, $19, $20, $21)""",
+                    pos.mint, pos.personality, pos.entry_price, pos.size_sol, pos.entry_time,
+                    current_price, _pt_exit_time, _pt_hold,
+                    pnl_sol, pnl_pct, reason, _pt_exit_sig,
+                    _pt_mcap_entry, _pt_mcap_exit, _pt_outcome,
+                    pos.signal_source or "unknown", pos.ml_score or 0.0,
+                    pos.rugcheck_risk_level or "unknown",
+                    self.portfolio.market_mode or "NORMAL", 50.0, "live",
+                )
+                logger.info("LIVE paper_trades insert OK mint=%s outcome=%s pnl=%.4f",
+                            pos.mint[:12], _pt_outcome, pnl_sol)
+            except Exception as e:
+                logger.error("LIVE close paper_trades insert failed mint=%s: %s",
+                             pos.mint, e)
+                try:
+                    import sentry_sdk
+                    sentry_sdk.capture_exception(e)
+                except Exception:
+                    pass
+
+            # === Session 2 v2: on-chain balance snapshot (market_mode='LIVE_ONCHAIN') ===
+            # Future sessions inheriting a stale paper-snapshot figure as "wallet
+            # balance" caused the phantom 2.07 SOL drain investigation — this row
+            # explicitly marks the on-chain truth at close time.
+            try:
+                _rpc_url = (os.getenv("HELIUS_STAKED_URL") or
+                            os.getenv("HELIUS_GATEKEEPER_URL") or
+                            os.getenv("HELIUS_RPC_URL") or "")
+                if _rpc_url and TRADING_WALLET_ADDRESS:
+                    async with aiohttp.ClientSession() as _oc_session:
+                        _oc_payload = {
+                            "jsonrpc": "2.0", "id": 1, "method": "getBalance",
+                            "params": [TRADING_WALLET_ADDRESS],
+                        }
+                        async with _oc_session.post(
+                            _rpc_url, json=_oc_payload,
+                            timeout=aiohttp.ClientTimeout(total=10),
+                        ) as _oc_resp:
+                            _oc_data = await _oc_resp.json()
+                            _lamports = (_oc_data.get("result") or {}).get("value", 0)
+                            _onchain_sol = _lamports / 1_000_000_000
+                    await self.pool.execute(
+                        """INSERT INTO portfolio_snapshots
+                           (timestamp, total_balance_sol, open_positions, daily_pnl_sol, market_mode)
+                           VALUES ($1, $2, $3, $4, $5)""",
+                        datetime.now(timezone.utc).isoformat(),
+                        _onchain_sol, len(self.positions),
+                        float(self.portfolio.daily_pnl_sol), "LIVE_ONCHAIN",
+                    )
+                    if self.redis:
+                        await self.redis.set("bot:onchain:balance", str(_onchain_sol))
+                        await self.redis.set("bot:onchain:balance:ts", str(time.time()))
+                    logger.info("LIVE onchain snapshot: %.4f SOL (wallet=%s)",
+                                _onchain_sol, TRADING_WALLET_ADDRESS[:8])
+                else:
+                    logger.warning("LIVE onchain snapshot skipped: no Helius URL or wallet addr")
+            except Exception as e:
+                logger.error("LIVE onchain snapshot failed: %s", e)
+                try:
+                    import sentry_sdk
+                    sentry_sdk.capture_exception(e)
+                except Exception:
+                    pass
+
             key = f"{pos.personality}:{pos.mint}"
             self.positions.pop(key, None)
             # Unsubscribe from token trade stream if no other personality holds this mint
