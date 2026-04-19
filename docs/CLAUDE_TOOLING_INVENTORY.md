@@ -11,14 +11,17 @@
 
 # ZMN Claude Code Tooling Inventory
 
-**Last updated:** 2026-04-17
+**Last updated:** 2026-04-19
 **Source of truth for:** "what MCPs + skills does CC have access to in this repo"
 
 Every new CC session should `cat docs/CLAUDE_TOOLING_INVENTORY.md` during context loading.
 
+**New machine?** See `docs/SETUP_NEW_MACHINE.md` for the bootstrap checklist.
+
 This session (2026-04-17) was the first bulk install of MCPs and skills. Before this,
 `.mcp.json` only had `railway` and a broken `redis` entry. All entries below were added
-in commit(s) made this session unless otherwise noted.
+in commit(s) made this session unless otherwise noted. The 2026-04-19 update reflects
+pipx-installed CLI tooling added to the laptop.
 
 ---
 
@@ -45,7 +48,6 @@ Legend: ✅ active (installed + smoke-testable) · ⚠ stubbed (registered but n
 | Name | Status | Auth | Purpose |
 |---|---|---|---|
 | `railway` | ✅ active | Railway CLI login | Was already present before this session. Deploys, logs, env vars. |
-| `postgres` | ❌ not installed | `DATABASE_URL` env var | `crystaldba/postgres-mcp` requires Python+pipx. Neither installed on this dev machine (Windows-store Python stub only). Stub retained for future install; see "Requires Jay's attention". |
 | `redis` | ⚠ stubbed | `REDIS_URL` env var | Pre-existing entry was failing connection. Updated to use `REDIS_URL` env placeholder. |
 | `sentry` | ⚠ stubbed | OAuth (browser) | Error tracking. Jay needs to run OAuth flow. |
 | `github` | ⚠ stubbed | OAuth (browser) | Issues, PRs, code search. Jay needs to run OAuth flow. |
@@ -58,9 +60,10 @@ Legend: ✅ active (installed + smoke-testable) · ⚠ stubbed (registered but n
 |---|---|---|---|
 | `playwright` | ✅ active | none | Headed browser tests for the zmnbot.com dashboard. |
 | `shadcn` | ✅ active | none | shadcn/ui component registry. For future dashboard refresh. |
-| `semgrep` | ⚠ stubbed | varies | Static analysis. Registered; baseline scan deferred — Semgrep CLI not on this dev machine. |
+| `semgrep` | ✅ active (laptop) | varies | Static analysis. `semgrep` CLI installed via pipx on laptop 2026-04-19. MCP usable. |
 | `socket` | ✅ active | none | Supply-chain dependency scanner. Remote MCP, no key. |
-| `python-lft` | ❌ not installed | none | ruff/black/mypy/pytest/pylint unifier. Needs Python. Not installed on this dev machine. |
+| `python-lft` | ❌ DEFERRED | none | ruff/black/mypy unifier MCP. Not published to PyPI under that name; 3 install attempts failed 2026-04-19. Individual tools installed separately (see CLI tools section). Do NOT retry install — use the separate `ruff`/`black`/`mypy` CLIs instead. |
+| `postgres` | ✅ active (laptop) | `DATABASE_URL` env var | `crystaldba/postgres-mcp` installed via pipx on laptop 2026-04-19. ALWAYS invoke with `--access-mode=restricted` for default config. See Security posture below. |
 
 ---
 
@@ -72,8 +75,47 @@ All skills are project-scoped at `.claude/skills/` so they travel with the repo.
 |---|---|---|---|
 | `mcp-builder` | project | Scaffold new MCP servers. Planned use: build the 4 missing ZMN MCPs (SocialData, PumpPortal, LetsBonk, Jito) in a future session. | github.com/anthropics/skills |
 | `skill-creator` | project | Scaffold new skills. | github.com/anthropics/skills |
-| `frontend-design` | project | Dashboard redesign patterns. | github.com/anthropics/skills |
+| `frontend-design` | project | Dashboard redesign patterns. Used in 2026-04-19 dashboard redesign analysis. | github.com/anthropics/skills |
 | `webapp-testing` | project | Browser-based feature testing (pairs with Playwright MCP). | github.com/anthropics/skills |
+
+---
+
+## CLI tools (not MCPs but CC can invoke directly)
+
+These live on each dev machine via pipx/installer. They are NOT MCPs — CC calls
+them through Bash. They pair with MCPs (e.g. `semgrep` CLI + Semgrep MCP) or
+stand alone. See `docs/SETUP_NEW_MACHINE.md` for install steps.
+
+| Name | Installed via | Purpose | When CC should use it |
+|---|---|---|---|
+| `ruff` | pipx | Python linter (fast) | Before committing service changes; auto-fix on request |
+| `black` | pipx | Python formatter | Format changed files only, not whole repo |
+| `mypy` | pipx | Python type checker | Only when Jay explicitly asks — this repo has no type annotations strategy yet |
+| `semgrep` | pipx | SAST scanner | Pre-live audits of `execution.py`, `bot_core.py`; see `docs/SEMGREP_BASELINE.md` (to create) |
+| `solana-keygen` | Anza installer (laptop only) | Solana key generation | One-shot: Jupiter MCP throwaway keypair generation. Never for production keys. |
+
+**Why these are CLIs, not MCPs:** Lightweight, well-understood outputs, don't need
+the overhead of an MCP protocol layer. The `python-lft` MCP attempted to bundle
+ruff/black/mypy/pytest/pylint — 3 install attempts failed 2026-04-19 (not on PyPI
+under that name). Falling back to individual tools is the stable path.
+
+---
+
+## Per-machine setup status
+
+Tooling state is NOT identical across Jay's dev machines. The git-tracked config
+(`.mcp.json`, `.claude/skills/`, this doc) travels with the repo, but CLI tools
+and OAuth state do not. Keep this table current when a machine changes.
+
+| Machine | Git-tracked tooling | CLI tools | OAuth | Solana CLI |
+|---|---|---|---|---|
+| Laptop (jay_r, Windows 11) | ✅ pulled | ✅ ruff, black, mypy, semgrep, postgres-mcp (all pipx) | ⚠ pending Sentry + GitHub | ✅ installed (Anza) |
+| Home (Windows) | ✅ pulled | ❌ NOT YET INSTALLED — run `docs/SETUP_NEW_MACHINE.md` | ❌ pending | ❌ not installed |
+| Work (Codespaces) | unknown | unknown — setup when first used | — | — |
+
+**Rule when opening a CC session on a new/unfamiliar machine:** run
+`claude mcp list` first. If count ≠ 15 or a key MCP is red, stop and run
+through `docs/SETUP_NEW_MACHINE.md` before touching code.
 
 ---
 
@@ -111,21 +153,16 @@ Items needing manual auth / config / install before first use:
    - Add Jupiter MCP entry to `.mcp.json` (see A9 in tooling install prompt).
    - `.claude/keys/` is already gitignored.
 
-4. **Install Python + pipx to unblock Postgres MCP and python-lft MCP:**
-   - Install Python 3.11+ from python.org (not the Windows Store stub currently on this machine)
-   - Then: `python -m pip install --user pipx && pipx ensurepath`
-   - Then: `pipx install postgres-mcp`
-   - Re-add postgres block to `.mcp.json` with `--access-mode=restricted` (NEVER `unrestricted` for default config)
+4. **(DONE on laptop 2026-04-19)** Python + pipx + postgres-mcp + semgrep + ruff/black/mypy all installed via pipx. Replicate on home machine via `docs/SETUP_NEW_MACHINE.md`.
 
 5. **Agent Teams experimental flag — user-scope on this dev machine.**
    Enabled this session in `~/.claude/settings.json` (NOT committed to repo). First planned use case: `mcp-builder` session for the 4 missing ZMN MCPs.
    Do NOT enable project-scope — would burn 15× tokens per CC session regardless of task.
    Sync to other dev machines (work, Codespaces) manually by copying the setting.
 
-6. **Semgrep CLI install** (needed before Semgrep MCP can scan):
-   - `python -m pip install semgrep` (needs Python)
-   - Then run baseline: `semgrep --config auto services/ > docs/SEMGREP_BASELINE.md`
-   - Log findings only; do NOT fix in that session.
+6. **(DONE on laptop 2026-04-19)** Semgrep CLI installed via pipx. Baseline scan
+   still deferred — run `semgrep --config auto services/ > docs/SEMGREP_BASELINE.md`
+   in a dedicated session. Log findings only; do NOT fix in that session.
 
 ---
 
@@ -219,11 +256,14 @@ Tells future CC sessions WHEN to reach for each MCP, not just that they exist.
 
 ---
 
-## Install failures (for next session)
+## Install failures (historical reference)
 
-- `postgres-mcp` — pipx required, pipx requires Python. Windows-store Python is a stub. Need real Python install.
-- `python-lft-mcp` — same Python dependency.
-- `jupiter-mcp-community` — `solana-keygen` not installed. See Jay's attention item 3.
-- `semgrep` CLI — Python dependency.
-
-All four are resolvable by installing a real Python 3.11+ from python.org (not the Windows Store shortcut).
+- ~~`postgres-mcp`~~ RESOLVED 2026-04-19 (pipx install on laptop).
+- ~~`semgrep` CLI~~ RESOLVED 2026-04-19 (pipx install on laptop).
+- ~~`solana-keygen`~~ RESOLVED 2026-04-19 (Anza installer on laptop).
+- **`python-lft-mcp` — DEFERRED, do not retry.** Not on PyPI under that name.
+  3 install attempts failed 2026-04-19. The tools it was meant to bundle
+  (ruff, black, mypy) are installed separately as standalone CLIs.
+- `jupiter-mcp-community` — still not registered in `.mcp.json`. Throwaway
+  keypair generation unblocked on laptop (solana-keygen ✅); MCP entry can
+  be added in a future session once Jay wants Jupiter tools.

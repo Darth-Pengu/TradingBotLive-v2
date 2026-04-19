@@ -7,7 +7,8 @@ This repo has a Claude-Code-specific tooling inventory at
 
 - MCP servers registered: 15 (active + stubbed) — see `.mcp.json`
 - Skills installed: 4 (project-scoped under `.claude/skills/`)
-- Last updated: 2026-04-17
+- Last updated: 2026-04-19
+- **New machine?** See `docs/SETUP_NEW_MACHINE.md` for the bootstrap checklist.
 
 Prefer registered MCPs over generic tools: Helius over curl-to-RPC, Postgres MCP
 over raw psql (once installed), Playwright MCP over `requests` for dashboard
