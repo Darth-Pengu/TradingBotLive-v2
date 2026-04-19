@@ -224,20 +224,62 @@ async def test_pumpportal_ws():
 
 
 async def test_jupiter(session):
+    """Test Jupiter Swap V2 /order endpoint (quote only — no taker = no tx built)."""
     try:
+        jup_key = os.getenv("JUPITER_API_KEY", "").strip()
+        headers = {"x-api-key": jup_key} if jup_key else {}
         params = {
             "inputMint": "So11111111111111111111111111111111111111112",
             "outputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-            "amount": 100000000,
-            "slippageBps": 50,
+            "amount": "100000000",
+            # No taker = quote only, no tx built — good for health check
         }
-        status, body, ms = await http_get(session, "https://api.jup.ag/swap/v1/quote", params=params)
-        if status == 200 and isinstance(body, dict) and "outAmount" in body:
-            record("EXECUTION", "Jupiter Ultra", PASS, f"{ms}ms")
+        status, body, ms = await http_get(session, "https://api.jup.ag/swap/v2/order",
+                                          params=params, headers=headers)
+        if status == 200 and isinstance(body, dict):
+            out = body.get("outAmount", "?")
+            router = body.get("router", "?")
+            record("EXECUTION", "Jupiter Ultra", PASS,
+                   f"{ms}ms — V2 order, outAmount={out}, router={router}")
+        elif status == 401:
+            record("EXECUTION", "Jupiter Ultra", FAIL,
+                   f"HTTP 401 — API key {'set but invalid' if jup_key else 'NOT SET'} — regenerate at portal.jup.ag")
         else:
-            record("EXECUTION", "Jupiter Ultra", FAIL, f"HTTP {status}")
+            body_text = body if isinstance(body, str) else str(body)[:100]
+            record("EXECUTION", "Jupiter Ultra", FAIL, f"HTTP {status}: {body_text}")
     except Exception as e:
         record("EXECUTION", "Jupiter Ultra", FAIL, str(e)[:80])
+
+
+async def test_pumpportal_trade_api(session):
+    """Test PumpPortal trade-local endpoint reachability."""
+    try:
+        pub_key = TRADING_WALLET_ADDRESS or "11111111111111111111111111111111"
+        sol_mint = "So11111111111111111111111111111111111111112"
+        t0 = time.time()
+        async with session.post(
+            "https://pumpportal.fun/api/trade-local",
+            data={
+                "publicKey": pub_key,
+                "action": "buy",
+                "mint": sol_mint,
+                "amount": 0,
+                "denominatedInSol": "true",
+                "slippage": 50,
+                "priorityFee": 0.0001,
+                "pool": "pump",
+            },
+            timeout=aiohttp.ClientTimeout(total=15),
+        ) as resp:
+            ms = int((time.time() - t0) * 1000)
+            if resp.status in (200, 400, 422):
+                record("EXECUTION", "PumpPortal Trade API", PASS,
+                       f"reachable ({ms}ms, HTTP {resp.status})")
+            else:
+                record("EXECUTION", "PumpPortal Trade API", FAIL,
+                       f"HTTP {resp.status} ({ms}ms)")
+    except Exception as e:
+        record("EXECUTION", "PumpPortal Trade API", FAIL, str(e)[:80])
 
 
 # ===== DATA FEEDS =====
@@ -254,10 +296,21 @@ async def test_gecko(session):
 
 async def test_dexpaprika(session):
     try:
-        status, body, ms = await http_get(session, "https://api.dexpaprika.com/v1/solana/tokens")
-        record("DATA FEEDS", "DexPaprika", PASS if status == 200 else WARN, f"HTTP {status} ({ms}ms)")
+        status, body, ms = await http_get(
+            session,
+            "https://streaming.dexpaprika.com/stream",
+            params={"method": "t_p", "chain": "solana"},
+            headers={"Accept": "text/event-stream"},
+        )
+        if status == 200:
+            record("DATA FEEDS", "DexPaprika", PASS, f"SSE stream OK ({ms}ms)")
+        elif status == 404:
+            record("DATA FEEDS", "DexPaprika", WARN,
+                   "SSE 404 — stream endpoint may have moved; signal_listener backing off 10min")
+        else:
+            record("DATA FEEDS", "DexPaprika", WARN, f"HTTP {status} ({ms}ms)")
     except Exception as e:
-        record("DATA FEEDS", "DexPaprika", WARN, str(e)[:60])
+        record("DATA FEEDS", "DexPaprika", FAIL, str(e)[:80])
 
 
 async def test_defillama(session):
@@ -270,19 +323,20 @@ async def test_defillama(session):
 
 
 async def test_cfgi(session):
-    try:
-        status, body, ms = await http_get(session, "https://cfgi.io/api/solana-fear-greed-index/1d")
-        if status == 200:
-            val = ""
-            if isinstance(body, dict):
-                val = body.get("value", body.get("score", ""))
-            elif isinstance(body, list) and body:
-                val = body[0].get("value", "")
-            record("DATA FEEDS", "CFGI Fear/Greed", PASS, f"value: {val} ({ms}ms)")
-        else:
-            record("DATA FEEDS", "CFGI Fear/Greed", WARN, f"HTTP {status} ({ms}ms)")
-    except Exception as e:
-        record("DATA FEEDS", "CFGI Fear/Greed", WARN, str(e)[:60])
+    cfgi_urls = [
+        "https://cfgi.io/api/solana-fear-greed-index/",
+        "https://cfgi.io/api/solana-fear-greed-index/1d",
+        "https://api.alternative.me/fng/?limit=1",
+    ]
+    for url in cfgi_urls:
+        try:
+            status, body, ms = await http_get(session, url)
+            if status == 200:
+                record("DATA FEEDS", "CFGI Fear/Greed", PASS, f"HTTP 200 ({ms}ms) — {url.split('/')[2]}")
+                return
+        except Exception:
+            continue
+    record("DATA FEEDS", "CFGI Fear/Greed", WARN, "All Fear/Greed endpoints unreachable — defaulting to 50")
 
 
 async def test_rugcheck(session):
@@ -352,9 +406,12 @@ async def test_postgresql():
         # Check key tables exist
         tables = await conn.fetch(
             "SELECT table_name FROM information_schema.tables WHERE table_schema='public' "
-            "AND table_name IN ('trades', 'portfolio_snapshots', 'treasury_sweeps', 'paper_trades')")
+            "AND table_name IN ("
+                "'trades', 'portfolio_snapshots', 'treasury_sweeps', 'paper_trades', "
+                "'watched_wallets', 'ml_models', 'governance_state', 'bot_state', 'wallet_refresh_log'"
+                ")")
         table_names = [r["table_name"] for r in tables]
-        await conn.close()
+        await conn.aclose()
         ms = int((time.time() - t0) * 1000)
         short_ver = version.split(",")[0] if version else "?"
         record("INFRA", "PostgreSQL", PASS, f"{ms}ms — {short_ver} — tables: {', '.join(table_names) or 'none'}")
@@ -380,7 +437,7 @@ async def test_redis():
             await conn.set("healthcheck:test", "ok", ex=10)
             val = await conn.get("healthcheck:test")
             await conn.delete("healthcheck:test")
-            await conn.close()
+            await conn.aclose()
             ms = int((time.time() - t0) * 1000)
             if val == "ok":
                 record("INFRA", f"Redis ({label})", PASS, f"{ms}ms")
@@ -405,7 +462,7 @@ async def test_anthropic(session):
         status, body, ms = await http_post(session,
             "https://api.anthropic.com/v1/messages",
             json_body={
-                "model": "claude-sonnet-4-6",
+                "model": "claude-haiku-4-5-20251001",
                 "max_tokens": 10,
                 "messages": [{"role": "user", "content": "reply with just the word ONLINE"}],
             },
@@ -430,8 +487,13 @@ async def test_anthropic(session):
                 record("INFRA", "Anthropic API", PASS, detail)
             else:
                 record("INFRA", "Anthropic API", WARN, f"unexpected response: {text[:30]}")
+        elif status == 400:
+            err_msg = ""
+            if isinstance(body, dict):
+                err_msg = body.get("error", {}).get("message", str(body)[:120])
+            record("INFRA", "Anthropic API", FAIL, f"HTTP 400 — {err_msg or 'bad request'}")
         elif status == 401:
-            record("INFRA", "Anthropic API", FAIL, "401 -- bad API key")
+            record("INFRA", "Anthropic API", FAIL, "HTTP 401 — ANTHROPIC_API_KEY invalid")
         else:
             record("INFRA", "Anthropic API", FAIL, f"HTTP {status}")
     except Exception as e:
@@ -480,7 +542,9 @@ async def test_discord_channel(session):
         if status == 200:
             record("DISCORD", "Channel Read", PASS, f"connected ({ms}ms)")
         elif status == 403:
-            record("DISCORD", "Channel Read", FAIL, "403 -- bot lacks Read Message History permission")
+            record("DISCORD", "Channel Read", WARN,
+                   f"403 -- bot lacks Read Message History — grant in Discord server settings. "
+                   f"on channel {DISCORD_NANSEN_CHANNEL_ID} in Discord Server Settings → Integrations")
         else:
             record("DISCORD", "Channel Read", FAIL, f"HTTP {status}")
     except Exception as e:
@@ -489,22 +553,40 @@ async def test_discord_channel(session):
 
 # ===== FILES =====
 
-def test_files():
+async def test_files():
     base = os.path.join(os.path.dirname(__file__), "..")
 
-    path = os.path.join(base, "data", "whale_wallets.json")
-    if os.path.exists(path):
+    # Check PostgreSQL watched_wallets table (primary), JSON fallback
+    whale_checked = False
+    dsn = os.getenv("DATABASE_URL", "") or os.getenv("DATABASE_PRIVATE_URL", "")
+    if dsn.startswith("postgres://"):
+        dsn = "postgresql://" + dsn[len("postgres://"):]
+    if dsn and dsn.startswith("postgresql://"):
         try:
-            with open(path) as f:
-                w = json.load(f)
-            if isinstance(w, list) and len(w) > 0:
-                record("FILES", "whale_wallets.json", PASS, f"{len(w)} wallets")
+            import asyncpg
+            conn = await asyncpg.connect(dsn)
+            count = await conn.fetchval("SELECT COUNT(*) FROM watched_wallets WHERE is_active = TRUE")
+            await conn.aclose()
+            if count and count > 0:
+                record("FILES", "Whale Wallets (DB)", PASS, f"{count} active wallets in PostgreSQL")
             else:
-                record("FILES", "whale_wallets.json", WARN, "empty")
-        except Exception as e:
-            record("FILES", "whale_wallets.json", FAIL, str(e)[:60])
-    else:
-        record("FILES", "whale_wallets.json", FAIL, "not found -- run scripts/seed_wallets.py")
+                record("FILES", "Whale Wallets (DB)", WARN,
+                       "watched_wallets table empty — trigger refresh via !zmn refresh-wallets")
+            whale_checked = True
+        except Exception:
+            pass
+    if not whale_checked:
+        path = os.path.join(base, "data", "whale_wallets.json")
+        if os.path.exists(path):
+            try:
+                with open(path) as f:
+                    w = json.load(f)
+                record("FILES", "whale_wallets.json", PASS if len(w) > 0 else WARN, f"{len(w)} wallets in JSON")
+            except Exception as e:
+                record("FILES", "whale_wallets.json", WARN, f"exists but unreadable: {e}")
+        else:
+            record("FILES", "Whale Wallets", FAIL,
+                   "No wallets in DB or JSON — POST /api/wallets/refresh")
 
     path = os.path.join(base, "data", "governance_notes.md")
     record("FILES", "governance_notes.md", PASS if os.path.exists(path) else WARN,
@@ -537,6 +619,7 @@ async def main():
 
         # EXECUTION (WS separate)
         await test_jupiter(session)
+        await test_pumpportal_trade_api(session)
 
     await test_pumpportal_ws()
 
@@ -568,7 +651,7 @@ async def main():
         )
 
     # FILES
-    test_files()
+    await test_files()
 
     # -- Print results --
     R = "\033[91m"; G = "\033[92m"; Y = "\033[93m"; D = "\033[90m"; X = "\033[0m"; B = "\033[1m"

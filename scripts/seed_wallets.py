@@ -1,4 +1,11 @@
 """
+Legacy fallback — primary wallet management is now via
+nansen_wallet_fetcher.py + watched_wallets PostgreSQL table.
+
+This script remains as a cold-start fallback for Railway deployments
+where the DB may not yet be populated. On normal operation, the
+governance agent refreshes wallets every 48 hours from Nansen.
+
 Seed whale_wallets.json from Vybe Network + Nansen APIs.
 
 Usage:
