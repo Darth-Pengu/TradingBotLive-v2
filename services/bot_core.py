@@ -142,8 +142,9 @@ class Position:
     remaining_pct: float = 1.0
     peak_price: float = 0.0
     staged_exits_done: list = field(default_factory=list)
-    trade_id: int = 0          # paper_trades.id
-    trades_ml_id: int = 0      # trades.id (ML training record)
+    trade_id: int = 0          # paper mode: paper_trades.id; live mode: trades.id (id-space overlap hazard — see REFACTOR-001)
+    trades_ml_id: int = 0      # paper mode only: trades.id (ML training record). Unused in live mode.
+    paper_trade_id: int | None = None  # Session 2b (DASH-ENTRY-001): live-mode paper_trades.id — entry INSERT target, close UPDATE by this id.
     ml_score: float = 0.0      # ML score at entry time
     signal_source: str = ""    # Signal source for per-source stats
     bonding_curve_progress: float = 0.0  # For PumpPortal Local routing on sells
@@ -888,6 +889,47 @@ class BotCore:
                     json.dumps(scored_signal.get("sources", [])), time.time(),
                 )
                 pos.trade_id = trade_id
+
+                # === Session 2b (DASH-ENTRY-001): live-mode entry write to paper_trades ===
+                # Mirrors paper_buy() semantics so dashboard Open Positions widget
+                # surfaces live trades during their lifetime (not just after close).
+                # All signal metadata is available in local scope (scored_signal /
+                # features / market_mode) — same sources the paper branch uses at
+                # L754-769 — so no Redis reads / no flat defaults for fear_greed /
+                # market_mode / rugcheck (Phase 1.3 decision: ML-POSITION-FEATURES-001
+                # wart does NOT propagate to live rows).
+                try:
+                    _pe_fgi = float(features.get("cfgi_score", 50))
+                    _pe_rugcheck = scored_signal.get("rugcheck_risk_level", "unknown")
+                    _pe_market_cap = price * 1_000_000_000 if price > 0 else 0
+                    paper_trade_row_id = await self.pool.fetchval(
+                        """INSERT INTO paper_trades
+                           (mint, personality, entry_price, amount_sol, entry_time,
+                            signal_source, ml_score, entry_signature,
+                            market_mode_at_entry, fear_greed_at_entry, rugcheck_risk,
+                            market_cap_at_entry, trade_mode)
+                           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                           RETURNING id""",
+                        mint, personality, price, size_sol, pos.entry_time,
+                        signal_source, ml_score, getattr(result, "signature", None),
+                        market_mode or "NORMAL", _pe_fgi, _pe_rugcheck,
+                        _pe_market_cap, "live",
+                    )
+                    pos.paper_trade_id = paper_trade_row_id
+                    logger.info("LIVE entry paper_trades row created id=%d mint=%s",
+                                paper_trade_row_id, mint[:12])
+                except Exception as e:
+                    logger.error("LIVE entry paper_trades INSERT failed mint=%s: %s",
+                                 mint, e)
+                    try:
+                        import sentry_sdk
+                        sentry_sdk.capture_exception(e)
+                    except Exception:
+                        pass
+                    # Do NOT raise — on-chain buy succeeded; dashboard degradation
+                    # beats a crash. pos.paper_trade_id stays None and the close
+                    # path falls through to Session 2 v2's defensive INSERT.
+
                 key = f"{personality}:{mint}"
                 self.positions[key] = pos
                 # Subscribe to per-token trade stream for live exit pricing
@@ -1100,50 +1142,84 @@ class BotCore:
                 current_price, pnl_sol, pnl_pct, outcome, time.time(), pos.trade_id,
             )
 
-            # === Session 2 v2: live-mode write-back to paper_trades (dashboard) ===
-            # Live entry inserts only into `trades`, not paper_trades — so dashboard
-            # queries `SELECT * FROM paper_trades WHERE trade_mode='live'` return
-            # nothing. Fix: INSERT a full paper_trades row at terminal close.
-            # We INSERT (not UPDATE) because:
-            #   (a) no matching paper_trades row exists for live trades, and
-            #   (b) pos.trade_id in live mode refers to trades.id; the id-spaces
-            #       overlap with paper_trades.id, so UPDATE WHERE id=pos.trade_id
-            #       would touch an unrelated paper row and corrupt its data.
-            try:
-                _pt_outcome = "win" if pnl_sol > 0 else "loss"
-                _pt_exit_time = time.time()
-                _pt_hold = max(0.0, _pt_exit_time - pos.entry_time) if pos.entry_time > 0 else 0.0
-                _pt_mcap_entry = pos.entry_price * 1_000_000_000 if pos.entry_price > 0 else 0
-                _pt_mcap_exit = current_price * 1_000_000_000 if current_price > 0 else 0
-                _pt_exit_sig = getattr(result, "signature", None)
-                await self.pool.execute(
-                    """INSERT INTO paper_trades
-                       (mint, personality, entry_price, amount_sol, entry_time,
-                        exit_price, exit_time, hold_seconds,
-                        realised_pnl_sol, realised_pnl_pct, exit_reason, exit_signature,
-                        market_cap_at_entry, market_cap_at_exit, outcome,
-                        signal_source, ml_score, rugcheck_risk,
-                        market_mode_at_entry, fear_greed_at_entry, trade_mode)
-                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-                               $13, $14, $15, $16, $17, $18, $19, $20, $21)""",
-                    pos.mint, pos.personality, pos.entry_price, pos.size_sol, pos.entry_time,
-                    current_price, _pt_exit_time, _pt_hold,
-                    pnl_sol, pnl_pct, reason, _pt_exit_sig,
-                    _pt_mcap_entry, _pt_mcap_exit, _pt_outcome,
-                    pos.signal_source or "unknown", pos.ml_score or 0.0,
-                    pos.rugcheck_risk_level or "unknown",
-                    self.portfolio.market_mode or "NORMAL", 50.0, "live",
-                )
-                logger.info("LIVE paper_trades insert OK mint=%s outcome=%s pnl=%.4f",
-                            pos.mint[:12], _pt_outcome, pnl_sol)
-            except Exception as e:
-                logger.error("LIVE close paper_trades insert failed mint=%s: %s",
-                             pos.mint, e)
+            # === Session 2b (DASH-ENTRY-001): close-path UPDATE if entry row exists ===
+            # Lifecycle: Session 2b's entry INSERT (above in process_signal live
+            # branch) creates a paper_trades row and stores its id on
+            # pos.paper_trade_id. Close path UPDATEs that row to set exit fields.
+            # If pos.paper_trade_id is None (entry INSERT failed, or position
+            # pre-dates Session 2b deploy), fall through to Session 2 v2's
+            # defensive INSERT — preserves the safety net for edge cases.
+            _pt_outcome = "win" if pnl_sol > 0 else "loss"
+            _pt_exit_time = time.time()
+            _pt_hold = max(0.0, _pt_exit_time - pos.entry_time) if pos.entry_time > 0 else 0.0
+            _pt_mcap_entry = pos.entry_price * 1_000_000_000 if pos.entry_price > 0 else 0
+            _pt_mcap_exit = current_price * 1_000_000_000 if current_price > 0 else 0
+            _pt_exit_sig = getattr(result, "signature", None)
+
+            if pos.paper_trade_id is not None:
+                # Entry row exists — UPDATE it (correct lifecycle semantics).
                 try:
-                    import sentry_sdk
-                    sentry_sdk.capture_exception(e)
-                except Exception:
-                    pass
+                    await self.pool.execute(
+                        """UPDATE paper_trades SET
+                            exit_price=$1, exit_time=$2, hold_seconds=$3,
+                            realised_pnl_sol=$4, realised_pnl_pct=$5,
+                            exit_reason=$6, exit_signature=$7,
+                            market_cap_at_exit=$8, outcome=$9
+                           WHERE id=$10""",
+                        current_price, _pt_exit_time, _pt_hold,
+                        pnl_sol, pnl_pct, reason, _pt_exit_sig,
+                        _pt_mcap_exit, _pt_outcome, pos.paper_trade_id,
+                    )
+                    logger.info("LIVE paper_trades UPDATE id=%d mint=%s outcome=%s pnl=%.4f",
+                                pos.paper_trade_id, pos.mint[:12], _pt_outcome, pnl_sol)
+                except Exception as e:
+                    logger.error("LIVE close paper_trades UPDATE failed id=%d mint=%s: %s",
+                                 pos.paper_trade_id, pos.mint, e)
+                    try:
+                        import sentry_sdk
+                        sentry_sdk.capture_exception(e)
+                    except Exception:
+                        pass
+            else:
+                # Fallback: Session 2 v2 defensive INSERT (unchanged behavior).
+                # Reached only if entry INSERT failed or position pre-dates Session 2b.
+                # Live entry inserts only into `trades`, not paper_trades — so dashboard
+                # queries `SELECT * FROM paper_trades WHERE trade_mode='live'` return
+                # nothing. Fix: INSERT a full paper_trades row at terminal close.
+                # We INSERT (not UPDATE) because:
+                #   (a) no matching paper_trades row exists for live trades, and
+                #   (b) pos.trade_id in live mode refers to trades.id; the id-spaces
+                #       overlap with paper_trades.id, so UPDATE WHERE id=pos.trade_id
+                #       would touch an unrelated paper row and corrupt its data.
+                try:
+                    await self.pool.execute(
+                        """INSERT INTO paper_trades
+                           (mint, personality, entry_price, amount_sol, entry_time,
+                            exit_price, exit_time, hold_seconds,
+                            realised_pnl_sol, realised_pnl_pct, exit_reason, exit_signature,
+                            market_cap_at_entry, market_cap_at_exit, outcome,
+                            signal_source, ml_score, rugcheck_risk,
+                            market_mode_at_entry, fear_greed_at_entry, trade_mode)
+                           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+                                   $13, $14, $15, $16, $17, $18, $19, $20, $21)""",
+                        pos.mint, pos.personality, pos.entry_price, pos.size_sol, pos.entry_time,
+                        current_price, _pt_exit_time, _pt_hold,
+                        pnl_sol, pnl_pct, reason, _pt_exit_sig,
+                        _pt_mcap_entry, _pt_mcap_exit, _pt_outcome,
+                        pos.signal_source or "unknown", pos.ml_score or 0.0,
+                        pos.rugcheck_risk_level or "unknown",
+                        self.portfolio.market_mode or "NORMAL", 50.0, "live",
+                    )
+                    logger.info("LIVE paper_trades fallback INSERT mint=%s outcome=%s pnl=%.4f (entry INSERT had failed or pos predates Session 2b)",
+                                pos.mint[:12], _pt_outcome, pnl_sol)
+                except Exception as e:
+                    logger.error("LIVE close paper_trades fallback INSERT failed mint=%s: %s",
+                                 pos.mint, e)
+                    try:
+                        import sentry_sdk
+                        sentry_sdk.capture_exception(e)
+                    except Exception:
+                        pass
 
             # === Session 2 v2: on-chain balance snapshot (market_mode='LIVE_ONCHAIN') ===
             # Future sessions inheriting a stale paper-snapshot figure as "wallet
