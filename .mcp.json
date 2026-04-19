@@ -53,8 +53,11 @@
       "url": "https://mcp.sentry.dev/mcp"
     },
     "github": {
-      "type": "http",
-      "url": "https://api.githubcopilot.com/mcp/"
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}"
+      }
     },
     "playwright": {
       "command": "npx",
