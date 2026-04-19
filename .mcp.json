@@ -24,7 +24,7 @@
     },
     "vybe": {
       "type": "http",
-      "url": "https://api.vybenetwork.xyz/mcp",
+      "url": "https://docs.vybenetwork.com/mcp",
       "headers": {
         "X-API-KEY": "${VYBE_API_KEY}"
       }
