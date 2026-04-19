@@ -37,3 +37,6 @@ venv/
 .venv/
 env/
 pyvenv.cfg
+
+# Session outputs / scratch — not for commit
+session_outputs/
