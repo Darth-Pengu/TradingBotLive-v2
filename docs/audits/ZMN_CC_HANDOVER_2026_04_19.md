@@ -1,6 +1,15 @@
 # ZMN CC handover pack — 2026-04-19
 
 > **STATUS (2026-04-19):** This audit's actionable items are consolidated in `ZMN_ROADMAP.md`. Refer there for current status, priority, and dependencies. This doc is retained as evidence / deep-dive detail.
+>
+> **Corrections since original authoring [2026-04-19, post Session 1 + Session 2 v2]:**
+> - **Sentry MCPs row below now says "0 ZMN projects — SDK not yet integrated" — that was true at authoring time. As of commit `cb45d6b` (Session 1 precursor) there are 8 live ZMN Sentry projects in the `rz-consulting` org. Session 1 (commit `35bdfe6`) classified all 5 unresolved issues as Class A operational noise with 0 Class B real bugs. Regression checks PASS for Solders `.sign()`, missing Helius URL, PumpPortal HTTP 400 — 0 events in 14 days.**
+> - **The "Current ZMN state" table's `Sentry projects | 0` is obsolete.** Current value: 8 projects live, actively capturing.
+> - **Session 2 v2 (commit `5ac30cd`) closed the dashboard live close-path gap.** Recent Trades + aggregates + Treasury now surface live-closed trades. Open Positions widget for live remains empty by design until **DASH-ENTRY-001** (Session 2b) lands the entry-path INSERT. Dashboard live-mode coverage is ~80% post-`5ac30cd`.
+> - **Redis parity in bot_core's live branch is NOT a gap.** `traded:mints` SADD (+ 7200s EXPIRE) and `bot:consecutive_losses` INCR/reset are already present in live branch at `services/bot_core.py:L1126-1151`. Do not re-list these as gaps in future audits. (Original Session 2 v1 prompt flagged them incorrectly; Session 2 v2 Phase 1 recon verified parity.)
+> - **`pos.trade_id` is id-space-ambiguous** (paper → paper_trades.id, live → trades.id; id-spaces overlap). Near-corruption bug caught in Session 2 v2 Phase 1 recon. Tracked as **REFACTOR-001**. Interim mitigation: use INSERT (not UPDATE) at live close — already in `5ac30cd`.
+> - **Open threads list below**: `ZMN-SIGNAL-AGGREGATOR-1` is resolved-as-tracked (Pattern B silent no-op, deferred to ML-009). The 2.07 SOL phantom drain is resolved (see `ZMN_LIVE_TRADE_FORENSICS_2026_04_19.md`). New open threads surfaced by Sessions 1 + 2 v2 are tracked in `ZMN_ROADMAP.md` under their IDs.
+> - **v4 cost**: actual was ~3.4 SOL, not 1.32 SOL — prior figures were mid-trial snapshots. Fixed in `CLAUDE.md` in the roadmap-consolidation commit.
 
 
 **Author:** Claude Opus 4.7. **Audience:** the next CC session, or a fresh Claude chat that needs to get caught up on ZMN in one read.

@@ -22,9 +22,10 @@
 | 7-day Speed Demon perf | 2,256 trades · +428 SOL paper · 43.3% WR |
 | Active personalities | Speed Demon (sole gating personality). Whale Tracker dormant-but-routing (+4.2 SOL on 11 trades 7d). Analyst hard-disabled. |
 | Open positions | typically 0–3 paper |
-| Latest commits | `cb45d6b` Sentry SDK, `1b40df3` forensics, `e9de6d7` rules refresh, `4a37598` deep recon, `d7ae512` Vybe MCP URL fix |
-| Sentry integration | ✅ live across 8 services (8 projects in `rz-consulting` org); `zmn-signal-aggregator` actively capturing SocialData credit-exhaustion events |
-| Blocking issues | None CRITICAL/HIGH. Outstanding MEDIUM: secret rotation (Redis/Postgres URLs in env are exposed via Railway MCP `list-variables`); Playwright headless instability blocks dashboard regression suite |
+| Latest commits | `5ac30cd` Session 2 v2 dashboard live close-path write-back, `35bdfe6` Session 1 Sentry triage, `cb45d6b` Sentry SDK, `1b40df3` forensics, `e9de6d7` rules refresh |
+| Sentry integration | ✅ live across 8 services (8 projects in `rz-consulting` org); Session 1 classified all 5 unresolved issues as Class A operational noise (0 Class B bugs, 0 regressions of cd266de / Solders fixes) |
+| Dashboard live-mode coverage | ~80% after commit `5ac30cd`: Recent Trades + aggregates + Treasury populate for live; **Open Positions widget for live still empty by design** until DASH-ENTRY-001 (Session 2b) lands |
+| Blocking issues | None CRITICAL/HIGH. **PRE-LIVE BLOCKER: DASH-ENTRY-001 (Session 2b)** — live entry path doesn't INSERT into paper_trades, so Open Positions widget can't surface live trades while they're open. Outstanding MEDIUM: secret rotation (SEC-001); Playwright headless instability (OBS-004) |
 
 ### Trading-tune env vars currently deployed (verified 2026-04-19)
 
@@ -52,7 +53,23 @@
 - **Tier 3** — multi-session projects; high scope; coordinated across weeks
 - **Tier 4** — prerequisites that gate other tiers (handle first)
 
-**ID scheme:** `TUNE-*` trading tuning · `DOCS-*` documentation · `OBS-*` observability · `INFRA-*` infrastructure · `DASH-*` dashboard structure · `DASH-B-*` specific dashboard bugs · `ML-*` model · `WHALE-*` smart-money · `MCP-*` MCP-build candidates · `LIVE-*` live-trading enablement · `SEC-*` security · `BUG-*` other known bugs · `CLEAN-*` cleanup · `TG-*` telegram
+**ID scheme:** `TUNE-*` trading tuning · `DOCS-*` documentation · `OBS-*` observability · `INFRA-*` infrastructure · `DASH-*` dashboard structure · `DASH-B-*` specific dashboard bugs · `DASH-ENTRY-*` bot_core entry-path writes feeding dashboard · `ML-*` model · `WHALE-*` smart-money · `MCP-*` MCP-build candidates · `LIVE-*` live-trading enablement · `SEC-*` security · `BUG-*` other known bugs · `CLEAN-*` cleanup · `TG-*` telegram · `REFACTOR-*` refactors (multi-session, pure hygiene)
+
+---
+
+## Critical path — recommended sequencing (post Session 2 v2, 2026-04-19)
+
+The path to Session 5 (supervised live-enable = LIVE-002) has four sessions that can partially parallelize. Session 4 is pure env vars and starts a 24h observation clock — running it first lets the clock tick while Sessions 2b + 3 work on code.
+
+1. **Session 1** ✅ DONE — Sentry triage (commit `35bdfe6`)
+2. **Session 2 v2** ✅ DONE — dashboard live close-path write-back (commit `5ac30cd`)
+3. **Session 4** 📋 NEXT — Tier 1 trading-tune env-var bundle (LIVE-001 = TUNE-001 + TUNE-002 + TUNE-003). 30 min CC + 24h observation. Starts the observation clock.
+4. **Session 2b** 📋 parallel with Session 4's 24h wait — DASH-ENTRY-001: live entry INSERT to paper_trades. 30–45 min CC. PRE-LIVE BLOCKER.
+5. **Session 3** 📋 parallel with Session 4's 24h wait — devnet sell-path validation. ~90 min CC.
+6. **SEC-001** 📋 parallel (manual, Jay) — rotate Redis + Postgres passwords.
+7. **Session 5** 🎯 supervised live-enable (LIVE-002). Gated on Sessions 2b, 3, 4-observation, SEC-001 all clean.
+
+Rationale: Session 4's 24h wait is the long pole. Scheduling code sessions in parallel with it saves ~24h of wall time. No code-touching sessions conflict with each other (Session 2b is entry-path, Session 3 is devnet validation, SEC-001 is Railway env rotation).
 
 ---
 
@@ -75,9 +92,11 @@
 | TUNE-001 | Lower trail activation tier from `[[0.30, 0.35], …]` to `[[0.10, 0.30], …]` | 📋 QUEUED | 15m + 24h obs | **+20-30 SOL/wk paper** | none | `ZMN_OPTIMIZATION_PLAN_2026_04_19.md` Tier 1 §1.1; `ZMN_RE_DIAGNOSIS_2026_04_19.md` pain 1 |
 | TUNE-002 | `SD_EARLY_CHECK_SECONDS=60` + `SD_EARLY_MIN_MOVE_PCT=3.0` (60s momentum + 3% bar) | 📋 QUEUED | 15m + 24h obs | +5-15 SOL/wk paper | none | `ZMN_OPTIMIZATION_PLAN_2026_04_19.md` §1.2 |
 | TUNE-003 | Align bot_core `ML_THRESHOLD_SPEED_DEMON=40` (cosmetic — gate is signal_aggregator) | 📋 QUEUED | 5m | 0 (clarity) | none | `ZMN_OPTIMIZATION_PLAN_2026_04_19.md` §1.3 |
-| DOCS-001 | Correct v4 cost in CLAUDE.md and ZMN_POSTMORTEM_2026_04_16.md (~3.4 SOL not 1.32) | 📋 QUEUED | 15m | clarity for next live-enable | none | `ZMN_LIVE_TRADE_FORENSICS_2026_04_19.md` finding #2 |
+| DOCS-001 | Correct v4 cost in CLAUDE.md and ZMN_POSTMORTEM_2026_04_16.md (~3.4 SOL not 1.32) | 🟡 CLAUDE.md PARTIAL (this commit) — ZMN_POSTMORTEM_2026_04_16.md pending | 15m | clarity for next live-enable | none | `ZMN_LIVE_TRADE_FORENSICS_2026_04_19.md` finding #2 |
 | DOCS-002 | Remove stale "ML inverts above 40" Issue #1 in CLAUDE.md (already superseded by data block, but the original line still reads scary) | 📋 QUEUED (partially done in `e9de6d7`) | 15m | clarity | none | `ZMN_OPTIMIZATION_PLAN_2026_04_19.md` §1.4 |
-| DOCS-003 | Add Sentry MCP debugging recipe to CLAUDE.md (`search_issues` + `analyze_issue_with_seer` per service) | 📋 QUEUED | 15m | makes Sentry actually used | GATE-003 ✅ | `ZMN_SENTRY_INTEGRATION_DONE.md` |
+| DOCS-003 | Add Sentry MCP debugging recipe to CLAUDE.md — concrete patterns from Session 1: per-project unresolved enumeration (`search_issues` with projectSlugOrId), regression check pattern (search specific error string, confirm zero events post-fix-date), when to use `analyze_issue_with_seer` (Class B only — Seer is paid, not for known noise). No OR/AND in queries — MCP returns HTTP 400. | 📋 QUEUED | 20m | makes Sentry actually used for daily ops | GATE-003 ✅ | `ZMN_SENTRY_INTEGRATION_DONE.md`, `SENTRY_TRIAGE_2026_04_19.md` |
+| OBS-008 | Silence 5 known-noise Sentry issues in UI with wontfix rationale notes: `ZMN-SIGNAL-AGGREGATOR-1` (SocialData credits — Pattern B, silenceable until ML-009), `ZMN-SIGNAL-LISTENER-1` (Discord 403 — see BUG-020), `ZMN-GOVERNANCE-1/2/3` (Anthropic credits exhausted — known state). Restores signal-to-noise for future sessions. | 📋 QUEUED (manual — Jay) | 15m | noise reduction | GATE-003 ✅, SENTRY_TRIAGE done | `SENTRY_TRIAGE_2026_04_19.md` |
+| DASH-ENTRY-001 | **PRE-LIVE BLOCKER (Session 2b)** — live ENTRY path INSERT to paper_trades. `services/bot_core.py:876-890` currently inserts only into `trades`. Session 2 v2 (commit `5ac30cd`) closed the close-path gap; entry path still missing, so Open Positions widget can't surface live trades while they're open. Mirror paper_buy semantics: INSERT paper_trades row with `trade_mode='live'` + set `pos.trade_id=paper_trades.id` (NOT trades.id) to avoid the id-space overlap bug caught during Session 2 v2 recon. Gate on `if result.success:`. Also consider making this the moment to split `pos.trade_id` → `paper_trade_id` + `trades_log_id` (REFACTOR-001) if it fits in the session budget. | 📋 QUEUED | 30–45m CC session | unblocks Session 5 Open Positions | GATE-003 ✅, Session 2 v2 close-path ✅ | `session_outputs/ZMN_DASH_FIX_DONE.md` |
 | SEC-001 | Rotate Redis + Postgres passwords on Railway (currently exposed in env vars; secrets scan was clean for tracked files but env-var leakage is a separate axis) | 📋 QUEUED | 30m | security hygiene | none | `SECRETS_SCAN_2026_04_19.md` (preventive recommendation), inferred from session-by-session env exposure |
 | SEC-002 | Pre-commit `detect-secrets` hook | 📋 QUEUED | 30m | prevents future leaks | none | `SECRETS_SCAN_2026_04_19.md` recommendation #1 |
 | SEC-003 | Enable GitHub native secret scanning (settings toggle) | 📋 QUEUED | 5m | safety net | none (requires repo admin) | `SECRETS_SCAN_2026_04_19.md` recommendation #2 |
@@ -111,7 +130,11 @@
 | ML-004 | Analyst re-enable investigation (3 trades id=3670/3879/3893 — all 0-2s holds, all stop_loss_20%) | 📋 QUEUED | 30-45m | go/no-go for Analyst revival | none | prior `ZMN_ROADMAP.md` IN-FLIGHT |
 | OBS-007 | Shadow Trading Phase 2 analysis (`shadow:measurements` Redis list — latency dist, TP overshoot, peak gap) | 📋 QUEUED | 45-60m read-only | informs TP / trail tuning | 24h+ shadow data accumulated ✅ | prior `ZMN_ROADMAP.md` IN-FLIGHT |
 | INFRA-004 | CFGI Stage 2 cutover — top up cfgi.io credits + verify SOL CFGI repopulates as primary | 📋 QUEUED | 30-45m | trading-mode accuracy | Jay tops up cfgi.io credits | prior `ZMN_ROADMAP.md` IN-FLIGHT |
-| LIVE-002 | Supervised live-enable session (Steps A-I from `ZMN_LIVE_ENABLE_HANDOFF_2026_04_19.md`) | 📋 QUEUED | 3 hours incl. 30 min obs | begins live operation | LIVE-001 + DOCS-001 ideally first | `ZMN_OPTIMIZATION_PLAN_2026_04_19.md` Tier 3 §3.7 + abort-report checklist |
+| LIVE-002 | Supervised live-enable session (Steps A-I from `ZMN_LIVE_ENABLE_HANDOFF_2026_04_19.md`). **Success criterion amended 2026-04-19 post-Session 2 v2:** "Dashboard Recent Trades + aggregates + Treasury show accurate data for all 3+ live trades. **Open Positions widget for live mode is gated on DASH-ENTRY-001** — if DASH-ENTRY-001 has NOT landed, Open Positions for live will be empty during the live window and monitoring falls back to Railway logs + direct DB queries." | 📋 QUEUED | 3 hours incl. 30 min obs | begins live operation | LIVE-001 + DASH-ENTRY-001 + DOCS-001 + SEC-001 + Session 3 devnet | `ZMN_OPTIMIZATION_PLAN_2026_04_19.md` Tier 3 §3.7 + abort-report checklist; `SENTRY_TRIAGE_2026_04_19.md`; `ZMN_DASH_FIX_DONE.md` |
+| OBS-009 | Cache SocialData `-1` result in Redis with 60s TTL at `services/signal_aggregator.py:465-470` to reduce Sentry event rate from ~12/min → ~0.5/min. Pattern B confirmed (silent no-op) so no trading behavior change. Low priority; bundle with ML-009 social-filter rebuild. | 📋 QUEUED | 15m | reduces Sentry noise | none (ML-009 rebuild will supersede) | `SENTRY_TRIAGE_2026_04_19.md` |
+| OBS-010 | `portfolio_snapshots` rows tagged `market_mode='LIVE_ONCHAIN'` (added in commit `5ac30cd`) currently carry `daily_pnl_sol` from paper portfolio. Semantic wart — mixes paper P/L with on-chain balance truth. Either (a) add a live P/L tracker and populate, or (b) NULL the column for LIVE_ONCHAIN rows. Future forensics hazard only; low priority. | 📋 QUEUED | 30m | observability hygiene | none | `session_outputs/ZMN_DASH_FIX_DONE.md` leftover concern #3 |
+| BUG-020 | Housekeeping: Discord Nansen alert poller at `services/signal_listener.py:844-987` — either disable (Nansen is disabled per `nansen:disabled` Redis key, so poller reads a channel it can't access AND alerts won't arrive) OR re-auth the Discord bot channel read permission. Currently fires ~52 events/24h captured as `ZMN-SIGNAL-LISTENER-1` (403 permission denied). | 📋 QUEUED | 30m | eliminates 1 Sentry noise class | none | `SENTRY_TRIAGE_2026_04_19.md` |
+| ML-010 | `fear_greed_at_entry` defaults to `50.0` and `market_mode_at_entry` defaults to current portfolio value on live `paper_trades` INSERTs (close-path Session 2 v2, commit `5ac30cd`) because `Position` dataclass doesn't capture these at entry time. Taints ML retraining input columns for live-era rows. Fix: extend `Position` dataclass to carry `fear_greed_at_entry` + `market_mode_at_entry` captured at `_execute_buy` time. Alternative: accept flat defaults until ML-005 retrain gate (500+ clean samples). | 📋 QUEUED | 30m | ML feature quality (live-era rows) | bundles with ML-005 gate | `session_outputs/ZMN_DASH_FIX_DONE.md` leftover concern #2 |
 
 ---
 
@@ -137,6 +160,7 @@
 | MCP-002 | Jito MCP build (getBundleStatus, getRecentTipFloor, getValidatorList) | ⏸️ DEFERRED | 60-90m | partial overlap with Helius MCP — only if needed during live debugging | none | `MCP_BUILDER_CANDIDATES_2026_04_19.md` #2 |
 | MCP-003 | SocialData MCP build | ⏸️ DEFERRED | 60-75m | low ROI until ML-009 ships | ML-009 | `MCP_BUILDER_CANDIDATES_2026_04_19.md` #3 |
 | CLEAN-001 | Archive 30 root-level session-report `.md` files to `docs/archive/` | 📋 QUEUED | 30m | root directory readability | none | `DEPLOYMENT_BLOAT_2026_04_19.md`; `ORPHAN_FILES_2026_04_19.md` |
+| REFACTOR-001 | Split `pos.trade_id` into explicit `paper_trade_id` + `trades_log_id` fields on `Position` dataclass. In paper mode `trade_id` currently points to `paper_trades.id`; in live mode to `trades.id`. Id-spaces overlap (paper 1..5974, trades 1..3175) — caused a near-corruption bug caught during Session 2 v2 Phase 1 recon (`UPDATE paper_trades WHERE id=pos.trade_id` would have touched an unrelated paper row in live mode). Update all call sites. Fix is touched-by (DASH-ENTRY-001) so consider doing both in one go. | 📋 QUEUED | 2-3 hours | eliminates id-space ambiguity | touches DASH-ENTRY-001 scope if bundled | `session_outputs/ZMN_DASH_FIX_DONE.md` leftover concern #1 |
 | CLEAN-002 | requirements.txt audit (find unused deps) — needs runtime introspection | ⏸️ DEFERRED | 60-90m | smaller container images | none | `DEPLOYMENT_BLOAT_2026_04_19.md` |
 
 ---
@@ -152,7 +176,12 @@
 | Dashboard on-chain balance widget (forensics LOW finding #5) | open | bundle into DASH-001 |
 | `2gfHQ…` holding wallet 0.098 SOL — does treasury sweep ever clear it? | open | low-priority unknown |
 | Reconcile-on-mode-flip residual (CLAUDE.md flags as "discipline to codify") | open | sell-storm circuit breaker is the safety net; explicit codification deferred |
-| ZMN-SIGNAL-AGGREGATOR-1 SocialData credits exhausted (Sentry-captured) | open | first triage decision: top up SocialData credits OR mark as known/wontfix in Sentry until ML-009 ships |
+| ZMN-SIGNAL-AGGREGATOR-1 SocialData credits exhausted (Sentry-captured) | **resolved as tracked** — Session 1 confirmed Pattern B (silent no-op, no trades rejected). Silenceable in Sentry UI via OBS-008; code-side caching optional via OBS-009. Deferred to ML-009 social-filter rebuild. |
+| Session 1 regression checks (Solders `.sign()`, missing Helius URL, PumpPortal HTTP 400) | **resolved as tracked** — all 3 show 0 events in 14-day Sentry window. cd266de Helius URL fix + Solders 0.21 migration both holding. `SENTRY_TRIAGE_2026_04_19.md`. |
+| Session 2 v2 `pos.trade_id` semantic overload (paper → paper_trades.id, live → trades.id; id-spaces overlap) | **tracked as REFACTOR-001** — fix Tier 3; interim mitigation landed in commit `5ac30cd` (use INSERT not UPDATE at live close so id overlap doesn't corrupt paper rows). |
+| Session 2 v2 `fear_greed_at_entry` / `market_mode_at_entry` defaulting on live rows | **tracked as ML-010** — bundle with ML-005 retrain gate. |
+| Session 2 v2 `LIVE_ONCHAIN` portfolio_snapshots carry paper `daily_pnl_sol` | **tracked as OBS-010** — future forensics hazard only; low priority. |
+| Session 2 v2 Open Positions widget for live mode empty by design until DASH-ENTRY-001 lands | **tracked as DASH-ENTRY-001 (Session 2b, PRE-LIVE BLOCKER)** — 30-45 min CC session to add live entry path INSERT to paper_trades. |
 
 ---
 
@@ -160,6 +189,8 @@
 
 | Date | ID | Title | Commit |
 |---|---|---|---|
+| 2026-04-19 | Session 2 v2 | Dashboard live close-path write-back (paper_trades INSERT + `LIVE_ONCHAIN` portfolio_snapshots + Redis `bot:onchain:balance`) | `5ac30cd` |
+| 2026-04-19 | Session 1 | Sentry triage — 5 unresolved issues classified (all Class A noise), 3 regression checks PASS (Solders, Helius URL, PumpPortal) | `35bdfe6` |
 | 2026-04-19 | GATE-003 | Sentry SDK integration across 8 services (8 projects in rz-consulting org) | `cb45d6b` |
 | 2026-04-19 | GATE-002 | Live trade forensics — Verdict A: phantom drain, real v4 cost ~3.4 SOL | `1b40df3` |
 | 2026-04-19 | GATE-001 | Durable rules refresh — TEST_MODE flip is now session-gated | `e9de6d7` |
@@ -190,7 +221,7 @@
 | #9.5 Execution Path Audit | ✅ COMPLETED 2026-04-16 | `EXECUTION_AUDIT_2026_04_16.md` — found solders signing API drift, drove v1/v2 fix |
 | #9.6 Shadow Mode Implementation | ⛔ SUPERSEDED | Shadow measurements collected via Redis instrumentation; formal `SHADOW_MODE` flag never built — v3 verified path directly on mainnet |
 | #9.7 Micro-Live Validation | ✅ COMPLETED 2026-04-16/17 | Done on main wallet at 0.05 SOL position (skipped originally-planned secondary wallet) |
-| #9.8 Real-Size Live on Main Wallet | 🟡 IN_PROGRESS | 1.32 SOL traded in v4 window so far; paused pending LIVE-001 + LIVE-002 |
+| #9.8 Real-Size Live on Main Wallet | 🟡 IN_PROGRESS | **~3.4 SOL net cost in v4 window** (corrected 2026-04-19 per forensics `1b40df3`; prior "1.32 SOL" figure under-reported by ~2.5×). Wallet 5.0 → ~1.6 SOL end-of-v4. Paused pending LIVE-001 + DASH-ENTRY-001 + SEC-001 + Session 3 devnet, then LIVE-002. |
 
 ---
 
@@ -262,3 +293,4 @@ Items sitting in ⏸️ DEFERRED for 30+ days without a status change get either
 ## Changelog
 
 - **2026-04-19** — initial consolidated roadmap. Merged from prior `ZMN_ROADMAP.md` (20+ items) + 13 audit docs under `docs/audits/` + 1 session-output. All actionable items now use the unified ID schema and tier system. Audit docs retained as evidence (each gets a header pointing here for current status). Dashboard, forensics, rules-refresh, and Sentry sessions reflected in COMPLETED. Prior roadmap items #1–#20 + B-001/B-014 mapped to new IDs. No actionable items lost; superseded items moved to the Deferred / Superseded section with explicit reason.
+- **2026-04-19** (later, post Session 2 v2) — consolidated findings from Session 1 (Sentry triage, `35bdfe6`) and Session 2 v2 (dashboard live close-path write-back, `5ac30cd`). New items: **OBS-008** (silence 5 Sentry noise issues, manual), **OBS-009** (cache SocialData -1 60s), **OBS-010** (LIVE_ONCHAIN daily_pnl_sol semantic), **BUG-020** (Discord poller housekeeping), **DASH-ENTRY-001** (Tier 1 PRE-LIVE BLOCKER, Session 2b, 30–45m), **REFACTOR-001** (split `pos.trade_id` → paper_trade_id + trades_log_id), **ML-010** (live-INSERT `fear_greed_at_entry`/`market_mode_at_entry` flat defaults). Updates: **DOCS-001** CLAUDE.md partial (this commit), **DOCS-003** enriched with Session 1's Sentry MCP query patterns, **LIVE-002** Open Positions criterion amendment. ID scheme extended: `DASH-ENTRY-*`, `REFACTOR-*`. Added **Critical path** section reflecting the Session 1 → 2 v2 → 4 → (2b ∥ 3 ∥ SEC-001) → 5 parallelizable sequence. **#9.8 cost corrected** 1.32 → ~3.4 SOL per forensics `1b40df3`. Open threads for Session 2 v2 findings (id overload, features defaulting, LIVE_ONCHAIN pnl, Open Positions gap) all converted to tracked items. Zero items dropped.

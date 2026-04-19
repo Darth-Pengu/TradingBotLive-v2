@@ -227,7 +227,7 @@ default unless Jay explicitly overrides.
   local changes (rare) or explicitly bypassing git (very rare). Before
   any deploy, self-check: am I about to trigger two deploy paths?
 - **Live trading mode — session-gated.**
-  *Historical note:* earlier versions of this file said "paper mode is non-negotiable." That was accurate when written but became stale on 2026-04-16/17 when live trials v3 and v4 executed real on-chain trades. See `ZMN_HELIUS_URL_FIX_REPORT.md` (commit cd266de — 4+ TX_SUBMITs confirmed) and `ZMN_POSTMORTEM_2026_04_16.md`. Wallet moved 5.0 → 3.677 SOL via real trades.
+  *Historical note:* earlier versions of this file said "paper mode is non-negotiable." That was accurate when written but became stale on 2026-04-16/17 when live trials v3 and v4 executed real on-chain trades. See `ZMN_HELIUS_URL_FIX_REPORT.md` (commit cd266de — 4+ TX_SUBMITs confirmed) and `ZMN_POSTMORTEM_2026_04_16.md`. **Wallet moved 5.0 → ~1.6 SOL via real trades (~3.4 SOL net cost).** (Cost corrected 2026-04-19 per forensics commit `1b40df3` — prior "1.32 SOL" / "3.677 SOL" figures were taken mid-trial and under-reported the actual v4 cost by ~2.5×.)
   *Current rule:* a session may set `TEST_MODE=false` on `bot_core` only when ALL of the following are true:
   1. The session prompt **explicitly** requests live enablement, naming the variable by name and stating intent. Generic "make the bot trade well" requests are not sufficient.
   2. The prompt includes explicit rollback steps and acknowledges the current on-chain balance.
@@ -253,6 +253,8 @@ default unless Jay explicitly overrides.
   on the same mint during live sells, bot_core parks the mint for 5 min
   (env-tunable via `SELL_FAIL_THRESHOLD`, `SELL_PARK_DURATION_SEC`). Kill
   switch: set threshold to 1000 to disable.
+- **Live branch Redis parity is already present** (verified in Session 2 v2 Phase 1 recon, commit `5ac30cd`). When investigating `bot_core._close_position` live-branch vs paper-branch divergence, `traded:mints` SADD + 7200s EXPIRE and `bot:consecutive_losses` INCR/`SET "0"` are already in the live branch at `services/bot_core.py:L1126-1151` with parity to paper. The remaining gaps (as of `5ac30cd`) are: (a) live ENTRY path doesn't INSERT paper_trades — tracked as **DASH-ENTRY-001** (Session 2b); (b) live CLOSE path paper_trades INSERT is landed in `5ac30cd`; (c) on-chain balance snapshot (portfolio_snapshots row tagged `market_mode='LIVE_ONCHAIN'` + Redis `bot:onchain:balance`) is landed in `5ac30cd`.
+- **`pos.trade_id` is id-space ambiguous.** In paper mode it points to `paper_trades.id`; in live mode to `trades.id`. The two id-spaces overlap (paper 1..5974, trades 1..3175) — NEVER use `UPDATE paper_trades WHERE id=pos.trade_id` in the live branch; it would hit an unrelated paper row. Always use `INSERT INTO paper_trades` at live close with a fresh id. Cleanup tracked as **REFACTOR-001**.
 
 ## Read this first, every session
 - Read AGENT_CONTEXT.md completely before writing any code
