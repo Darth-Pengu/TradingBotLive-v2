@@ -1024,6 +1024,8 @@ async def _emergency_retrain_listener(model: MLModel, redis_conn: aioredis.Redis
 
 # --- Main ---
 async def main():
+    from services.sentry_init import init_sentry
+    init_sentry("ml-engine")
     # ML_ENGINE env var selects engine: "accelerated" uses TabPFN phased engine,
     # anything else uses the original CatBoost+LightGBM+XGBoost ensemble.
     engine_mode = os.getenv("ML_ENGINE", "original")

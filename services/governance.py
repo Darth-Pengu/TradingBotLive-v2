@@ -1221,6 +1221,8 @@ async def _wallet_refresh_loop(redis_conn: aioredis.Redis | None):
 
 
 async def main():
+    from services.sentry_init import init_sentry
+    init_sentry("governance")
     logger.info("Governance v2 starting (TEST_MODE=%s)", TEST_MODE)
 
     if not ANTHROPIC_API_KEY:

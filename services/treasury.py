@@ -277,6 +277,8 @@ async def run_treasury_sweep():
 
 
 async def main():
+    from services.sentry_init import init_sentry
+    init_sentry("treasury")
     await run_treasury_sweep()
 
 

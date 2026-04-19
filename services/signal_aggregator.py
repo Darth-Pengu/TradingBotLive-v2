@@ -2486,6 +2486,8 @@ async def _health_heartbeat(redis_conn):
 
 
 async def main():
+    from services.sentry_init import init_sentry
+    init_sentry("signal-aggregator")
     logger.info("Signal Aggregator starting (TEST_MODE=%s, ANALYST_DISABLED=%s)", TEST_MODE, ANALYST_DISABLED)
 
     if TEST_MODE:

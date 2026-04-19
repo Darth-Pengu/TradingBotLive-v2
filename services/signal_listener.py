@@ -1361,6 +1361,8 @@ async def _early_sub_cleanup(redis_conn: aioredis.Redis | None):
 
 
 async def main():
+    from services.sentry_init import init_sentry
+    init_sentry("signal-listener")
     logger.info("Signal Listener starting (TEST_MODE=%s)", TEST_MODE)
 
     # Connect Redis always — signals must flow for paper trading too

@@ -2494,6 +2494,8 @@ async def api_pnl_distribution(request):
 
 
 def create_app() -> web.Application:
+    from services.sentry_init import init_sentry
+    init_sentry("dashboard-api")
     app = web.Application(middlewares=[ip_whitelist_middleware, auth_middleware])
 
     # Public routes

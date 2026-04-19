@@ -39,5 +39,8 @@ pydantic>=2.6.0
 schedule>=1.2.0
 python-jose[cryptography]>=3.3.0
 
+# Observability
+sentry-sdk>=2.0,<3.0
+
 # Build
 setuptools>=68.0.0

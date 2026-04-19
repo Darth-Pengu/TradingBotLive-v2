@@ -492,6 +492,8 @@ async def rug_cascade_monitor(redis_conn: aioredis.Redis | None):
 # Main
 # ---------------------------------------------------------------------------
 async def main():
+    from services.sentry_init import init_sentry
+    init_sentry("market-health")
     logger.info("Market Health service starting (TEST_MODE=%s)", TEST_MODE)
 
     redis_conn = None

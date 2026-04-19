@@ -1783,6 +1783,8 @@ class BotCore:
 
 
 async def main():
+    from services.sentry_init import init_sentry
+    init_sentry("bot-core")
     logger.info("Bot Core starting (TEST_MODE=%s)", TEST_MODE)
 
     bot = BotCore()
