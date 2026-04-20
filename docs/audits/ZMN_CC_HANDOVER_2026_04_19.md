@@ -20,6 +20,21 @@
 > - **SEC-001 waiver:** Jay accepted for LIVE-002's one supervised window ONLY, with Session 5 v2 Redis sentinel monitoring as compensating control. Required for all unsupervised future windows.
 > - **Routing state freshness** is now an Operating Principle in `CLAUDE.md` (after the `pos.trade_id` ambiguity principle). Future CC sessions must refresh `bonding_curve_progress` before passing to `execute_trade` on sells.
 > - **Paper fee-model divergence from live reality** is now an Operating Principle in `CLAUDE.md` (after the routing-freshness principle). When comparing paper P&L to live, subtract ~0.004 SOL/trade at 0.05 SOL sizing.
+>
+> **Correction block 2026-04-21 (post Session 5 v4 rollback + FIX-1/FIX-2 sessions):**
+> Session 5 v4 outcome: ROLLBACK at T+12:00. Single live trade executed (mint `yh3n441...`, 0.365 SOL, -0.094 SOL net). T5 trigger fired on benign position state, not real loss. Handover implications:
+>
+> 1. **FEE-MODEL-001 is now PRE-LIVE BLOCKER and has landed (commit `e078b4c`).** Paper model under-counts live by ~96× on pre-grad pump.fun round-trips. Re-baselined historical edge is the gate for any Session 5 v5 attempt. See FIX-2 output: `docs/audits/PAPER_EDGE_REBASELINE_2026_04_20.md`.
+> 2. **T5 trigger definition is unusable for small wallets.** v4's `(T0 - now) / T0 > 20%` fired at 22.57% on benign 0.365-SOL position state (real loss was 5.68%). Replaced by T5a (position-adjusted drawdown) + T5b (single-trade catastrophic loss) in the next Session 5 v5 prompt. `MAX_POSITION_SOL_FRACTION=0.10` env var (landed via `e078b4c`) adds proportional sizing so future positions cap at ~10% of wallet.
+> 3. **Reconcile-residual is a known gap (CLEAN-003 landed).** Paper positions leak into live memory on TEST_MODE flip. Mitigation is scripted pre-flip cleanup via `scripts/live_flip_prep.sh` (FIX-1). CLAUDE.md "Live-flip pre-flight procedure (CLEAN-003)" section codifies the procedure. Don't flip without running it.
+> 4. **ML gate bypass path identified (ML-012).** Mint traded at displayed `ml=31.5` despite gate=40. Root cause: `AGGRESSIVE_PAPER_TRADING=true` on signal_aggregator overrides `ML_THRESHOLDS` to `{"speed_demon": 30, ...}` at module load regardless of TEST_MODE. Outcome (C) — actual bug. Fix required before next supervised live window. See `docs/audits/ML_BYPASS_INVESTIGATION_2026_04_20.md`.
+> 5. **Slippage on pre-grad is 20-30× worse than old paper estimates.** Real-world cost on 0.3-0.5 SOL positions is 10-25% of position. Rebaseline under corrected model: 7d Speed Demon paper edge moves from +556.60 SOL to -587.15 SOL (edge DOES NOT SURVIVE at current sizing distribution). Required v5 sizing caps: `MAX_POSITION_SOL=0.25` (hard blocker), `SPEED_DEMON_BASE_SIZE_SOL≈0.15`, `SPEED_DEMON_MAX_SIZE_SOL≈0.25`. See `docs/audits/PAPER_EDGE_REBASELINE_2026_04_20.md`.
+> 6. **Rollback machinery worked correctly.** Trigger fired, bot was restored to TEST_MODE=true within 15 min of T+0, zero trapped positions, Redis sentinels clean. The safety system did its job even on a false-positive trigger — which is the correct failure mode for this class of system.
+> 7. **Helius STAKED URL (`ardith-mo8tnm-fast-mainnet`) returned 522 errors during v4 window.** Already noted as occasionally-unreliable; has recurred. For v5: either health-check before use, or demote to last in resolver chain. Tracked indirectly via DEPLOY-DISCIPLINE-001 + existing resolver-chain Operating Principle.
+>
+> **New roadmap items from this consolidation:** EXEC-005 (Tier 2), SLIPPAGE-CALIBRATION-001 (Tier 2), OBS-012 (Tier 3), DEPLOY-DISCIPLINE-001 (Tier 3). FIX-1 earlier landed T5-DESIGN-001, CLEAN-003 ✅, ML-012 as separate items.
+> **Escalated + landed:** FEE-MODEL-001 → Tier 1 PRE-LIVE BLOCKER ✅ `e078b4c`.
+> **Session 5 v5 pre-flight gate summary:** (1) FEE-MODEL-001 ✅, (2) CLEAN-003 ✅, (3) ML-012 fix, (4) T5a/T5b in v5 prompt, (5) MAX_POSITION_SOL_FRACTION active ✅, (6) position-size caps from rebaseline applied in Railway env.
 
 
 **Author:** Claude Opus 4.7. **Audience:** the next CC session, or a fresh Claude chat that needs to get caught up on ZMN in one read.
