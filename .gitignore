@@ -40,3 +40,8 @@ pyvenv.cfg
 
 # Session outputs / scratch — not for commit
 session_outputs/
+
+# Session 3 devnet test (never commit)
+scripts/devnet_*
+/tmp/devnet.env
+/tmp/zmn_devnet_*
