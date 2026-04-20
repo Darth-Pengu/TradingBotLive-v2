@@ -449,5 +449,19 @@ signals:evaluated (last 50), signals:raw, signals:scored
 5. Restart bot_core
 (Note: rug cascade emergency stop is in-memory only — restart alone clears it without Redis changes)
 
+## Live-flip pre-flight procedure (CLEAN-003)
+
+**Context:** `TEST_MODE` flip alone does not clear in-memory position state. Paper-mode open positions can leak into live-mode reconcile on restart, causing the bot to attempt live sells on mints that only exist in paper. Incident: Session 5 v4 (2026-04-20) — 5 phantom mints → 25 wasted Helius RPC calls, 0 SOL lost but near-miss on the sell-storm breaker. See `session_outputs/ZMN_LIVE_ROLLBACK.md`.
+
+**Before every `TEST_MODE=false` flip:**
+
+1. Export the Railway Redis public URL: `export REDIS_URL="redis://..."` (fetch via `railway variables -s Redis --kv`).
+2. Run `bash scripts/live_flip_prep.sh`. The script clears `bot:status`, `paper:positions:*`, and `bot:open_positions:*` Redis keys.
+3. Confirm the script reported clean (no errors; any number of keys deleted, including zero, is fine).
+4. Only then change `TEST_MODE=false` in Railway bot_core variables.
+5. After bot_core redeploys (~90s), verify the startup log contains `Startup reconciliation: 0 open positions in DB`. If N>0, STOP and investigate before any live trade can fire — phantom positions are still present and will leak into `self.positions`.
+
+**Why not fix `_reconcile_positions` directly:** the reconcile logic correctly reads persisted open positions from DB. The bug is that paper-mode positions shouldn't be visible as "open" to a live-mode runtime — separating these fully would require a `trade_mode` filter at every reconcile call site plus Redis cleanup on flip. The scripted pre-flip approach is lower-risk and covers the operational failure mode directly. Revisit if the scripted cleanup proves fragile.
+
 ## Times
 All times in Sydney AEDT. Jay is in Sydney, Australia.
