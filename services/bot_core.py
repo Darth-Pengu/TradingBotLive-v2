@@ -943,6 +943,63 @@ class BotCore:
             else:
                 logger.warning("ENTRY FAILED: %s %s -- %s", personality, mint[:12], result.error)
 
+    # --- EXEC-001: pool routing state refresh ---
+    # pump.fun canonical bonding-curve program ID (verified 2026-04 via public
+    # program metadata + on-chain transaction inspection). PDA seed is the
+    # literal byte string b"bonding-curve" concatenated with the mint pubkey.
+    _PUMP_FUN_PROGRAM_ID = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"
+
+    async def _check_pool_state_fresh(self, mint: str) -> float:
+        """Query current pump.fun bonding-curve state for a mint via Helius getAccountInfo.
+
+        Returns:
+            0.0 if BC account exists (token still pre-graduation — stay on PumpPortal Local).
+            1.0 if BC account missing/closed (token graduated or was never on pump.fun — route to Jupiter).
+
+        Raises:
+            On RPC failure, timeout (>2s), or parse error — caller falls back to stale value.
+
+        EXEC-001: called from _close_position before execute_trade to avoid stale
+        routing on tokens that graduated during the hold. Addresses the likely
+        root cause of the 261 historical HTTP 400 sells (v3/v4 trial). See
+        CLAUDE.md Operating Principle "Routing state must be fresh at execute_trade
+        call time" and ZMN_ROADMAP.md EXEC-001.
+        """
+        from solders.pubkey import Pubkey  # local import — avoids module-level cost
+        mint_pk = Pubkey.from_string(mint)
+        program_pk = Pubkey.from_string(self._PUMP_FUN_PROGRAM_ID)
+        bc_pda, _bump = Pubkey.find_program_address([b"bonding-curve", bytes(mint_pk)], program_pk)
+
+        rpc_url = HELIUS_RPC_URL
+        if not rpc_url:
+            raise RuntimeError("EXEC-001 refresh: HELIUS_RPC_URL not configured")
+
+        payload = {
+            "jsonrpc": "2.0", "id": 1, "method": "getAccountInfo",
+            "params": [str(bc_pda), {"encoding": "base64"}],
+        }
+
+        async def _query():
+            async with aiohttp.ClientSession() as s:
+                async with s.post(rpc_url, json=payload,
+                                  timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                    if resp.status != 200:
+                        raise RuntimeError(f"HTTP {resp.status}")
+                    return await resp.json()
+
+        try:
+            result = await asyncio.wait_for(_query(), timeout=2.0)
+        except asyncio.TimeoutError:
+            raise RuntimeError("EXEC-001 refresh: getAccountInfo timeout (>2s)")
+
+        if "error" in result:
+            raise RuntimeError(f"EXEC-001 refresh: RPC error {result['error']}")
+
+        value = result.get("result", {}).get("value")
+        # Null value = account doesn't exist = graduated (or never on pump.fun).
+        # Non-null value = BC account still active = pre-graduation.
+        return 1.0 if value is None else 0.0
+
     # --- EXIT MONITORING ---
     async def _close_position(self, pos: Position, reason: str, sell_pct: float = 1.0, current_price: float = 0.0):
         """Close (partial or full) a position."""
@@ -1089,6 +1146,31 @@ class BotCore:
             # cool-off expired: unpark and allow one retry
             self._parked_mints.pop(pos.mint, None)
             self._sell_failure_counts[pos.mint] = 0
+
+        # EXEC-001: refresh pool state before routing decision. Fail closed on error
+        # (use stale pos.bonding_curve_progress, no worse than pre-fix behavior).
+        # Scope-gated: only refresh for pump.fun-origin tokens (stored bc_progress > 0).
+        # Whale-tracker Raydium tokens carry bc_progress=0 and keep existing routing.
+        # Paper mode already returned above (L1083), so this live-branch code is paper-safe.
+        if pos.bonding_curve_progress > 0:
+            try:
+                fresh_bc = await self._check_pool_state_fresh(pos.mint)
+                if fresh_bc != pos.bonding_curve_progress:
+                    logger.info(
+                        "EXEC-001 refresh: mint=%s bc_progress %.3f -> %.3f",
+                        pos.mint[:12], pos.bonding_curve_progress, fresh_bc,
+                    )
+                    pos.bonding_curve_progress = fresh_bc
+            except Exception as e:
+                logger.warning(
+                    "EXEC-001 refresh failed for %s, using stale bc_progress=%.3f: %s",
+                    pos.mint[:12], pos.bonding_curve_progress, e,
+                )
+                try:
+                    import sentry_sdk
+                    sentry_sdk.capture_exception(e)
+                except Exception:
+                    pass
 
         token = Token(mint=pos.mint, bonding_curve_progress=pos.bonding_curve_progress)
         try:

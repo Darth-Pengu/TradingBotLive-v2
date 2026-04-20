@@ -418,8 +418,13 @@ async def _execute_jupiter(
     V2 flow: GET /order (quote + assembled tx) → sign → POST /execute (managed landing).
     No separate Helius confirmation needed — /execute returns only on-chain confirmation."""
 
+    # EXEC-002: derive for both TEST_MODE log and live live_execution_log at L491.
+    # Previously only set inside the TEST_MODE branch, causing NameError on any
+    # successful live Jupiter TX_SUBMIT and triggering execute_trade's retry loop.
+    action = "buy" if input_mint == SOL_MINT else "sell"
+    amount_sol = amount_lamports / LAMPORTS_PER_SOL
+
     if TEST_MODE:
-        action = "buy" if input_mint == SOL_MINT else "sell"
         logger.info("TEST_MODE Jupiter %s: %s → %s, amount=%d lamports, slippage=%d bps",
                      action, input_mint[:8], output_mint[:8], amount_lamports, slippage_bps)
         return "TEST_MODE_SIMULATED_TX"
