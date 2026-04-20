@@ -10,6 +10,16 @@
 > - **`pos.trade_id` is id-space-ambiguous** (paper → paper_trades.id, live → trades.id; id-spaces overlap). Near-corruption bug caught in Session 2 v2 Phase 1 recon. Tracked as **REFACTOR-001**. Interim mitigation: use INSERT (not UPDATE) at live close — already in `5ac30cd`.
 > - **Open threads list below**: `ZMN-SIGNAL-AGGREGATOR-1` is resolved-as-tracked (Pattern B silent no-op, deferred to ML-009). The 2.07 SOL phantom drain is resolved (see `ZMN_LIVE_TRADE_FORENSICS_2026_04_19.md`). New open threads surfaced by Sessions 1 + 2 v2 are tracked in `ZMN_ROADMAP.md` under their IDs.
 > - **v4 cost**: actual was ~3.4 SOL, not 1.32 SOL — prior figures were mid-trial snapshots. Fixed in `CLAUDE.md` in the roadmap-consolidation commit.
+>
+> **Corrections since last update [2026-04-20, post Session 3 + Session 4 gate + chat-layer analysis]:**
+> - **Session 3 verdict amended** from "B: spec matches code, 261 HTTP 400s are transient" to "B-conditional: spec matches code, but routing state is likely stale — the 261 HTTP 400s are predominantly mid-graduation pool drift." Mechanism + fix tracked as EXEC-001 + EXEC-002 (paired, both PRE-LIVE BLOCKERS). Session 3 audit doc has a dated correction block at top; body preserved.
+> - **Session 4 T+24h gate:** strict FAIL on `stop_loss_35%` count reduction (23% vs 50% target), PASS on total PnL (+28% vs pro-rated baseline). Jay-accepted on PnL-up read. Yellow flags on TRAILING_STOP WR drop (91.8%→70.9%) and `no_momentum` per-trade worsening (33%). See `docs/audits/TUNE_T24H_GATE_2026_04_20.md`.
+> - **Paper fee model gap:** `fees_sol` models ~0.5% flat round-trip only. Misses 1.5pp platform delta, priority fees (~0.001 SOL fixed), Jito tips (~0.001-0.005 SOL fixed), and realized slippage on 95.8% of trades. Paper PnL overstates live by ~0.004 SOL/trade at 0.05 SOL sizing. Tracked as FEE-MODEL-001 (Tier 2). Real-time paper-vs-live delta tracker during live windows tracked as OBS-011 (Tier 2). Prerequisite execution-path audit tracked as EXEC-003 (Tier 2, read-only, informs FEE-MODEL-001 default values).
+> - **Jupiter NameError at `execution.py:491`** (undefined `amount_sol` + `action` vars) tracked as EXEC-002. Pre-existing latent bug surfaced in Session 3 leftover concern #3. Must land paired with EXEC-001; neither alone is safe.
+> - **Devnet routing override** tracked as DEVNET-001 (Tier 3) — Session 3 Phase 2 was blocked by hardcoded mainnet URLs in `execution.py` (Jupiter + PumpPortal). Low priority; unblocks future devnet validation sessions.
+> - **SEC-001 waiver:** Jay accepted for LIVE-002's one supervised window ONLY, with Session 5 v2 Redis sentinel monitoring as compensating control. Required for all unsupervised future windows.
+> - **Routing state freshness** is now an Operating Principle in `CLAUDE.md` (after the `pos.trade_id` ambiguity principle). Future CC sessions must refresh `bonding_curve_progress` before passing to `execute_trade` on sells.
+> - **Paper fee-model divergence from live reality** is now an Operating Principle in `CLAUDE.md` (after the routing-freshness principle). When comparing paper P&L to live, subtract ~0.004 SOL/trade at 0.05 SOL sizing.
 
 
 **Author:** Claude Opus 4.7. **Audience:** the next CC session, or a fresh Claude chat that needs to get caught up on ZMN in one read.
