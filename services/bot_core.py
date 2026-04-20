@@ -43,6 +43,11 @@ TRADING_WALLET_ADDRESS = os.getenv("TRADING_WALLET_ADDRESS", "")
 JUPITER_API_KEY = os.getenv("JUPITER_API_KEY", "").strip()
 NANSEN_API_KEY = os.getenv("NANSEN_API_KEY", "")
 NANSEN_DAILY_BUDGET = int(os.getenv("NANSEN_DAILY_BUDGET", "50"))
+# Session 5 v4 rollback finding: absolute MAX_POSITION_SOL can exceed the T5
+# 20% wallet-drawdown trigger against small wallets. Cap position at a fraction
+# of current wallet to keep T5 semantics meaningful at all wallet sizes.
+# Binds as min(MAX_POSITION_SOL, wallet_sol * MAX_POSITION_SOL_FRACTION).
+MAX_POSITION_SOL_FRACTION = float(os.getenv("MAX_POSITION_SOL_FRACTION", "0.10"))
 _start_time = time.time()
 
 # Personality position size adjustments
@@ -671,7 +676,12 @@ class BotCore:
             return
 
         # Enforce min/max limits only if risk manager approved
-        size_sol = max(float(os.environ.get("MIN_POSITION_SOL", "0.15")), min(size_sol, float(os.environ.get("MAX_POSITION_SOL", "1.50"))))
+        _min_pos = float(os.environ.get("MIN_POSITION_SOL", "0.15"))
+        _max_pos_abs = float(os.environ.get("MAX_POSITION_SOL", "1.50"))
+        _wallet_now = max(self.portfolio.total_balance_sol, 0.0)
+        _max_pos_frac = _wallet_now * MAX_POSITION_SOL_FRACTION if _wallet_now > 0 else _max_pos_abs
+        _max_pos = min(_max_pos_abs, _max_pos_frac) if _max_pos_frac > 0 else _max_pos_abs
+        size_sol = max(_min_pos, min(size_sol, _max_pos))
 
         # CHANGE 4: Time-of-day sizing (AEDT — Sydney) — data-driven from 426-trade analysis
         from datetime import timedelta as _td
@@ -695,8 +705,8 @@ class BotCore:
             size_sol *= 1.25
             logger.info("WEEKEND_BOOST: day=%d — 1.25x sizing", aedt_weekday)
 
-        # Re-enforce limits after multipliers
-        size_sol = max(float(os.environ.get("MIN_POSITION_SOL", "0.15")), min(size_sol, float(os.environ.get("MAX_POSITION_SOL", "1.50"))))
+        # Re-enforce limits after multipliers (same abs + fractional cap as above)
+        size_sol = max(_min_pos, min(size_sol, _max_pos))
 
         logger.info(
             "POSITION SIZE: %s base=%.2f conf_mult=%.2f rc_mult=%.2f "
@@ -769,6 +779,7 @@ class BotCore:
                 market_mode=market_mode, fear_greed=fgi,
                 rugcheck_risk=scored_signal.get("rugcheck_risk_level", "unknown"),
                 bonding_curve_price=bc_price_usd,
+                bonding_curve_progress=bc_progress,  # FEE-MODEL-001: pre-grad vs post-grad tiering
             )
             if paper_result["success"]:
                 paper_trade_id = paper_result["trade_id"]
@@ -1024,6 +1035,12 @@ class BotCore:
                 entry_time=pos.entry_time, amount_sol=pos.size_sol * pos.remaining_pct,
                 signal_source=pos.signal_source,
                 exit_price_override=current_price,
+                # FEE-MODEL-001: pre-grad vs post-grad fee/slippage tiering.
+                # pos.bonding_curve_progress is the signal-time value; Position dataclass
+                # doesn't carry pool, so pass sentinel "auto" (_simulate_fees infers from
+                # bc_progress: <0.95 with "auto" = pre-grad pump.fun path).
+                bonding_curve_progress=pos.bonding_curve_progress,
+                pool="auto",
             )
             # Accumulate P/L across all partial exits (staged TPs + residual)
             pos.cumulative_pnl_sol += paper_result.get("pnl_sol", 0)
@@ -2033,6 +2050,12 @@ async def main():
     from services.sentry_init import init_sentry
     init_sentry("bot-core")
     logger.info("Bot Core starting (TEST_MODE=%s)", TEST_MODE)
+    logger.info(
+        "Position sizing caps: MIN=%s SOL, MAX_ABS=%s SOL, MAX_FRAC=%.4f of wallet",
+        os.environ.get("MIN_POSITION_SOL", "0.15"),
+        os.environ.get("MAX_POSITION_SOL", "1.50"),
+        MAX_POSITION_SOL_FRACTION,
+    )
 
     bot = BotCore()
     await bot.init()
