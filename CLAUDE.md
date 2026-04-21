@@ -379,6 +379,7 @@ URL: https://gcal.mcp.claude.com/mcp
 - MCPs are for data and analysis only — never trade execution
 - execution.py handles all real trades
 - TRADING_WALLET_PRIVATE_KEY must never be accessible to any MCP
+- Before writing MCP-using prompts, reference `docs/audits/MCP_CAPABILITIES_2026_04_21.md` for tool names + use-case mapping. Update this doc whenever a new MCP is connected or an auth state changes.
 
 ## Jupiter API Reference
 Price: GET https://api.jup.ag/price/v3?ids=<mint> (REQUIRES x-api-key header)
