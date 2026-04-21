@@ -26,6 +26,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
@@ -295,25 +296,41 @@ def _page(page: int = 1, per_page: int = 200) -> dict[str, int]:
     return {"page": page, "per_page": per_page}
 
 
+def _default_date_window(days: int = 7) -> dict[str, str]:
+    """Default date window for profiler endpoints that require a ``date`` field.
+
+    Returns ``{"from": "YYYY-MM-DD", "to": "YYYY-MM-DD"}`` with ``to`` = today
+    (UTC) and ``from`` = today - ``days``. Profiler endpoints reject requests
+    without this field; callers may override via explicit ``date_from`` /
+    ``date_to`` kwargs on the wrappers.
+    """
+    end = datetime.now(timezone.utc).date()
+    start = end - timedelta(days=days)
+    return {"from": start.isoformat(), "to": end.isoformat()}
+
+
 async def sm_dex_trades(
     chains: list[str] | None = None,
     value_usd_min: int = 1000,
     labels: list[str] | None = None,
     limit: int = 200,
 ) -> dict:
-    """Smart Money DEX trades (POST /smart-money/dex-trades)."""
+    """Smart Money DEX trades (POST /smart-money/dex-trades).
+
+    Body shape: flat root. Verified via Phase-1 live probe on
+    ``/smart-money/holdings`` (2026-04-21) — Nansen SM endpoints reject
+    the ``{"parameters": {...}}`` envelope with 422.
+    """
     chains = chains or ["solana"]
     labels = labels or ["Smart Trader", "Fund", "180D Smart Trader"]
     payload = {
-        "parameters": {
-            "chains": chains,
-            "filters": {
-                "include_smart_money_labels": labels,
-                "value_usd": {"min": value_usd_min},
-            },
-            "pagination": _page(per_page=limit),
-            "order_by": _order("block_time"),
-        }
+        "chains": chains,
+        "filters": {
+            "include_smart_money_labels": labels,
+            "value_usd": {"min": value_usd_min},
+        },
+        "pagination": _page(per_page=limit),
+        "order_by": _order("block_time"),
     }
     return await _post("/smart-money/dex-trades", payload)
 
@@ -322,11 +339,9 @@ async def sm_netflow(chains: list[str] | None = None, limit: int = 200) -> dict:
     """Smart Money net-flow (POST /smart-money/netflow), ordered by 24h flow."""
     chains = chains or ["solana"]
     payload = {
-        "parameters": {
-            "chains": chains,
-            "pagination": _page(per_page=limit),
-            "order_by": _order("net_flow_24h_usd"),
-        }
+        "chains": chains,
+        "pagination": _page(per_page=limit),
+        "order_by": _order("net_flow_24h_usd"),
     }
     return await _post("/smart-money/netflow", payload)
 
@@ -335,21 +350,21 @@ async def sm_holdings(chains: list[str] | None = None, limit: int = 200) -> dict
     """Smart Money holdings (POST /smart-money/holdings)."""
     chains = chains or ["solana"]
     payload = {
-        "parameters": {
-            "chains": chains,
-            "pagination": _page(per_page=limit),
-        }
+        "chains": chains,
+        "pagination": _page(per_page=limit),
     }
     return await _post("/smart-money/holdings", payload)
 
 
 async def tgm_flow_intel(token_address: str, chain: str = "solana") -> dict:
-    """Token Granular Metrics — flow intelligence (POST /tgm/flow-intelligence)."""
+    """Token Granular Metrics — flow intelligence (POST /tgm/flow-intelligence).
+
+    Body shape: flat root. Verified via Phase-1 live probe (2026-04-21) —
+    Nansen returns 422 ``"body -> chain" missing`` if wrapped in ``parameters``.
+    """
     payload = {
-        "parameters": {
-            "chain": chain,
-            "token_address": token_address,
-        }
+        "chain": chain,
+        "token_address": token_address,
     }
     return await _post("/tgm/flow-intelligence", payload)
 
@@ -357,10 +372,8 @@ async def tgm_flow_intel(token_address: str, chain: str = "solana") -> dict:
 async def tgm_who_bought_sold(token_address: str, chain: str = "solana") -> dict:
     """TGM — who-bought-sold (POST /tgm/who-bought-sold)."""
     payload = {
-        "parameters": {
-            "chain": chain,
-            "token_address": token_address,
-        }
+        "chain": chain,
+        "token_address": token_address,
     }
     return await _post("/tgm/who-bought-sold", payload)
 
@@ -368,37 +381,72 @@ async def tgm_who_bought_sold(token_address: str, chain: str = "solana") -> dict
 async def tgm_holders(token_address: str, chain: str = "solana") -> dict:
     """TGM — holders (POST /tgm/holders)."""
     payload = {
-        "parameters": {
-            "chain": chain,
-            "token_address": token_address,
-        }
+        "chain": chain,
+        "token_address": token_address,
     }
     return await _post("/tgm/holders", payload)
 
 
-async def profiler_pnl(address: str, chain: str = "solana") -> dict:
-    """Address PnL summary (POST /profiler/address/pnl-summary)."""
-    payload = {
-        "parameters": {
-            "chain": chain,
-            "address": address,
-        }
+async def profiler_pnl(
+    address: str,
+    chain: str = "solana",
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> dict:
+    """Address PnL summary (POST /profiler/address/pnl-summary).
+
+    Body shape: flat root, with ``date: {from, to}`` envelope. Required by
+    Nansen — omitting it returns 422 ``"body -> date" missing``. Defaults to
+    last 7 days when ``date_from`` / ``date_to`` are omitted.
+    """
+    date = (
+        {"from": date_from, "to": date_to}
+        if (date_from and date_to)
+        else _default_date_window(days=7)
+    )
+    payload: dict[str, Any] = {
+        "address": address,
+        "chain": chain,
+        "date": date,
     }
     return await _post("/profiler/address/pnl-summary", payload)
 
 
 async def profiler_pnl_token(
-    address: str, token_address: str, chain: str = "solana"
+    address: str,
+    token_address: str,
+    chain: str = "solana",
+    date_from: str | None = None,
+    date_to: str | None = None,
 ) -> dict:
-    """Address PnL for a specific token (POST /profiler/address/pnl)."""
-    payload = {
-        "parameters": {
-            "chain": chain,
-            "address": address,
-            "token_address": token_address,
-        }
+    """Per-token PnL for an address (POST /profiler/address/pnl).
+
+    Nansen's ``/profiler/address/pnl`` returns a paginated list of all tokens
+    traded by ``address`` within the date window; it does NOT support a
+    server-side ``token_address`` filter. This wrapper preserves the
+    token-specific contract by applying a client-side filter to the response.
+
+    Body shape: flat root, with ``date: {from, to}`` envelope (required).
+    Defaults to last 7 days when ``date_from`` / ``date_to`` are omitted.
+
+    Response: same top-level shape as the raw Nansen response (``data``
+    list + ``pagination``) but ``data`` is filtered to rows matching
+    ``token_address``. If no rows match, ``data`` is empty.
+    """
+    date = (
+        {"from": date_from, "to": date_to}
+        if (date_from and date_to)
+        else _default_date_window(days=7)
+    )
+    payload: dict[str, Any] = {
+        "address": address,
+        "chain": chain,
+        "date": date,
     }
-    return await _post("/profiler/address/pnl", payload)
+    raw = await _post("/profiler/address/pnl", payload)
+    rows = raw.get("data") or []
+    filtered = [r for r in rows if r.get("token_address") == token_address]
+    return {"data": filtered, "pagination": raw.get("pagination", {})}
 
 
 async def profiler_transactions(
@@ -409,17 +457,20 @@ async def profiler_transactions(
 ) -> dict:
     """Address transactions (POST /profiler/address/transactions).
 
-    ``date_from`` / ``date_to`` are ISO-8601 strings. Pass None to omit.
+    Body shape: flat root, with ``date: {from, to}`` envelope (required).
+    Defaults to last 7 days when ``date_from`` / ``date_to`` are omitted.
     """
-    params: dict[str, Any] = {
-        "chain": chain,
+    date = (
+        {"from": date_from, "to": date_to}
+        if (date_from and date_to)
+        else _default_date_window(days=7)
+    )
+    payload: dict[str, Any] = {
         "address": address,
+        "chain": chain,
+        "date": date,
     }
-    if date_from is not None:
-        params["date_from"] = date_from
-    if date_to is not None:
-        params["date_to"] = date_to
-    return await _post("/profiler/address/transactions", {"parameters": params})
+    return await _post("/profiler/address/transactions", payload)
 
 
 __all__ = [
