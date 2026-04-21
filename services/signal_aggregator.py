@@ -143,11 +143,21 @@ ML_BOOTSTRAP_THRESHOLDS = {
 # but allow most signals through. ML is unreliable at high scores (80+ = 0.8% WR).
 AGGRESSIVE_PAPER = os.getenv("AGGRESSIVE_PAPER_TRADING", "false").lower() == "true"
 ANALYST_DISABLED = os.getenv("ANALYST_DISABLED", "false").lower() == "true"
-if AGGRESSIVE_PAPER:
+# ML-012 FIX (2026-04-21): AGGRESSIVE_PAPER override was unconditionally lowering
+# thresholds regardless of TEST_MODE. In live mode this silently bypassed env
+# ML_THRESHOLD_* values and traded at floor=30 instead of the intended 65.
+# Now gated on TEST_MODE so the override only applies to paper trading.
+if AGGRESSIVE_PAPER and TEST_MODE:
     ML_THRESHOLDS = {"speed_demon": 30, "analyst": 30, "whale_tracker": 20}
     ML_BOOTSTRAP_THRESHOLDS = {"speed_demon": 30, "analyst": 30, "whale_tracker": 20}
     logging.getLogger("signal_aggregator").warning(
-        "PAPER TRADING: ML threshold floor=30 SD/AN, 20 WT (data shows 25-30 loses money)"
+        "PAPER TRADING (TEST_MODE=true): ML threshold floor=30 SD/AN, 20 WT"
+    )
+elif AGGRESSIVE_PAPER and not TEST_MODE:
+    logging.getLogger("signal_aggregator").warning(
+        "ML-012 FIX: AGGRESSIVE_PAPER_TRADING=true but TEST_MODE=false; "
+        "ignoring override. Using env ML_THRESHOLD_* values: SD=%d AN=%d WT=%d",
+        ML_THRESHOLDS["speed_demon"], ML_THRESHOLDS["analyst"], ML_THRESHOLDS["whale_tracker"]
     )
 else:
     logging.getLogger("signal_aggregator").info(
@@ -2202,6 +2212,44 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
                     if ml_score < threshold:
                         logger.info("ML reject %s for %s: %.1f < %d (trained=%s)",
                                     mint[:12], personality, ml_score, threshold, ml_trained)
+                        continue
+
+                    # GATES-V5 (2026-04-21): post-v4-rollback entry gates.
+                    # All env-var configurable. Trending/migration/graduation bypass
+                    # quality filters (already-validated signal types) but NOT CFGI
+                    # (extreme-fear circuit breaker applies universally).
+                    _bypass_quality = sig_type_local in ("trending", "migration", "graduation")
+
+                    # Holder floor — filter tokens with no organic interest.
+                    holder_min = int(os.getenv("HOLDER_COUNT_MIN", "15"))
+                    holder_count = features.get("holder_count", 0) or 0
+                    if not _bypass_quality and holder_count < holder_min:
+                        logger.info("HOLDER reject %s: %d < %d",
+                                    mint[:12], int(holder_count), holder_min)
+                        continue
+
+                    # Buy/sell ratio floor — require real buy pressure.
+                    bsr_min = float(os.getenv("BUY_SELL_RATIO_MIN", "3.0"))
+                    bsr_gate = features.get("buy_sell_ratio_5min", 0) or 0
+                    if not _bypass_quality and float(bsr_gate) < bsr_min:
+                        logger.info("BSR reject %s: %.2f < %.2f",
+                                    mint[:12], float(bsr_gate), bsr_min)
+                        continue
+
+                    # Pre-filter composite score floor.
+                    pre_filter_min = float(os.getenv("PRE_FILTER_SCORE_MIN", "1.15"))
+                    pre_filter = features.get("pre_filter_score", 0) or 0
+                    if not _bypass_quality and float(pre_filter) < pre_filter_min:
+                        logger.info("PRE_FILTER reject %s: %.2f < %.2f",
+                                    mint[:12], float(pre_filter), pre_filter_min)
+                        continue
+
+                    # CFGI extreme-fear circuit breaker (universal — no bypass).
+                    cfgi_min = float(os.getenv("CFGI_MIN", "20"))
+                    cfgi_gate = features.get("cfgi_score", 0) or 0
+                    if float(cfgi_gate) < cfgi_min:
+                        logger.info("CFGI reject %s: %.1f < %.1f (extreme fear zone)",
+                                    mint[:12], float(cfgi_gate), cfgi_min)
                         continue
 
                     # Lazy Haiku enrichment — only fires once per mint, after all hard gates

@@ -113,7 +113,13 @@ EXIT_STRATEGIES = {
     "speed_demon": {
         "staged_exits": [{"at_gain": g, "sell_pct": s} for g, s in STAGED_TAKE_PROFITS],
         "time_exit_minutes": 15,
-        "stop_loss_pct": 0.35,
+        # GATES-V5 (2026-04-21): tightened 0.35 -> 0.20 default, env-configurable.
+        # Rationale: 7d CSV showed 21/105 gated trades hit stop_loss_35%, median
+        # hold 2.9s (instant dumps, not recoverable). Tightening caps per-trade
+        # loss at ~20% of position vs 35%. Winners never touch stop (exit via
+        # TRAILING_STOP), so impact is loss-floor only. Expected save ~1.5 SOL/wk
+        # at 0.25 SOL position sizing.
+        "stop_loss_pct": float(os.getenv("STOP_LOSS_PCT", "0.20")),
     },
     "analyst": {
         "staged_exits": [{"at_gain": g, "sell_pct": s} for g, s in STAGED_TAKE_PROFITS],
