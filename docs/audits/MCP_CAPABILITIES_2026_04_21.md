@@ -28,7 +28,7 @@
 
 **Chain coverage:** hyperevm, bitcoin, evm, plasma, arbitrum, fantom, ethereum, ton, unichain, injective, scroll, sonic, polygon, linea, zksync, **solana**, mantle, optimism, sei, sui, tron, avalanche, near, hyperliquid, monad, base, ronin, bnb, all, iotaevm.
 
-**Status this session:** ❌ **HTTP 401 "Invalid API key"** on `token_info` call against wSOL. Railway env has `NANSEN_API_KEY=cL2tgvKP2twsUKTcXHv...` but it's either expired or the wrong key for the MCP's server-side auth. Per CLAUDE.md: "BUDGET: 508% over limit. DISABLED via Redis nansen:disabled." Possibly the Nansen-side key was revoked post-over-budget. **Treat as dead until Jay rotates.**
+**Status this session:** ❌ **HTTP 401 "Invalid API key"** on `token_info` call against wSOL. Railway env has `NANSEN_API_KEY=<redacted>` but it's either expired or the wrong key for the MCP's server-side auth. Per CLAUDE.md: "BUDGET: 508% over limit. DISABLED via Redis nansen:disabled." Possibly the Nansen-side key was revoked post-over-budget. **Treat as dead until Jay rotates.**
 
 **Key tools (schemas loaded from tool catalog):**
 
@@ -393,7 +393,7 @@ Discovered during enumeration but out-of-scope for the immediate wallet-analysis
 
 | MCP | Issue | Needed |
 |---|---|---|
-| `nansen` | HTTP 401 Invalid API key | Rotate `NANSEN_API_KEY` env (Railway bot_core + signal_aggregator). Current value `cL2tgvKP2twsUKTcXHv...` rejected. |
+| `nansen` | HTTP 401 Invalid API key | Rotate `NANSEN_API_KEY` env (Railway bot_core + signal_aggregator). Current value is rejected server-side. |
 | `birdeye` | Timeout on first call — "session expiry" per CLAUDE.md | Implement session-refresh pattern (call a lightweight endpoint, e.g., `get-defi-networks`, with retry-loop before actual query) |
 | `defillama` | Authentication pending | Run `mcp__defillama__authenticate` interactively |
 | `claude.ai Gmail` | Authentication pending | Run `authenticate` + `complete_authentication` |
