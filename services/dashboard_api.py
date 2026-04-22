@@ -1130,8 +1130,25 @@ async def api_ml_status(request):
 
 
 async def api_portfolio_history(request):
-    """Portfolio snapshots with explicit field mapping to avoid serialisation crashes."""
-    rows = await _query_db("SELECT * FROM portfolio_snapshots ORDER BY id DESC LIMIT 288")
+    """Portfolio snapshots with explicit field mapping to avoid serialisation crashes.
+
+    BUG-021 (2026-04-22): filter portfolio_snapshots by mode. Live mode selects
+    market_mode='LIVE_ONCHAIN' rows (on-chain balance snapshots). Paper mode
+    selects everything else (NORMAL/HIBERNATE/DEFENSIVE/FRENZY). Prior behavior
+    mixed LIVE_ONCHAIN rows into paper view because there was no filter.
+    Note: LIVE_ONCHAIN rows' daily_pnl_sol field is a known semantic wart
+    (tracked as OBS-010) — paper P/L bleeds into the live-mode chart until
+    that's fixed. This filter at least keeps the two modes separated.
+    """
+    mode = _get_mode(request)
+    if mode == "live":
+        rows = await _query_db(
+            "SELECT * FROM portfolio_snapshots WHERE market_mode = 'LIVE_ONCHAIN' ORDER BY id DESC LIMIT 288"
+        )
+    else:
+        rows = await _query_db(
+            "SELECT * FROM portfolio_snapshots WHERE market_mode != 'LIVE_ONCHAIN' OR market_mode IS NULL ORDER BY id DESC LIMIT 288"
+        )
     result = []
     for r in rows:
         result.append({
@@ -1146,18 +1163,25 @@ async def api_portfolio_history(request):
 
 
 async def api_paper_stats(request):
-    """Paper trading stats — PostgreSQL is source of truth for P/L."""
-    stats = {"total_trades": 0, "winning_trades": 0, "total_pnl_sol": 0, "win_rate": 0, "by_personality": {}}
+    """Paper trading stats — PostgreSQL is source of truth for P/L.
 
-    # PostgreSQL with corrected P/L column + post-cleanup window
+    BUG-021 (2026-04-22): filter by trade_mode so paper-view excludes live rows
+    and live-view excludes paper rows. Prior behavior aggregated both modes
+    regardless of ?mode= query param, which conflated Session 5 v3/v4 live
+    trades into paper aggregates.
+    """
+    mode = _get_mode(request)
+    stats = {"total_trades": 0, "winning_trades": 0, "total_pnl_sol": 0, "win_rate": 0, "by_personality": {}, "mode": mode}
+
+    # PostgreSQL with corrected P/L column + post-cleanup window, trade_mode filtered
     try:
         rows = await _query_db(
             """SELECT COUNT(*) as cnt,
                 COALESCE(SUM(COALESCE(corrected_pnl_sol, realised_pnl_sol)), 0) as pnl,
                 SUM(CASE WHEN COALESCE(corrected_pnl_sol, realised_pnl_sol) > 0 THEN 1 ELSE 0 END) as wins
             FROM paper_trades
-            WHERE exit_time IS NOT NULL AND entry_time > 1775767260"""
-        )
+            WHERE exit_time IS NOT NULL AND entry_time > 1775767260
+              AND trade_mode = $1""", mode)
         if rows and rows[0].get("cnt", 0) > 0:
             stats["total_trades"] = rows[0]["cnt"]
             stats["winning_trades"] = rows[0].get("wins", 0) or 0
@@ -1171,7 +1195,8 @@ async def api_paper_stats(request):
                     COALESCE(SUM(COALESCE(corrected_pnl_sol, realised_pnl_sol)), 0) as pnl
                 FROM paper_trades
                 WHERE exit_time IS NOT NULL AND entry_time > 1775767260
-                AND personality = $1""", p)
+                  AND trade_mode = $1
+                  AND personality = $2""", mode, p)
             if prows and prows[0].get("trades", 0) > 0:
                 stats["by_personality"][p] = {
                     "trades": prows[0]["trades"],
