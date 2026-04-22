@@ -1,16 +1,24 @@
 #!/usr/bin/env bash
-# ZMN live-flip pre-flight cleanup (CLEAN-003).
+# ZMN live-flip pre-flight cleanup (CLEAN-003 + CLEAN-004).
 #
 # Purpose: clear paper-mode position state from Redis BEFORE flipping
 # TEST_MODE=false on bot_core. Without this, paper positions remain in
 # Redis and can leak into bot_core's in-memory state across the flip,
 # causing live-mode sell attempts on mints that only exist in paper.
+# Also reset `consecutive_losses` so the sell-storm circuit breaker
+# starts from a clean baseline rather than inheriting a stale paper-era
+# count (CLEAN-004, 2026-04-22).
 #
-# Incident: Session 5 v4 (2026-04-20) — 5 phantom mints attempted live
-# sells, 25 wasted Helius RPC calls. See session_outputs/ZMN_LIVE_ROLLBACK.md.
+# Incidents:
+#   - Session 5 v4 (2026-04-20) — 5 phantom mints attempted live sells,
+#     25 wasted Helius RPC calls. See session_outputs/ZMN_LIVE_ROLLBACK.md.
+#   - DASH-RESET 2026-04-21 — consecutive_losses=4 survived the paper
+#     reset; one live loss in v5 would trip the sell-storm breaker at
+#     5+ unnecessarily.
 #
 # Usage:
-#   export REDIS_URL="redis://..."   # Railway Redis public URL
+#   export REDIS_URL="redis://..."            # Railway Redis public URL
+#   export DATABASE_PUBLIC_URL="postgres://…"  # Railway Postgres public URL (for CLEAN-004)
 #   bash scripts/live_flip_prep.sh
 #
 # Run BEFORE changing the Railway env var. After the bot_core restart that
@@ -77,6 +85,33 @@ else
 fi
 echo
 
+# --- 4. consecutive_losses reset (CLEAN-004) ---
+echo "4. Resetting consecutive_losses counter (CLEAN-004)..."
+echo "   a) Redis: SET bot:consecutive_losses 0"
+if redis-cli -u "$REDIS_URL" SET bot:consecutive_losses 0 > /dev/null 2>&1; then
+    echo "      done."
+else
+    echo "      WARN: could not SET bot:consecutive_losses (non-fatal; bot_core will rehydrate from Postgres)"
+fi
+
+echo "   b) Postgres: UPDATE bot_state SET value_text='0' WHERE key='consecutive_losses'"
+if [ -z "${DATABASE_PUBLIC_URL:-}" ]; then
+    echo "      SKIPPED: DATABASE_PUBLIC_URL not set."
+    echo "      The Redis reset above handles the immediate runtime state but the"
+    echo "      Postgres row will re-hydrate Redis on next bot_core restart. Either"
+    echo "      export DATABASE_PUBLIC_URL and re-run, OR manually execute the UPDATE."
+elif ! command -v psql >/dev/null 2>&1; then
+    echo "      SKIPPED: psql not on PATH. Redis reset above is sufficient for current"
+    echo "      runtime; Postgres will re-hydrate on next restart. Install psql to persist."
+else
+    if psql "$DATABASE_PUBLIC_URL" -v ON_ERROR_STOP=1 -q -c "INSERT INTO bot_state (key, value_text, updated_at) VALUES ('consecutive_losses', '0', NOW()) ON CONFLICT (key) DO UPDATE SET value_text='0', updated_at=NOW();" >/dev/null 2>&1; then
+        echo "      done."
+    else
+        echo "      WARN: psql update failed. Redis reset above still holds for current runtime."
+    fi
+fi
+echo
+
 echo "=== Pre-flight cleanup complete ==="
 echo
 echo "Next steps (do these manually, in order):"
@@ -84,5 +119,7 @@ echo "  a. Flip TEST_MODE=false in Railway bot_core variables"
 echo "  b. Wait ~90s for Railway to redeploy bot_core"
 echo "  c. Tail bot_core startup log for:"
 echo "       'Startup reconciliation: 0 open positions in DB'"
-echo "     If N>0, STOP and investigate (phantom positions still present)."
+echo "       'Restored consecutive_losses=0 from PostgreSQL'"
+echo "     If reconciliation N>0, STOP and investigate (phantom positions)."
+echo "     If consecutive_losses != 0, CLEAN-004 didn't persist — re-run with DATABASE_PUBLIC_URL set."
 echo "  d. Proceed with the live window per your session prompt."
