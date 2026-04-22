@@ -779,7 +779,14 @@ async def _fetch_gecko_pool_data(session: aiohttp.ClientSession, mint: str) -> d
             if resp.status == 200:
                 info_data = await resp.json()
                 attrs = info_data.get("data", {}).get("attributes", {})
-                holders = int(attrs.get("holders", 0) or 0)
+                # GeckoTerminal schema change (observed 2026-04-22): "holders" is now a dict
+                # {"count": N, "distribution_percentage": {...}, "last_updated": "..."}
+                # rather than a bare int. Handle both forms.
+                _h_raw = attrs.get("holders")
+                if isinstance(_h_raw, dict):
+                    holders = int(_h_raw.get("count", 0) or 0)
+                else:
+                    holders = int(_h_raw or 0)
                 if holders > 0:
                     result["holder_count"] = holders
     except Exception as e:
@@ -2431,6 +2438,8 @@ async def _process_graduations(redis_conn: aioredis.Redis, pool=None):
                     rc_score = 0
 
                 # 2. Holder count from GeckoTerminal
+                # Schema note (2026-04-22): GeckoTerminal "holders" field is a dict with
+                # "count" subfield, not a bare int. Handle both forms for forward/back compat.
                 holders = 0
                 try:
                     gt_url = f"https://api.geckoterminal.com/api/v2/networks/solana/tokens/{mint}/info"
@@ -2438,7 +2447,11 @@ async def _process_graduations(redis_conn: aioredis.Redis, pool=None):
                         if resp.status == 200:
                             gt_data = await resp.json()
                             attrs = gt_data.get("data", {}).get("attributes", {})
-                            holders = int(attrs.get("holders", 0) or 0)
+                            _h_raw = attrs.get("holders")
+                            if isinstance(_h_raw, dict):
+                                holders = int(_h_raw.get("count", 0) or 0)
+                            else:
+                                holders = int(_h_raw or 0)
                 except Exception:
                     pass
 
