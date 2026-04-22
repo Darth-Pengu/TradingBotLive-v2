@@ -2227,23 +2227,37 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
                     # (extreme-fear circuit breaker applies universally).
                     _bypass_quality = sig_type_local in ("trending", "migration", "graduation")
 
+                    # Data-availability bypass (2026-04-22, HOLDER-DATA-PIPELINE-001
+                    # follow-up): fresh pump.fun new_token signals at age<30s have
+                    # no GeckoTerminal index and no Redis token:stats populated yet,
+                    # so HOLDER/BSR/PRE_FILTER features are structurally 0 — not
+                    # "organic interest missing" but "data hasn't arrived yet". Let
+                    # ML + rugcheck handle these; re-apply gates when data should
+                    # be available. Tunable via GATES_V5_MIN_AGE_SEC env.
+                    _gates_min_age = float(os.getenv("GATES_V5_MIN_AGE_SEC", "30"))
+                    _token_age = float(features.get("token_age_seconds", 0) or 0)
+                    _data_should_be_available = _token_age >= _gates_min_age
+
                     # Holder floor — filter tokens with no organic interest.
                     holder_min = int(os.getenv("HOLDER_COUNT_MIN", "15"))
                     holder_count = features.get("holder_count", 0) or 0
-                    if not _bypass_quality and holder_count < holder_min:
-                        logger.info("HOLDER reject %s: %d < %d",
-                                    mint[:12], int(holder_count), holder_min)
+                    if not _bypass_quality and _data_should_be_available and holder_count < holder_min:
+                        logger.info("HOLDER reject %s: %d < %d (age=%.0fs)",
+                                    mint[:12], int(holder_count), holder_min, _token_age)
                         continue
 
                     # Buy/sell ratio floor — require real buy pressure.
                     bsr_min = float(os.getenv("BUY_SELL_RATIO_MIN", "3.0"))
                     bsr_gate = features.get("buy_sell_ratio_5min", 0) or 0
-                    if not _bypass_quality and float(bsr_gate) < bsr_min:
-                        logger.info("BSR reject %s: %.2f < %.2f",
-                                    mint[:12], float(bsr_gate), bsr_min)
+                    if not _bypass_quality and _data_should_be_available and float(bsr_gate) < bsr_min:
+                        logger.info("BSR reject %s: %.2f < %.2f (age=%.0fs)",
+                                    mint[:12], float(bsr_gate), bsr_min, _token_age)
                         continue
 
                     # Pre-filter composite score floor.
+                    # Note: pre_filter_score = position_size_multiplier, computed
+                    # at FILTER stage regardless of token age, so this gate IS
+                    # meaningful even for fresh tokens. Does not need the age bypass.
                     pre_filter_min = float(os.getenv("PRE_FILTER_SCORE_MIN", "1.15"))
                     pre_filter = features.get("pre_filter_score", 0) or 0
                     if not _bypass_quality and float(pre_filter) < pre_filter_min:
