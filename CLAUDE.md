@@ -258,6 +258,68 @@ default unless Jay explicitly overrides.
 - **Routing state must be fresh at `execute_trade` call time.** `execute_trade(side, token, amount_sol, *, bonding_curve_progress=...)` in `services/execution.py` routes to different execution paths (`_execute_pumpportal_local` vs `_execute_pumpportal` vs `_execute_jupiter`) based on the `bonding_curve_progress` kwarg (threshold `GRADUATION_THRESHOLD = 0.95`). **This kwarg must reflect the pool's state at call time, NOT the state captured at signal discovery or buy time.** Stale routing is the likely root cause of the 261 historical HTTP 400 sell errors (v3/v4 trial) — tokens that graduated during the hold were sold using the pump.fun path against a no-longer-existing bonding-curve pool. Before calling `execute_trade` from `_close_position` or any sell decision, refresh pool state via Helius `getAccountInfo` on the BC PDA (or an equivalent PumpPortal pool-status endpoint) and update `pos.bonding_curve_progress` (and/or a new `pos.pool_route` field). Tracked in **EXEC-001**. Must land paired with **EXEC-002** (Jupiter NameError at `services/execution.py:491`) — fixing EXEC-001 alone causes post-grad sells to hit Jupiter and crash on the NameError.
 - **Paper fee model is under-cooked by ~0.004 SOL/trade at 0.05 SOL sizing.** `paper_trader.fees_sol` median is 0.503% of position size across all size buckets — models a single percentage fee only. Real round-trip costs include: (a) pump.fun platform 2% (bot models 0.5%; under by 1.5pp), (b) Jupiter/LP fee ~0.6%, (c) priority fee 0.001 SOL fixed per round-trip, (d) Jito tip 0.001-0.005 SOL fixed per round-trip, (e) realized slippage (absent on 95.8% of paper rows — verified: `realised_pnl_sol = (exit/entry - 1) * amount - fees_sol` holds exactly on 6,087 of 6,352 closed trades). **When comparing paper P&L to live, subtract ~0.004 SOL/trade** as the fee-model correction at current 0.05 SOL sizing. Break-even position size under realistic costs: 0.009 SOL @ 100% paper→live edge retention, 0.019 SOL @ 50%, 0.048 SOL @ 25%. Current `MIN_POSITION_SOL=0.05` sits at the pessimistic break-even — defensible for supervised windows, tight for unsupervised. Tracked in **FEE-MODEL-001**; companion observability (live-window delta tracker) in **OBS-011**; prerequisite execution-path audit in **EXEC-003**.
 - **Paper results are hypotheses until validated against live data.** The paper model is an approximation. The first live data point (Session 5 v4, 2026-04-20, mint `yh3n441...`, 0.365 SOL pre-grad) showed paper overstating live PnL by ~96× (paper said +0.002 SOL win; live was -0.094 SOL loss). Any decision based purely on paper numbers — especially position sizing, personality activation, or edge-preservation claims — should be treated as a hypothesis pending live confirmation. Live data always overrides paper data where they conflict. FEE-MODEL-001 (commit `e078b4c`) is the corrected-paper-model work; SLIPPAGE-CALIBRATION-001 is the ongoing calibration loop that refines the model from accumulating live data. Before making sizing or strategy claims from paper-only inputs, state explicitly: "this is a paper-model hypothesis; live data can override."
+
+### STATUS.md — single-file state tracker (MANDATORY for every session)
+
+`STATUS.md` is the single source of truth for "what is the bot doing right now
+and what's next." Every CC session MUST update `STATUS.md` as its final step
+before the `present_files` call. Every Claude web/desktop chat begins with Jay
+uploading `STATUS.md` + `ZMN_ROADMAP.md` for ground-truth context.
+
+#### Contract — every session appends a dated entry at the TOP of STATUS.md
+
+Entry shape (keep ≤ 15 lines — concise, scannable):
+
+```
+## 2026-04-DD HH:MM UTC — <session name>
+
+**Committed:** <commit hashes + one-line description each, or "docs-only / no commit">
+**State changes:** <env vars set, Redis keys touched, services redeployed, or "none">
+**Bot state:** TEST_MODE=<true|false>, <N> paper open, <N> live open, circuit_breaker=<val>
+**Blockers cleared:** <item IDs or "none">
+**Blockers new/active:** <item IDs or "none">
+**Next prompt:** <path to the next SESSION_*.md in outputs, or "none queued">
+**Pending Claude-chat prompts not yet pasted:** <list or "none">
+```
+
+#### Rules
+
+1. **Newest entry at TOP.** Scan-friendly. Old entries never deleted — they're
+   the audit trail.
+2. **Never delete prior entries.** Append-only. If something is wrong in a prior
+   entry, add a CORRECTION entry at the top pointing to it; don't rewrite history.
+3. **Every CC session completes with a STATUS.md update.** No exceptions. This
+   is enforced by making it the second-to-last step in every session prompt
+   (immediately before `present_files`).
+4. **Bot state read is MANDATORY.** Pull TEST_MODE from Railway env, open
+   position counts from Redis (`paper:positions:*`, `bot:open_positions:*`),
+   circuit_breaker from `bot:state:consecutive_losses`. These are not allowed
+   to be guessed or carried forward from a prior entry.
+5. **"Pending Claude-chat prompts" means**: any `SESSION_*.md` file sitting in
+   `/mnt/user-data/outputs/` on Jay's machine that hasn't been pasted into CC
+   yet. Jay's Claude-side is the source of truth here; CC just lists what it
+   sees locally and marks unknown-status ones as `(paste-status unknown — Jay
+   to confirm)`.
+6. **STATUS.md lives in the repo root.** Committed alongside every session's
+   deliverable (even docs-only commits). This makes `git log -- STATUS.md`
+   an automatic session-history view.
+
+#### Template to add after this section lands
+
+A `STATUS.md.template` file gets created at repo root (this session) showing
+the exact entry format. Future sessions copy the template and fill in.
+
+#### Relationship to ZMN_ROADMAP.md
+
+- `ZMN_ROADMAP.md` = work-item catalog (what's queued, what's tiered, what's
+  completed). Changes slowly, append-only changelog.
+- `STATUS.md` = operational state-of-the-bot journal. Changes every session.
+- `MONITORING_LOG.md` = observational notes from Jay's monitoring windows.
+  Still exists, still used; orthogonal to STATUS.md.
+
+When they diverge, ZMN_ROADMAP.md is authoritative for what's planned;
+STATUS.md is authoritative for what's actually running and what just happened.
+
 - **External API schemas drift silently; `except Exception: pass` hides the drift.** HOLDER-DATA-PIPELINE-001 (fix `fc87b03`, 2026-04-22) was caused by GeckoTerminal changing its `/tokens/{mint}/info` `holders` field from bare int to a dict — `int(dict)` raised TypeError, caught by a broad `except Exception: pass`, and the caller silently got `holders=0` for every mint. Bot went silent for ~24 hours post-GATES-V5 deploy. Guidance: (a) when parsing external API responses, always handle the "unexpected shape" case explicitly with `isinstance(...)` branches; (b) `except Exception: pass` on API parsing paths must at minimum log a warning with the raw shape so silent schema drift surfaces instead of silently zeroing features; (c) gates over features that default to 0 when "data absent" should distinguish "no data yet" from "data present but below threshold" — use sentinel values (`-1`) or time-based bypass (`age < GATES_V5_MIN_AGE_SEC`) so the gate fires only when the data source has had a reasonable chance to populate. See `docs/audits/HOLDER_PIPELINE_FIX_2026_04_22.md` for the full evidence chain.
 
 ## Read this first, every session

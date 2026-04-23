@@ -1,0 +1,22 @@
+# ZMN STATUS — operational journal
+
+> Newest entry at top. Append-only. Never rewrite history.
+> Every CC session appends an entry. Upload this to every Claude chat.
+>
+> See CLAUDE.md § "STATUS.md — single-file state tracker" for the convention.
+
+---
+
+<!-- Entries below — newest first. Template:
+
+## YYYY-MM-DD HH:MM UTC — <session name>
+
+**Committed:** <hashes + descriptions, or "docs-only">
+**State changes:** <env / Redis / service, or "none">
+**Bot state:** TEST_MODE=<bool>, <N> paper open, <N> live open, circuit_breaker=<int>
+**Blockers cleared:** <IDs>
+**Blockers new/active:** <IDs>
+**Next prompt:** <path>
+**Pending Claude-chat prompts not yet pasted:** <list>
+
+-->
