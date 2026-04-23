@@ -7,6 +7,31 @@
 
 ---
 
+## 2026-04-24 00:39 AEDT (2026-04-23 14:39 UTC) — TUNE-005 (HOLDER_COUNT_MIN 1→15)
+
+**Committed (this session):** `<hash>` docs(tune): TUNE-005 HOLDER_COUNT_MIN 1→15 rollback post pipeline fix. Touches ZMN_ROADMAP.md + STATUS.md only. No services/, no code.
+
+**State changes:** Railway env var `HOLDER_COUNT_MIN` on signal_aggregator: **1 → 15** (via Railway MCP `set-variables`). Railway auto-redeployed on variable change; old container stopped 14:32:21 UTC, new container started 14:32:10 UTC (staggered rollover). No Redis writes, no Postgres changes, no other env vars touched.
+
+**Bot state:** TEST_MODE=true (confirmed in new container boot log). Analyst disabled (ANALYST_DISABLED=true confirmed). Speed Demon sole active personality. Paper position count not re-read. Redis override for `governance.analyst_enabled: false` from 08:19 UTC entry — status unknown (~16h past, likely clobbered by governance re-run; should be re-applied before next Analyst-sensitive session if halflife matters).
+
+**Blockers cleared:**
+  - **TUNE-005** — `HOLDER_COUNT_MIN` gate restored to 15 per intended GATES-V5 design. Post-change verification confirmed zero `HOLDER reject: 0 < 15` pattern (pipeline fix is live) and ML SCORE cadence alive. No 5-min silence; no errors/tracebacks.
+
+**Blockers new/active:**
+  - **Cadence observation period opens (carry)** — post-change ML SCORE rate 5-8/min vs ~12/min baseline. May be natural variance (5-min window is small) or a real throughput reduction from the tightened gate. Worth a 24-48h observation before declaring steady-state rate.
+  - All other carry blockers unchanged (BUG-022 🔥 `corrected_pnl_sol` NULL; ANALYST-PAPER-AUDIT-001 📋 legacy analyst retire-vs-retune diagnostic; DOCS-004 📋 CLAUDE.md Vybe URL; ANALYST-DISABLE-HALFLIFE re-apply; BITFOOT-2026-BASELINE survivorship caveat).
+
+**Next prompt:** `/mnt/user-data/outputs/SESSION_CORRECTED_PNL_INVESTIGATION.md` — BUG-022 investigation (still the #1 recommended — every paper-PnL number is untrusted until fixed; with TUNE-005 landed, the paper-cadence observation window is now gated more tightly so PnL trust matters more, not less).
+
+**Pending Claude-chat prompts not yet pasted:**
+  - `/mnt/user-data/outputs/SESSION_CORRECTED_PNL_INVESTIGATION.md` (BUG-022 — recommended next)
+  - `/mnt/user-data/outputs/SESSION_ANALYST_POST_GRAD_001_PLAN.md` (design session — Phase-1 summary ready in ANALYST-POST-GRAD-001 Tier 2 preamble)
+
+**Verdict:** TUNE-005 ✅ — HOLDER gate restored to intended threshold of 15 post pipeline-fix verification. Pipeline remains alive, no breakage detected.
+
+---
+
 ## 2026-04-23 13:17 UTC — ROADMAP-CONSOL-2026-04-23-LATE
 
 **Committed (this session):** `<hash>` docs(roadmap): 2026-04-23 late-day consolidation. Touches ZMN_ROADMAP.md + STATUS.md only. Docs-only diff.
