@@ -7,6 +7,35 @@
 
 ---
 
+## 2026-04-23 13:17 UTC — ROADMAP-CONSOL-2026-04-23-LATE
+
+**Committed (this session):** `<hash>` docs(roadmap): 2026-04-23 late-day consolidation. Touches ZMN_ROADMAP.md + STATUS.md only. Docs-only diff.
+
+**State changes:** none (docs-only). No env vars, no Redis, no Railway deploys, no services/.
+
+**Bot state:** TEST_MODE=true (carried; not re-read). Paper position count not re-read. Analyst disabled status unchanged from 08:19 UTC entry (Redis override may have expired by now, ~5h past the ≤4h halflife — flagged in 13:02 UTC entry).
+
+**Blockers cleared:**
+  - ANALYST-DISABLE-001 — tracked as ✅ COMPLETED 2026-04-23 in roadmap Tier 1 table (commit `cc8e5c9` Redis governance override addresses the graduation-sniper bypass).
+
+**Blockers new/active:**
+  - 🔥 **BUG-022 (NEW)** — `corrected_pnl_sol` NULL on all 215 post-DASH-RESET paper_trades rows. Correction job not running. Every paper-PnL number quoted in chat/dashboards today is falling back to `realised_pnl_sol`, which per FEE-MODEL-001 is systematically off. Prompt drafted at `/mnt/user-data/outputs/SESSION_CORRECTED_PNL_INVESTIGATION.md`. Recommended as the **next session**.
+  - 📋 **ANALYST-PAPER-AUDIT-001 (NEW)** — 45m read-only diagnostic on the pre-existing `analyst` personality that leaked -2.48 SOL / 11.9% WR in 17h. Determine retire vs retune; identify what re-enabled it.
+  - 📋 **DOCS-004 (NEW)** — CLAUDE.md Vybe URL fix (`.com` → `.xyz`), 5m.
+  - 🟡 **STATUS-CONVENTION-001 (IN_PROGRESS)** — convention landed per 08:01 UTC entry + seeded entries; tracked formally in Tier 1 table.
+  - **ANALYST-DISABLE-HALFLIFE (carry from 08:19 UTC)** — governance may have clobbered the Redis override by now. Re-apply before next Analyst-related session.
+  - All other carry blockers unchanged (HOLDER-DATA-PIPELINE verification window, Raydium post-grad absent, CLAUDE.md Vybe URL wrong, BITFOOT-2026-BASELINE survivorship caveat).
+
+**Next prompt:** `/mnt/user-data/outputs/SESSION_CORRECTED_PNL_INVESTIGATION.md` — BUG-022 investigation. Recommended #1 because every paper-PnL number right now is untrusted until this is resolved.
+
+**Pending Claude-chat prompts not yet pasted:**
+  - `/mnt/user-data/outputs/SESSION_CORRECTED_PNL_INVESTIGATION.md` (BUG-022 — recommended next)
+  - `/mnt/user-data/outputs/SESSION_ANALYST_POST_GRAD_001_PLAN.md` (design session; can run after BUG-022 or in parallel if Jay prefers the Phase-1 distilled summary as the design input)
+
+**Verdict:** Roadmap absorbs today's late-day findings. 5 new items + ANALYST-POST-GRAD-001 preamble distillation + critical-path re-sequencing (17 steps). Zero pre-existing items modified.
+
+---
+
 ## 2026-04-23 13:02 UTC — BITFOOT-2026-BASELINE (verdict BASELINE-A, caveats)
 
 **Committed (this session):** `<hash>` research(bitfoot): 2026 baseline vs 2025 edge — verdict BASELINE-A. Touches `docs/audits/BITFOOT_2026_BASELINE_2026_04_23.md` (new, committed) + STATUS.md + ZMN_ROADMAP.md. Also local-only under `.tmp_bitfoot2026/`: `sample_2026.py`, `bitfoot2026_sample.csv`, `run_stdout.log` (gitignored dir). No services/, no env vars, no Redis, no Railway deploys.
