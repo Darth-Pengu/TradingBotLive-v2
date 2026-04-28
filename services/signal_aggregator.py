@@ -2419,14 +2419,29 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
 # ═══════════════════════════════════════��═══════════════════════════════════════
 
 async def _process_graduations(redis_conn: aioredis.Redis, pool=None):
-    """Process graduation signals from signals:graduated queue."""
-    logger.info("Graduation sniper processor started")
+    """Process graduation signals from signals:graduated queue.
+
+    ANALYST-DISABLE-002 (2026-04-28): graduation sniper is the SOLE source of
+    `personality=analyst` signals (line ~2521 hardcodes the personality tag).
+    The main signal path at line ~1810 drops `analyst` from `targets` when
+    ANALYST_DISABLED=true, but this graduation path bypassed that check —
+    governance Redis override worked only until governance LLM (Anthropic
+    creds-out) re-wrote the key with default analyst_enabled=True every 4h.
+    Net leak: 241 trades / -12.5 SOL / Apr 23 → Apr 25 / 17% WR.
+
+    Fix: drain the queue silently when ANALYST_DISABLED=true. Function
+    stays alive (no orphan task) so re-enabling via env + container restart
+    resumes processing immediately.
+    """
+    logger.info("Graduation sniper processor started (ANALYST_DISABLED=%s)", ANALYST_DISABLED)
     async with aiohttp.ClientSession() as session:
         while True:
             try:
                 result = await redis_conn.brpop("signals:graduated", timeout=5)
                 if not result:
                     continue
+                if ANALYST_DISABLED:
+                    continue  # ANALYST-DISABLE-002 (2026-04-28): drain silently
                 _, raw = result
                 grad_data = json.loads(raw)
                 mint = grad_data.get("mint", "")
