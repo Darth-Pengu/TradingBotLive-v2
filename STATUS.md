@@ -7,6 +7,43 @@
 
 ---
 
+## 2026-04-28 13:25 UTC — BUG-022 INVESTIGATED (roadmap mark + verification)
+
+**Committed (this session):** `<hash>` docs(roadmap+status): BUG-022 INVESTIGATED mark + STATUS append. ZMN_ROADMAP.md only (3 status edits) + STATUS.md prepend. **Note:** the audit doc itself (`docs/audits/CORRECTED_PNL_INVESTIGATION_2026_04_28.md`) was already committed in `ca4812d` ~15 min before this session started. This session verified those findings independently and updated the roadmap markers that the prior commit didn't touch.
+
+**State changes:** none. No services/, no env vars, no Redis writes, no Railway deploys. Read-only DB inspection (DATABASE_PUBLIC_URL) for the verification.
+
+**Bot state:** **EMERGENCY_STOPPED** (carried — pre-existing; 2026-04-25 21:52:50 UTC trigger; still 67h+ offline; SILENCE-RECOVERY-2026-04-28 still escalated, NOT cleared). TEST_MODE=true (carried; not re-read). Speed Demon sole active personality (carried; ANALYST-DISABLE-002 still in effect).
+
+**Independent verification of `ca4812d` audit doc findings:**
+- DB inspection: 853 of 853 closed paper_trades rows have `corrected_pnl_sol IS NULL` and `correction_method IS NULL`. ID range 6575 → 7484. `correction_applied_at` is NULL on every row. ✅ matches audit doc §2.1.
+- Code search: zero `UPDATE…SET corrected_pnl_sol` or `INSERT…corrected_pnl_sol` writes in `services/`. Only `Scripts/rebaseline_paper_edge.py` references the column (read-only at L81). No APScheduler / cron / asyncio.create_task wiring for a correction job. ✅ matches audit doc §2.2.
+- Spot-check on 3 simple-exit rows (id 7480, 7482, 7483): `realised_pnl_sol` matches the closed-form `(exit/entry - 1) * amount - fees_sol` formula to <5e-5 SOL. `corrected_pnl_sol` would be `pass_through` identity copy. ✅ matches audit doc §3.1.
+- ml_engine.py training query (`services/ml_engine.py:407`) reads from `trades` table not `paper_trades`, and filters on `outcome IS NOT NULL` not `corrected_pnl_sol`. So audit doc §3.4 ML-training caveat ("if the training query filters") is conditional and does NOT apply to the current ml_engine.py — ML retraining is unaffected by the NULL state. (Minor note; doesn't change verdict or fix shape.)
+
+**Roadmap edits (this session):**
+- Line 28 "Blocking issues" — BUG-022 from 🔥 NEW MEDIUM to 🟡 INVESTIGATED `ca4812d` with verdict 2a + Option A summary.
+- Line 81 critical-path #6 — from 🔥 #1 PRIORITY to 🟡 INVESTIGATED with framing downgrade ("every paper-PnL number is biased" was overstated; directional findings are already correct because all current rows are post-`e078b4c`).
+- Line 151 Tier 1 row — full status column update with verdict + Option A recipe + nuance note + spot-check confirmation. Reference to audit + commit hash. Status: 🟡 INVESTIGATED 2026-04-28; fix execution 📋 QUEUED.
+
+**Blockers cleared:**
+- **BUG-022 (investigation phase)** ✅ — diagnostic complete, verdict + fix shape documented. **Fix execution remains queued.**
+
+**Blockers new/active:**
+- 📋 **BUG-022 fix execution (NEW carry)** — Option A: 5m SQL UPDATE backfill + ~10-line inline write at `services/paper_trader.py` close-time UPDATE (and the parallel sites in `services/bot_core.py:1268` + `1301`). ~30m total. No services/ logic changes; just adds 5 columns to existing close-time UPDATE statements. Recommended after silence recovery.
+- 🔥 **SILENCE-RECOVERY-2026-04-28** (carry — bot still EMERGENCY_STOPPED 67h+).
+- All other carry blockers unchanged (DOCS-004 Vybe URL; ANALYST-PAPER-AUDIT-001 legacy retire-vs-retune; HOLDER-DATA-PIPELINE verification window; BITFOOT-2026-BASELINE survivorship caveat; GOVERNANCE-RESILIENCE soft).
+
+**Next prompt:** Silence recovery first (per `docs/audits/ANALYST_DISABLE_FIX_2026_04_28.md` §6.3). After that, BUG-022 fix execution session.
+
+**Pending Claude-chat prompts not yet pasted:**
+- `/mnt/user-data/outputs/SESSION_CORRECTED_PNL_INVESTIGATION.md` — investigation phase complete this session (`ca4812d` + `<hash>`). The execution-shape session is a new prompt yet to be drafted.
+- `/mnt/user-data/outputs/SESSION_ANALYST_POST_GRAD_001_PLAN.md` (carry — design session, ready to paste).
+
+**Verdict:** BUG-022 🟡 INVESTIGATED. Verdict 2a (writer never existed). Recommended fix Option A (~30m next session). Audit doc `ca4812d` is comprehensive; this session's role was independent verification + roadmap marker updates. No code/env/data changes.
+
+---
+
 ## 2026-04-28 13:10 UTC — ANALYST-DISABLE-002 (code fix) + bot-silence diagnosis
 
 **Committed (this session):** `9d6e95c` fix(signal_aggregator): ANALYST-DISABLE-002 — gate graduation sniper on env var (services/signal_aggregator.py +17/-2). Plus pending docs commit `<hash2>` for `docs/audits/ANALYST_DISABLE_FIX_2026_04_28.md` + STATUS.md + ZMN_ROADMAP.md.
