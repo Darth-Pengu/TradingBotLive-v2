@@ -7,6 +7,49 @@
 
 ---
 
+## 2026-04-28 13:10 UTC — ANALYST-DISABLE-002 (code fix) + bot-silence diagnosis
+
+**Committed (this session):** `9d6e95c` fix(signal_aggregator): ANALYST-DISABLE-002 — gate graduation sniper on env var (services/signal_aggregator.py +17/-2). Plus pending docs commit `<hash2>` for `docs/audits/ANALYST_DISABLE_FIX_2026_04_28.md` + STATUS.md + ZMN_ROADMAP.md.
+
+**State changes:**
+- Redis: `governance:latest_decision.analyst_enabled = False` (band-aid re-applied; TTL 86400s; `override_source=ANALYST-DISABLE-REAPPLY-2026-04-28`). Belt-and-suspenders alongside the code fix.
+- Code: `services/signal_aggregator.py:_process_graduations` now gates on `ANALYST_DISABLED` env var (line 2443) AND logs `ANALYST_DISABLED=true|false` at startup (line 2436). Live and verified.
+- No bot_core code changes. No env var changes. No other Redis writes.
+
+**Bot state:** **EMERGENCY_STOPPED** (pre-existing; 2026-04-25 21:52:50 UTC trigger from analyst leak hitting `DAILY_LOSS_LIMIT_SOL=4.0`). 67h offline. NOT RECOVERED THIS SESSION — see "Blockers new" below. signal_aggregator is healthy and producing signals (~7-8 ML SCORE/min on the new container). TEST_MODE=true. Speed Demon is the only active personality on signal_aggregator.
+
+**Bug findings (paper_trades export 2026-04-28, 835 rows id 6575→7466):**
+- 301 analyst trades total (60 pre-disable + 241 post-disable) — `-15.034 SOL` realised
+- Speed Demon over same window: 534 trades, +6.064 SOL, 44.6% WR
+- **`corrected_pnl_sol` NULL on all 835 rows** (BUG-022 confirmed; out of scope this session)
+- Last paper trade: id 7466 at 2026-04-25 21:47:03 UTC (5:47 before the EMERGENCY_STOP trigger)
+
+**Verification (post-deploy):**
+- Container swap landed at 2026-04-28 13:08:06 UTC (~17 min after push — Railway build was unusually slow due to fresh dependency download)
+- New startup banner observed: `Graduation sniper processor started (ANALYST_DISABLED=True)` at 13:08:07,647
+- Zero `GRAD_ACCEPT` / `GRAD_REJECT` / `GRAD_EVAL` events in 2+ min post-swap — function is silently draining the queue as designed
+- No errors, no exceptions, no tracebacks
+
+**Blockers cleared:**
+- **ANALYST-DISABLE-002 ✅** — code-level gate now defends against governance halflife. Env-var pattern (durable) extended to the leak path that previously bypassed it. Audit: `docs/audits/ANALYST_DISABLE_FIX_2026_04_28.md`.
+- **ANALYST-DISABLE-001 halflife concern** — superseded by 002. Band-aid Redis override re-applied as belt-and-suspenders but no longer load-bearing.
+
+**Blockers new/active:**
+- 🔥 **SILENCE-RECOVERY-2026-04-28 (NEW — escalated to Jay)** — bot has been EMERGENCY_STOPPED for 67h. Multi-step state cleanup needed (recipe in `docs/audits/ANALYST_DISABLE_FIX_2026_04_28.md` §6.3): reset `bot:consecutive_losses=0`; renew `market:mode:override=NORMAL EX 86400`; **drain stale `signals:scored` queue (337 entries piled up over 67h — replaying risks bot opening positions on stale prices)**; restart bot_core to clear in-memory `self.emergency_stopped`. NOT executed inline because it's three parallel state issues with non-trivial blast radius.
+- 🔥 **BUG-022** (carry — `corrected_pnl_sol` NULL on all post-DASH-RESET rows; see prior STATUS entries; remains the recommended next session after silence recovery).
+- **GOVERNANCE-RESILIENCE (NEW — soft, deferred)** — bot_core.py:612 fallback `gov.get("analyst_enabled", True)` defaults to True when governance is unavailable. Combined with Anthropic creds-out, this is the structural cause of the 4h halflife. Future hardening: per-personality env-var equivalents (SPEED_DEMON_DISABLED, WHALE_TRACKER_DISABLED) or a fail-closed default. Out of scope; not urgent now that ANALYST-DISABLE-002 closes the analyst-specific path.
+- All prior carry blockers unchanged (DOCS-004 Vybe URL; ANALYST-PAPER-AUDIT-001 legacy retire-vs-retune; HOLDER-DATA-PIPELINE verification window; BITFOOT-2026-BASELINE survivorship caveat).
+
+**Next prompt:** Silence-recovery recipe. Per audit doc §6.3 — should be 5–10 min if executed in order. After that, BUG-022.
+
+**Pending Claude-chat prompts not yet pasted:**
+- `/mnt/user-data/outputs/SESSION_CORRECTED_PNL_INVESTIGATION.md` (BUG-022 — recommended after silence recovery)
+- `/mnt/user-data/outputs/SESSION_ANALYST_POST_GRAD_001_PLAN.md` (design session — Phase-1 summary ready in roadmap entry)
+
+**Verdict:** ANALYST-DISABLE-002 ✅ — analyst leak permanently closed at code level. Bot still offline pending silence-recovery (escalated for explicit go-ahead before executing the 4-step state-cleanup recipe).
+
+---
+
 ## 2026-04-24 00:39 AEDT (2026-04-23 14:39 UTC) — TUNE-005 (HOLDER_COUNT_MIN 1→15)
 
 **Committed (this session):** `<hash>` docs(tune): TUNE-005 HOLDER_COUNT_MIN 1→15 rollback post pipeline fix. Touches ZMN_ROADMAP.md + STATUS.md only. No services/, no code.
