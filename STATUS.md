@@ -7,6 +7,50 @@
 
 ---
 
+## 2026-04-29 12:39 UTC — ENV-AUDIT-2026-04-29 (read-only ground truth)
+
+**Committed (this session):** `<hash>` docs(audit): ENV-AUDIT-2026-04-29 ground-truth Railway/Redis/DB inventory. Files: `docs/audits/ENV_AUDIT_2026_04_29.md` (NEW) + STATUS.md prepend + ZMN_ROADMAP.md (3 new Tier 1 rows + changelog entry). Read-only. No services/ touch, no env changes, no Redis writes, no Railway deploys.
+
+**State changes:** none. Read-only audit via Railway MCP `list-variables` (8 services), Redis MCP via Python (REDIS_PUBLIC_URL), Postgres via asyncpg (DATABASE_PUBLIC_URL), Helius MCP `getBalance` for trading + holding wallets.
+
+**Bot state:** RUNNING. TEST_MODE=true on bot_core, signal_aggregator, all services EXCEPT treasury (which is `false` — flagged below). bot_core started 2026-04-29 09:48:27 UTC; signal_aggregator health TS=12:39:11 UTC. 0 paper open. bot:consecutive_losses=1. market:mode:override=NORMAL TTL ~38 min. (Confirms the LIVE-FEE-MODEL-AUDIT entry below was written from a stale post-recovery snapshot — bot is actually online.)
+
+**🔥 New blockers from audit (3) — complementary to LIVE-FEE-MODEL-AUDIT findings:**
+- **WALLET-DRIFT-2026-04-29 🔥** — Trading wallet `4h4pstXd…` on-chain = **0.064 SOL** (Helius getBalance, 12:39 UTC). Last documented value in CLAUDE.md / `1b40df3` v4 forensics: ~1.6 SOL. Drop of ~1.5 SOL is unaccounted for in any STATUS / ZMN_ROADMAP / audit entry. Bot has been TEST_MODE=true since the 2026-04-25 21:52 EMERGENCY_STOP, so this is NOT bot-driven. Possible: undocumented manual transfer, additional unsupervised live window, or compromise. **Confirms LIVE-FEE-MODEL-AUDIT's "V5a BLOCKED until trading wallet ≥ 1.5 SOL" finding from a different angle.** Recommended next: Helius `getWalletTransfers(4h4pstXd…)` since 2026-04-19 to attribute the outflows.
+- **TREASURY-TEST-MODE-002 🟡** — `treasury` service has `TEST_MODE=false`. All other services are `true`. Trigger=30.0 SOL, currently dormant (wallet=0.064), but a hidden risk if wallet ever crosses 30. Either flip to `true` for safety while supervised, or document the intent.
+- **ML-THRESHOLD-DRIFT-2026-04-29 🟡** — `ML_THRESHOLD_SPEED_DEMON` drifts: signal_aggregator=65, bot_core=40, web=45. Last 100 closes contain 44 entries with `ml_score ∈ (0,40]` — confirms Jay's chat-side observation that "(0,40] band has 76 trades suggesting threshold ≠ 40". The (40,50] band turned negative (-0.42 SOL on n=27). `AGGRESSIVE_PAPER_TRADING=true` on SA + bot_core appears to bypass the SA gate for paper. Code-path investigation deferred.
+
+**🟢 Audit confirmations (no action):**
+- BUG-022 unchanged: 1080/1080 closed paper rows still NULL on `corrected_pnl_sol` (was 853 at `ca4812d`; +227 since). Fix execution still queued.
+- userMem TPs (`STAGED_TAKE_PROFITS_JSON=[[2.0,0.2][5.0,0.375][10.0,1.0]]`) confirmed on bot_core. ✅
+- userMem trail (no breakeven lock) confirmed on bot_core; actual schedule is 5-tier `[[0.10,0.30][0.50,0.25][1.00,0.20][2.00,0.15][5.00,0.12]]`.
+- TUNE-005-ROLLBACK: `HOLDER_COUNT_MIN=1` confirmed live. ✅
+- Speed Demon-only on last 100 closes (ANALYST-DISABLE-002 effective). ✅
+- LIVE-FEE-MODEL-AUDIT verdict (live PnL omits fees, live rows have fees_sol=slippage_pct=0): independently observed in §4.3 — last 100 mix is 100% paper, so my sample doesn't reach those live rows; agree with their finding from a different angle (no contradictions).
+
+**🟢 Side findings (deferred):**
+- `signals:scored` LLEN=89 (recovery cleared 337→0 on 2026-04-28; regrew to 89 in ~24h — bot_core consumes slower than SA produces). Below 100 STOP threshold.
+- `nansen:disabled` Redis TTL EXPIRED. Daily renewal lapsed. Combined with `NANSEN_DAILY_BUDGET=2000` on signal_aggregator/ml_engine/signal_listener, Nansen calls could be firing.
+- `signals:raw` LLEN=2,908,957 — slow memory leak, no TTL/trim.
+- `bot_core:health` Redis key absent (only signal_aggregator writes one).
+- `governance:latest_decision.analyst_enabled = true` — Redis override clobbered (load-bearing now is the env-var via ANALYST-DISABLE-002 code fix; matches halflife caveat in 2026-04-28 entry).
+- Two different Nansen API keys in production across services (SEC-001 split-key state).
+- railway.toml has no `paths` filter → RAILWAY-REDEPLOY-DISCIPLINE-001 likely real (bot_core restart at 09:48 followed docs commit `5706d7e` at 09:34 with no other apparent trigger).
+- Railway CLI v4.6.0 (need v4.10.0+ for `list-deployments`) — partial-block on Step 5.
+
+**Stop-condition check:** 0 of 5 STOP conditions tripped. bot_core TEST_MODE=true, `signals:scored=89` (<100), all services reachable, DB OK, no EMERGENCY_STOP.
+
+**Next prompt:** my recommendation: `SESSION_WALLET_DRIFT_INVESTIGATION` (15-30m read-only Helius forensics) BEFORE `SESSION_BUG_022_FIX_2026_04_29` and BEFORE LIVE-FEE-CAPTURE-001. The wallet drain is the most operationally surprising finding and unblocks (or escalates) any V5a discussion.
+
+**Pending Claude-chat prompts not yet pasted:**
+- `SESSION_BUG_022_FIX_2026_04_29` (carry — recommended after WALLET-DRIFT clears)
+- `SESSION_LIVE_FEE_MODEL_AUDIT_2026_04_29` ✅ COMPLETED `a208aa5` (this morning)
+- `SESSION_SD_MC_CEILING_DEPLOY_2026_04_29` (wait 24-48h after Apr 28 13:02 UTC recovery — earliest ~2026-04-30 13:00 UTC)
+
+**Verdict:** Audit complete. Ground truth captured. **Three new blockers (1 🔥 + 2 🟡)**, three confirmations, several side findings. Audit doc: `docs/audits/ENV_AUDIT_2026_04_29.md`.
+
+---
+
 ## 2026-04-29 — LIVE-FEE-MODEL-AUDIT-2026-04-29 (read-only)
 
 **Committed (this session):** `<hash>` docs(audit): LIVE-FEE-MODEL-AUDIT-2026-04-29 paper/live divergence check. Files: `docs/audits/LIVE_FEE_MODEL_AUDIT_2026_04_29.md` (new) + STATUS.md + ZMN_ROADMAP.md. **Docs-only. No services/ touch. No env changes. No deploys.**
