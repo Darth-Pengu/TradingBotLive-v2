@@ -7,6 +7,50 @@
 
 ---
 
+## 2026-04-29 — LIVE-FEE-MODEL-AUDIT-2026-04-29 (read-only)
+
+**Committed (this session):** `<hash>` docs(audit): LIVE-FEE-MODEL-AUDIT-2026-04-29 paper/live divergence check. Files: `docs/audits/LIVE_FEE_MODEL_AUDIT_2026_04_29.md` (new) + STATUS.md + ZMN_ROADMAP.md. **Docs-only. No services/ touch. No env changes. No deploys.**
+
+**State changes:** none.
+
+**Bot state:** unchanged this session (EMERGENCY_STOPPED carry from 2026-04-25; SILENCE-RECOVERY still pending). TEST_MODE=true.
+
+**Verdict:** **MAJOR DIVERGENCE between live and paper PnL/fee math.** Four load-bearing differences:
+1. Live PnL formula at `bot_core.py:1232` is `(exit/entry-1)*amt` — no `- fees` term. Paper has `- fees`.
+2. Live writes `slippage_pct=0.0` and `fees_sol=0.0` on every `paper_trades` row (entry INSERT and close UPDATE both omit these columns). Verified empirically on all 6 live rows.
+3. Live entry/exit prices are queried RPC prices, not actual fill prices. `execute_trade` returns no fee/price data; bot_core calls `_get_token_price` after success.
+4. Live `features_json` is NULL on all 6 historical live rows (live entry path doesn't UPDATE it).
+TP/SL trigger logic = parity. Sizing function = parity (calls `risk_manager.calculate_position_size`).
+
+**Spot-check (closed-form on 6 live rows):** all 4 rows with valid prices match `(exit/entry-1)*amt` (no fee subtraction) to ≤ 1e-5 SOL. STOP-condition (>1 row mismatched >1e-3 SOL) NOT tripped — divergence is consistent across all rows. id=6580 v4 yh3n441 trade: paper realised +0.0019 SOL stored, on-chain actual −0.094 SOL — 96× gap explained by fee+slippage omission.
+
+**V5a wallet math (carry):**
+- `_max_pos = min(MAX_POSITION_SOL=1.50, wallet * MAX_POSITION_SOL_FRACTION=0.10)`
+- At wallet 0.064 SOL: `_max_pos_frac = 0.0064`. `_max_pos = 0.0064`.
+- `size_sol = max(MIN_POSITION_SOL=0.15, min(any, 0.0064)) = 0.15`
+- 0.15 SOL > 0.064 wallet → swap router rejects with insufficient balance.
+- **V5a BLOCKED until trading wallet ≥ 1.5 SOL** (or MIN_POSITION_SOL lowered below FEE-MODEL-001 break-even — not recommended).
+
+**Blockers cleared this session:** none (read-only).
+
+**Blockers new/active (added by this audit):**
+- 🔥 **LIVE-FEE-CAPTURE-001 (NEW, V5a-blocking)** — capture actual fee + slippage on live trades; write to `paper_trades.fees_sol` / `slippage_pct`. Path A (use `_simulate_*` from live close path, fast/low-fidelity) unblocks V5a numerical comparability. Path B (Helius `parseTransactions` for actual fill data, slow/high-fidelity) closes divergence completely. Recommended: Path A pre-V5a, Path B as follow-up.
+- 🔥 **LIVE-PNL-FEE-FORMULA-001 (NEW, V5a-blocking)** — change `bot_core.py:1232` to subtract fees from live PnL. Pairs with LIVE-FEE-CAPTURE-001.
+- **LIVE-ROW-BACKFILL-001 (NEW, high)** — backfill 6 historical live rows with FEE-MODEL-001 estimated fees + slippage; mark `correction_method='live_estimated_v1'`.
+- **LIVE-FEATURES-JSON-001 (NEW, medium)** — add features_json UPDATE on live entry path (mirror paper).
+- **SIZING-WALLET-FLOOR-001 (NEW, medium-preventative)** — make `bot_core.py:685-690` reject (not floor up) when wallet*fraction < MIN_POSITION_SOL.
+- **TIME_PRIME-CONTRADICTION-001 (NEW, low — note for TUNE-006 implementation)** — `bot_core.py:695-696` upsizes 2.0× at AEDT 18-20, contradicting `SD_DEAD_ZONE_001` proposal (worst window).
+- **ENV_AUDIT_2026_04_29 (NEW, low — process gap)** — referenced as prerequisite but never produced. Generate before next state-changing live session.
+- All prior carry blockers unchanged (SILENCE-RECOVERY still pending; BUG-022 investigated; ANALYST-DISABLE-002 ✅; TUNE-006 stack waiting on recovery).
+
+**Next prompt:** depends on Jay's V5a sequencing preference. Two reasonable orders:
+- **(a)** SILENCE-RECOVERY → BUG-022 fix (Option A) → LIVE-FEE-CAPTURE-001 Path A → LIVE-PNL-FEE-FORMULA-001 → V5a wallet transfer → V5a.
+- **(b)** Same but interleave LIVE-ROW-BACKFILL-001 with BUG-022 fix (single SQL UPDATE pass; both touch `paper_trades` corrected/fee columns).
+
+**Pending Claude-chat prompts not yet pasted:** unknown — paste-status not visible from CC.
+
+---
+
 ## 2026-04-29 09:34 UTC — TUNE-005-ROLLBACK (HOLDER_COUNT_MIN 15 → 1, testing WR-regression hypothesis)
 
 **Committed (this session):** `<hash>` docs(tune): TUNE-005 ROLLED BACK — HOLDER_COUNT_MIN 15 → 1 pending 24h validation. ZMN_ROADMAP.md + STATUS.md only. No services/ changes.
