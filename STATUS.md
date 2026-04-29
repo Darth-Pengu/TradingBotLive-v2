@@ -7,6 +7,42 @@
 
 ---
 
+## 2026-04-29 09:34 UTC — TUNE-005-ROLLBACK (HOLDER_COUNT_MIN 15 → 1, testing WR-regression hypothesis)
+
+**Committed (this session):** `<hash>` docs(tune): TUNE-005 ROLLED BACK — HOLDER_COUNT_MIN 15 → 1 pending 24h validation. ZMN_ROADMAP.md + STATUS.md only. No services/ changes.
+
+**State changes:**
+- Railway env var `HOLDER_COUNT_MIN` on signal_aggregator: **15 → 1** (set via Railway web UI by Jay; auto-redeploy triggered). Verified live via Railway MCP after Jay re-authed mid-session.
+- No code changes, no Redis writes, no other env vars touched.
+
+**Bot state:** RUNNING (recovered between sessions via the 2026-04-28 13:10 UTC silence-recovery work). Pre-rollback Redis snapshot: portfolio 24.73 SOL, daily PnL +2.29 SOL, 1 open Speed Demon position, market_mode=NORMAL, consecutive_losses=4, market:mode:override TTL ~4h, signals:scored=0. ANALYST-DISABLE-002 still in effect (no analyst entries observed).
+
+**Rollback theory:** Jay's analysis showed Speed Demon WR dropped 52.9% → 34.9% over 3 days following TUNE-005 deploy (2026-04-23 → 2026-04-26 window). Hypothesis: HOLDER_COUNT_MIN=15 rejected legitimate winners with early holder counts <15, biasing the Speed-Demon-only paper sample toward losers. Roll back to 1 (HOLDER-LOWER baseline from 2026-04-22 session); observe 24h; validate or refute. If WR recovers to ~50% baseline → hypothesis confirmed, TUNE-005 stays rolled back; if WR stays depressed → hypothesis refuted, TUNE-005 reapplied and look elsewhere for the regression cause.
+
+**Verification (post-deploy):**
+- Railway MCP listed `HOLDER_COUNT_MIN=1` confirming variable change accepted
+- Container swap landed at 2026-04-29 09:27:58 UTC (~12 min after Jay's UI change — Railway build slow, consistent with prior TUNE-005's 17-min build)
+- New startup banner observed: `Signal Aggregator starting (TEST_MODE=True, ANALYST_DISABLED=True)` at 09:27:58
+- Zero HOLDER reject lines in 5+ min post-swap (gate=1 is permissive — only zero-holder tokens would block; live tokens always have ≥1 holder)
+- ML SCORE cadence ~5-7/min post-swap; no errors/exceptions/tracebacks; funnel categories distribute normally (TARGETS / ML / FILTER / RUGCHECK / SD / etc.)
+
+**Side note (operational):** Railway CLI auth was non-interactively broken at session start, blocking both `railway` CLI and `mcp__railway__*` tools (MCP wraps the CLI). User restored access mid-session. Will need a persistent token solution to prevent this recurring (call-out below the formal entry).
+
+**Blockers cleared:** none structurally.
+
+**Blockers new/active:**
+- 📋 **TUNE-005-ROLLBACK validation window** — observe 24h of paper trading post-revert (closes ~2026-04-30 09:34 UTC). Success criterion: Speed Demon WR returns toward 50%+ baseline. Outcome decides whether the rollback is codified (HOLDER gate=1 stays) or reverted (TUNE-005 reapplied, look elsewhere for the WR regression cause).
+- 📋 **TUNE-005 status** — was ✅ COMPLETED 2026-04-24; now ⏪ ROLLED BACK 2026-04-29 pending validation. If hypothesis confirmed, status becomes ⏪ ROLLED BACK CONFIRMED (TUNE-005 permanently reversed). If refuted, status returns to ✅ COMPLETED with a footnote about the failed validation experiment.
+- All other carry blockers unchanged (BUG-022 INVESTIGATED + fix execution queued; SILENCE-RECOVERY-2026-04-28 cleared per the recovery work; DOCS-004 Vybe URL; ANALYST-PAPER-AUDIT-001 legacy retire-vs-retune; HOLDER-DATA-PIPELINE verification window; BITFOOT-2026-BASELINE survivorship caveat; GOVERNANCE-RESILIENCE soft).
+
+**Next prompt:** observation-only for the next 24h. After 09:34 UTC tomorrow, evaluate Speed Demon WR over the rollback window vs the TUNE-005-deployed window and decide outcome.
+
+**Pending Claude-chat prompts not yet pasted:** carry — BUG-022 fix execution session and ANALYST-POST-GRAD-001 design session both still queued.
+
+**Verdict:** TUNE-005 ⏪ ROLLED BACK 2026-04-29 — HOLDER_COUNT_MIN reverted to 1 to test the WR-regression hypothesis. 24h validation window opens. No other changes.
+
+---
+
 ## 2026-04-28 13:25 UTC — BUG-022 INVESTIGATED (roadmap mark + verification)
 
 **Committed (this session):** `<hash>` docs(roadmap+status): BUG-022 INVESTIGATED mark + STATUS append. ZMN_ROADMAP.md only (3 status edits) + STATUS.md prepend. **Note:** the audit doc itself (`docs/audits/CORRECTED_PNL_INVESTIGATION_2026_04_28.md`) was already committed in `ca4812d` ~15 min before this session started. This session verified those findings independently and updated the roadmap markers that the prior commit didn't touch.
