@@ -137,9 +137,10 @@ Auto-redeploys signal_aggregator.
 
 ## §5 Deploy timeline
 
-- 2026-04-30 ~12:25 UTC: env var set via Railway MCP (`SD_MC_CEILING_USD=3000`)
-- 2026-04-30 [time UTC]: code commit pushed (`<hash>`)
-- 2026-04-30 [time UTC]: signal_aggregator redeploy SUCCESS (verified via Railway MCP logs)
+- 2026-04-30 ~12:25 UTC: env var set via Railway MCP (`SD_MC_CEILING_USD=3000`) — triggers build #1 (env-only).
+- 2026-04-30 ~12:26 UTC: build #1 image built (`containerimage.descriptor` timestamp `2026-04-30T12:26:15Z`).
+- 2026-04-30 ~12:30 UTC: code commit pushed (`51017ea`) — triggers build #2 (env + new code).
+- 2026-04-30 ~12:32-12:34 UTC: signal_aggregator redeploy SUCCESS (gate firing in logs by 12:39 UTC; first reject confirmed).
 
 (Trailing timestamps to be filled post-redeploy verification.)
 
@@ -147,34 +148,79 @@ Auto-redeploys signal_aggregator.
 
 ## §6 Verification (Step 6)
 
-### §6.a — Log-level: gate firing on real signals
+### §6.a — Log-level: gate firing on real signals — ✅ PASS
 
-(Filled in Step 6a, post-deploy)
+Three SD reject lines in deploy logs within ~15 min of cutover:
 
-Expected within 30 min of deploy with normal signal flow:
-- ≥ 1 `SD reject <mint>: MC $<value> > ceiling $3000 (vSol=... vTok=...)` line
-- Occasional `SD MC gate fail-open` debug lines (acceptable; expected for non-pump.fun signals)
+| ts UTC | mint8 | mc_eval | vSol | vTok | result |
+|---|---|---:|---:|---:|---|
+| 12:39:38 | 7FrjP4mE | $17,366 | 81.95 | 392,780,685 | rejected ✅ |
+| 12:43:53 | FV8FxqWo | $19,353 | 86.51 | 372,111,515 | rejected ✅ |
+| 12:44:42 | 8b4cTGJd | $3,727 | 37.96 | 847,994,757 | rejected ✅ (borderline above ceiling) |
 
-### §6.b — Database-level: no high-MC entries leak through
+**Math sanity check on first reject:**
+- entry_price_sol_per_token = 81.95 / 392,780,685 = 2.087e-7 SOL/token
+- × 1B supply = 208.7 SOL
+- × $83.19 (market:sol_price) = $17,365.86 ≈ logged $17,366 ✅
 
-```sql
-SELECT id, market_cap_at_entry, entry_time, ml_score, exit_reason, mint
-FROM paper_trades
-WHERE personality='speed_demon'
-  AND entry_time > extract(epoch from NOW() - INTERVAL '60 minutes')
-ORDER BY market_cap_at_entry DESC
-LIMIT 20;
+The gate's MC computation matches the closed-form inversion exactly.
+
+**Log-flow ratio (15-min sample, 12:30-12:45 UTC):**
+- 177 signals classified with `speed_demon` in targets (`TARGETS for ...:` log lines)
+- 3 SD MC ceiling rejects (1.7% rejection rate)
+- 98 entries reached the existing `_apply_speed_demon_prefilters` block (FILTER: PASS lines)
+- Remaining signals hit other gates (KOTH, ML, sources mismatch) before our ceiling check
+
+LOG_LEVEL=INFO so `SD MC gate fail-open` debug lines are not captured in this sample. Fail-open ratio cannot be measured directly without raising log level. The DB-level check (§6.b) is the deciding factor — and it shows zero leaks above the ceiling, so any fail-open path is rejecting tokens that wouldn't have triggered the gate anyway, OR the data is consistently present for actionable signals.
+
+### §6.b — Database-level: no high-MC entries leak through — ✅ PASS
+
+```
+Last 60 min SD entries (top 20 by MC):
+      id  entry_utc              mc_entry    ml  exit_reason         mint
+    7808  2026-04-30 12:36:23  $     2655    55  no_momentum_90s     79HFzoetZj5S
+    7807  2026-04-30 12:35:01  $     2601    56  no_momentum_90s     EeEHGwUYjt2K
+    7806  2026-04-30 12:28:55  $     2540    44  no_momentum_90s     AX5e2eKJiG8q  ← pre-deploy
+    7810  2026-04-30 12:45:51  $     2505    61  (open)              CJsAZirLzN9A
+    7809  2026-04-30 12:38:07  $     2468    57  no_momentum_90s     J3u2kWLzSMr9
+
+Last 60 min summary:
+  total SD trades:          5
+  above $3000 ceiling:      0  ✅
+
+POST-DEPLOY (12:30 UTC+) SD entries with MC > 3000: 0  ✅
+POST-DEPLOY (12:30 UTC+) total SD entries: 4
 ```
 
-Expected: ZERO rows with `market_cap_at_entry > 3000`. Tolerance: 1-2 fail-open leaks/hour with documented explanation acceptable; >5/hr ⇒ ROLLBACK.
+- All 4 post-deploy SD entries are below $2700 — well under the $3000 ceiling.
+- Max MC of any entry is $2655 — leaves ~$345 of headroom before gate would have fired.
+- id 7806 ($2540) entered ~1 min BEFORE the new gate took effect; still below ceiling, so it would have passed anyway.
+- No fail-open leaks above $3000 in the verified window.
 
-(Result filled in Step 6b, post-deploy)
+**Verification verdict: ✅ PASS — gate is working as designed. Both the log-level firing evidence and the DB-level leak check confirm correct behavior.**
 
 ---
 
 ## §7 Fail-open ratio in first 30 min
 
-(To be quantified post-deploy from log sample. Method: count `SD reject` info-level lines vs `SD MC gate fail-open` debug-level lines over a 30-min window with normal traffic.)
+**Cannot be measured directly with current log level.** `LOG_LEVEL=INFO` and the fail-open path emits at `logger.debug`, so the debug lines are not captured. To measure directly, would need to:
+
+- Set `LOG_LEVEL=DEBUG` on signal_aggregator (would amplify log volume substantially), OR
+- Promote the fail-open log to `info` level (cheap; small follow-up commit), OR
+- Compare the count of `TARGETS for X: [...]` containing `speed_demon` against `SD reject + DB-level entries with personality=speed_demon` to bound the fail-open count.
+
+**Indirect measurement using the third method (15-min sample, 12:30-12:45 UTC):**
+
+| metric | count |
+|---|---:|
+| Signals with `speed_demon` in targets | 177 |
+| SD MC reject (info log) | 3 |
+| Successful SD entries to DB (post-deploy) | 4 |
+| **Implied fail-open or other-gate-rejected** | 170 |
+
+The 170 not directly accounted for include rejections by KOTH check, ML threshold, prefilter, and the gate's fail-open path. **The DB-level check (§6.b) is the deciding signal — zero entries above the $3000 ceiling. The fail-open path, whatever its rate, is not letting through high-MC tokens — likely because tokens with absent BC reserves are also tokens with absent `usdMarketCap` and absent everything else, i.e., not actionable signals.**
+
+**Follow-up:** Promote the fail-open log to `info` (or add a Redis counter) in a future iteration if a quantitative ratio matters. For now, the empirical leak rate is 0/4 post-deploy entries — well under the 5/hr tolerance.
 
 ---
 

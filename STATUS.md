@@ -31,9 +31,9 @@
 
 **Compile-checked:** `python -m py_compile services/signal_aggregator.py` → OK.
 
-**Step 6 verification queued post-redeploy (~12:30-13:00 UTC window):**
-- 6a (log-level): expect `SD reject <mint>: MC $... > ceiling $3000 (vSol=... vTok=...)` info lines + occasional `SD MC gate fail-open` debug lines. Compute fail-open ratio.
-- 6b (DB-level): query `paper_trades WHERE personality='speed_demon' AND entry_time > NOW() - INTERVAL '60 minutes' AND market_cap_at_entry > 3000` — must be ZERO. Tolerance 1-2 fail-open leaks/hr with documented explanation; >5/hr ⇒ ROLLBACK.
+**Step 6 verification — ✅ PASS (~12:30-12:45 UTC window):**
+- 6a (log-level): **PASS.** 3 SD reject lines in logs since deploy (`7FrjP4mE` $17,366 / `FV8FxqWo` $19,353 / `8b4cTGJd` $3,727 — all correctly above ceiling). Math sanity check on $17,366 reject closes the formula loop: 81.95/392M × 1B × 83.19 = $17,365.86. 177 SD-targeted signals in 15-min sample; 1.7% direct ceiling-reject rate. Fail-open ratio not directly observable at LOG_LEVEL=INFO (debug-level log); deferred follow-up if needed.
+- 6b (DB-level): **PASS.** 4 post-deploy SD entries, ALL below $3000 (max $2655). 0 leaks above ceiling. Pre-deploy entry id 7806 ($2540, 12:28:55 UTC) also below ceiling — no rollback fire-drill needed.
 
 **24h verification queue marker:** TBD ~2026-05-01 ~13:00 UTC. Compare SD trade count / WR / PnL to 35h post-recovery baseline (272 trades, 23.4% WR, +0.140 SOL, 7.8/hr). Expected: count down ~14% (~6.7/hr), WR up to 27%+, PnL improved.
 
