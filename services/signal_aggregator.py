@@ -2016,6 +2016,21 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
                     # === Speed Demon pre-filter features ===
                     "has_social": int(signal.get("has_social", False)),
                     "twitter_followers": signal.get("twitter_followers", -1),
+                    # SOCIAL-SCORING-001 (2026-04-30): per-component social
+                    # fields for ML parity with the live score modifier at
+                    # L591-596. Previously only `has_social` (any) and
+                    # `twitter_followers` were captured; ML training couldn't
+                    # learn from individual platform signals or `social_count`
+                    # (which the score modifier uses to multiply by 1.2x when
+                    # >= 2 socials are present).
+                    "has_twitter": int(signal.get("has_twitter", False)),
+                    "has_telegram": int(signal.get("has_telegram", False)),
+                    "has_website": int(signal.get("has_website", False)),
+                    "social_count": (
+                        int(signal.get("has_twitter", False))
+                        + int(signal.get("has_telegram", False))
+                        + int(signal.get("has_website", False))
+                    ),
                     "bundle_pct": rugcheck.get("bundle_pct", 0),
                     "rugcheck_score": rugcheck.get("score", 0),
                     "pre_filter_score": position_size_multiplier,
