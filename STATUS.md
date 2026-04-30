@@ -7,6 +7,49 @@
 
 ---
 
+## 2026-04-30 — SESSION_E_PERSISTENCE_HARDENING (docs-only — AGENT_CONTEXT rewrite + Decision Log + drift report + Persistence Convention)
+
+**Committed (this session):** `<hash>` docs: SESSION-E persistence hardening — AGENT_CONTEXT + Decision Log + drift report. Files: `AGENT_CONTEXT.md` (rewritten authoritative current-state header + historical archive preserved below) + `ZMN_ROADMAP.md` (Decision Log section added — 18 dated entries newest-first + future-queued levers) + `CLAUDE.md` ("Persistence Convention" section added before P/L rule) + `docs/audits/USERMEMORIES_DRIFT_2026_04_30.md` (NEW, 7 sections, 13-claim drift table) + STATUS.md prepend. **Docs-only diff. No services/, no env vars, no Redis writes.** Per RAILWAY-REDEPLOY-DISCIPLINE-001 carry, may auto-trigger redeploys; if so, evidence accrues.
+
+**State changes:** none (read-only state inspection for AGENT_CONTEXT).
+
+**Bot state at snapshot time (2026-04-30 08:53 UTC):**
+- bot:status RUNNING, paper portfolio 23.97 SOL, daily_pnl=0.0, test_mode=true, consecutive_losses=1
+- 0 paper open, 0 live open
+- market:mode:current=HIBERNATE; market:mode:override expired (TTL renewal lapsed)
+- governance:CONSERVATIVE all personalities enabled (Redis override clobbered as expected)
+- signals:scored LLEN=0; signals:raw LLEN=3,642,342 ⚠ memory leak
+- bot_core:health absent (OBS-014)
+- DB: 1138 closed paper_trades, 0 NULL on corrected_pnl_sol (Session B verified), 1137 pass_through + 1 live_v1 (Session D)
+- Last 24h SD: n=64, pnl=-1.31 SOL, 11 wins (17%), 38 no_momentum exits, **7 trades with MC>$3000 entered** (confirms SD_MC_CEILING gate inert + Session C rollback was correct)
+- Trading wallet 0.064 SOL on-chain (Helius confirmed); holding wallet ~0.01 SOL
+
+**Key deliverables:**
+
+1. **AGENT_CONTEXT.md rewritten** (§§1-11): authoritative current-state file with last-updated header. Replaced stale 2026-04-05 prepend; preserved prior content as historical archive. New chats read this first; refresh after any state change. 11 sections cover bot mode, deployed config, wallets, personalities, performance baseline, V5a preconditions, known unresolved (Tier-1 carry), Redis snapshot, DB snapshot, doc index, and reproducibility.
+
+2. **ZMN_ROADMAP Decision Log added**: 18 dated entries newest-first with status + 1-line reasoning per lever. Captures the *judgement trail* — separates the work-item catalogue from the why-did-we-decide-this trail. Plus a "Future-queued levers" table for the planned-but-not-decided items.
+
+3. **USERMEMORIES_DRIFT report**: 13-claim drift table from this audit cycle, broken into 4 severity classes (🔴 ACTION-CHANGING / 🟡 SCOPE-CONFUSION / 🟢 SAMPLE-STALE / 🔵 NUANCE-MISSING). 4 of 13 surveyed claims drifted (2 action-changing). Includes "what we DID right this audit cycle" — the Persistence Convention was already informally observed by Sessions A-D; E codifies it.
+
+4. **CLAUDE.md "Persistence Convention" section**: codifies "userMemories is NOT a source of truth"; lists what to trust memory for (patterns, conventions, pointers) vs. what NOT to trust (specific env values, trade counts, wallet balances). Anchors AGENT_CONTEXT.md as the authoritative current-state file.
+
+**Stop-condition check:** 0 of 3 STOP conditions tripped. Sessions A-D STATUS entries indicate stable deploys (bot_core hotfix verified working at 08:24 UTC; Session C rolled back cleanly; Session D code change live; no EMERGENCY_STOP). AGENT_CONTEXT rewrite preserves historical content as archive (not lost).
+
+**Blockers cleared:**
+- ✅ **STATUS-CONVENTION-001** — promoted from 🟡 IN_PROGRESS to ✅ COMPLETED (this is the 5th+ session to append cleanly to STATUS.md).
+- ✅ **Persistence convention codified** — 4 deliverables landed.
+
+**Blockers new/active:** all carry from prior entries. Plus a small open: AGENT_CONTEXT freshness self-check (recommended in drift report §7).
+
+**Next prompt:** Chain A→B→C→D→E complete. **24-48h paper observation window** opens for the four behavioral changes. Track: `no_momentum_90s` exit count (TUNE-009 deferral validation), `market_cap_at_entry > $3000` rate (should remain non-zero until SD_MC_CEILING_002 lands), `corrected_pnl_sol` populated on every fresh row (BUG-022 fix verification), live close path code coverage (no exercise until V5a but ImportError check passes via paper closes that don't hit `_simulate_*`-wrapped paths). V5a flip is the final remaining session — pending Jay's ~3 SOL wallet top-up + observation results.
+
+**Pending Claude-chat prompts not yet pasted:** none — chain A-E complete.
+
+**Verdict:** SESSION_E ✅ DELIVERED. AGENT_CONTEXT.md is now the authoritative current-state file. Decision Log captures the judgement trail. USERMEMORIES_DRIFT empirically motivates the Persistence Convention. CLAUDE.md codifies the rule. Future chats start at AGENT_CONTEXT, not at userMemories.
+
+---
+
 ## 2026-04-30 — LIVE-FEE-CAPTURE-PATH-A-2026-04-30 (Session D: Path A wired into live close path)
 
 **Committed (this session):** `<hash>` fix(bot_core): LIVE-FEE-CAPTURE-001 Path A — fees/slippage capture + PnL formula. Files: `services/bot_core.py` (3 code changes + 1 import addition) + `docs/audits/LIVE_FEE_CAPTURE_PATH_A_2026_04_30.md` (NEW, 9 sections) + STATUS.md prepend + ZMN_ROADMAP.md.

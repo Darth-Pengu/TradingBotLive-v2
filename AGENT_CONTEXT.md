@@ -1,3 +1,250 @@
+# AGENT_CONTEXT — current bot state
+
+**Last updated:** 2026-04-30 ~09:00 UTC by SESSION_E_PERSISTENCE_HARDENING (chain A→B→C→D→E).
+**Source:** Read directly from Railway env, Redis, DB, on-chain.
+**NOT a chat-side carry.** Memory drift policy: see CLAUDE.md "Persistence Convention" (added Session E).
+
+When this file is older than ~3 days OR a session changes deployed config without updating it, run a fresh ENV-AUDIT before relying on it as authoritative. The values below are point-in-time snapshots, not load-bearing across the bot's lifetime.
+
+---
+
+## §1 Bot mode
+
+`TEST_MODE=true` (paper) on **all services except treasury**. `treasury.TEST_MODE=false` is a known unaddressed risk (TREASURY-TEST-MODE-002 🟡; dormant because trading wallet 0.064 SOL ≪ 30.0 trigger).
+
+Live mode flip is **session-gated** per CLAUDE.md "Live trading mode — session-gated" rule. V5a flip pending preconditions in §6.
+
+---
+
+## §2 Deployed config (post-Sessions A–D, 2026-04-30)
+
+### bot_core (post-Session-D LIVE-FEE-CAPTURE Path A + Session-B BUG-022 fix + hotfix `17c2aac`)
+
+| var | value | notes |
+|---|---|---|
+| TEST_MODE | true | paper |
+| AGGRESSIVE_PAPER_TRADING | true | bypasses ML-threshold gate at signal_aggregator for paper |
+| MIN_POSITION_SOL | 0.05 | |
+| MAX_POSITION_SOL | 0.25 | FEE-MODEL-001 cap |
+| MAX_POSITION_SOL_FRACTION | (unset; code default 0.10) | |
+| SPEED_DEMON_BASE_SIZE_SOL | 0.15 | FEE-MODEL-001 |
+| SPEED_DEMON_MAX_SIZE_SOL | 0.25 | FEE-MODEL-001 |
+| MAX_SD_POSITIONS | 20 | |
+| MAX_CONCURRENT_POSITIONS | 6 | |
+| MAX_TRADES_PER_HOUR | 500 | |
+| ML_THRESHOLD_SPEED_DEMON | 40 | drifts vs SA=65 vs web=45 — see ML-THRESHOLD-DRIFT-2026-04-29 🟡 |
+| ML_THRESHOLD_ANALYST | 35 | drifts |
+| ML_THRESHOLD_WHALE_TRACKER | 35 | drifts |
+| STAGED_TAKE_PROFITS_JSON | `[[2.00,0.20],[5.00,0.375],[10.00,1.00]]` | |
+| TIERED_TRAIL_SCHEDULE_JSON | `[[0.10,0.30],[0.50,0.25],[1.00,0.20],[2.00,0.15],[5.00,0.12]]` | |
+| STOP_LOSS_PCT | 0.20 | |
+| DAILY_LOSS_LIMIT_SOL | 4.0 | |
+| DAILY_LOSS_LIMIT_PCT | 0.10 | |
+| SD_EARLY_CHECK_SECONDS | 60 | TUNE-009 ⏸ DEFERRED — empirical evidence rules out relax |
+| SD_EARLY_MIN_MOVE_PCT | 3.0 | window opens at 50s with `early_check_sec - 10 < hold` |
+| MIN_BALANCE_SOL | 2.0 | |
+| DASH_RESET_MARKER | 20260421_1113 | |
+
+### signal_aggregator (post-Session-C SD_MC_CEILING **ROLLED BACK** to 999999999)
+
+| var | value | notes |
+|---|---|---|
+| TEST_MODE | true | |
+| ANALYST_DISABLED | true | ANALYST-DISABLE-002 ✅ effective |
+| AGGRESSIVE_PAPER_TRADING | true | |
+| HOLDER_COUNT_MIN | 1 | TUNE-005 ⏪ ROLLED BACK 2026-04-29 — 24h validation window |
+| ML_THRESHOLD_SPEED_DEMON | 65 | live-mode gate; AGGRESSIVE_PAPER bypasses for paper |
+| ML_THRESHOLD_ANALYST | 55 | |
+| ML_THRESHOLD_WHALE_TRACKER | 55 | |
+| BUY_SELL_RATIO_MIN | 3.0 | GATES-V5 |
+| PRE_FILTER_SCORE_MIN | 1.15 | GATES-V5 |
+| ENTRY_FILTER_MIN_BUY_SELL_RATIO | 1.5 | |
+| ENTRY_FILTER_MIN_WALLET_VELOCITY | 15.0 | |
+| RUGCHECK_REJECT_THRESHOLD | 2000 | |
+| **SD_MC_CEILING_USD** | **999999999** | ⏪ ROLLED BACK 2026-04-30; gate inert on fresh signals (raw_data MC=$0); SD_MC_CEILING_002 follow-up needed (compute MC from BC reserves OR move gate to bot_core) |
+| CFGI_MIN | 20 | |
+
+### treasury
+
+| var | value | notes |
+|---|---|---|
+| **TEST_MODE** | **false** | TREASURY-TEST-MODE-002 🟡 — dormant at current wallet (0.064 SOL << 30 trigger), but latent on-chain risk if wallet ever crosses |
+| TREASURY_TRIGGER_SOL | 30.0 | |
+| TREASURY_TARGET_SOL | 25.0 | |
+
+### Other services
+
+`market_health`, `ml_engine`, `signal_listener`, `governance`, `web` — all `TEST_MODE=true`. Per ENV_AUDIT_2026_04_29 §2, `web` carries an extensive shadow set of personality params that may be vestigial display-only (TUNE-008 cleanup item). `ml_engine` uses `ML_ENGINE=original` (different from rest using `accelerated`); ml_engine is the ground truth. Two different Nansen API keys in production simultaneously (SEC-001 split-key state).
+
+For full per-service env inventory see `docs/audits/ENV_AUDIT_2026_04_29.md` §2.
+
+---
+
+## §3 Wallets
+
+| wallet | address | balance | last verified |
+|---|---|---:|---|
+| Trading | `4h4pstXd5JtQuiFFSiLyP5DWWdpaLJAMLNzKwfoii8xJ` | **0.064095633 SOL** | 2026-04-30 ~09:00 UTC via Helius `getBalance` |
+| Holding | `2gfHQvyQdpDtiyUcFQJE6o15VkrHn7YXubp8DRwttWJ9` | ~0.0098 SOL | 2026-04-29 12:39 UTC via ENV_AUDIT |
+
+**Wallet history (per CLAUDE.md "Live trading mode" + audits):**
+- 5.0 → 1.564 SOL: v3/v4 trial real on-chain trades 2026-04-16/17 (~3.4 SOL net cost; per `1b40df3` forensics)
+- 1.564 → 0.064 SOL: single 1.5 SOL outgoing transfer 2026-04-21 10:04:48 UTC to `7DSQ3ktY...AgUy` (sig `42dnuS1...`) — **confirmed intentional by Jay** (Branch 1 per WALLET_DRIFT_INVESTIGATION_2026_04_29.md). Reconciliation gap = 0 lamports.
+
+**Pre-V5a top-up:** ~3 SOL transfer to trading wallet (Jay action) is required before V5a can size positions correctly. `MIN_POSITION_SOL=0.05` × `MAX_POSITION_SOL_FRACTION=0.10` = effective max 0.0064 SOL at 0.064 wallet → swap router rejects.
+
+---
+
+## §4 Active personalities
+
+| personality | status | notes |
+|---|---|---|
+| Speed Demon | ACTIVE | sole live-trading personality |
+| Analyst | DISABLED | env (`ANALYST_DISABLED=true` at SA + bot_core) + Redis override (clobbered, env-vars load-bearing per ANALYST-DISABLE-002 commit `9d6e95c`). Graduation-sniper bypass closed at code level. |
+| Whale Tracker | DORMANT | signal source not configured; re-enable via WHALE-001-v2 (Vybe-first) |
+
+---
+
+## §5 Recent performance baseline (35h post-recovery, ending 2026-04-30 ~09:00 UTC)
+
+Post-recovery window opened 2026-04-28 13:02 UTC (first paper close after the 2026-04-25 EMERGENCY_STOP). 35h sample of pure Speed Demon paper:
+
+| metric | value | source |
+|---|---:|---|
+| SD trades | 272 | Session A audit §7 |
+| SD WR | 23.4% (57/244 closed at audit time) | Session A audit |
+| SD total PnL | +0.140 SOL | Session A audit |
+| `no_momentum_90s` exits | 123 (50% of closed) | Session A audit §3 |
+| `no_momentum_90s` bleed | -2.915 SOL on 0% WR | Session A audit |
+| `TRAILING_STOP` wins | 55 (sole winner channel + 2 staged_tp_+1000%) | Session A §7 |
+| Big winners ≥0.10 SOL | 13 | Session A §4 |
+
+Last 24h SD trend (2026-04-30 08:53 UTC – 24h, snapshot):
+- **n=64 trades, total_pnl=-1.31 SOL, 11 wins (17.2% WR)**.
+- `no_momentum_90s` exits = 38/64 (59%) — bleed remains (TUNE-009 deferred per Session A).
+- **`market_cap_at_entry > 3000` = 7/64 (11%)** — confirms SD_MC_CEILING_001 rollback was correct (gate inert on fresh signals); SD_MC_CEILING_002 follow-up needed.
+- Three big winners closed 08:17-08:24 UTC at +249-333% peaks (DLDW21AjMqU3, EA6ZTu8RHWWg, 7NSipxskmTBk).
+- `paper:stats` Redis hash: total_trades=7757, total_pnl_sol=601.39, winning_trades=3545 (lifetime).
+
+---
+
+## §6 V5a preconditions outstanding
+
+- [ ] **~3 SOL transfer to trading wallet** (Jay action). Top-up to ≥1.5-2.5 SOL minimum so MIN_POSITION_SOL × MAX_POSITION_SOL_FRACTION = effective 0.05+ SOL.
+- [ ] **24-48h paper observation** with current config (Sessions A-D landed). 24h window opens at last meaningful change (LIVE-FEE-CAPTURE Path A landed 2026-04-30 ~08:50 UTC).
+- [ ] **Confirm SD_EARLY_CHECK relax verdict** holds in observation (Session A TUNE-009 deferred; re-evaluate if conditions in audit §10 emerge).
+- [ ] **Resolve SD_MC_CEILING_002** (rolled back this session — gate placement design flaw). Recommended: compute MC from BC reserves in SA gate. ETA ~30m next session.
+- [ ] **Land LIVE-FEE-CAPTURE-002 (Path B)** — Helius parseTransactions for actual fill data. Path A undercorrects by ~12× on the only live data point (id 6580). V5a-blocking-but-degradable.
+- [ ] **Renew Redis daily TTLs** before V5a flip: `market:mode:override=NORMAL EX 86400`, `nansen:disabled=true EX 86400`. Both expired at session-E snapshot time.
+- [ ] **V5a flip:** `TEST_MODE=false` on bot_core per CLAUDE.md "Live trading mode — session-gated" rule (§Operating Principles).
+
+---
+
+## §7 Known unresolved (Tier-1 carry)
+
+| ID | status | notes |
+|---|---|---|
+| ML-THRESHOLD-DRIFT-2026-04-29 | 🟡 | SA=65 / bot_core=40 / web=45; effective gate < 40 due to AGGRESSIVE_PAPER bypass. 44 of last 100 closes have ml_score ∈ (0,40]. |
+| TREASURY-TEST-MODE-002 | 🟡 | treasury alone has TEST_MODE=false. Dormant but latent. |
+| LIVE-FEE-CAPTURE-002 (Path B) | 📋 | V5a-blocking-but-degradable. Helius parseTransactions for actual fill data. |
+| LIVE-CLOSE-FALLBACK-INSERT-001 | 📋 | bot_core.py:1318 legacy 21-column INSERT not extended with new columns. Low-traffic path. |
+| TUNE-009 (SD_EARLY_CHECK relax) | ⏸ DEFERRED | empirical data does not support relax — see audit §6 conditions for re-evaluation. |
+| SD_MC_CEILING_002 | 📋 NEW | Move gate to bot_core OR compute MC from BC reserves in SA gate. |
+| TIME_PRIME-CONTRADICTION-001 | 📋 | bot_core upsizes 2× at AEDT 18-20, contradicting SD_DEAD_ZONE_001 finding. |
+| TUNE-006 (other components) | 📋 | SD_DEAD_ZONE_001, SD_ML_THRESHOLD_LIFT 40→50 — deferred from chain A-D. |
+| TUNE-005-ROLLBACK validation | 📋 | 24h window closes ~2026-04-30 09:34 UTC. Decide codify-rollback vs reapply. |
+| SILENCE-RECOVERY (post-2026-04-25 EMERGENCY_STOP) | ✅ CLEARED | bot recovered between 2026-04-28 13:02 UTC (first close) and 2026-04-30 (current). |
+
+For the full Tier-1/2/3 list see `ZMN_ROADMAP.md`.
+
+---
+
+## §8 Recent Redis state snapshot (2026-04-30 ~08:52 UTC)
+
+| key | value | TTL |
+|---|---|---:|
+| bot:status | RUNNING, portfolio 23.97 SOL, daily_pnl=0.0, test_mode=true | 27s |
+| bot:emergency_stop | (none) | -2 |
+| bot:loss_pause_until | (none) | -2 |
+| bot:consecutive_losses | 1 | -1 |
+| market:mode:current | **HIBERNATE** | -1 |
+| market:mode:override | (none — TTL expired) | -2 |
+| market:sol_price | (none — TTL expired) | -2 |
+| governance:latest_decision | CONSERVATIVE; all personalities `enabled=true` (Redis override clobbered as expected — env-vars load-bearing) | 28518s |
+| nansen:disabled | (none — TTL expired) | -2 |
+| signal_aggregator:health | ok at 08:52:34 UTC | 99s |
+| **bot_core:health** | **(absent — OBS-014)** | -2 |
+
+**Action items from snapshot:**
+- Renew `market:mode:override=NORMAL EX 86400` daily (currently expired; AGGRESSIVE_PAPER_TRADING masks effect for paper but blocks live entries).
+- Renew `nansen:disabled=true EX 86400` daily (currently expired; combined with NANSEN_DAILY_BUDGET=2000 on SA/ml_engine/signal_listener, Nansen calls may fire).
+- bot_core lacks heartbeat key — OBS-014 cleanup.
+
+---
+
+## §9 DB state snapshot (2026-04-30 ~09:00 UTC)
+
+| metric | value | source |
+|---|---|---|
+| paper_trades total | **1138 closed** | snapshot 2026-04-30 08:53 UTC |
+| paper_trades open | 0 currently | confirmed via Redis + DB |
+| BUG-022 status | **0 NULL closed rows; 1137 pass_through; 1 live_v1** | Session B fix verified post-deploy |
+| `correction_method='pass_through'` | 1137 | Session B inline write working |
+| `correction_method='live_estimated_v1'` | 1 (id 6580) | Session D backfill |
+| `trade_mode='live'` rows | 6 total | id 6580 = real on-chain (live_estimated_v1); ids 6575-6579 = reconcile-residual paper closures with NULL signatures (pass_through, fees=0, slip=0) |
+
+For exact counts at-time-of-need, run `python .tmp_session_e/snapshot.py` (gitignored; see §11).
+
+---
+
+## §10 Where to read more
+
+| topic | file |
+|---|---|
+| Recent audits (last 30 days) | `docs/audits/` |
+| Decision history | `ZMN_ROADMAP.md` "Decision Log" section (added Session E 2026-04-30) |
+| Session-by-session activity | `STATUS.md` (newest entry at top) |
+| Persistent rules + conventions | `CLAUDE.md` |
+| Memory drift report | `docs/audits/USERMEMORIES_DRIFT_2026_04_30.md` (Session E) |
+| Per-service env inventory | `docs/audits/ENV_AUDIT_2026_04_29.md` §2 (refresh if older than 3 days) |
+| Live trading wallet history | `docs/audits/WALLET_DRIFT_INVESTIGATION_2026_04_29.md` |
+| Live PnL fee-capture spec + impl | `docs/audits/LIVE_FEE_CAPTURE_PATH_A_2026_04_30.md` |
+| BUG-022 pass-through fix | `docs/audits/BUG_022_FIX_2026_04_30.md` |
+| no_momentum_90s deferral | `docs/audits/SD_EARLY_CHECK_RELAX_2026_04_30.md` |
+| MC ceiling rollback | `docs/audits/SD_MC_CEILING_DEPLOY_2026_04_30.md` |
+
+---
+
+## §11 Reproducibility
+
+To refresh §8 + §9 + §3 with current values:
+
+```python
+# .tmp_session_e/snapshot.py — reads Redis + DB; gitignored
+python .tmp_session_e/snapshot.py
+```
+
+```python
+# Trading wallet balance via Helius MCP
+mcp__helius__getBalance(address="4h4pstXd5JtQuiFFSiLyP5DWWdpaLJAMLNzKwfoii8xJ")
+```
+
+Per-service env via Railway MCP:
+```python
+mcp__railway__list-variables(service="<bot_core|signal_aggregator|treasury|...>", kv=true)
+```
+
+---
+
+═══════════════════════════════════════════════════════════════
+HISTORICAL ARCHIVE — pre-2026-04-30 content preserved below
+═══════════════════════════════════════════════════════════════
+
+The content below is the prior `AGENT_CONTEXT.md` as of April 5 2026.
+**Newer state above takes precedence.** This archive is kept for API
+reference, DB schemas, and historical context that hasn't been
+re-written in audits or CLAUDE.md.
+
 ═══════════════════════════════════════════════════════════════
 AGENT CONTEXT UPDATE — April 5, 2026
 Prepend this section to the TOP of AGENT_CONTEXT.md

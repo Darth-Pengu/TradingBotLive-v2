@@ -37,6 +37,51 @@ usage cheat sheet listing when to reach for each MCP.
 ## Resolved Bugs (reference only — see MONITORING_LOG.md for details)
 Key fixes: exit pricing pipeline (26e19b4), paper_trader price pass-through (9b880e1), HIBERNATE bypass (47de1fa), SERVICE_NAME routing (April 3). Do NOT revert main.py to asyncio.gather all services.
 
+## Persistence Convention (added 2026-04-30 by SESSION_E)
+
+The bot's config and state live in:
+- Railway env vars (deployed config)
+- Redis (live cache, TTL-bound)
+- PostgreSQL (permanent state — paper_trades, portfolio_snapshots, etc.)
+- On-chain (wallet balances, transactions)
+
+The bot's history lives in:
+- `STATUS.md` (chronological session log)
+- `docs/audits/` (audit findings, permanent record)
+- `ZMN_ROADMAP.md` "Decision Log" (lever recommendations + outcomes — added 2026-04-30 Session E)
+- Git history (code state)
+
+The bot's *current* state is captured in:
+- `AGENT_CONTEXT.md` (refreshed at end of any session that changes deployed config)
+
+**userMemories is NOT a source of truth.** It's a chat-side carry that drifts.
+Any claim about "what is currently deployed" or "what is the current value of X"
+must be verified against Railway env / Redis / DB / on-chain — never inferred
+from userMemories alone. When userMemories disagrees with reality, reality
+wins. See `docs/audits/USERMEMORIES_DRIFT_2026_04_30.md` for the empirical
+basis (4 of 13 surveyed claims drifted at the start of the 2026-04-29 audit
+cycle, including 2 ACTION-CHANGING drifts).
+
+After every session that touches deployed config, update `AGENT_CONTEXT.md`.
+After every session that recommends or deploys a lever, update
+`ZMN_ROADMAP.md` Decision Log.
+
+If `AGENT_CONTEXT.md` is older than ~3 days at the start of a new chat, OR if
+a session touched deployed config and didn't update AGENT_CONTEXT.md, run a
+fresh ENV-AUDIT (or equivalent state sweep) before relying on AGENT_CONTEXT.md
+as authoritative.
+
+**Trust userMemories for:** patterns and conventions (e.g., "always use git
+push, never railway up"); operating principles (e.g., "one lever per
+session"); pointers to canonical sources (e.g., "trading wallet address is in
+CLAUDE.md").
+
+**DO NOT trust userMemories for:** specific env values (decay ~1-7 days);
+current trade counts / PnL (decay ~hours); current Redis TTLs (decay hours);
+current wallet balances (decay arbitrary). For these, always read live state.
+
+---
+
 ## Trade P/L Analysis Rule (revised 2026-04-30 by BUG-022 fix)
 
 `realised_pnl_sol` is the authoritative PnL column on all current
