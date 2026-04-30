@@ -475,7 +475,11 @@ POST /api/v1/smart-money/top-tokens, POST /profiler/address/labels
 ### Vybe Network MCP
 URL: https://docs.vybenetwork.com/mcp
 Auth: X-API-KEY header (env var: VYBE_API_KEY)
-API base: https://api.vybenetwork.com (NOT .xyz)
+API base: https://api.vybenetwork.xyz (NOT .com — every .com endpoint 404s).
+DOCS-004 (2026-04-30): corrected from prior `.com (NOT .xyz)` which was
+backwards. Verified during BITFOOT-2026-BASELINE 2026-04-23 (`.com` returns
+404 on every endpoint; `.xyz` is the working base — see
+docs/audits/BITFOOT_2026_BASELINE_2026_04_23.md §1).
 Free plan: 25K credits/month, 60 RPM.
 Key endpoints: GET /tokens/{mint}/holders (labeled),
 GET /v4/wallets/{addr}/pnl, GET /wallets/{addr}/token-balance

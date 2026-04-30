@@ -7,6 +7,99 @@
 
 ---
 
+## 2026-04-30 — REALISM-AND-ROADMAP-CLEANUP-2026-04-30 (Session: 3-phase autonomous-loop — MARKET-MODE-001 + SOCIAL-SCORING-001 + ROADMAP CLEANUP)
+
+**Committed (this session):** `932ae08` fix(market_health): MARKET-MODE-001 — calibrate thresholds + fix metric. Files: `services/market_health.py` + `services/signal_aggregator.py` (ratio-writer removed). | `627f4c9` fix(signal_aggregator): SOCIAL-SCORING-001 — per-component social fields in features_json. Files: `services/signal_aggregator.py`. | `<hash>` final docs commit (audit + STATUS + ROADMAP + AGENT_CONTEXT + CLAUDE.md DOCS-004).
+
+**State changes:**
+- Phase 1 — MARKET-MODE-001: code-only changes; no Railway env touched. Two services redeploy on push.
+- Phase 2 — SOCIAL-SCORING-001: code-only; signal_aggregator redeploys (bundled with Phase 1's SA touch).
+- Phase 3 — ROADMAP-CLEANUP: 4 Class A items closed. **DOCS-004** (Vybe URL fix in CLAUDE.md + AGENT_CONTEXT 2 spots), **DOCS-002** (verified already done in `e9de6d7`; roadmap row updated), **OBS-014** (verified moot — no production code uses `stop_loss_35%` literal; roadmap row updated), **TUNE-004** (Railway env: SA `SPEED_DEMON_BASE_SIZE_SOL=0.15` / `MAX_SIZE_SOL=0.25` / `MAX_SD_POSITIONS=20` / `MIN_POSITION_SOL=0.05` aligned with bot_core via Railway MCP set-variables; verified-fields-before-coding confirmed SA code does not read these — pure hygiene).
+- 3 git commits, 2 services redeployed (market_health 1×, signal_aggregator 2× — Phase 1 + Phase 2 staggered redeploys).
+
+**Bot state at session start (~13:33 UTC):**
+- bot:status RUNNING, paper portfolio 23.19 SOL (recovering from -0.05 daily PnL after Path A deploy)
+- 1 open position pre-session (speed_demon `6awf2i8N` peaked +247% on trailing stop — closed during session, dropped consecutive_losses 12→4)
+- TEST_MODE=true on bot_core (verified) ✓
+- bot:emergency_stop absent ✓
+- Pre-session market_mode=DEFENSIVE (loss_override stale path), grad_rate_estimate=0.0 (the bug)
+
+**Phase 1 — MARKET-MODE-001 Step 1 verification:**
+- `_determine_market_mode` requires ALL THREE thresholds (pumpfun_vol AND grad_rate AND dex_vol)
+- signal_aggregator.py:1653 wrote `market:grad_rate_estimate` as RATIO (`migrations / new_tokens` ≈ 73/701678 = 0.0001 → rounded to 0)
+- MARKET_MODES thresholds (0.5/0.8/1.0/1.5) assumed migrations-per-hour
+- Definition mismatch ↔ HIBERNATE-forever for ~weeks
+- Sample at 13:26:51 UTC: dex=$1.4B, migs=73/hr, pf=$209M → expected NORMAL under new thresholds
+
+**Phase 1 patch path: A + B (NOT 1C — PumpPortal stats API deferred).**
+
+**Phase 1 verify_market_mode.py output (2000 samples per case, 10 scenarios):**
+- 7/10 cases distribute non-HIBERNATE
+- current sample → NORMAL ✓
+- HIBERNATE only fires under genuine outage / dead market
+
+**Phase 1 deploy verification (post `932ae08` push at ~13:30 UTC, sample at 13:36 UTC):** ✅ PASS
+- `market:health.mode = NORMAL` (was HIBERNATE for weeks!)
+- `market:mode:current = NORMAL`
+- `market:health.timestamp` advanced to 13:36:09 UTC (fresh cycle)
+- `sentiment_score = 37.0` (was 28.7 pre-fix — reflects new grad_scaled formula)
+- `bot:status.market_mode = NORMAL` (bot_core consumed via market:mode pub/sub)
+
+**Phase 2 — SOCIAL-SCORING-001 Step 1 verification:**
+- STATE C (wired, working, but missing from features_json)
+- Score modifier at L591-596 uses `signal.get("has_twitter", False)` etc. — works at runtime
+- features_json captured only `has_social` (any) + `twitter_followers` (2 fields)
+- Missing: `has_twitter`, `has_telegram`, `has_website`, `social_count`
+- 100/100 recent rows: twitter_followers populated (real distribution: <1k=70, 5k+=18, missing=7, 1-2k=3, 2-5k=2 — discriminatory)
+- 0/100 had social_count or per-platform fields
+
+**Phase 2 patch: 2C** — minimal addition of 4 keys to features dict at signal_aggregator.py:2022 area. social_count computed inline matching score modifier semantics.
+
+**Phase 2 verify_social_patch.py output:** PASS source-check + simulation (3 mock signals: all-3-platforms→sc=3 boost APPLIES, twitter-only→sc=1 NO BOOST, no-socials→sc=0).
+
+**Phase 2 deploy verification queued post-deploy:** wait 5-10 min for second SA redeploy to land then sample fresh paper_trades.features_json for the 4 new keys.
+
+**Phase 3 — ROADMAP-CLEANUP outcomes:**
+- DOCS-004 ✅ DONE (CLAUDE.md:478 + AGENT_CONTEXT.md:576 + 1883 — `.com (NOT .xyz)` reversed)
+- DOCS-002 ✅ ALREADY DONE (verified in `e9de6d7`)
+- OBS-014 ✅ MOOT (no production code uses literal)
+- TUNE-004 ✅ DONE (Railway env on SA aligned with bot_core; vestigial — verified SA code doesn't read these)
+- DOCS-001 ⏭ SKIPPED (file path doesn't exist)
+- BUG-019 ⏭ DEFER (no matching SQL found)
+- TREASURY-TEST-MODE-002 ⏭ DEFER (per audit's "revisit at V5a")
+- INFRA-001, DASH-B-014, BUG-021-bot_core-part, GOVERNANCE-RESILIENCE, EXEC-001/002 — Class B/C, deferred
+
+**Stop-condition check:** 0 of 4 hard STOP conditions tripped. 0 of 3 phases hit a soft STOP (each completed in 1 iteration).
+
+**Compile-checked:**
+- `python -m py_compile services/market_health.py services/signal_aggregator.py` → OK
+
+**Blockers cleared:**
+- ✅ **MARKET-MODE-001** (HIBERNATE-forever bug) — resolved by metric+threshold alignment.
+- ✅ **SOCIAL-SCORING-001** (STATE C) — 4 new ML features in features_json.
+- ✅ **DOCS-004** (Vybe URL) — 3 places fixed.
+- ✅ **TUNE-004** (SA size env hygiene) — aligned with bot_core.
+- ✅ **DOCS-002** (ML threshold doc) — verified already complete.
+- ✅ **OBS-014** (stop_loss SQL filter) — verified moot.
+- ✅ **STATUS-CONVENTION-001** — 5+ sessions appending cleanly; promote to ✅ COMPLETED.
+- ✅ **SILENCE-RECOVERY-2026-04-28** — already cleared per AGENT_CONTEXT §7.
+
+**Blockers new/active:**
+- 📋 **MARKET-MODE-001-RE-CALIBRATE** (LOW, NEW): re-tune thresholds after 24h of observation. Sample size during this fix = 2 readings.
+- 📋 **MARKET-LOSS-OVERRIDE-DEAD-CODE-001** (LOW, NEW): `rug_cascade_monitor` writes `market:loss_override` Redis key; no reader exists. Either wire it into `_determine_market_mode` for DEFENSIVE-cap behavior, or remove the writer.
+- 📋 **PUMPPORTAL-STATS-API-001** (LOW, NEW): replace `pumpfun_vol_estimate = dex_vol * 0.15` placeholder with real PumpPortal stats endpoint.
+- All other carries unchanged: LIVE-FEE-CAPTURE-002 (Path B) 📋 V5a-blocking, ~3 SOL wallet top-up ⏸ JAY ACTION, TIME_PRIME-CONTRADICTION-001 📋, LATENCY-OBSERVABILITY-001 📋 (from FEE-LATENCY-REALISM session), TREASURY-TEST-MODE-002 🟡, ML-THRESHOLD-DRIFT-2026-04-29 🟡.
+
+**V5a precondition delta:** **+1 forward** (HIBERNATE-forever fix unblocks meaningful 24-48h paper observation window). Sideways: Path B / wallet top-up / TIME_PRIME unchanged.
+
+**Next prompt:** **24h observation** of: (a) market_mode cycling appropriately across day/night/weekend, (b) features_json populating new social fields. Then **LIVE-FEE-CAPTURE-002 (Path B)** as next V5a-blocking session. Wallet top-up to ~3 SOL remains a Jay action.
+
+**Pending Claude-chat prompts not yet pasted:** none — chain self-contained.
+
+**Verdict:** REALISM-AND-ROADMAP-CLEANUP ✅ DELIVERED — 3 phases, 3 commits, 2 services redeployed (correctly), 4 Class A roadmap items closed, market_mode unblocked from HIBERNATE-forever (the headline outcome). Audit doc: `docs/audits/REALISM_AND_ROADMAP_CLEANUP_2026_04_30.md`.
+
+---
+
 ## 2026-04-30 — FEE-LATENCY-REALISM-2026-04-30 (Session: tier-aware live-close slippage; latency stretch goal STOPPED)
 
 **Committed (this session):** `<hash>` fix(slippage): tier-aware live close + audit; FEE-LATENCY-REALISM-2026-04-30. Files: `services/bot_core.py` (Position dataclass +1 field; paper entry + live entry Position constructions +1 kwarg each; live entry + live close `_simulate_slippage` calls now use entry tier instead of literal `"buy"`) + `docs/audits/FEE_LATENCY_REALISM_AUDIT_2026_04_30.md` (NEW, 8 sections) + STATUS.md prepend + ZMN_ROADMAP.md (Decision Log row added).
@@ -50,6 +143,13 @@ For id 6580 round-trip estimate (confirmation tier): 16.29% → **23.73%** (+7.4
 **Compile-checked:** `python -m py_compile services/bot_core.py` → COMPILE OK.
 
 **Step 8 verification queued post-deploy:** poll Railway MCP for bot_core SUCCESS, wait 90s, check startup banner clean (no AttributeError on Position.entry_slippage_tier or _simulate_slippage signature). Wait for HIBERNATE → NORMAL transition or fresh paper closes; sample slippage_pct distribution across 10-20 fresh paper rows. Expectation: distribution should reflect the tier mixture (alpha_snipe + confirmation + post_grad_dip) rather than concentrating in the default 0.7-2.9% range. NOTE: paper-mode closes via `paper_sell` were ALREADY correct (paper_sell uses computed `sell_tier`, paper_buy uses caller-passed `slippage_tier`); the visible behavior change is on **live close path** for future live trades — paper rows will look largely the same since paper was never affected by the bug.
+
+**Step 8 verification — ✅ PASS (2026-04-30 ~13:24 UTC):**
+- New bot_core container live with release `f3a1741d1902` (matches commit `f3a1741`) per Sentry init log at 13:08:21 UTC.
+- Startup banner clean: "ZMN Bot v3.0 starting — SERVICE_NAME=bot_core" (13:08:20), "TEST_MODE=True", "Bot Core ready — managing 3 personalities" (13:08:21). No AttributeError, ImportError, or `entry_slippage_tier` references in error paths.
+- bot:status RUNNING, heartbeat fresh (14s old at check time), portfolio 23.25 SOL, 1 open position (speed_demon mint `6awf2i8N` with +246.7% unrealised, trailing_stop_active at $1.98e-6) — bot is paper-trading the new code.
+- Behavioral verification on live close path NOT exercisable in TEST_MODE; paper closes use `paper_sell` (already correct, unaffected). Path A live close behavior change will surface only on V5a flip — Path B (LIVE-FEE-CAPTURE-002) remains the V5a-blocking precondition.
+- No rollback needed.
 
 **Blockers cleared:**
 - ✅ **SLIPPAGE-TIER-LIVE-PATH-A-001** — buy-side slippage on Path A live close now uses entry-time tier instead of default fallback. Sell-side was already correct.

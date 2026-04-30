@@ -1,6 +1,6 @@
 # AGENT_CONTEXT — current bot state
 
-**Last updated:** 2026-04-30 ~13:00 UTC by FEE-LATENCY-REALISM-2026-04-30 (Path A slippage tier fix; latency stretch goal STOPPED — see audit §3 / ZMN_ROADMAP Decision Log).
+**Last updated:** 2026-04-30 ~13:40 UTC by REALISM-AND-ROADMAP-CLEANUP-2026-04-30 (Phases 1+2+3: MARKET-MODE-001 unblocked HIBERNATE-forever, SOCIAL-SCORING-001 added 4 ML features, ROADMAP cleanup closed 4 Class A items including DOCS-004 Vybe URL fix and TUNE-004 SA env hygiene). Prior: FEE-LATENCY-REALISM-2026-04-30 (Path A slippage tier fix).
 **Source:** Read directly from Railway env, Redis, DB, on-chain.
 **NOT a chat-side carry.** Memory drift policy: see CLAUDE.md "Persistence Convention" (added Session E).
 
@@ -63,6 +63,10 @@ Live mode flip is **session-gated** per CLAUDE.md "Live trading mode — session
 | RUGCHECK_REJECT_THRESHOLD | 2000 | |
 | **SD_MC_CEILING_USD** | **3000** | ✅ ACTIVE post-SD_MC_CEILING_002 deploy 2026-04-30 ~12:30 UTC. Gate now computes MC from BC reserves (`vSolInBondingCurve / vTokensInBondingCurve × 1B × market:sol_price`) mirroring `bot_core.py:927`. _002 replaces _001's inert gate. Verification (Step 6 + 24h) queued. Rollback: env → 999999999. |
 | CFGI_MIN | 20 | |
+| SPEED_DEMON_BASE_SIZE_SOL | 0.15 | TUNE-004 ✅ FIXED 2026-04-30 — aligned with bot_core (was stale 0.45). SA code doesn't read these vars (vestigial). |
+| SPEED_DEMON_MAX_SIZE_SOL | 0.25 | TUNE-004 ✅ FIXED 2026-04-30 — aligned with bot_core (was stale 0.75). |
+| MAX_SD_POSITIONS | 20 | TUNE-004 ✅ FIXED 2026-04-30 — aligned with bot_core (was stale 3). |
+| MIN_POSITION_SOL | 0.05 | TUNE-004 ✅ FIXED 2026-04-30 — aligned with bot_core (was stale 0.10). |
 
 ### treasury
 
@@ -148,6 +152,9 @@ Last 24h SD trend (2026-04-30 08:53 UTC – 24h, snapshot):
 | TREASURY-TEST-MODE-002 | 🟡 | treasury alone has TEST_MODE=false. Dormant but latent. |
 | LIVE-FEE-CAPTURE-002 (Path B) | 📋 | V5a-blocking-but-degradable. Helius parseTransactions for actual fill data. Slippage-tier fix (FEE-LATENCY-REALISM-2026-04-30) closes ~30% of Path A's id 6580 gap; remaining gap requires Path B. |
 | LATENCY-OBSERVABILITY-001 (NEW) | 📋 | All 4 latency columns NULL on 1182 paper_trades. 4-file refactor required (signal_listener + signal_aggregator + paper_trader + bot_core + Redis-payload schema). Not V5a-blocking. |
+| MARKET-MODE-001-RE-CALIBRATE (NEW) | 📋 | 24h observation post-fix to validate threshold distribution; re-tune if NORMAL fires constantly during quiet hours or AGGRESSIVE never fires during peak. Sample size = 2 readings during fix. |
+| MARKET-LOSS-OVERRIDE-DEAD-CODE-001 (NEW) | 📋 | `rug_cascade_monitor` writes `market:loss_override` Redis key; no reader. Either wire into `_determine_market_mode` (DEFENSIVE-cap behavior) or remove the writer. Code hygiene; low priority. |
+| PUMPPORTAL-STATS-API-001 (NEW) | 📋 | Replace `pumpfun_vol_estimate = dex_vol * 0.15` placeholder with real PumpPortal stats endpoint (Patch 1C deferred). Observability improvement. |
 | LIVE-CLOSE-FALLBACK-INSERT-001 | 📋 | bot_core.py:1330 legacy 21-column INSERT not extended with new columns. Low-traffic path. |
 | TUNE-009 (SD_EARLY_CHECK relax) | ⏸ DEFERRED | empirical data does not support relax — see audit §6 conditions for re-evaluation. |
 | SD_MC_CEILING_001 | ⚠️ SUPERSEDED | _002 replaces inert gate. Keep marker for git-history reference. |
@@ -573,7 +580,7 @@ PumpPortal    ONLINE    No auth needed    Primary signal source. subscribeTokenT
 Jupiter    ONLINE    JUPITER_API_KEY    Price API v3. REQUIRES x-api-key header. Returns 401 without.
 GeckoTerminal    ONLINE    No auth    Trending pools, token prices. Free.
 RugCheck    ONLINE    No auth    Risk scoring with graduated multiplier.
-Vybe    ONLINE    VYBE_API_KEY    Holder labels (CEX/KOL/MM), wallet PnL. Base URL: api.vybenetwork.com
+Vybe    ONLINE    VYBE_API_KEY    Holder labels (CEX/KOL/MM), wallet PnL. Base URL: api.vybenetwork.xyz (NOT .com — DOCS-004 fix 2026-04-30)
 Nansen    PAUSED    NANSEN_API_KEY    508% over budget. Disabled via Redis. Smart money discovery when re-enabled.
 Anthropic    DEAD    ANTHROPIC_API_KEY    Credits exhausted. Governance non-functional. Needs top-up.
 SocialData    IDLE    SOCIALDATA_API_KEY    $10.10 balance, 0 requests ever. Pump.fun tokens lack Twitter URLs.
@@ -1880,7 +1887,7 @@ python-jose[cryptography]>=3.3.0
 - Valid timeframes: 5m, 10m, 1h, 6h, 24h, 7d, 30d
 
 ### Vybe Network
-- Base: https://api.vybenetwork.com (NOT .xyz)
+- Base: https://api.vybenetwork.xyz (NOT .com — DOCS-004 fix 2026-04-30; .com returns 404 on every endpoint)
 - Auth: X-API-Key header
 - Top traders: GET /v4/wallets/top-traders?resolution=30d&limit=50&sortByDesc=realizedPnlUsd
 - Field names: accountAddress, winRate (0-100 scale), realizedPnlUsd, tradesCount
