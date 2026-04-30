@@ -37,20 +37,38 @@ usage cheat sheet listing when to reach for each MCP.
 ## Resolved Bugs (reference only — see MONITORING_LOG.md for details)
 Key fixes: exit pricing pipeline (26e19b4), paper_trader price pass-through (9b880e1), HIBERNATE bypass (47de1fa), SERVICE_NAME routing (April 3). Do NOT revert main.py to asyncio.gather all services.
 
-## Trade P/L Analysis Rule (added 2026-04-13)
+## Trade P/L Analysis Rule (revised 2026-04-30 by BUG-022 fix)
 
-When analyzing trade performance from paper_trades, ALWAYS use the
-`corrected_pnl_sol` and `corrected_pnl_pct` columns, NOT `realised_pnl_sol`
-or `realised_pnl_pct`. The latter are historically buggy for trades
-with staged take-profits (44 trades affected, all with id <= 3564).
+`realised_pnl_sol` is the authoritative PnL column on all current
+paper_trades rows. Post FEE-MODEL-001 (commit `e078b4c`, 2026-04-20),
+realised_pnl_sol incorporates the corrected fee/slippage model at
+write-time.
 
-For ML retraining: use corrected_pnl_sol to determine win/loss labels.
-For reporting: use corrected_pnl_sol for aggregate numbers.
-For forensic trade inspection: compare both columns to understand
-what the bug was hiding.
+`corrected_pnl_sol` is now populated as a `pass_through` copy of
+`realised_pnl_sol` at trade close (BUG-022 fix, 2026-04-30 — backfill
+of 1111 closed rows + inline write at `paper_trader.py:395` and
+`bot_core.py:1063`). For all current rows, `corrected_pnl_sol =
+realised_pnl_sol` exactly. Both columns are interchangeable for
+analysis.
 
-Post-fix trades (id > 3564) have identical values in both columns --
-correction_method = 'pass_through' confirms this.
+The original `correction_method` enum had two non-pass-through values:
+`staged_tp_backfill_v1` (one-off 2026-04-13 backfill before the
+staged-TP bug-fix; rows with this method no longer exist post
+DASH-RESET 2026-04-21) and `NULL` (legacy "not yet processed" state
+— should not occur post-fix; new rows always populate correction_method
+inline at close).
+
+ML training queries: use either column. No filtering on
+`correction_method` required for current data.
+
+Live-mode rows (trade_mode='live') retain the same convention. Note
+that as of 2026-04-29 only id 6580 in paper_trades is a real on-chain
+live trade; the other 5 rows with trade_mode='live' are reconcile-
+residual paper closures with NULL signatures (per
+`docs/audits/WALLET_DRIFT_INVESTIGATION_2026_04_29.md` §4).
+LIVE-FEE-CAPTURE-001 Path A (Session D, 2026-04-30) writes
+correction_method='live_estimated_v1' at live close-time to distinguish
+from paper's 'pass_through'.
 
 ---
 
@@ -227,7 +245,7 @@ default unless Jay explicitly overrides.
   local changes (rare) or explicitly bypassing git (very rare). Before
   any deploy, self-check: am I about to trigger two deploy paths?
 - **Live trading mode — session-gated.**
-  *Historical note:* earlier versions of this file said "paper mode is non-negotiable." That was accurate when written but became stale on 2026-04-16/17 when live trials v3 and v4 executed real on-chain trades. See `ZMN_HELIUS_URL_FIX_REPORT.md` (commit cd266de — 4+ TX_SUBMITs confirmed) and `ZMN_POSTMORTEM_2026_04_16.md`. **Wallet moved 5.0 → ~1.6 SOL via real trades (~3.4 SOL net cost).** (Cost corrected 2026-04-19 per forensics commit `1b40df3` — prior "1.32 SOL" / "3.677 SOL" figures were taken mid-trial and under-reported the actual v4 cost by ~2.5×.)
+  *Historical note:* earlier versions of this file said "paper mode is non-negotiable." That was accurate when written but became stale on 2026-04-16/17 when live trials v3 and v4 executed real on-chain trades. See `ZMN_HELIUS_URL_FIX_REPORT.md` (commit cd266de — 4+ TX_SUBMITs confirmed) and `ZMN_POSTMORTEM_2026_04_16.md`. **Wallet moved 5.0 → ~1.6 SOL via real trades (~3.4 SOL net cost).** (Cost corrected 2026-04-19 per forensics commit `1b40df3` — prior "1.32 SOL" / "3.677 SOL" figures were taken mid-trial and under-reported the actual v4 cost by ~2.5×.) **Wallet then moved 1.564 → 0.064 SOL on 2026-04-21 10:04:48 UTC via a single 1.5 SOL outgoing transfer to `7DSQ3ktY...AgUy` (sig `42dnuS1...`)** — confirmed intentional by Jay (Branch 1, 2026-04-29 chat) per `docs/audits/WALLET_DRIFT_INVESTIGATION_2026_04_29.md`. Reconciliation gap = 0 lamports across the two events. Top-up to ~3 SOL planned before V5a flip.
   *Current rule:* a session may set `TEST_MODE=false` on `bot_core` only when ALL of the following are true:
   1. The session prompt **explicitly** requests live enablement, naming the variable by name and stating intent. Generic "make the bot trade well" requests are not sufficient.
   2. The prompt includes explicit rollback steps and acknowledges the current on-chain balance.

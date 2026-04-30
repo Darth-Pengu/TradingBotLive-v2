@@ -1056,14 +1056,27 @@ class BotCore:
                 pnl_sol = pos.cumulative_pnl_sol
                 pnl_pct = (pnl_sol / pos.size_sol) * 100 if pos.size_sol > 0 else 0
                 outcome = "win" if pnl_sol > 0 else "loss"
-                # Correct the DB row — paper_sell wrote only this exit's P/L
+                # Correct the DB row — paper_sell wrote only this exit's P/L.
+                # BUG-022 fix (2026-04-30): keep corrected_* columns aligned with
+                # the cumulative realised_pnl_sol value written here. The TEST_MODE
+                # branch enclosing this code guarantees `table == paper_trades`,
+                # which is the only table carrying corrected_* columns.
                 if pos.trade_id and pos.staged_exits_done:
                     try:
                         table = "paper_trades" if TEST_MODE else "trades"
-                        await self.pool.execute(
-                            f"UPDATE {table} SET realised_pnl_sol=$1, realised_pnl_pct=$2, outcome=$4 WHERE id=$3",
-                            pnl_sol, pnl_pct, pos.trade_id, outcome,
-                        )
+                        if TEST_MODE:
+                            await self.pool.execute(
+                                f"""UPDATE {table} SET realised_pnl_sol=$1, realised_pnl_pct=$2, outcome=$4,
+                                    corrected_pnl_sol=$1, corrected_pnl_pct=$2, corrected_outcome=$4,
+                                    correction_method='pass_through', correction_applied_at=NOW()
+                                   WHERE id=$3""",
+                                pnl_sol, pnl_pct, pos.trade_id, outcome,
+                            )
+                        else:
+                            await self.pool.execute(
+                                f"UPDATE {table} SET realised_pnl_sol=$1, realised_pnl_pct=$2, outcome=$4 WHERE id=$3",
+                                pnl_sol, pnl_pct, pos.trade_id, outcome,
+                            )
                     except Exception:
                         pass
                 logger.info("PAPER_EXIT mint=%s staged=%s cumulative_pnl=%.4f SOL (%.2f%%) residual_mult=%.3f",

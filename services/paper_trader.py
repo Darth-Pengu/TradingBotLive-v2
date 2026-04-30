@@ -391,10 +391,16 @@ async def paper_sell(
 
     # Update PostgreSQL
     if trade_id:
+        # BUG-022 fix (2026-04-30): write corrected_* columns inline at close.
+        # Post FEE-MODEL-001 (e078b4c), realised_pnl_sol already incorporates
+        # corrected fee/slippage at write-time, so corrected_* is a pass_through
+        # identity copy. See docs/audits/BUG_022_FIX_2026_04_30.md.
         await pg_pool.execute(
             """UPDATE paper_trades SET exit_price=$1, exit_time=$2, hold_seconds=$3,
                realised_pnl_sol=$4, realised_pnl_pct=$5, exit_reason=$6, exit_signature=$7,
-               market_cap_at_exit=$9, outcome=$10
+               market_cap_at_exit=$9, outcome=$10,
+               corrected_pnl_sol=$4, corrected_pnl_pct=$5, corrected_outcome=$10,
+               correction_method='pass_through', correction_applied_at=NOW()
                WHERE id=$8""",
             exit_price, time.time(), hold_seconds, pnl_sol, pnl_pct, reason, sig, trade_id,
             market_cap_exit, outcome,

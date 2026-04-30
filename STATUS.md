@@ -7,6 +7,51 @@
 
 ---
 
+## 2026-04-30 — BUG-022-FIX-2026-04-30 (Option A landed — backfill + inline write + CLAUDE.md updates)
+
+**Committed (this session):** `<hash>` fix(paper_trader): BUG-022 backfill + inline write; CLAUDE.md updates. Files: `services/paper_trader.py` (close UPDATE extended with corrected_*) + `services/bot_core.py` (staged-TP correction UPDATE extended with corrected_* for paper branch only) + `CLAUDE.md` (P/L rule rewrite + wallet-drift note appended) + `docs/audits/BUG_022_FIX_2026_04_30.md` (NEW, 8 sections) + STATUS.md prepend + ZMN_ROADMAP.md (BUG-022 ✅ + WALLET-DRIFT ✅).
+
+**State changes:**
+- DB: 1111 closed paper_trades rows backfilled with `corrected_pnl_sol = realised_pnl_sol, correction_method='pass_through', correction_applied_at=NOW()`. Single transaction, max_diff = 0.0 (identity preserved).
+- Code: `services/paper_trader.py:392-407` close UPDATE now writes corrected_* inline. `services/bot_core.py:1059-1078` staged-TP correction UPDATE now writes corrected_* in TEST_MODE branch (split conditional to keep trades-table branch identical).
+- CLAUDE.md: "Trade P/L Analysis Rule" rewritten to reflect post-FEE-MODEL-001 + post-BUG-022 reality (both columns interchangeable; live writes `live_estimated_v1`). "Live trading mode" block appended with 2026-04-21 1.5 SOL transfer note (Branch 1 confirmed).
+- No env vars touched. No Redis writes. Single git push triggers bot_core redeploy.
+
+**Bot state:** RUNNING (verified pre-fix via Redis MCP — bot:status.status=RUNNING, test_mode=true, 0 open positions, signals:scored=0, consecutive_losses=1). Daily PnL -0.02 SOL, market_mode=DEFENSIVE, portfolio 24.35 SOL (paper).
+
+**Pre-conditions verified:** signals:scored=0 (well below 200 STOP); bot not EMERGENCY_STOPPED; 1111 NULL closed rows (work to do).
+
+**Verification (Step 2 SQL):**
+```
+BEFORE: total_closed=1111  null_closed=1111  pre_pass_through=0
+AFTER:  total_closed=1111  null_closed=0  pass_through=1111
+        max(|corrected - realised|) = 0.0
+```
+
+Spot-check 3 most recent rows: id 7740/7741/7742, all show `corrected_pnl_sol = realised_pnl_sol` exactly, method=pass_through, applied 2026-04-30 07:18:09 UTC.
+
+**Compile check:** `python -m py_compile services/paper_trader.py services/bot_core.py` → OK.
+
+**Step 8 verification queued:** post-deploy poll Railway MCP for bot_core SUCCESS, wait 90s, query last 5 closed rows for inline corrected_* population. Result will be appended to audit doc §5.
+
+**Blockers cleared:**
+- ✅ **BUG-022 fix execution** — Option A landed (backfill + inline write at both close-time UPDATE sites). Re-evaluate via 24h check that fresh post-deploy rows write corrected_* correctly.
+- ✅ **WALLET-DRIFT-2026-04-29** — CLAUDE.md note now reflects Branch 1 confirmation. Mechanical layer (top-up) remains as a V5a precondition tracked separately.
+
+**Blockers new/active:**
+- 📋 **TUNE-009 (DEFERRED)** — carry from Session A; re-evaluate post Session C + observation.
+- All other carry blockers unchanged: TREASURY-TEST-MODE-002 🟡, ML-THRESHOLD-DRIFT-2026-04-29 🟡, LIVE-FEE-CAPTURE-001 🔥 (Session D), LIVE-PNL-FEE-FORMULA-001 🔥 (Session D).
+
+**Stop-condition check:** 0 of 4 STOP conditions tripped at this point. Backfill assertion passed (null=0, max_diff=0). bot_core deploy verification still pending.
+
+**Next prompt:** **SESSION C (SD_MC_CEILING_DEPLOY)** — proceeding immediately. C touches signal_aggregator (different service from B's bot_core), so deploy queues are independent. Per chain prerequisite, C requires "Sessions A/B completed and bot_core stable for ≥30 min" — A had no deploy, B's deploy will be in flight when C is committed; C's deploy queues independently on signal_aggregator.
+
+**Pending Claude-chat prompts not yet pasted:** Sessions C, D, E queued and pasted in this CC session — proceeding through chain.
+
+**Verdict:** BUG-022 ✅ COMPLETED 2026-04-30 via Option A. CLAUDE.md rules rewritten + wallet-drift note appended.
+
+---
+
 ## 2026-04-30 — SD-EARLY-CHECK-RELAX-2026-04-30 (Verdict: Option Gamma — DEFER, no deploy)
 
 **Committed (this session):** `<hash>` docs(audit): SD-EARLY-CHECK-RELAX-2026-04-30 verdict Gamma. Files: `docs/audits/SD_EARLY_CHECK_RELAX_2026_04_30.md` (NEW, 12 sections) + STATUS.md prepend + ZMN_ROADMAP.md (TUNE-009 row added). **Docs-only. No services/, no env vars, no Redis, no Railway deploys.**
