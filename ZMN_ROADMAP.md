@@ -37,8 +37,9 @@
 
 | Date | Lever | Status | Reasoning (1-line) |
 |---|---|---|---|
+| 2026-04-30 | SD_MC_CEILING_002 (BC-reserves MC compute, USD=3000) | ✅ DEPLOYED `<hash>` | Replaces _001's inert gate. Computes MC from `vSolInBondingCurve / vTokensInBondingCurve × 1B × market:sol_price` mirroring `bot_core.py:927` and `paper_trader.py:255-257`. Fail-open if any field missing. Step 6 + 24h verification queued. |
 | 2026-04-30 | LIVE-FEE-CAPTURE-001 (Path A) | ✅ DEPLOYED Session D `401670a` | Wired `_simulate_*` into live close path; Path B (Helius parseTx) deferred — id 6580 backfill confirmed Path A undercorrects by 12× (gap +0.088 vs on-chain truth). |
-| 2026-04-30 | SD_MC_CEILING_001 (USD=3000) | ⏪ ROLLED BACK Session C `282d9df` | Gate read `raw_data.usdMarketCap` which is $0 for fresh pump.fun new_token signals; `market_cap_at_entry` is computed differently in bot_core. Gate inert. Env var → 999999999. SD_MC_CEILING_002 follow-up: compute MC from BC reserves OR move gate to bot_core. |
+| 2026-04-30 | SD_MC_CEILING_001 (USD=3000) | ⚠️ SUPERSEDED by _002 (was ⏪ ROLLED BACK Session C `282d9df`) | Gate read `raw_data.usdMarketCap` which is $0 for fresh pump.fun new_token signals; `market_cap_at_entry` is computed differently in bot_core. Gate inert. _002 replaces with BC-reserves compute. |
 | 2026-04-30 | BUG-022 (Option A) | ✅ DEPLOYED Session B `392c928` (+ hotfix `17c2aac`) | 1111-row idempotent backfill + inline write at `paper_trader.py:395` and `bot_core.py:1063`. Hotfix used distinct param slots ($11/$12/$13) — asyncpg can't deduce single type when same param appears in columns of different declared types. |
 | 2026-04-30 | SD_EARLY_CHECK relax (TUNE-009) | ⏸ DEFERRED Session A `fbd579d` | Empirical data rules out relax — 0/123 dead trades are slow-starters (mean exit pnl_pct -17.37%; max -1.85%); structural fix lives at entry filter, not exit. |
 | 2026-04-30 | WALLET-DRIFT-2026-04-29 (1.5 SOL transfer 2026-04-21) | ✅ RESOLVED — Branch 1 (intentional) | Jay confirmed 2026-04-29 chat. CLAUDE.md "Live trading mode" block updated with the transfer note. Mechanical layer (top-up to ~3 SOL pre-V5a) tracked separately. |
@@ -61,7 +62,7 @@
 | Lever | Status | Notes |
 |---|---|---|
 | LIVE-FEE-CAPTURE-002 (Path B) | 📋 PLANNED | V5a-blocking-but-degradable; right long-term answer for parity-of-truth. |
-| SD_MC_CEILING_002 | 📋 PLANNED | Compute MC from BC reserves in SA gate OR move gate to bot_core. |
+| SD_MC_CEILING_002 | ✅ DEPLOYED 2026-04-30 | Resolved via Option 2 (BC-reserves compute in SA gate). See Decision Log entry above. |
 | TIME_PRIME-CONTRADICTION-001 | 📋 PLANNED | bot_core upsizes 2× at AEDT 18-20, contradicting SD_DEAD_ZONE_001. Must neutralize before V5a. |
 | SD_DEAD_ZONE_001 (AEDT 11-17 pause) | ⏸ DEFERRED | Sample size insufficient post-recovery; revisit after Sessions A-D 24-48h obs. |
 | SD_ML_THRESHOLD_LIFT (40→50) | ⏸ DEFERRED | (40,50] band signal may shift after this chain's other changes; re-evaluate post-observation. |

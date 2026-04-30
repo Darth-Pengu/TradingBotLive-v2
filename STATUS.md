@@ -7,6 +7,54 @@
 
 ---
 
+## 2026-04-30 — SD-MC-CEILING-002-DEPLOY (Session: BC-reserves MC compute replaces inert gate)
+
+**Committed (this session):** `<hash>` feat(signal_aggregator): SD_MC_CEILING_002 — BC-reserves MC compute. Files: `services/signal_aggregator.py` (env-var comment refresh L48-54 + gate replacement L1833-1879) + `docs/audits/SD_MC_CEILING_002_DEPLOY_2026_04_30.md` (NEW, 10 sections) + `AGENT_CONTEXT.md` (§2 SD_MC_CEILING_USD active + §6 V5a precondition cleared + §7 carry update) + `ZMN_ROADMAP.md` (Decision Log: SD_MC_CEILING_001 SUPERSEDED + SD_MC_CEILING_002 ✅ DEPLOYED) + STATUS.md prepend.
+
+**State changes:**
+- Railway env var `SD_MC_CEILING_USD=3000` on `signal_aggregator` (was `999999999` post-Session-C rollback). Auto-redeploys SA.
+- Code: env-var comment block at SA `:48-54` re-attributed to _002. Gate at SA `:1833-1879` rewritten to compute MC from `vSolInBondingCurve / vTokensInBondingCurve × 1B × market:sol_price` — mirrors `bot_core.py:927` and `paper_trader.py:255-257`. Fail-open if any field missing (debug-level log).
+- No bot_core changes. No Redis writes. Single git push triggers signal_aggregator auto-redeploy.
+
+**Bot state at session start (2026-04-30 ~12:22 UTC):**
+- bot:status RUNNING, portfolio 23.41 SOL, daily_pnl=-0.43 SOL, market_mode=DEFENSIVE, consecutive_losses=3, test_mode=true, 0 open
+- 0.56 SOL bleed since Session E snapshot (08:53 UTC, portfolio 23.97); reinforces gate-fix urgency
+- market:sol_price=$83.19 (populated — gate dependency verified)
+- bot:emergency_stop absent; signals:scored empty
+- DB BUG-022 sanity (Step 1): `bad_null_corrected=0` ✅ / `fresh_pass_through=77` (16h) ✅ / `live_v1_count=1` ✅ / `total_closed=1174` (+36 since Session E)
+
+**raw_data investigation (Step 2 result):** ✅ PROCEED with Option 2 (compute in SA). Confirmed via codebase trace (no diagnostic deploy needed):
+- `services/signal_listener.py:545` passes full PumpPortal `data` dict as `raw_data` for new_token signals
+- `services/signal_listener.py:488-489` populates `vSolInBondingCurve` / `vTokensInBondingCurve` from PumpPortal create events
+- `services/signal_aggregator.py:1717,1862` already reads `raw_data["vSolInBondingCurve"]` for KOTH check + FILTER log — proves field is in scope at gate
+- Formula matches bot_core `entry_price * 1_000_000_000` (paper) / `price * 1_000_000_000` (live) — convert SOL→USD via `market:sol_price` Redis key
+
+**Compile-checked:** `python -m py_compile services/signal_aggregator.py` → OK.
+
+**Step 6 verification queued post-redeploy (~12:30-13:00 UTC window):**
+- 6a (log-level): expect `SD reject <mint>: MC $... > ceiling $3000 (vSol=... vTok=...)` info lines + occasional `SD MC gate fail-open` debug lines. Compute fail-open ratio.
+- 6b (DB-level): query `paper_trades WHERE personality='speed_demon' AND entry_time > NOW() - INTERVAL '60 minutes' AND market_cap_at_entry > 3000` — must be ZERO. Tolerance 1-2 fail-open leaks/hr with documented explanation; >5/hr ⇒ ROLLBACK.
+
+**24h verification queue marker:** TBD ~2026-05-01 ~13:00 UTC. Compare SD trade count / WR / PnL to 35h post-recovery baseline (272 trades, 23.4% WR, +0.140 SOL, 7.8/hr). Expected: count down ~14% (~6.7/hr), WR up to 27%+, PnL improved.
+
+**Blockers cleared:**
+- ✅ **SD_MC_CEILING_002** — code + env both active. Replaces _001's inert gate.
+
+**Blockers new/active:**
+- 📋 **SD_MC_CEILING_002 verification** queued (Step 6 within 30min of deploy + 24h check 2026-05-01).
+- All other carries unchanged: TREASURY-TEST-MODE-002 🟡, ML-THRESHOLD-DRIFT-2026-04-29 🟡, LIVE-FEE-CAPTURE-002 (Path B) 📋, LIVE-CLOSE-FALLBACK-INSERT-001 📋, TUNE-009 ⏸ DEFERRED, TIME_PRIME-CONTRADICTION-001 📋, TUNE-006 (other components) 📋.
+- Informational: SA env shadow drift — `MAX_SD_POSITIONS=3 / MIN_POSITION_SOL=0.10 / SPEED_DEMON_BASE_SIZE_SOL=0.45 / SPEED_DEMON_MAX_SIZE_SOL=0.75` set on signal_aggregator but bot_core owns those. Vestigial display-only shadow per AGENT_CONTEXT §2 footer (TUNE-008-style env hygiene). Not affecting this session.
+
+**Stop-condition check:** 0 of 5 STOP conditions tripped at this point. BUG-022 plumbing clean. raw_data fields confirmed present. Compile OK. Env var set. Verification pending.
+
+**Next prompt:** **24h verification (~2026-05-01 ~13:00 UTC)** as a separate session. If verification confirms gate firing AND WR/PnL improving as predicted, queue **TIME_PRIME-CONTRADICTION-001** (neutralize AEDT 18-20 2× upsize). If high fail-open ratio, address `market:sol_price` fallback or move gate to bot_core. Path B (LIVE-FEE-CAPTURE-002) remains hard V5a precondition regardless. Wallet top-up (~3 SOL, Jay action) remains V5a precondition.
+
+**Pending Claude-chat prompts not yet pasted:** none — chain A-E + this 002-followup complete.
+
+**Verdict:** SD_MC_CEILING_002 ✅ DEPLOYED. Replaces _001's structurally-inert gate with BC-reserves-based computation that mirrors bot_core's MC formula. Step 6 + 24h verification queued.
+
+---
+
 ## 2026-04-30 — SESSION_E_PERSISTENCE_HARDENING (docs-only — AGENT_CONTEXT rewrite + Decision Log + drift report + Persistence Convention)
 
 **Committed (this session):** `<hash>` docs: SESSION-E persistence hardening — AGENT_CONTEXT + Decision Log + drift report. Files: `AGENT_CONTEXT.md` (rewritten authoritative current-state header + historical archive preserved below) + `ZMN_ROADMAP.md` (Decision Log section added — 18 dated entries newest-first + future-queued levers) + `CLAUDE.md` ("Persistence Convention" section added before P/L rule) + `docs/audits/USERMEMORIES_DRIFT_2026_04_30.md` (NEW, 7 sections, 13-claim drift table) + STATUS.md prepend. **Docs-only diff. No services/, no env vars, no Redis writes.** Per RAILWAY-REDEPLOY-DISCIPLINE-001 carry, may auto-trigger redeploys; if so, evidence accrues.

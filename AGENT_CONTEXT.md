@@ -1,6 +1,6 @@
 # AGENT_CONTEXT — current bot state
 
-**Last updated:** 2026-04-30 ~09:00 UTC by SESSION_E_PERSISTENCE_HARDENING (chain A→B→C→D→E).
+**Last updated:** 2026-04-30 ~12:30 UTC by SD-MC-CEILING-002-DEPLOY (post Session E chain).
 **Source:** Read directly from Railway env, Redis, DB, on-chain.
 **NOT a chat-side carry.** Memory drift policy: see CLAUDE.md "Persistence Convention" (added Session E).
 
@@ -61,7 +61,7 @@ Live mode flip is **session-gated** per CLAUDE.md "Live trading mode — session
 | ENTRY_FILTER_MIN_BUY_SELL_RATIO | 1.5 | |
 | ENTRY_FILTER_MIN_WALLET_VELOCITY | 15.0 | |
 | RUGCHECK_REJECT_THRESHOLD | 2000 | |
-| **SD_MC_CEILING_USD** | **999999999** | ⏪ ROLLED BACK 2026-04-30; gate inert on fresh signals (raw_data MC=$0); SD_MC_CEILING_002 follow-up needed (compute MC from BC reserves OR move gate to bot_core) |
+| **SD_MC_CEILING_USD** | **3000** | ✅ ACTIVE post-SD_MC_CEILING_002 deploy 2026-04-30 ~12:30 UTC. Gate now computes MC from BC reserves (`vSolInBondingCurve / vTokensInBondingCurve × 1B × market:sol_price`) mirroring `bot_core.py:927`. _002 replaces _001's inert gate. Verification (Step 6 + 24h) queued. Rollback: env → 999999999. |
 | CFGI_MIN | 20 | |
 
 ### treasury
@@ -133,7 +133,7 @@ Last 24h SD trend (2026-04-30 08:53 UTC – 24h, snapshot):
 - [ ] **~3 SOL transfer to trading wallet** (Jay action). Top-up to ≥1.5-2.5 SOL minimum so MIN_POSITION_SOL × MAX_POSITION_SOL_FRACTION = effective 0.05+ SOL.
 - [ ] **24-48h paper observation** with current config (Sessions A-D landed). 24h window opens at last meaningful change (LIVE-FEE-CAPTURE Path A landed 2026-04-30 ~08:50 UTC).
 - [ ] **Confirm SD_EARLY_CHECK relax verdict** holds in observation (Session A TUNE-009 deferred; re-evaluate if conditions in audit §10 emerge).
-- [ ] **Resolve SD_MC_CEILING_002** (rolled back this session — gate placement design flaw). Recommended: compute MC from BC reserves in SA gate. ETA ~30m next session.
+- [x] **Resolve SD_MC_CEILING_002** ✅ DEPLOYED 2026-04-30 ~12:30 UTC via Option 2 (BC-reserves MC compute in SA gate). Verification (Step 6 immediate + 24h ~2026-05-01) queued. See `docs/audits/SD_MC_CEILING_002_DEPLOY_2026_04_30.md`.
 - [ ] **Land LIVE-FEE-CAPTURE-002 (Path B)** — Helius parseTransactions for actual fill data. Path A undercorrects by ~12× on the only live data point (id 6580). V5a-blocking-but-degradable.
 - [ ] **Renew Redis daily TTLs** before V5a flip: `market:mode:override=NORMAL EX 86400`, `nansen:disabled=true EX 86400`. Both expired at session-E snapshot time.
 - [ ] **V5a flip:** `TEST_MODE=false` on bot_core per CLAUDE.md "Live trading mode — session-gated" rule (§Operating Principles).
@@ -149,7 +149,8 @@ Last 24h SD trend (2026-04-30 08:53 UTC – 24h, snapshot):
 | LIVE-FEE-CAPTURE-002 (Path B) | 📋 | V5a-blocking-but-degradable. Helius parseTransactions for actual fill data. |
 | LIVE-CLOSE-FALLBACK-INSERT-001 | 📋 | bot_core.py:1318 legacy 21-column INSERT not extended with new columns. Low-traffic path. |
 | TUNE-009 (SD_EARLY_CHECK relax) | ⏸ DEFERRED | empirical data does not support relax — see audit §6 conditions for re-evaluation. |
-| SD_MC_CEILING_002 | 📋 NEW | Move gate to bot_core OR compute MC from BC reserves in SA gate. |
+| SD_MC_CEILING_001 | ⚠️ SUPERSEDED | _002 replaces inert gate. Keep marker for git-history reference. |
+| SD_MC_CEILING_002 | ✅ DEPLOYED 2026-04-30 ~12:30 UTC | BC-reserves MC compute in SA gate. Step 6 + 24h verification queued. |
 | TIME_PRIME-CONTRADICTION-001 | 📋 | bot_core upsizes 2× at AEDT 18-20, contradicting SD_DEAD_ZONE_001 finding. |
 | TUNE-006 (other components) | 📋 | SD_DEAD_ZONE_001, SD_ML_THRESHOLD_LIFT 40→50 — deferred from chain A-D. |
 | TUNE-005-ROLLBACK validation | 📋 | 24h window closes ~2026-04-30 09:34 UTC. Decide codify-rollback vs reapply. |

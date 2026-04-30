@@ -45,10 +45,11 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 SOCIALDATA_API_KEY = os.getenv("SOCIALDATA_API_KEY") or os.getenv("SOCIAL_DATA_API_KEY", "")
 SPEED_DEMON_FILTERS_ENABLED = os.getenv("SPEED_DEMON_FILTERS_ENABLED", "true").lower() == "true"
 
-# SD_MC_CEILING_001 (deployed 2026-04-30) — reject SD entries above market-cap ceiling.
-# Default 3000 USD per docs/audits/SD_MC_CEILING_DEPLOY_2026_04_30.md (revised tighter
-# than the original $5k proposal in docs/proposals/SD_MC_CEILING_001.md based on 35h
-# post-recovery data: >$3k = -1.77 SOL / 0% WR / n=39).
+# SD_MC_CEILING_002 (deployed 2026-04-30) — reject SD entries above market-cap ceiling.
+# _002 replaces _001's inert gate (which read raw_data["usdMarketCap"]=$0 for fresh
+# pump.fun signals — see docs/audits/SD_MC_CEILING_DEPLOY_2026_04_30.md §5). _002
+# computes MC from BC reserves to mirror bot_core's market_cap_at_entry calculation.
+# Default 3000 USD per 35h post-recovery data: >$3k = -1.77 SOL / 0% WR / n=39.
 # Rollback: set SD_MC_CEILING_USD=999999999 to disable without redeploy.
 SD_MC_CEILING_USD = float(os.environ.get("SD_MC_CEILING_USD", "3000.0"))
 
@@ -1830,19 +1831,52 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
                     position_size_multiplier = 1.5
                     logger.info("TELEGRAM CALL: %s — position mult=1.5x", mint[:12])
 
-                # SD_MC_CEILING_001 (deployed 2026-04-30) — reject SD entries above MC ceiling.
-                # Placed before the prefilter block so we skip the Twitter API call on rejected
-                # tokens. See docs/audits/SD_MC_CEILING_DEPLOY_2026_04_30.md.
+                # SD_MC_CEILING_002 (deployed 2026-04-30) — replaces _001 inert gate.
+                # Computes MC from BC reserves at signal time, mirroring bot_core's
+                # market_cap_at_entry = entry_price * 1_000_000_000 calculation
+                # (paper_trader.py:255-257 and bot_core.py:927). Reads
+                # vSolInBondingCurve + vTokensInBondingCurve from raw_data and
+                # market:sol_price from Redis. Falls back to NOT-rejecting if any
+                # field is missing (fail-open — better to take a trade than block a
+                # legitimate signal because of cache miss). See
+                # docs/audits/SD_MC_CEILING_002_DEPLOY_2026_04_30.md.
+                # Rollback: SD_MC_CEILING_USD=999999999 to disable.
                 if "speed_demon" in targets:
-                    mc_at_eval = float(raw_data.get("usdMarketCap", raw_data.get("market_cap_usd", 0)) or 0)
-                    if mc_at_eval > SD_MC_CEILING_USD:
+                    mc_at_eval_usd = None
+                    sol_usd_str = None
+                    try:
+                        v_sol = float(raw_data.get("vSolInBondingCurve") or 0)
+                        v_tokens = float(raw_data.get("vTokensInBondingCurve") or 0)
+                        if v_sol > 0 and v_tokens > 0:
+                            entry_price_sol_per_token = v_sol / v_tokens
+                            sol_usd_str = await redis_conn.get("market:sol_price") if redis_conn else None
+                            if sol_usd_str:
+                                sol_usd = float(sol_usd_str)
+                                # 1B total supply matches pump.fun convention used by
+                                # paper_trader and bot_core entry MC computation.
+                                mc_at_eval_usd = entry_price_sol_per_token * 1_000_000_000 * sol_usd
+                    except (ValueError, TypeError) as e:
+                        logger.debug("SD MC compute failed for %s: %s", mint[:8], e)
+                        mc_at_eval_usd = None  # explicit fail-open
+
+                    if mc_at_eval_usd is not None and mc_at_eval_usd > SD_MC_CEILING_USD:
                         logger.info(
-                            "SD reject %s: MC %.0f > ceiling %.0f",
-                            mint[:8], mc_at_eval, SD_MC_CEILING_USD,
+                            "SD reject %s: MC $%.0f > ceiling $%.0f (vSol=%.2f vTok=%.0f)",
+                            mint[:8], mc_at_eval_usd, SD_MC_CEILING_USD, v_sol, v_tokens,
                         )
                         targets = [t for t in targets if t != "speed_demon"]
                         if not targets:
                             continue
+                    elif mc_at_eval_usd is None:
+                        # Fail-open path — log at debug to avoid noise; this is expected
+                        # for non-pump.fun signals or when SOL price cache is cold.
+                        logger.debug(
+                            "SD MC gate fail-open for %s: insufficient data (vSol=%s vTok=%s sol_usd_present=%s)",
+                            mint[:8],
+                            raw_data.get("vSolInBondingCurve"),
+                            raw_data.get("vTokensInBondingCurve"),
+                            bool(sol_usd_str),
+                        )
 
                 # --- Speed Demon pre-filters (before ML scoring) ---
                 if "speed_demon" in targets:
