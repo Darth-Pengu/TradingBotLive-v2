@@ -7,6 +7,44 @@
 
 ---
 
+## 2026-04-30 — SD-EARLY-CHECK-RELAX-2026-04-30 (Verdict: Option Gamma — DEFER, no deploy)
+
+**Committed (this session):** `<hash>` docs(audit): SD-EARLY-CHECK-RELAX-2026-04-30 verdict Gamma. Files: `docs/audits/SD_EARLY_CHECK_RELAX_2026_04_30.md` (NEW, 12 sections) + STATUS.md prepend + ZMN_ROADMAP.md (TUNE-009 row added). **Docs-only. No services/, no env vars, no Redis, no Railway deploys.**
+
+**State changes:** none. Read-only Postgres asyncpg via `DATABASE_PUBLIC_URL`. ~5 SQL queries on `paper_trades` (post-recovery window > 2026-04-28 13:00 UTC).
+
+**Bot state:** unchanged from prior entry. TEST_MODE=true on bot_core, signal_aggregator (verified via Railway MCP at session start). Bot RUNNING (signal_aggregator health within last few minutes per env audit). 0 paper open at audit time.
+
+**Verdict: Option Gamma — DEFER.** No env-var change. No code change. No deploy. The session prompt's working hypothesis ("the check kills winners that break out *after* 60s") is **not supported by the data**:
+
+- **Mechanism confirmed (`services/bot_core.py:1590-1604`):** single-check, env-driven. Window opens at 50s with `SD_EARLY_CHECK_SECONDS=60`, closes at 90s. Threshold `SD_EARLY_MIN_MOVE_PCT=3.0`. Label `no_momentum_90s` is legacy from when code default was 90s — purely cosmetic mismatch.
+- **123 dead trades clustered exactly in 50.03-51.97s window** (perfect signature of the check firing at first poll after window opens). 0% WR, -2.915 SOL bleed.
+- **DECISIVE: dead-trade pnl_pct distribution rules out all relaxation options.** Mean exit pnl = -17.37%, median -16.12%, max -1.85%, min -39.15%. **Zero trades in the 1-3% slow-starter band that Alpha-A would save.** 100/123 (81%) are deeply negative (<-10%); 39/123 are already past the -20% stop_loss threshold (escaped early due to no price tick).
+- **13 big winners post-recovery (≥0.10 SOL) all bypassed the check:** 2 hit `staged_tp_+1000%` at <2s (rocket starters, immune); 11 hit `TRAILING_STOP` at ~600s (survived 50-90s window with ≥3% pnl). **Zero big winners in the kill window.**
+- **Structural fix is upstream (Session C SD_MC_CEILING_USD=3000):** 97.6% (120/123) of dead trades enter at MC $800-$3000, but Session C's $3k ceiling only filters 3/123 of current bleed. Most bleed is below the ceiling. Out of scope for this session — defer to post-observation.
+
+**Why not Alpha (relax)?** Every relaxation option (drop min_move 3.0 → 1.0, raise check_seconds 60 → 180, disable check) would either save zero trades or convert -0.024/trade no_momentum exits into larger stop_loss exits (per CLAUDE.md FEE-MODEL note: ~-0.074/trade typical stop_loss). Net effect of relaxation on this population: neutral-to-worse.
+
+**Why not Beta (code change)?** Same conclusion. The check is a single env-driven mechanism. There's no separate hardcoded 90s check to disable.
+
+**Why Gamma (defer)?** The check is doing its designed job efficiently — cutting failed-momentum tokens at 50-52s with -0.024/trade cost vs the alternative -0.074/trade if they continued to stop_loss. The bleed is real but the check is not the cause; high-MC entry is. Re-evaluate after Session C lands and 24-48h observation.
+
+**Blockers cleared:** none structurally — TUNE-009 evaluated and resolved as DEFERRED.
+
+**Blockers new/active:**
+- 📋 **TUNE-009 (DEFERRED)** — re-evaluate SD_EARLY_CHECK relaxation after Sessions B/C/D + 24-48h observation window. See audit §10 for the four conditions that would re-trigger evaluation.
+- All other carry blockers unchanged (TREASURY-TEST-MODE-002 🟡, ML-THRESHOLD-DRIFT-2026-04-29 🟡, LIVE-FEE-CAPTURE-001 🔥, LIVE-PNL-FEE-FORMULA-001 🔥, BUG-022 fix execution 📋, WALLET-DRIFT 🟢 Branch 1 confirmed by Jay → resolved).
+
+**Stop-condition check:** N/A (no deploy).
+
+**Next prompt:** **SESSION B (BUG_022_FIX)** — proceeding immediately. Per chain prerequisites, B requires "Session A committed and bot_core redeploy SUCCEEDED". Since A is Gamma (no redeploy), the spirit of the prerequisite is satisfied: A is committed, no destabilizing change to wait on. Continuing.
+
+**Pending Claude-chat prompts not yet pasted:** Sessions C, D, E queued and pasted in this CC session — proceeding through chain.
+
+**Verdict:** TUNE-009 ⏸ DEFERRED. Empirical evidence rules out relaxation; structural fix lives at entry filter (Session C scope).
+
+---
+
 ## 2026-04-30 — WALLET-DRIFT-INVESTIGATION-2026-04-29 (Outcome C — pending user confirmation)
 
 **Committed (this session):** `<hash>` docs(audit): WALLET-DRIFT-INVESTIGATION-2026-04-29 reconciliation [outcome C]. Files: `docs/audits/WALLET_DRIFT_INVESTIGATION_2026_04_29.md` (NEW, 9 sections) + STATUS.md prepend + ZMN_ROADMAP.md (WALLET-DRIFT-2026-04-29 row updated + changelog entry). Read-only. No services/, no env, no Redis, no DB writes, no Railway deploys.
