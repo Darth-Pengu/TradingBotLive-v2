@@ -36,14 +36,35 @@ JUPITER_API_KEY = os.getenv("JUPITER_API_KEY", "").strip()
 HELIUS_RPC_URL = os.getenv("HELIUS_RPC_URL", "")
 HELIUS_GATEKEEPER_URL = os.getenv("HELIUS_GATEKEEPER_URL", "")
 
-# --- Market mode thresholds (from AGENT_CONTEXT Section 8) ---
-# Mode        | pumpfun_24h_vol | grad_rate | solana_dex_vol
+# --- Market mode thresholds ---
+# Format: (mode, pumpfun_vol_24h_USD, migrations_per_hour, solana_dex_vol_24h_USD)
+#
+# MARKET-MODE-001 fix (2026-04-30): grad_rate column re-typed from "ratio"
+# to "migrations per hour". Prior behavior:
+#   - signal_aggregator wrote market:grad_rate_estimate as `migrations /
+#     new_tokens` (a ratio typically ~0.0001 in steady state)
+#   - market_health thresholds (0.5/0.8/1.0/1.5) assumed migrations-per-hour
+#   - Definition mismatch -> ratio (always tiny) never beat any threshold ->
+#     HIBERNATE-forever for ~weeks
+# Fix: read market:migration_count_1h directly (signal_aggregator's existing
+# rolling counter) + recalibrate thresholds against current Solana baseline.
+#
+# Calibration sample 2026-04-30 13:26 UTC:
+#   - dex_vol=$1.4B, migrations/hr=73, pumpfun_vol=$209M
+#   - Expected mode under new thresholds: NORMAL (active baseline market)
+# Calibration intent:
+#   - HIBERNATE only fires under genuine outage / dead market
+#   - DEFENSIVE under sustained quiet (low new_tokens or migrations)
+#   - NORMAL under typical conditions
+#   - AGGRESSIVE / FRENZY under elevated volume + grad activity
+# pumpfun_vol_estimate is still a 15% slice of dex_vol (TODO: PumpPortal stats
+# API for true volume).
 MARKET_MODES = [
-    ("FRENZY",     500e6, 1.5, 6e9),
-    ("AGGRESSIVE", 200e6, 1.0, 4e9),
-    ("NORMAL",     100e6, 0.8, 2e9),
-    ("DEFENSIVE",   50e6, 0.5, 1.5e9),
-    ("HIBERNATE",      0, 0.0, 0),
+    ("FRENZY",     400e6, 200, 4e9),
+    ("AGGRESSIVE", 200e6, 100, 2e9),
+    ("NORMAL",     100e6,  30, 1e9),
+    ("DEFENSIVE",   50e6,  10, 500e6),
+    ("HIBERNATE",      0,   0, 0),
 ]
 
 # --- API URLs ---
@@ -243,7 +264,20 @@ async def _fetch_priority_fee(session: aiohttp.ClientSession) -> dict:
 
 
 def _determine_market_mode(dex_vol: float, grad_rate: float, pumpfun_vol: float) -> str:
-    """Determine market mode from thresholds. Check from highest to lowest."""
+    """Determine market mode from thresholds. Check from highest to lowest.
+
+    Args:
+        dex_vol: 24h Solana DEX volume in USD (DefiLlama)
+        grad_rate: migrations per hour (1h-rolling count from signal_aggregator
+            via market:migration_count_1h Redis key). Post MARKET-MODE-001 fix
+            (2026-04-30); was previously a ratio (migrations/new_tokens) which
+            caused HIBERNATE-forever bug — see MARKET_MODES table comment.
+        pumpfun_vol: 24h pump.fun volume estimate in USD (currently 15% of
+            dex_vol; refine with PumpPortal stats API later).
+
+    All three thresholds must pass for a mode tier to match. Falls through to
+    HIBERNATE if no tier matches.
+    """
     for mode, pf_thresh, gr_thresh, dex_thresh in MARKET_MODES:
         if pumpfun_vol >= pf_thresh and grad_rate >= gr_thresh and dex_vol >= dex_thresh:
             return mode
@@ -255,8 +289,10 @@ def _compute_sentiment_score(cfgi: float, grad_rate: float, sol_24h_change: floa
     # Scale inputs to 0-100 range
     cfgi_scaled = max(0, min(100, cfgi))
 
-    # Graduation rate z-score scaled (assuming ~1% baseline, scaled 0-100)
-    grad_scaled = max(0, min(100, grad_rate * 50))
+    # MARKET-MODE-001 fix (2026-04-30): grad_rate is now migrations-per-hour
+    # (was ratio). Baseline ~50/hr, saturates around 200/hr. Old scaling
+    # `grad_rate * 50` was calibrated for a 0-2 ratio range -> 0-100.
+    grad_scaled = max(0, min(100, grad_rate * 0.5))
 
     # SOL 24h change scaled (-20% to +20% → 0 to 100)
     sol_scaled = max(0, min(100, (sol_24h_change + 0.20) * 250))
@@ -352,13 +388,17 @@ async def daily_health_check(redis_conn: aioredis.Redis | None):
                 # in signal_listener. For now, estimate pump.fun as ~10-20% of total Solana DEX vol.
                 # This is a reasonable approximation; can be refined with PumpPortal stats API later.
                 pumpfun_vol_estimate = dex_vol * 0.15
-                # Read graduation rate from signal_aggregator's Redis tracking
-                grad_rate_estimate = 1.0  # safe default
+                # MARKET-MODE-001 fix (2026-04-30): read migration count per
+                # hour, not ratio. signal_aggregator increments
+                # market:migration_count_1h on every 'migration' signal type
+                # (1h-rolling counter). Default 0 -> falls to HIBERNATE on
+                # missing data. See MARKET_MODES table comment above.
+                grad_rate_estimate = 0.0
                 if redis_conn:
                     try:
-                        grad_raw = await redis_conn.get("market:grad_rate_estimate")
-                        if grad_raw:
-                            grad_rate_estimate = float(grad_raw)
+                        mig_raw = await redis_conn.get("market:migration_count_1h")
+                        if mig_raw:
+                            grad_rate_estimate = float(mig_raw)
                     except Exception:
                         pass
 

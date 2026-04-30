@@ -1643,15 +1643,17 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
                 sig_type = signal.get("signal_type", "")
                 age_sec = signal.get("age_seconds", 0)
 
-                # Track graduation rate for market_health (FIX 13)
+                # Track graduation rate for market_health (FIX 13).
+                # MARKET-MODE-001 fix (2026-04-30): removed the misleading
+                # market:grad_rate_estimate ratio writer. market_health now
+                # reads market:migration_count_1h directly. The ratio
+                # (migrations/new_tokens) was typically ~0.0001 in steady
+                # state and never beat market_health's 0.5+ threshold,
+                # causing HIBERNATE-forever for ~weeks.
                 if sig_type == "migration":
                     try:
                         await redis_conn.incr("market:migration_count_1h")
                         await redis_conn.expire("market:migration_count_1h", 3600)
-                        migrations = int(await redis_conn.get("market:migration_count_1h") or 0)
-                        new_tokens = int(await redis_conn.get("market:new_token_count_1h") or 1)
-                        grad_est = round(migrations / max(new_tokens, 1), 3)
-                        await redis_conn.set("market:grad_rate_estimate", str(grad_est), ex=3600)
                     except Exception:
                         pass
                 if sig_type == "new_token":
