@@ -7,6 +7,56 @@
 
 ---
 
+## 2026-04-30 — WALLET-DRIFT-INVESTIGATION-2026-04-29 (Outcome C — pending user confirmation)
+
+**Committed (this session):** `<hash>` docs(audit): WALLET-DRIFT-INVESTIGATION-2026-04-29 reconciliation [outcome C]. Files: `docs/audits/WALLET_DRIFT_INVESTIGATION_2026_04_29.md` (NEW, 9 sections) + STATUS.md prepend + ZMN_ROADMAP.md (WALLET-DRIFT-2026-04-29 row updated + changelog entry). Read-only. No services/, no env, no Redis, no DB writes, no Railway deploys.
+
+**State changes:** none. Read-only Helius MCP (`getBalance`, `getTransactionHistory mode=signatures`, `parseTransactions`) + Postgres asyncpg via `DATABASE_PUBLIC_URL` (read-only). Helius credit cost: ~210 (1 getBalance + 10 getTransactionHistory + 100 parseTransactions × 1 batch of 8 + 100 budget for retries).
+
+**Bot state:** unchanged from 2026-04-29 12:39 UTC entry. TEST_MODE=true on bot_core, signal_aggregator, all services except treasury (still TEST_MODE=false — TREASURY-TEST-MODE-002 still 🟡). `paper:positions:*` = 0. `bot:open_positions:*` = 0. `bot:consecutive_losses=1`. On-chain wallet `4h4pstXd…ii8xJ` = **0.064095633 SOL** (Helius getBalance — unchanged from env audit, no movement in 9 days). On-chain wallet idle since 2026-04-21 10:05:55 UTC.
+
+**Verdict: Outcome C — drain explained by trades + UNDOCUMENTED transfer.** Reconciliation gap = **0 lamports** (sub-1e-9 SOL). Eight on-chain transactions in window 2026-04-19 → present; six are documented (1 ELONX dust sale, 4 yh3n441 entries/exits/related, 1 failed 3rd-party tx with no balance impact); **one is undocumented**:
+
+- **2026-04-21 10:04:48 UTC** (= 20:04:48 AEDT, ~13h after Session 5 v4 rollback flip-back). Sig `42dnuS1xv…`. Type: System Program TRANSFER. **−1.50008 SOL** outgoing from `4h4pstXd…ii8xJ` to **`7DSQ3ktYiirRfs4YQojyDTqUM9Cwj9YgzwwegyiCAgUy`**. Fee payer = trading wallet (signed with its private key). Destination address has **zero references** in the repo (`grep -r 7DSQ3ktY .` returns no matches; not in CLAUDE.md, AGENT_CONTEXT.md, STATUS.md, ROADMAP, audits, services, .env). Holding wallet is `2gfHQvyQ…` — not a match.
+
+**Critical clarification on `paper_trades` "live" rows:** the session prompt's working hypothesis was that the 6 live rows summing to −3.21 SOL realised PnL would explain the drain. **5 of those 6 rows have NULL entry/exit signatures** — they are reconcile-residual paper-position force-closures from the Session 5 v4 live window (per `session_outputs/ZMN_LIVE_ROLLBACK.md` lines 96-122). They had **no on-chain SOL effect**. Only id 6580 (`yh3n441J`) was a real on-chain round-trip — net −0.094245 SOL, exactly matching `ZMN_LIVE_ROLLBACK.md`'s "Final wallet" delta. The drain math required a separate non-trade explanation; the 1.5 SOL transfer is it.
+
+**Walk-forward sanity check (3 independent reference points all match to sub-lamport precision):**
+- `1b40df3` deep-recon (2026-04-19 ~04:40 UTC): 1.610 SOL ← matches predicted starting balance 1.610389092 (gap < 0.001, rounding)
+- `ZMN_LIVE_ROLLBACK.md` T0 (1.658400592) and Final (1.564155614) ← match walk-forward exactly
+- `ENV_AUDIT_2026_04_29.md` §7 (0.064095633) ← matches walk-forward exactly
+
+**3 dust-phishing txs at 10:05:38 + 10:05:55 UTC** observed (50s + 67s after the 1.5 SOL transfer). One sender's address (`7DSQVNcXR…AgUy`) shares both prefix `7DSQ` and suffix `AgUy` with the 1.5 SOL destination — vanity-address mimicry consistent with on-chain dust-phishing. Combined inbound dust: 0.000020019 SOL. **No security impact** (write-only attacker operation), but flagged as a hygiene note: never copy-paste a destination from this wallet's tx history without verifying the full address.
+
+**V5a wallet-blocker disposition: 🔥 → 🟡 PENDING_USER_CONFIRMATION.** Two layers:
+1. **Mechanical:** wallet 0.064 SOL << `MIN_POSITION_SOL=0.05/0.15` × wallet-fraction floor; needs top-up to ≥ 1.5-2.5 SOL before V5a can open positions (per `LIVE_FEE_MODEL_AUDIT_2026_04_29.md` §6).
+2. **Confirmation pending:** Jay confirms intent on the 2026-04-21 1.5 SOL outflow before any further V5a-chain sessions. Three branches:
+   - **Branch 1 (benign — Jay's wallet / consolidation / exchange deposit):** blocker collapses to layer 1 only (top-up). STATUS gets a backfill entry with what the transfer was for.
+   - **Branch 2 (intentional but to a ZMN-related address Jay doesn't remember at the moment):** same as Branch 1 functionally; STATUS backfill should record both the address's role + why it wasn't logged at the time.
+   - **Branch 3 (unintended/unauthorized):** escalate to Outcome D treatment. Halt V5a discussion; next session is security investigation (rotate `TRADING_WALLET_PRIVATE_KEY`, audit machine that signed the tx between 2026-04-20 21:00 and 2026-04-21 10:05 UTC, enumerate other wallets from same seed). 9-day post-transfer idle period is mildly reassuring but not conclusive.
+
+**Recommendation:** confirm Branch before any further V5a-chain sessions (BUG-022 fix, LIVE-FEE-CAPTURE-001 Path A, LIVE-PNL-FEE-FORMULA-001). Other sessions don't depend on the wallet being topped up, but starting them while wallet security state is unconfirmed adds risk-surface without benefit.
+
+**Blockers cleared:** none structurally — drain is reconciled but disposition pending Jay.
+
+**Blockers new/active:**
+- **WALLET-DRIFT-2026-04-29** 🔥 → 🟡 PENDING_USER_CONFIRMATION (status flipped). Awaiting Branch 1/2/3 confirmation from Jay.
+- All other carry blockers unchanged: TREASURY-TEST-MODE-002 🟡 (env audit), ML-THRESHOLD-DRIFT-2026-04-29 🟡 (env audit), LIVE-FEE-CAPTURE-001 🔥, LIVE-PNL-FEE-FORMULA-001 🔥, BUG-022 fix execution 📋.
+
+**Side findings (not action items):**
+- 5 of 6 `paper_trades.trade_mode='live'` rows are reconcile-residual paper closures, not real on-chain trades. Implications for `LIVE-ROW-BACKFILL-001`: only id 6580 needs FEE-MODEL-001-style backfill; the other 5 are already-correct accounting fictions (the SOL was spent at v4 entry into the `trades` table; the `paper_trades` rows just record the close).
+- CLAUDE.md "Live trading mode — session-gated" block currently says "Wallet moved 5.0 → ~1.6 SOL via real trades (~3.4 SOL net cost)." That covers v4 (2026-04-16/17). Does not cover the 2026-04-21 1.5 SOL outflow. Recommend a 5-min Tier 1 docs session to append: "Wallet then moved 1.564 → 0.064 SOL on 2026-04-21 10:04:48 UTC via a single 1.5 SOL outgoing transfer to `7DSQ3ktY…AgUy` (sig `42dnuS1…`); see `WALLET_DRIFT_INVESTIGATION_2026_04_29.md`. Awaiting transfer-intent confirmation." Defer execution of this until Jay's branch confirmation.
+
+**Stop-condition check:** 0 of 4 STOP conditions tripped. Helius RPC stable (1 getBalance + 1 getTransactionHistory + 1 parseTransactions, no rate-limits); total signatures in window = 8 (≪ 500 threshold); reconciliation gap < 0.5 SOL; getTransaction data returned cleanly on all 8 sigs.
+
+**Next prompt:** Jay confirms Branch on the 2026-04-21 1.5 SOL transfer. After that:
+- Branch 1/2 → `SESSION_BUG_022_FIX_2026_04_29` (next), then `SESSION_LIVE_FEE_CAPTURE_PATH_A`, then top-up + MC-ceiling deploy + V5a flip per `ENV_AUDIT_2026_04_29.md` §8 priority order.
+- Branch 3 → security investigation prompt (drafted only after Jay confirms unintended).
+
+**Pending Claude-chat prompts not yet pasted:** carry — `SESSION_BUG_022_FIX_2026_04_29`, `SESSION_SD_MC_CEILING_DEPLOY_2026_04_29` (wait until ≥ 2026-04-30 13:00 UTC for 24h-post-recovery threshold).
+
+---
+
 ## 2026-04-29 12:39 UTC — ENV-AUDIT-2026-04-29 (read-only ground truth)
 
 **Committed (this session):** `<hash>` docs(audit): ENV-AUDIT-2026-04-29 ground-truth Railway/Redis/DB inventory. Files: `docs/audits/ENV_AUDIT_2026_04_29.md` (NEW) + STATUS.md prepend + ZMN_ROADMAP.md (3 new Tier 1 rows + changelog entry). Read-only. No services/ touch, no env changes, no Redis writes, no Railway deploys.
