@@ -1061,16 +1061,20 @@ class BotCore:
                 # the cumulative realised_pnl_sol value written here. The TEST_MODE
                 # branch enclosing this code guarantees `table == paper_trades`,
                 # which is the only table carrying corrected_* columns.
+                # Distinct param slots ($5-$7) for corrected_* — asyncpg's
+                # prepared statement protocol can't deduce a single type when
+                # the same param appears in columns of different declared types.
                 if pos.trade_id and pos.staged_exits_done:
                     try:
                         table = "paper_trades" if TEST_MODE else "trades"
                         if TEST_MODE:
                             await self.pool.execute(
                                 f"""UPDATE {table} SET realised_pnl_sol=$1, realised_pnl_pct=$2, outcome=$4,
-                                    corrected_pnl_sol=$1, corrected_pnl_pct=$2, corrected_outcome=$4,
+                                    corrected_pnl_sol=$5, corrected_pnl_pct=$6, corrected_outcome=$7,
                                     correction_method='pass_through', correction_applied_at=NOW()
                                    WHERE id=$3""",
                                 pnl_sol, pnl_pct, pos.trade_id, outcome,
+                                pnl_sol, pnl_pct, outcome,
                             )
                         else:
                             await self.pool.execute(
