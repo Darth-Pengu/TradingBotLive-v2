@@ -38,7 +38,13 @@
 
 **Pending Claude-chat prompts not yet pasted:** Sessions D, E queued and pasted in this CC session — proceeding through chain.
 
-**Verdict:** SD_MC_CEILING_USD=3000 ✅ DEPLOYED on signal_aggregator. Code + env var live. 24h verification queued.
+**Step 5 verification result (08:30 UTC):** ❌ FAIL — 2 of 14 fresh SD trades since 08:01 UTC entered with `market_cap_at_entry > 3000` (id 7749 at $4,482; id 7757 at $9,807). Both definitively after container swap. Root cause: `raw_data["usdMarketCap"]` is `$0` at signal-time for fresh pump.fun new_token signals; the actual MC is computed later in bot_core as `entry_price × 1B supply`. Gate reads the wrong source — structurally inert for the dominant SD signal source. **Not a code bug — design flaw in the chain prompt's gate placement.**
+
+**ROLLBACK executed:** `SD_MC_CEILING_USD=999999999` set on signal_aggregator via Railway MCP at ~08:35 UTC. Code remains in place (harmless no-op at threshold 999M). Re-enable via env var when proper fix lands.
+
+**Follow-up tracked as SD_MC_CEILING_002:** two options — (a) move gate to bot_core at entry decision (uses actual MC), or (b) compute MC from BC reserves in SA gate (mirrors bot_core). Recommend (b) per audit doc §5 to keep filter at signal-gate stage. ETA ~30m next session.
+
+**Verdict:** SD_MC_CEILING attempt #1 ⏪ ROLLED BACK 2026-04-30 — design flaw discovered in verification (gate reads `raw_data` MC which is $0 for fresh signals); env var disabled, code retained for reuse with corrected MC source.
 
 ---
 

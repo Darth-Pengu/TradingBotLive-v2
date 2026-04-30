@@ -119,7 +119,34 @@ ORDER BY id DESC;
 
 If ANY row has `market_cap_at_entry > 3000` → gate is broken → ROLLBACK.
 
-**Result:** *to be filled in post-deploy*
+**Result (post-deploy 08:30 UTC, ~30 min after C push at 08:01 UTC):**
+
+❌ **Step 5 FAIL — gate does not fire on fresh pump.fun signals. ROLLBACK executed.**
+
+Verification query found **2 of 14 fresh SD trades since 08:01 UTC have `market_cap_at_entry > 3000`**:
+
+| id | entry_utc | market_cap_at_entry | exit_reason | hold_s | pnl_sol |
+|---:|---|---:|---|---:|---:|
+| 7757 | 2026-04-30 08:28:00 | $9,807.93 | stop_loss_20% | 0.10 | -0.188 |
+| 7749 | 2026-04-30 08:10:50 | $4,482.93 | stop_loss_20% | 1.60 | -0.098 |
+
+Both entries are AFTER SA container swap (build completed 08:03:40 UTC per `containerimage.descriptor`; container started ~08:05-08:08 UTC). id 7757 entered 24 minutes after deploy — definitively post-deploy code path.
+
+**Root cause** (design flaw, not code bug): `raw_data.get("usdMarketCap", raw_data.get("market_cap_usd", 0))` is `0` at signal-time for fresh pump.fun `new_token` events. SA's FILTER logs around that window confirm: `FILTER: PASS <mint> ... mc=$0 liq=33.0` — every fresh token shows `mc=$0`.
+
+`market_cap_at_entry` is **computed at entry-time in bot_core** as `entry_price * 1_000_000_000` (total supply), where `entry_price` comes from BC reserves (`vSolInBondingCurve / vTokensInBondingCurve` × SOL price USD). This is the actual market cap. The gate's `mc_at_eval` reads a different field that's empty for fresh signals.
+
+**The gate is structurally inert for new_token signals** — which are the bulk of SD's signal source. It would only fire on signals from sources that pre-populate `usdMarketCap` (e.g., trending pools, migration signals from sources outside pumpportal). For fresh new_token signals, `mc_at_eval = 0` always passes the gate (0 < 3000).
+
+**Rollback executed:** `SD_MC_CEILING_USD=999999999` set on signal_aggregator via Railway MCP at 2026-04-30 ~08:35 UTC. Code remains in place (harmless no-op at threshold 999M). Re-enable via env var when proper fix lands.
+
+**Proper fix (deferred to a follow-up session):** Two options:
+
+1. **Move gate to bot_core** at the entry decision point. bot_core already computes `entry_price * 1B` for `market_cap_at_entry`. Add the ceiling check immediately before the live entry INSERT or in the personality-routing step. Pros: uses the actual MC that ends up in `paper_trades`. Cons: SD entry decision happens in two services (SA emits to signals:scored; bot_core consumes); gate at bot_core is closer to the truth but later in the pipeline.
+
+2. **Compute MC from BC reserves in signal_aggregator gate.** Read `vSolInBondingCurve` and `vTokensInBondingCurve` from raw_data, multiply by 1B and SOL price (already cached at `market:sol_price` Redis key for ~5 min TTL). This mirrors bot_core's computation. Pros: gate stays at SA, short-circuits ML scoring. Cons: duplicates the MC computation; introduces dependency on `market:sol_price` Redis key in SA gating path.
+
+**Tentative recommendation:** Option 2 (compute in SA gate) — matches the chain prompt's intent of filtering at the entry-gate stage. Tracking ID: **SD_MC_CEILING_002**. ETA ~30m next session. Until then, gate is no-op.
 
 ---
 
