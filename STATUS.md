@@ -7,6 +7,41 @@
 
 ---
 
+## 2026-04-30 — TUNE-010 DEX-PAID-FEATURE-EVALUATION (Verdict: DISCARD, no deploy)
+
+**Committed (this session):** `<hash>` docs(audit): TUNE-010 dex_paid feature evaluation — verdict DISCARD. Files: `docs/audits/TUNE_010_DEX_PAID_EVALUATION_2026_04_30.md` (NEW, 10 sections) + STATUS.md prepend + ZMN_ROADMAP.md (TUNE-010 row added). **Docs-only. No services/, no env vars, no Redis writes, no Railway deploys.**
+
+**State changes:** none. Read-only Postgres asyncpg via `DATABASE_PUBLIC_URL`. 636 DexScreener API calls (2 endpoints × 318 mints), 0 rate-limits, 0 errors. ~5 SQL queries on `paper_trades`.
+
+**Bot state:** unchanged from prior entry. TEST_MODE=true on bot_core, signal_aggregator, all services except treasury (TREASURY-TEST-MODE-002 🟡). 0 paper open. On-chain wallet 0.064 SOL. Bitfoot's `dex_paid` filter does not reproduce on Analyst's token universe.
+
+**Verdict: DISCARD.** No env-var change. No code change. No deploy. Hypothesis ("paid DEX promotion correlates with team marketing → better outcomes for higher-MC personalities") is **not supported by the data** for Analyst:
+
+- **Sample:** 304 closed Analyst trades (2026-04-22 → 2026-04-28); Whale Tracker has zero historical trades (dormant). Sample n=304 is well above the 100-trade threshold for valid inference.
+- **DexScreener `/orders/v1/{chainId}/{tokenAddress}` exposes `paymentTimestamp`** — enabled timestamp-aware "paid AT entry time" analysis. Sidesteps the Step-4 Scenario A/B problem the prompt anticipated. 318/318 mints looked up cleanly (0 errors).
+- **Primary feature `dex_paid_at_entry` (timestamp-aware) inverts vs hypothesis:** PAID (n=164) WR=14.0% vs NOT_PAID (n=140) WR=17.9%. Diff -3.83pp. PnL/trade diff = +0.0001 SOL (zero discriminatory power). fisher_p=0.43, MWU p=0.40. Cohen's h=-0.105 (below "small effect"); Cliff's delta=-0.056.
+- **Base-rate problem:** 76.6% of Analyst's tokens are paid lifetime, 53.9% paid at entry. Feature too prevalent to discriminate well — there's not enough variance to exploit.
+- **Best secondary feature `social_count > 0`: WR diff +5.62pp** but p=0.25 (not significant) and PnL/trade diff +0.0021 SOL (far below the 0.02 deploy threshold). Below all deploy criteria.
+- **SD scope exclusion was correct:** 0/14 SD big winners (≥0.10 SOL post-recovery) have any DexScreener footprint — all 14 have `no_pair=True` (rugged or never-graduated). SD enters and exits before any DEX promotion could exist.
+
+**No deploy criterion is met by any feature tested.** Verdict-changing conditions documented in audit §7: (a) Analyst reactivated + 200 new trades in a different market regime; (b) ANALYST-POST-GRAD-001 (post-graduation MC $50-300k personality) accumulates a sample where DEX-pair existence is the norm and dex_paid variance is non-trivial; (c) Whale Tracker activated with a meaningful sample.
+
+**Whale Tracker has zero closed historical trades — cannot evaluate.** Documented as a study limitation, not a blocker.
+
+**Blockers cleared:** none structurally — TUNE-010 evaluated and resolved as DISCARD.
+
+**Blockers new/active:** All carry blockers unchanged from BUG-022-FIX entry below: TREASURY-TEST-MODE-002 🟡, ML-THRESHOLD-DRIFT-2026-04-29 🟡, LIVE-FEE-CAPTURE-001 🔥, LIVE-PNL-FEE-FORMULA-001 🔥. TUNE-009 ⏸ DEFERRED (revisit conditions in SD-EARLY-CHECK audit §10).
+
+**Stop-condition check:** N/A (no deploy). 0/4 stop conditions tripped (DexScreener returned dex_paid data; sample n=304 ≥ 30 threshold; not Scenario B by methodology; failed_lookups.txt empty).
+
+**Next prompt:** No follow-up implementation prompt — DISCARD verdict. TUNE-011 (Bitfoot speed-tests vs Helius latency) remains separately scoped per session prompt's "Chain followup" note. ANALYST-POST-GRAD-001 design session unblocked — independent of TUNE-010 outcome.
+
+**Pending Claude-chat prompts not yet pasted:** carry — `SESSION_SD_MC_CEILING_DEPLOY_2026_04_29` (gate on 24h-post-recovery threshold).
+
+**Verdict:** TUNE-010 ❌ DISCARD. dex_paid feature does not earn shelf space in `signal_aggregator.py` for Analyst. SD scope exclusion confirmed correct. Whale Tracker un-evaluable.
+
+---
+
 ## 2026-04-30 — BUG-022-FIX-2026-04-30 (Option A landed — backfill + inline write + CLAUDE.md updates)
 
 **Committed (this session):** `<hash>` fix(paper_trader): BUG-022 backfill + inline write; CLAUDE.md updates. Files: `services/paper_trader.py` (close UPDATE extended with corrected_*) + `services/bot_core.py` (staged-TP correction UPDATE extended with corrected_* for paper branch only) + `CLAUDE.md` (P/L rule rewrite + wallet-drift note appended) + `docs/audits/BUG_022_FIX_2026_04_30.md` (NEW, 8 sections) + STATUS.md prepend + ZMN_ROADMAP.md (BUG-022 ✅ + WALLET-DRIFT ✅).
