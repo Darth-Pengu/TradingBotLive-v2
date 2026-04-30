@@ -45,6 +45,13 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 SOCIALDATA_API_KEY = os.getenv("SOCIALDATA_API_KEY") or os.getenv("SOCIAL_DATA_API_KEY", "")
 SPEED_DEMON_FILTERS_ENABLED = os.getenv("SPEED_DEMON_FILTERS_ENABLED", "true").lower() == "true"
 
+# SD_MC_CEILING_001 (deployed 2026-04-30) — reject SD entries above market-cap ceiling.
+# Default 3000 USD per docs/audits/SD_MC_CEILING_DEPLOY_2026_04_30.md (revised tighter
+# than the original $5k proposal in docs/proposals/SD_MC_CEILING_001.md based on 35h
+# post-recovery data: >$3k = -1.77 SOL / 0% WR / n=39).
+# Rollback: set SD_MC_CEILING_USD=999999999 to disable without redeploy.
+SD_MC_CEILING_USD = float(os.environ.get("SD_MC_CEILING_USD", "3000.0"))
+
 # Entry filter — rejects low-quality signals BEFORE ML scoring
 ENTRY_FILTER_ENABLED = os.getenv("ENTRY_FILTER_ENABLED", "true").lower() == "true"
 ENTRY_FILTER_MIN_BUY_SELL_RATIO = float(os.getenv("ENTRY_FILTER_MIN_BUY_SELL_RATIO", "1.0"))
@@ -1822,6 +1829,20 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
                 if signal.get("source") == "telegram_alpha":
                     position_size_multiplier = 1.5
                     logger.info("TELEGRAM CALL: %s — position mult=1.5x", mint[:12])
+
+                # SD_MC_CEILING_001 (deployed 2026-04-30) — reject SD entries above MC ceiling.
+                # Placed before the prefilter block so we skip the Twitter API call on rejected
+                # tokens. See docs/audits/SD_MC_CEILING_DEPLOY_2026_04_30.md.
+                if "speed_demon" in targets:
+                    mc_at_eval = float(raw_data.get("usdMarketCap", raw_data.get("market_cap_usd", 0)) or 0)
+                    if mc_at_eval > SD_MC_CEILING_USD:
+                        logger.info(
+                            "SD reject %s: MC %.0f > ceiling %.0f",
+                            mint[:8], mc_at_eval, SD_MC_CEILING_USD,
+                        )
+                        targets = [t for t in targets if t != "speed_demon"]
+                        if not targets:
+                            continue
 
                 # --- Speed Demon pre-filters (before ML scoring) ---
                 if "speed_demon" in targets:

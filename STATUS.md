@@ -7,6 +7,59 @@
 
 ---
 
+## 2026-04-30 — SD-MC-CEILING-DEPLOY-2026-04-30 (Session C: env var + code gate)
+
+**Committed (this session):** `<hash>` feat(signal_aggregator): SD_MC_CEILING_001 deploy at $3000. Files: `services/signal_aggregator.py` (env var read at L46-53 + gate at L1826-1838) + `docs/audits/SD_MC_CEILING_DEPLOY_2026_04_30.md` (NEW, 10 sections) + STATUS.md prepend + ZMN_ROADMAP.md.
+
+**State changes:**
+- Railway env var `SD_MC_CEILING_USD=3000` on signal_aggregator (via Railway MCP `set-variables`). Auto-redeploys SA.
+- Code: gate placed BEFORE existing prefilter block — saves Twitter API call on rejected tokens. Drops `speed_demon` from `targets` if `mc_at_eval > SD_MC_CEILING_USD`; `if not targets: continue` short-circuits the rest of the pipeline.
+- No bot_core changes. No Redis writes. Single git push triggers signal_aggregator auto-redeploy.
+
+**Bot state:** RUNNING (paper). Bot_core hotfix `17c2aac` from earlier in this session is mid-deploy — stale_no_price exits had been throwing `inconsistent types deduced for parameter $10` for ~2 minutes pre-hotfix (3 trade IDs 7743/7744/7745 looped). Hotfix splits the corrected_* params into distinct slots ($11/$12/$13 in paper_trader, $5/$6/$7 in bot_core).
+
+**Decision rationale ($3k vs $5k):** original SD_MC_CEILING_001 proposal was $5k from 4-day audit. Revised tighter to $3k based on 35h post-recovery data: 39 trades >$3k = -1.77 SOL / 0% WR vs 20 trades >$5k = -1.04 SOL / 0% WR. Cutting at $3k recovers ~83% more loss without losing any winners (all 14 big winners ≥0.10 SOL each entered at MC < $800). Cross-confirmed by Session A's analysis: 97.6% (120/123) of `no_momentum_90s` dead trades enter at $800-$3000.
+
+**Compile-checked:** `python -m py_compile services/signal_aggregator.py` → OK.
+
+**Step 5 verification queued:** post-deploy poll Railway MCP for signal_aggregator SUCCESS, wait 90s, tail SA logs for `SD reject ... ceiling 3000` lines. Query last 60min SD trades for any `market_cap_at_entry > 3000` — should be ZERO. Result will be appended to audit doc §5.
+
+**24h verification queued for ~2026-05-01:** confirm zero SD entries above ceiling; compare WR/PnL to 35h post-recovery baseline (272 trades, 23.4% WR, +0.140 SOL).
+
+**Blockers cleared:** ✅ TUNE-006 (partial) — SD_MC_CEILING component landed. Other TUNE-006 components (SD_DEAD_ZONE_001 AEDT pause, SD_ML_THRESHOLD_LIFT 40→50) remain queued.
+
+**Blockers new/active:**
+- ⚠️ **B HOTFIX in flight** — bot_core hotfix `17c2aac` deploy ETA ~5-10m. Verification pending. If hotfix fails, ROLLBACK both Session B and the hotfix.
+- All carry blockers unchanged: TREASURY-TEST-MODE-002 🟡, ML-THRESHOLD-DRIFT-2026-04-29 🟡, LIVE-FEE-CAPTURE-001 🔥 (Session D), LIVE-PNL-FEE-FORMULA-001 🔥 (Session D), TUNE-009 ⏸ DEFERRED.
+
+**Stop-condition check:** 0 of 4 STOP conditions tripped at this point for Session C (no SA deploy failure, no SD entry >$3k yet — verification pending).
+
+**Next prompt:** **SESSION D (LIVE-FEE-CAPTURE Path A)** — proceeding immediately. D touches bot_core (different from C's signal_aggregator). However, D requires bot_core stable post-hotfix; will verify hotfix deploy success before pushing D's code change.
+
+**Pending Claude-chat prompts not yet pasted:** Sessions D, E queued and pasted in this CC session — proceeding through chain.
+
+**Verdict:** SD_MC_CEILING_USD=3000 ✅ DEPLOYED on signal_aggregator. Code + env var live. 24h verification queued.
+
+---
+
+## 2026-04-30 — BUG-022-HOTFIX-2026-04-30 (asyncpg type-inference regression)
+
+**Committed (this session):** `17c2aac` fix(paper_trader): BUG-022 hotfix — distinct param slots for corrected_*. Files: `services/paper_trader.py` (param slots $11/$12/$13) + `services/bot_core.py` ($5/$6/$7 for staged-TP correction).
+
+**State changes:** code only. Railway auto-redeploys bot_core.
+
+**Bot state when discovered:** bot_core post-Session-B redeploy was throwing `ERROR: Exit check error for speed_demon:<mint>: inconsistent types deduced for parameter $10` on every exit attempt. Three trade IDs (7743 / 7744 / 7745) loop-failed for ~2 min. Root cause: the original BUG-022 inline-write reused `$4`, `$5`, `$10` for both `realised_*` and `corrected_*` columns. Asyncpg's prepared-statement protocol can't deduce a single PostgreSQL type when the same parameter is referenced for columns of different declared types (schema has `outcome` as character varying and the corrected_* counterparts diverge).
+
+**Fix:** distinct parameter slots for the corrected_* triple. Pass each value twice. Compile-checked. Single push → Railway auto-redeploys bot_core.
+
+**Verification:** *pending — bot_core deploy in flight at Session-C commit time. Will verify before Session D push.*
+
+**Lesson:** the chain prompt's "Parameter reuse ($4, $5, $10) is valid PostgreSQL" is correct in raw psql but FALSE for asyncpg's prepared-statement protocol when the same param appears in columns of different declared types. Future inline-write changes that touch dual-write should use distinct slots even if it costs 3 extra Python args.
+
+**Backfill (1111 rows from prior commit `392c928`) is unaffected** — the backfill UPDATE was a separate ad-hoc statement that did not reuse parameters.
+
+---
+
 ## 2026-04-30 — TUNE-010 DEX-PAID-FEATURE-EVALUATION (Verdict: DISCARD, no deploy)
 
 **Committed (this session):** `<hash>` docs(audit): TUNE-010 dex_paid feature evaluation — verdict DISCARD. Files: `docs/audits/TUNE_010_DEX_PAID_EVALUATION_2026_04_30.md` (NEW, 10 sections) + STATUS.md prepend + ZMN_ROADMAP.md (TUNE-010 row added). **Docs-only. No services/, no env vars, no Redis writes, no Railway deploys.**
