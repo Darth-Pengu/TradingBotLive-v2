@@ -1,6 +1,6 @@
 # AGENT_CONTEXT — current bot state
 
-**Last updated:** 2026-04-30 ~12:30 UTC by SD-MC-CEILING-002-DEPLOY (post Session E chain).
+**Last updated:** 2026-04-30 ~13:00 UTC by FEE-LATENCY-REALISM-2026-04-30 (Path A slippage tier fix; latency stretch goal STOPPED — see audit §3 / ZMN_ROADMAP Decision Log).
 **Source:** Read directly from Railway env, Redis, DB, on-chain.
 **NOT a chat-side carry.** Memory drift policy: see CLAUDE.md "Persistence Convention" (added Session E).
 
@@ -146,8 +146,9 @@ Last 24h SD trend (2026-04-30 08:53 UTC – 24h, snapshot):
 |---|---|---|
 | ML-THRESHOLD-DRIFT-2026-04-29 | 🟡 | SA=65 / bot_core=40 / web=45; effective gate < 40 due to AGGRESSIVE_PAPER bypass. 44 of last 100 closes have ml_score ∈ (0,40]. |
 | TREASURY-TEST-MODE-002 | 🟡 | treasury alone has TEST_MODE=false. Dormant but latent. |
-| LIVE-FEE-CAPTURE-002 (Path B) | 📋 | V5a-blocking-but-degradable. Helius parseTransactions for actual fill data. |
-| LIVE-CLOSE-FALLBACK-INSERT-001 | 📋 | bot_core.py:1318 legacy 21-column INSERT not extended with new columns. Low-traffic path. |
+| LIVE-FEE-CAPTURE-002 (Path B) | 📋 | V5a-blocking-but-degradable. Helius parseTransactions for actual fill data. Slippage-tier fix (FEE-LATENCY-REALISM-2026-04-30) closes ~30% of Path A's id 6580 gap; remaining gap requires Path B. |
+| LATENCY-OBSERVABILITY-001 (NEW) | 📋 | All 4 latency columns NULL on 1182 paper_trades. 4-file refactor required (signal_listener + signal_aggregator + paper_trader + bot_core + Redis-payload schema). Not V5a-blocking. |
+| LIVE-CLOSE-FALLBACK-INSERT-001 | 📋 | bot_core.py:1330 legacy 21-column INSERT not extended with new columns. Low-traffic path. |
 | TUNE-009 (SD_EARLY_CHECK relax) | ⏸ DEFERRED | empirical data does not support relax — see audit §6 conditions for re-evaluation. |
 | SD_MC_CEILING_001 | ⚠️ SUPERSEDED | _002 replaces inert gate. Keep marker for git-history reference. |
 | SD_MC_CEILING_002 | ✅ DEPLOYED 2026-04-30 ~12:30 UTC | BC-reserves MC compute in SA gate. Step 6 + 24h verification queued. |

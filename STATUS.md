@@ -7,6 +7,68 @@
 
 ---
 
+## 2026-04-30 — FEE-LATENCY-REALISM-2026-04-30 (Session: tier-aware live-close slippage; latency stretch goal STOPPED)
+
+**Committed (this session):** `<hash>` fix(slippage): tier-aware live close + audit; FEE-LATENCY-REALISM-2026-04-30. Files: `services/bot_core.py` (Position dataclass +1 field; paper entry + live entry Position constructions +1 kwarg each; live entry + live close `_simulate_slippage` calls now use entry tier instead of literal `"buy"`) + `docs/audits/FEE_LATENCY_REALISM_AUDIT_2026_04_30.md` (NEW, 8 sections) + STATUS.md prepend + ZMN_ROADMAP.md (Decision Log row added).
+
+**State changes:**
+- Code only. No Railway env changes. No Redis writes. No DB writes.
+- `services/bot_core.py:178-180` Position dataclass adds `entry_slippage_tier: str = "confirmation"` field.
+- `services/bot_core.py:846` paper entry Position now sets `entry_slippage_tier=slippage_tier`.
+- `services/bot_core.py:912` live entry Position now sets `entry_slippage_tier=slippage_tier`.
+- `services/bot_core.py:940` live entry INSERT slippage call: `_simulate_slippage(slippage_tier, size_sol)` (was `"buy"`).
+- `services/bot_core.py:1287` live close buy-side slippage call: `_simulate_slippage(pos.entry_slippage_tier, pos.size_sol)` (was `"buy"`).
+- Sell-side at line 1288 (`_simulate_slippage("sell", sell_amount)`) was already correct; unchanged.
+- Single git push triggers bot_core auto-redeploy.
+
+**Bot state at session start (2026-04-30 ~12:53 UTC):**
+- bot:status RUNNING, paper portfolio 23.35 SOL, daily_pnl=0.0, market_mode=HIBERNATE (sentiment 28.4), consecutive_losses=10, test_mode=true, 0 open
+- bot:emergency_stop absent ✓
+- TEST_MODE=true on bot_core ✓ (verified via Railway MCP)
+- HIBERNATE mode means no fresh signals during this session — Step 8 verification cannot sample fresh closes inline; will wait for market_mode flip back to NORMAL/AGGRESSIVE/DEFENSIVE
+- `signals:scored` empty; `signals:raw` accumulating per OBS leak
+
+**Step 1 verification — H1-H6:**
+- H1 (latency NULL): ✅ CONFIRMED. 4 columns exist in schema; 0/1182 rows have any populated. Zero matches in `services/` for the column names. **Step 3 stretch goal STOPPED** (would require 4-file refactor across signal_listener + signal_aggregator + paper_trader + bot_core + Redis-payload schema changes — exceeds 1-2 file scope).
+- H2 (pre-grad fee undercount): partial. `PAPER_JITO_TIP_PREGRAD_SOL = 0.0` doesn't model PumpPortal's 0.001 SOL Jito tip on every trade — gap ≈ +0.001 SOL/trade. ~1% of Path A's +0.088 SOL gap on id 6580. Not addressed this session — bundle with Path B calibration.
+- H3 (slippage default fallback): ✅ CONFIRMED. `services/paper_trader.py:51-61` SLIPPAGE_RANGES keys are alpha_snipe / confirmation / post_grad_dip / sell / sell_postgrad. `"buy"` is NOT a key. Line 149 `entry = SLIPPAGE_RANGES.get(tier, (0.5, 2.0, 0.3))` falls back. Path A bot_core.py calls `_simulate_slippage("buy", ...)` at 932 + 1271 — both fall back. Verified via id 6580 (buy_slip=1.91% matches default 0.7-2.9% range; sell_slip=18.91% matches `sell` 7.8-38.9% range).
+- H4 (Path A 12× gap): ✅ already in predecessor audit; no re-verification needed.
+- H5 (Path B feasibility): infrastructure exists (HELIUS_PARSE_TX_URL); ~3-5h work; out of scope.
+- H6 (tier provenance): tier computed at `services/bot_core.py:741-751` based on signal age + personality. NOT on signal payload. NOT on Position. **In scope at line 932 (entry); needs Position field for line 1271 (close).** Basis for Path A choice.
+
+**Step 2 patch path: A** (plumb tier through Position).
+
+**Step 4 demonstrate-fix output:**
+| tier | old (`"buy"` default) avg | new tier-aware avg | delta |
+|---|---:|---:|---:|
+| alpha_snipe (NEW) | 1.86% | 18.70% | **+16.85% (10×)** |
+| confirmation (NEW) | 1.86% | 12.47% | **+10.61% (6.7×)** |
+| post_grad_dip | 1.86% | 1.86% | +0.00% (range coincidence — post_grad_dip IS the default) |
+
+For id 6580 round-trip estimate (confirmation tier): 16.29% → **23.73%** (+7.44pp). Closes ~30% of Path A's +0.088 SOL gap on this row. id 6580 itself NOT re-backfilled — historical record retained.
+
+**Compile-checked:** `python -m py_compile services/bot_core.py` → COMPILE OK.
+
+**Step 8 verification queued post-deploy:** poll Railway MCP for bot_core SUCCESS, wait 90s, check startup banner clean (no AttributeError on Position.entry_slippage_tier or _simulate_slippage signature). Wait for HIBERNATE → NORMAL transition or fresh paper closes; sample slippage_pct distribution across 10-20 fresh paper rows. Expectation: distribution should reflect the tier mixture (alpha_snipe + confirmation + post_grad_dip) rather than concentrating in the default 0.7-2.9% range. NOTE: paper-mode closes via `paper_sell` were ALREADY correct (paper_sell uses computed `sell_tier`, paper_buy uses caller-passed `slippage_tier`); the visible behavior change is on **live close path** for future live trades — paper rows will look largely the same since paper was never affected by the bug.
+
+**Blockers cleared:**
+- ✅ **SLIPPAGE-TIER-LIVE-PATH-A-001** — buy-side slippage on Path A live close now uses entry-time tier instead of default fallback. Sell-side was already correct.
+
+**Blockers new/active:**
+- 📋 **LATENCY-OBSERVABILITY-001 (NEW)** — populate `signal_detected_at` / `scored_at` / `traded_at` / `total_latency_ms` columns end-to-end. 4-file refactor; not V5a-blocking; useful for SLIPPAGE-CALIBRATION-001 calibration analysis.
+- 📋 **LIVE-FEE-CAPTURE-002 (Path B)** — V5a-blocking-but-degradable; unchanged. Still the right answer for parity-of-truth.
+- All other carries unchanged: TREASURY-TEST-MODE-002 🟡, ML-THRESHOLD-DRIFT-2026-04-29 🟡, LIVE-CLOSE-FALLBACK-INSERT-001 📋, TUNE-009 ⏸ DEFERRED, TIME_PRIME-CONTRADICTION-001 📋, TUNE-006 (other components) 📋, ~3 SOL wallet top-up ⏸ JAY ACTION.
+
+**Stop-condition check:** 0 of 8 STOP conditions tripped. TEST_MODE=true ✓. bot:status RUNNING ✓. emergency_stop absent ✓. H3 confirmed (didn't fail). Patch Path A chosen (not C). Step 3 stretch goal cleanly STOPPED per its own scope rule (not a stop-condition trip). Demonstrate-fix changes behavior empirically (10× / 6.7× / 0× — last is range coincidence). Compile OK.
+
+**Next prompt:** **LIVE-FEE-CAPTURE-002 (Path B)** is the next V5a-blocking session. Or **LATENCY-OBSERVABILITY-001** as a parallel, lower-priority observability session if Path B has prerequisites. Wallet top-up to ~3 SOL remains a Jay action.
+
+**Pending Claude-chat prompts not yet pasted:** none — this session was self-contained.
+
+**Verdict:** FEE-LATENCY-REALISM ✅ DEPLOYED (Path A patch, single file `bot_core.py`, 5 mechanical edits, tier-aware live-close slippage). Latency stretch goal STOPPED per scope. Path A's id 6580 gap closed by ~30% structurally. Path B remains the right long-term answer; tracked unchanged.
+
+---
+
 ## 2026-04-30 — SD-MC-CEILING-002-DEPLOY (Session: BC-reserves MC compute replaces inert gate)
 
 **Committed (this session):** `<hash>` feat(signal_aggregator): SD_MC_CEILING_002 — BC-reserves MC compute. Files: `services/signal_aggregator.py` (env-var comment refresh L48-54 + gate replacement L1833-1879) + `docs/audits/SD_MC_CEILING_002_DEPLOY_2026_04_30.md` (NEW, 10 sections) + `AGENT_CONTEXT.md` (§2 SD_MC_CEILING_USD active + §6 V5a precondition cleared + §7 carry update) + `ZMN_ROADMAP.md` (Decision Log: SD_MC_CEILING_001 SUPERSEDED + SD_MC_CEILING_002 ✅ DEPLOYED) + STATUS.md prepend.

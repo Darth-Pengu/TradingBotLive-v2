@@ -172,6 +172,12 @@ class Position:
     rugcheck_risk_level: str = "unknown"
     signal_type: str = "standard"  # "standard" or "graduation"
     cumulative_pnl_sol: float = 0.0  # Accumulated P/L across all staged exits
+    # FEE-LATENCY-REALISM-2026-04-30: entry-time slippage tier (alpha_snipe /
+    # confirmation / post_grad_dip), set by _handle_signal at entry time. Used
+    # at close to recover the buy-side _simulate_slippage tier — prior code
+    # passed literal "buy" which is NOT a SLIPPAGE_RANGES key, falling back to
+    # the (0.5, 2.0, 0.3) default and undercounting pre-grad BC slippage.
+    entry_slippage_tier: str = "confirmation"
 
 
 SELL_FAIL_THRESHOLD = int(os.getenv("SELL_FAIL_THRESHOLD", "8"))
@@ -837,6 +843,7 @@ class BotCore:
                     bonding_curve_progress=bc_progress,
                     rugcheck_risk_level=scored_signal.get("rugcheck_risk_level", "unknown"),
                     signal_type=scored_signal.get("signal_type", "standard"),
+                    entry_slippage_tier=slippage_tier,
                 )
                 # Persist trades_ml_id to paper_trades for restart recovery
                 try:
@@ -903,6 +910,7 @@ class BotCore:
                     size_sol=size_sol, peak_price=price,
                     ml_score=ml_score, signal_source=signal_source,
                     bonding_curve_progress=bc_progress,
+                    entry_slippage_tier=slippage_tier,
                 )
                 trade_id = await self.pool.fetchval(
                     """INSERT INTO trades (mint, personality, action, amount_sol, entry_price,
@@ -929,7 +937,11 @@ class BotCore:
                     # entry-side slippage + fees estimates from paper helpers, plus
                     # features_json for live entry parity with paper. See
                     # docs/audits/LIVE_FEE_CAPTURE_PATH_A_2026_04_30.md.
-                    _pe_buy_slip = _simulate_slippage("buy", size_sol)
+                    # FEE-LATENCY-REALISM-2026-04-30: pass slippage_tier (computed
+                    # at L745-751 by personality+age) so _simulate_slippage hits
+                    # the correct SLIPPAGE_RANGES key. Prior code passed "buy"
+                    # which fell back to the (0.5, 2.0, 0.3) default range.
+                    _pe_buy_slip = _simulate_slippage(slippage_tier, size_sol)
                     _pe_buy_fees = _simulate_fees(
                         "buy", size_sol, "auto",
                         bonding_curve_progress=bc_progress,
@@ -1268,7 +1280,12 @@ class BotCore:
             # estimated and summed; subtract from gross PnL. Path B (Helius
             # parseTransactions for actual fill data) deferred to a follow-up session.
             # See docs/audits/LIVE_FEE_CAPTURE_PATH_A_2026_04_30.md.
-            _live_buy_slip_pct = _simulate_slippage("buy", pos.size_sol)
+            # FEE-LATENCY-REALISM-2026-04-30: use pos.entry_slippage_tier for the
+            # buy-side recovery so _simulate_slippage hits the correct
+            # SLIPPAGE_RANGES key (alpha_snipe / confirmation / post_grad_dip).
+            # Prior code passed "buy" which fell back to (0.5, 2.0, 0.3) default
+            # — undercounted pre-grad BC slippage on every live close.
+            _live_buy_slip_pct = _simulate_slippage(pos.entry_slippage_tier, pos.size_sol)
             _live_sell_slip_pct = _simulate_slippage("sell", sell_amount)
             _live_buy_fees = _simulate_fees(
                 "buy", pos.size_sol, "auto",
