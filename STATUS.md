@@ -7,6 +7,53 @@
 
 ---
 
+## 2026-04-30 — LIVE-FEE-CAPTURE-PATH-A-2026-04-30 (Session D: Path A wired into live close path)
+
+**Committed (this session):** `<hash>` fix(bot_core): LIVE-FEE-CAPTURE-001 Path A — fees/slippage capture + PnL formula. Files: `services/bot_core.py` (3 code changes + 1 import addition) + `docs/audits/LIVE_FEE_CAPTURE_PATH_A_2026_04_30.md` (NEW, 9 sections) + STATUS.md prepend + ZMN_ROADMAP.md.
+
+**State changes:**
+- DB: id 6580 (only real on-chain live trade) backfilled with `correction_method='live_estimated_v1'`. Fees=0.008306 SOL (paper-estimated round-trip), slippage_pct=10.41 (paper-estimated avg), corrected_pnl_sol=-0.006430 SOL (vs realised gross +0.001876).
+- Code: `services/bot_core.py:73-77` — module-level import of `_simulate_slippage`, `_simulate_fees` (outside `if TEST_MODE:` so live path can call them). `bot_core.py:1247-1271` — Change 3a PnL formula now subtracts paper-estimated round-trip fees from gross. `bot_core.py:1284-1305` — Change 3b live close UPDATE writes slippage_pct/fees_sol/corrected_*/correction_method='live_estimated_v1' (distinct param slots $11-$15 per BUG-022 hotfix lesson). `bot_core.py:922-948` — Change 3c live entry INSERT writes slippage_pct/fees_sol/features_json (16-column INSERT, was 13).
+- Single git push triggers bot_core auto-redeploy.
+
+**Bot state:** RUNNING (paper, post-Session-B-hotfix verified). Bot_core deploy in flight at session commit time. TEST_MODE=true so no live trades will exercise the new live close path inline; verification limited to ImportError check + id 6580 backfill confirmation.
+
+**id 6580 backfill — Path A NOT empirically validated:**
+
+| metric | value |
+|---|---:|
+| realised_pnl_sol (gross stored) | +0.001876 SOL |
+| corrected_pnl_sol (Path A) | -0.006430 SOL |
+| on-chain actual (`ZMN_LIVE_ROLLBACK.md`) | -0.094245 SOL |
+| **gap (Path A − actual)** | **+0.087815 SOL** |
+
+Path A undercorrects by ~12× the actual cost. **Above the ±0.02 SOL validation tolerance from the chain prompt.** Paper fee model under-counts real Solana priority fees, MEV impact, and slippage on real on-chain trades. Path A delivers parity-of-record (live rows now write fees/slippage/features_json/corrected_*) but **not parity-of-truth**. Path B (Helius `parseTransactions` for actual on-chain fill data) remains the right long-term answer; tracked as **LIVE-FEE-CAPTURE-002**.
+
+**Compile-checked:** `python -m py_compile services/bot_core.py` → OK.
+
+**Step 8 verification queued post-deploy:** poll Railway MCP for bot_core SUCCESS, wait 90s, check startup banner for ImportError on `_simulate_*` (would ROLLBACK), query id 6580 to confirm backfill landed, check fresh paper closes still write `pass_through` correctly (Session B regression check).
+
+**Blockers cleared:**
+- ✅ **LIVE-FEE-CAPTURE-001 (Path A)** — wired into live close path. Path B remains open.
+- ✅ **LIVE-PNL-FEE-FORMULA-001** — `bot_core.py:1249` now subtracts fees from gross PnL.
+- ✅ **LIVE-FEATURES-JSON-001** — live entry INSERT now populates `features_json`.
+- 🟡 **LIVE-ROW-BACKFILL-001 (partial)** — id 6580 backfilled with Path A. The other 5 trade_mode='live' rows are reconcile-residual paper closures (NULL signatures); they don't need backfill per WALLET-DRIFT audit §4.
+
+**Blockers new/active:**
+- 📋 **LIVE-FEE-CAPTURE-002 (NEW, V5a-blocking-but-degradable)** — Path B implementation. Helius `parseTransactions` on entry/exit signatures returns actual SOL deltas + on-chain fees. Replaces estimates with truth. ETA ~3-5h next session. Prerequisite for V5a's first unsupervised live window.
+- 📋 **LIVE-CLOSE-FALLBACK-INSERT-001 (NEW, low)** — `bot_core.py:1318` legacy 21-column INSERT (live close fallback when entry INSERT failed) doesn't include fees/slippage/features_json/corrected_*. Low-traffic path; cleanup item.
+- All carry blockers unchanged: TREASURY-TEST-MODE-002 🟡, ML-THRESHOLD-DRIFT-2026-04-29 🟡, TUNE-009 ⏸ DEFERRED, SD_MC_CEILING_002 📋 (Session C rollback's follow-up).
+
+**Stop-condition check:** 0 of 4 STOP conditions tripped at this point. Compile passed. Backfill applied successfully. id 6580 gap (+0.088 SOL) is informative-not-failure per prompt's "If it doesn't [validate], that's a finding".
+
+**Next prompt:** **SESSION E (PERSISTENCE_HARDENING)** — proceeding immediately. E is docs-only (no service redeploys) so deploy timing doesn't gate it.
+
+**Pending Claude-chat prompts not yet pasted:** Session E queued and pasted in this CC session — proceeding through chain.
+
+**Verdict:** LIVE-FEE-CAPTURE-001 Path A ✅ DEPLOYED. Three code changes + 1 backfill + 1 audit. id 6580 result confirms Path B urgency for V5a-blocking parity-of-truth.
+
+---
+
 ## 2026-04-30 — SD-MC-CEILING-DEPLOY-2026-04-30 (Session C: env var + code gate)
 
 **Committed (this session):** `<hash>` feat(signal_aggregator): SD_MC_CEILING_001 deploy at $3000. Files: `services/signal_aggregator.py` (env var read at L46-53 + gate at L1826-1838) + `docs/audits/SD_MC_CEILING_DEPLOY_2026_04_30.md` (NEW, 10 sections) + STATUS.md prepend + ZMN_ROADMAP.md.

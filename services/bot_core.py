@@ -70,6 +70,12 @@ from services.risk_manager import (
 if TEST_MODE:
     from services.paper_trader import paper_buy, paper_sell
 
+# LIVE-FEE-CAPTURE-001 Path A (Session D, 2026-04-30): import fee/slippage
+# estimators unconditionally so the live close path can call them. They are
+# pure functions with no side effects at import time. See
+# docs/audits/LIVE_FEE_CAPTURE_PATH_A_2026_04_30.md.
+from services.paper_trader import _simulate_slippage, _simulate_fees
+
 # --- Exit strategies per personality (Section 3) ---
 # --- Exit strategies per personality (Section 3) ---
 # --- Staged take-profits (configurable via env var) ---
@@ -919,18 +925,30 @@ class BotCore:
                     _pe_fgi = float(features.get("cfgi_score", 50))
                     _pe_rugcheck = scored_signal.get("rugcheck_risk_level", "unknown")
                     _pe_market_cap = price * 1_000_000_000 if price > 0 else 0
+                    # LIVE-FEE-CAPTURE-001 Path A (Session D, 2026-04-30): write
+                    # entry-side slippage + fees estimates from paper helpers, plus
+                    # features_json for live entry parity with paper. See
+                    # docs/audits/LIVE_FEE_CAPTURE_PATH_A_2026_04_30.md.
+                    _pe_buy_slip = _simulate_slippage("buy", size_sol)
+                    _pe_buy_fees = _simulate_fees(
+                        "buy", size_sol, "auto",
+                        bonding_curve_progress=bc_progress,
+                    )
                     paper_trade_row_id = await self.pool.fetchval(
                         """INSERT INTO paper_trades
                            (mint, personality, entry_price, amount_sol, entry_time,
                             signal_source, ml_score, entry_signature,
                             market_mode_at_entry, fear_greed_at_entry, rugcheck_risk,
-                            market_cap_at_entry, trade_mode)
-                           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                            market_cap_at_entry, trade_mode,
+                            slippage_pct, fees_sol, features_json)
+                           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+                                   $14, $15, $16)
                            RETURNING id""",
                         mint, personality, price, size_sol, pos.entry_time,
                         signal_source, ml_score, getattr(result, "signature", None),
                         market_mode or "NORMAL", _pe_fgi, _pe_rugcheck,
                         _pe_market_cap, "live",
+                        _pe_buy_slip, _pe_buy_fees["total"], json.dumps(features),
                     )
                     pos.paper_trade_id = paper_trade_row_id
                     logger.info("LIVE entry paper_trades row created id=%d mint=%s",
@@ -1245,8 +1263,27 @@ class BotCore:
         current_price = await self._get_token_price(pos.mint)
 
         if pos.remaining_pct <= 0.01:
+            # LIVE-FEE-CAPTURE-001 Path A (Session D, 2026-04-30): use paper helpers
+            # for round-trip fee + slippage estimates. Both buy and sell sides are
+            # estimated and summed; subtract from gross PnL. Path B (Helius
+            # parseTransactions for actual fill data) deferred to a follow-up session.
+            # See docs/audits/LIVE_FEE_CAPTURE_PATH_A_2026_04_30.md.
+            _live_buy_slip_pct = _simulate_slippage("buy", pos.size_sol)
+            _live_sell_slip_pct = _simulate_slippage("sell", sell_amount)
+            _live_buy_fees = _simulate_fees(
+                "buy", pos.size_sol, "auto",
+                bonding_curve_progress=pos.bonding_curve_progress,
+            )
+            _live_sell_fees = _simulate_fees(
+                "sell", sell_amount, "auto",
+                bonding_curve_progress=pos.bonding_curve_progress,
+            )
+            _live_total_fees_sol = _live_buy_fees["total"] + _live_sell_fees["total"]
+            _live_avg_slippage_pct = (_live_buy_slip_pct + _live_sell_slip_pct) / 2
+
             pnl_pct = ((current_price - pos.entry_price) / pos.entry_price * 100) if pos.entry_price > 0 else 0
-            pnl_sol = (current_price - pos.entry_price) / pos.entry_price * sell_amount if pos.entry_price > 0 else 0
+            _live_gross_pnl_sol = (current_price - pos.entry_price) / pos.entry_price * sell_amount if pos.entry_price > 0 else 0
+            pnl_sol = _live_gross_pnl_sol - _live_total_fees_sol  # LIVE-PNL-FEE-FORMULA-001
             outcome = "profit" if pnl_sol > 0 else "loss"
 
             self.portfolio.daily_pnl_sol += pnl_sol
@@ -1280,17 +1317,26 @@ class BotCore:
 
             if pos.paper_trade_id is not None:
                 # Entry row exists — UPDATE it (correct lifecycle semantics).
+                # LIVE-FEE-CAPTURE-001 Path A (Session D, 2026-04-30): write
+                # slippage_pct + fees_sol from _simulate_* estimates, plus
+                # corrected_* with method='live_estimated_v1'. Distinct param slots
+                # for corrected_* per BUG-022 hotfix lesson.
                 try:
                     await self.pool.execute(
                         """UPDATE paper_trades SET
                             exit_price=$1, exit_time=$2, hold_seconds=$3,
                             realised_pnl_sol=$4, realised_pnl_pct=$5,
                             exit_reason=$6, exit_signature=$7,
-                            market_cap_at_exit=$8, outcome=$9
+                            market_cap_at_exit=$8, outcome=$9,
+                            slippage_pct=$11, fees_sol=$12,
+                            corrected_pnl_sol=$13, corrected_pnl_pct=$14, corrected_outcome=$15,
+                            correction_method='live_estimated_v1', correction_applied_at=NOW()
                            WHERE id=$10""",
                         current_price, _pt_exit_time, _pt_hold,
                         pnl_sol, pnl_pct, reason, _pt_exit_sig,
                         _pt_mcap_exit, _pt_outcome, pos.paper_trade_id,
+                        _live_avg_slippage_pct, _live_total_fees_sol,
+                        pnl_sol, pnl_pct, _pt_outcome,
                     )
                     logger.info("LIVE paper_trades UPDATE id=%d mint=%s outcome=%s pnl=%.4f",
                                 pos.paper_trade_id, pos.mint[:12], _pt_outcome, pnl_sol)
