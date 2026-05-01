@@ -140,7 +140,7 @@ Last 24h SD trend (2026-04-30 08:53 UTC – 24h, snapshot):
 - [ ] **24-48h paper observation** with current config (Sessions A-D landed). 24h window opens at last meaningful change (LIVE-FEE-CAPTURE Path A landed 2026-04-30 ~08:50 UTC).
 - [ ] **Confirm SD_EARLY_CHECK relax verdict** holds in observation (Session A TUNE-009 deferred; re-evaluate if conditions in audit §10 emerge).
 - [x] **Resolve SD_MC_CEILING_002** ✅ DEPLOYED 2026-04-30 ~12:30 UTC via Option 2 (BC-reserves MC compute in SA gate). Verification (Step 6 immediate + 24h ~2026-05-01) queued. See `docs/audits/SD_MC_CEILING_002_DEPLOY_2026_04_30.md`.
-- [ ] **Land LIVE-FEE-CAPTURE-002 (Path B)** — Helius parseTransactions for actual fill data. Path A undercorrects by ~12× on the only live data point (id 6580). V5a-blocking-but-degradable.
+- [x] **Land LIVE-FEE-CAPTURE-002 (Path B)** ✅ DEPLOYED 2026-05-01 (Session 5 of 6 chained sequence). New `services/helius_parser.py` helper + bot_core live-close wiring use `accountData[*].nativeBalanceChange` (NOT `nativeTransfers` which misses PDA-mediated swap proceeds). id 6580 backfilled: `corrected_pnl_sol = -0.094245` (matches on-chain truth exactly, was -0.0064 under Path A). `correction_method='live_actual_v1'` is the new authoritative source for live rows; Path A `live_estimated_v1` remains as automatic fallback on parse failure. See `docs/audits/LIVE_FEE_CAPTURE_002_PATH_B_2026_05_01.md`.
 - [ ] **Renew Redis daily TTLs** before V5a flip: `market:mode:override=NORMAL EX 86400`, `nansen:disabled=true EX 86400`. Both expired at session-E snapshot time.
 - [ ] **V5a flip:** `TEST_MODE=false` on bot_core per CLAUDE.md "Live trading mode — session-gated" rule (§Operating Principles).
 

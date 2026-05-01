@@ -1343,12 +1343,60 @@ class BotCore:
             _pt_mcap_exit = current_price * 1_000_000_000 if current_price > 0 else 0
             _pt_exit_sig = getattr(result, "signature", None)
 
+            # LIVE-FEE-CAPTURE-002 (Path B, 2026-05-01): resolve on-chain reality
+            # via Helius parseTransactions. If both entry and exit signatures parse
+            # successfully, override Path A's estimated PnL with the actual net SOL
+            # delta computed from `accountData[*].nativeBalanceChange` for our wallet.
+            # Falls back to Path A (live_estimated_v1) on any parse failure.
+            # See docs/audits/LIVE_FEE_CAPTURE_002_PATH_B_2026_05_01.md.
+            _path_b_pnl_sol = None
+            _correction_method = "live_estimated_v1"
+            _path_b_corrected_pnl_sol = pnl_sol  # Path A default = pass-through to realised
+            _path_b_corrected_pnl_pct = pnl_pct
+            _path_b_corrected_outcome = _pt_outcome
+            try:
+                from services.helius_parser import helius_parse_signature
+                _entry_parsed = (
+                    await helius_parse_signature(pos.entry_signature)
+                    if getattr(pos, "entry_signature", None) else None
+                )
+                _exit_parsed = (
+                    await helius_parse_signature(_pt_exit_sig)
+                    if _pt_exit_sig else None
+                )
+                if (_entry_parsed and _exit_parsed
+                        and _entry_parsed.get("success") and _exit_parsed.get("success")):
+                    _entry_native = _entry_parsed["native_delta_lamports"]
+                    _exit_native = _exit_parsed["native_delta_lamports"]
+                    _path_b_pnl_sol = (_entry_native + _exit_native) / 1e9
+                    _path_b_corrected_pnl_sol = _path_b_pnl_sol
+                    _path_b_corrected_pnl_pct = (
+                        (_path_b_pnl_sol / pos.size_sol * 100)
+                        if pos.size_sol and pos.size_sol > 0 else 0.0
+                    )
+                    _path_b_corrected_outcome = "win" if _path_b_pnl_sol > 0 else "loss"
+                    _correction_method = "live_actual_v1"
+                    logger.info(
+                        "LIVE-FEE-CAPTURE-002 Path B: id=%s mint=%s actual_pnl=%.6f path_a_pnl=%.6f delta=%.6f",
+                        pos.paper_trade_id, pos.mint[:12],
+                        _path_b_pnl_sol, pnl_sol, abs(_path_b_pnl_sol - pnl_sol),
+                    )
+            except Exception as _path_b_err:
+                logger.warning(
+                    "Path B parse failed for mint=%s: %s — falling back to Path A",
+                    pos.mint[:12], _path_b_err,
+                )
+                _correction_method = "live_estimated_v1"
+
             if pos.paper_trade_id is not None:
                 # Entry row exists — UPDATE it (correct lifecycle semantics).
                 # LIVE-FEE-CAPTURE-001 Path A (Session D, 2026-04-30): write
                 # slippage_pct + fees_sol from _simulate_* estimates, plus
                 # corrected_* with method='live_estimated_v1'. Distinct param slots
                 # for corrected_* per BUG-022 hotfix lesson.
+                # LIVE-FEE-CAPTURE-002 (Path B, 2026-05-01): correction_method now
+                # parameterised via $16 — written as 'live_actual_v1' when Helius
+                # parse succeeds for both entry+exit, else 'live_estimated_v1'.
                 try:
                     await self.pool.execute(
                         """UPDATE paper_trades SET
@@ -1358,16 +1406,17 @@ class BotCore:
                             market_cap_at_exit=$8, outcome=$9,
                             slippage_pct=$11, fees_sol=$12,
                             corrected_pnl_sol=$13, corrected_pnl_pct=$14, corrected_outcome=$15,
-                            correction_method='live_estimated_v1', correction_applied_at=NOW()
+                            correction_method=$16, correction_applied_at=NOW()
                            WHERE id=$10""",
                         current_price, _pt_exit_time, _pt_hold,
                         pnl_sol, pnl_pct, reason, _pt_exit_sig,
                         _pt_mcap_exit, _pt_outcome, pos.paper_trade_id,
                         _live_avg_slippage_pct, _live_total_fees_sol,
-                        pnl_sol, pnl_pct, _pt_outcome,
+                        _path_b_corrected_pnl_sol, _path_b_corrected_pnl_pct, _path_b_corrected_outcome,
+                        _correction_method,
                     )
-                    logger.info("LIVE paper_trades UPDATE id=%d mint=%s outcome=%s pnl=%.4f",
-                                pos.paper_trade_id, pos.mint[:12], _pt_outcome, pnl_sol)
+                    logger.info("LIVE paper_trades UPDATE id=%d mint=%s outcome=%s pnl=%.4f method=%s",
+                                pos.paper_trade_id, pos.mint[:12], _pt_outcome, pnl_sol, _correction_method)
                 except Exception as e:
                     logger.error("LIVE close paper_trades UPDATE failed id=%d mint=%s: %s",
                                  pos.paper_trade_id, pos.mint, e)

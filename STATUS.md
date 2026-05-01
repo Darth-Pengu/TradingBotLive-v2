@@ -7,6 +7,61 @@
 
 ---
 
+## 2026-05-01 — LIVE-FEE-CAPTURE-002 (Path B Helius parseTransactions — Session 5 of 6 in chained-prompt sequence)
+
+**Committed (this session):** `<hash>` feat(bot_core): LIVE-FEE-CAPTURE-002 Path B — Helius parseTransactions wired into live-close. Files: `services/helius_parser.py` (NEW), `services/bot_core.py:1346` (Path B branch + parameterised correction_method=$16 in live-close UPDATE), `docs/audits/LIVE_FEE_CAPTURE_002_PATH_B_2026_05_01.md` (NEW, 8 sections), `ZMN_ROADMAP.md` (Decision Log + future-queued status), `AGENT_CONTEXT.md` (V5a precondition strike), `STATUS.md` (this prepend). Plus DB UPDATE: id 6580 backfilled to `correction_method='live_actual_v1'`.
+
+**State changes:**
+- Code: bot_core.py live-close branch reads helius_parse_signature; on success uses `(entry_native_delta + exit_native_delta) / 1e9` for corrected_pnl_sol with correction_method='live_actual_v1'; falls back to Path A live_estimated_v1 on any parse failure.
+- DB: id 6580 row updated in production database (corrected_pnl_sol -0.0064 → -0.094245; correction_method live_estimated_v1 → live_actual_v1).
+- Single git push triggers bot_core auto-redeploy.
+- No env var change.
+
+**Bot state at session start (~12:40 UTC):**
+- TEST_MODE=true ✓, market_mode=NORMAL ✓
+- bot_core healthy, ~1 hour since Session 4 docs commit redeploy
+
+**§2 Helius response schema findings:**
+- **Critical discovery:** `nativeTransfers[*]` only captures direct user-to-user SOL transfers (e.g. Jito tips). Swap proceeds via PDAs are NOT captured. Initial parser using nativeTransfers had a 0.281 SOL gap on id 6580 exit.
+- **Correct field:** `accountData[*].nativeBalanceChange` filtered for `account == TRADING_WALLET`. Captures full net SOL delta including PDA-mediated swap proceeds.
+- For id 6580 exit: nativeTransfers showed only -0.001841 SOL (Jito tip outgoing); accountData showed +0.280007 SOL (actual sell proceeds). Path B uses the latter.
+
+**§3 Implementation:**
+- `services/helius_parser.py` (NEW) — `helius_parse_signature(signature, *, timeout_seconds=5.0, retries=2) -> dict | None`. Honors rate-limit backoff (1→2→4→...→60s cap). Returns None on any error. Reads `HELIUS_PARSE_TX_URL` + `TRADING_WALLET_ADDRESS` env vars (both already wired).
+- `services/bot_core.py` — Path B branch added at live-close UPDATE path (~line 1346). Lazily imports helper, calls on entry+exit signatures, overrides Path A values when both succeed. Otherwise falls back to existing Path A `live_estimated_v1` behavior. UPDATE statement parameterised: `correction_method=$16` (was hardcoded literal). Distinct $N per column per asyncpg discipline.
+
+**§4 Verify-fix output (.tmp_path_b/verify_output.txt):**
+- `verify_path_b.py` PASS — computed Path B corrected_pnl_sol = -0.094245 SOL = on-chain truth (delta 0.000000)
+- `backfill_6580.py` SUCCESS — DB row updated: corrected_pnl_sol -0.0064 → -0.094244978, correction_method='live_actual_v1', correction_applied_at=2026-05-01 12:52:37 UTC
+
+**Compile-checked:** `python -m py_compile services/bot_core.py services/helius_parser.py` → COMPILE OK.
+
+**§5 Deploy verification — queued post-deploy:**
+- Poll Railway MCP for bot_core SUCCESS, +90s warmup
+- Verify Sentry release matches commit hash
+- Live behavior verification N/A (TEST_MODE=true; no fresh live trades to exercise Path B)
+- id 6580 backfill already completed PRE-deploy (the helper code is identical, runs against same Helius/DB)
+
+**Stop-condition check:** 0 of 4 STOP conditions tripped. Helius response shape adequate (verified). id 6580 reconstruction within 0.000000 SOL of truth (PASS bar 0.005). Helius rate-limit not encountered. Helper file added in services/ (write access OK).
+
+**Blockers cleared:**
+- ✅ **LIVE-FEE-CAPTURE-002 (Path B)** — V5a parity-of-truth precondition closed. id 6580 is now the gold-standard reference for live PnL accuracy; future live trades will write `live_actual_v1` automatically.
+
+**Blockers new/active:**
+- 📋 **LIVE-CLOSE-PATH-B-LATENCY-001 (NEW, Tier 2 🟢)** — Path B helius_parse_signature is sync; potential close-path latency. No mitigation needed absent observed harm.
+- 📋 **LIVE-PATH-B-SLIPPAGE-DERIVATION-001 (NEW, Tier 2 🟢)** — Path B writes corrected_pnl_sol but slippage_pct still uses Path A estimate. Observability only.
+- All other carries unchanged.
+
+**V5a precondition delta:** **+1 forward.** LIVE-FEE-CAPTURE-002 closed. Remaining V5a preconditions: ~3 SOL wallet top-up (Jay action), 24-48h paper observation, Renew Redis daily TTLs, V5a flip itself. Session 6 (V5A-GO-NO-GO-CHECKLIST) will run final precondition audit.
+
+**Next prompt:** **V5A-GO-NO-GO-CHECKLIST-001** (Session 6 of 6, FINAL of chained sequence). 10-precondition audit, GO/CONDITIONAL_GO/NO_GO verdict, read-only.
+
+**Pending Claude-chat prompts not yet pasted:** none — chained 6-prompt sequence almost complete (Session 6 next).
+
+**Verdict:** LIVE-FEE-CAPTURE-002 (Path B) ✅ DEPLOYED — Helper + bot_core wiring landed; id 6580 backfilled with on-chain-exact match (-0.094245 SOL). V5a parity-of-truth precondition closed. Audit doc `docs/audits/LIVE_FEE_CAPTURE_002_PATH_B_2026_05_01.md`.
+
+---
+
 ## 2026-05-01 — ML-THRESHOLD-DATA-DRIVEN-RETUNE-001 (Session: STOP per §8 + correction to Session 3 — Session 4 of 6 in chained-prompt sequence)
 
 **Committed (this session):** `<hash>` docs(ml-retune): ML-THRESHOLD-DATA-DRIVEN-RETUNE-001 — STOP per §8; threshold sweep complete; correction to Session 3 finding. Files: `docs/audits/ML_THRESHOLD_DATA_DRIVEN_RETUNE_2026_05_01.md` (NEW, 9 sections), `ZMN_ROADMAP.md` (Decision Log entry + 2 new future-queued levers BOT-CORE-ML-GATE-001 + AGGRESSIVE-PAPER-DISABLE-001 + revised POST-GRAD-ENTRY-GATE-001 to insurance Tier 2), `AGENT_CONTEXT.md` (revised §6.5 with corrected leak attribution), `STATUS.md` (this prepend).
