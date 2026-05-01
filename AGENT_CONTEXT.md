@@ -144,6 +144,22 @@ Last 24h SD trend (2026-04-30 08:53 UTC – 24h, snapshot):
 - [ ] **Renew Redis daily TTLs** before V5a flip: `market:mode:override=NORMAL EX 86400`, `nansen:disabled=true EX 86400`. Both expired at session-E snapshot time.
 - [ ] **V5a flip:** `TEST_MODE=false` on bot_core per CLAUDE.md "Live trading mode — session-gated" rule (§Operating Principles).
 
+> **⚠ V5a flip pre-patch will AMPLIFY known leaks linearly with sizing.** See §6.5 below — POST-GRAD-ENTRY-GATE-001 (~-7 SOL/week unmitigated) and `no_momentum_90s` (~-4 SOL/week, separate audit) are still open. At MAX_POSITION_SOL=0.25 (5× MIN_POSITION_SOL=0.05), live mode would amplify the post-grad-entry bleed to ~-35 SOL/week if paper-to-live edge holds. Do not flip live until POST-GRAD-ENTRY-GATE-001 lands AND 48h paper observation confirms the gate works.
+
+---
+
+## §6.5 Known leaks under investigation (post-Session-3, 2026-05-01)
+
+| Leak | 14d attribution | Status | Patch path | Audit |
+|---|---:|---|---|---|
+| **Post-grad entry bleed** | **−14.60 SOL on 280 trades (~−7.3 SOL/week)** | 📋 PATCH PROPOSED — `POST-GRAD-ENTRY-GATE-001` | Gate out SD signals where `features.bonding_curve_progress >= 0.99` at signal_aggregator. Cost S, ROI ~+7 SOL/week. | `docs/audits/POST_GRAD_LOSS_INVESTIGATION_2026_05_01.md` |
+| `no_momentum_90s` (pre-grad) | −8.48 SOL on 423 trades (~−4 SOL/week) | 📋 AUDIT PROPOSED — `NO-MOMENTUM-90S-AUDIT-001` | Investigation first (signal quality vs exit-timer); patch second. | `docs/audits/POST_GRAD_LOSS_INVESTIGATION_2026_05_01.md` §4 PATCH B |
+| `stop_loss_20%` (pre-grad) | −8.00 SOL on 119 trades | 🟡 PARTIAL — likely correlated with above | May be addressed by `no_momentum_90s` audit; no direct patch yet. | same |
+
+**Interpretation:** The post-grad-entry bleed is the SINGLE LARGEST tractable structural leak (-14.60 SOL/14d on a clearly-defined entry condition). PATCH A is the highest-ROI Track-B profitability lever currently identified. `no_momentum_90s` is larger by total SOL but less tractable — needs investigation first.
+
+**For V5a decision:** unmitigated, the post-grad-entry leak alone would amplify to ~-35 SOL/week at MAX_POSITION_SOL=0.25 (assuming paper-to-live edge holds). This is V5a-blocking unless POST-GRAD-ENTRY-GATE-001 lands first OR live trial is run at sub-floor sizing (e.g., MIN_POSITION_SOL=0.025) for limited duration.
+
 ---
 
 ## §7 Known unresolved (Tier-1 carry)

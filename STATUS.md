@@ -7,6 +7,57 @@
 
 ---
 
+## 2026-05-01 — POST-GRAD-LOSS-INVESTIGATION-001 (Session: 5-hypothesis investigation; H2 reveals real bleed source — Session 3 of 6 in chained-prompt sequence)
+
+**Committed (this session):** `<hash>` docs(post-grad-investigation): POST-GRAD-LOSS-INVESTIGATION-001 — 5-hypothesis investigation reveals post-grad ENTRY (bc=1.0 at entry) as bleed source. Files: `docs/audits/POST_GRAD_LOSS_INVESTIGATION_2026_05_01.md` (NEW, 8 sections), `ZMN_ROADMAP.md` (Decision Log entry + 5 new future-queued levers including POST-GRAD-ENTRY-GATE-001), `AGENT_CONTEXT.md` (NEW §6.5 "Known leaks under investigation"), `STATUS.md` (this prepend).
+
+**State changes:** None. Investigation only. Bot continues TEST_MODE=true, market_mode=NORMAL.
+
+**Bot state at session start (~12:30 UTC):**
+- TEST_MODE=true ✓, market_mode=NORMAL ✓, paper portfolio 23.89 SOL, 0 open positions
+- Sessions 1-2 deployed cleanly: TIME-PRIME `13d4324` + STATE-RECONCILE `1d1620e` (docs commit triggered redeploy at ~12:25 UTC, daily_pnl reset to 0.0 confirms)
+
+**§2 Hypothesis tests (H1 → H5 → H2 → H4 → H3 order, 14d window):**
+
+| H | Verdict | Key evidence |
+|---|---|---|
+| H1 (threshold tightness) | PARTIAL | 58/300 (19.3%) of TRAILING_STOP winners exited below entry × 0.8. H1b counterpart untestable (`peak_price` NULL on stop_loss_20%) |
+| H2 (carry past graduation) | **REFUTED in original framing → REVEALS REAL BLEED** | 145/145 graduation_stop_loss + 79/79 graduation_time_exit + 56/56 graduation_tp_30pct = **280 entries with bc_progress=1.0 AT ENTRY** (post-grad ENTRY, not carry-through). Net -14.60 SOL/14d (~-7.3 SOL/week) |
+| H3 (pricing artifact) | SKIPPED | Paper synthetic signatures; no on-chain |
+| H4 (adverse selection) | REFUTED | Hold patterns reflect strategy timeouts (graduation_time_exit's 1273s = configured max-hold), not adverse selection |
+| H5 (exit ordering) | UNTESTABLE | `trailing_stop_active` is transient state (resets at exit). Indirect: stop_loss_20% rows have 0% trail_active, consistent with both "trail never engaged" AND "state reset" |
+
+**§3 Synthesis (highest-ROI patch):**
+- **PATCH A — POST-GRAD-ENTRY-GATE-001** — gate SD signals at signal_aggregator where `bonding_curve_progress >= 0.99`. Cost S, ROI ~+7 SOL/week. Eliminates -7.3 SOL/week post-grad-entry bleed. Recommended Tier 1 🔴.
+- **PATCH B — NO-MOMENTUM-90S-AUDIT-001** — separate pre-grad bleed audit (-8.48 SOL/14d on 423 trades). Investigation first, patch second. Tier 1 🟡.
+- **PATCH C — OBS-TRAIL-ENGAGEMENT-001** — sticky `trail_was_engaged` boolean. Cost S, observability only. Tier 2 🟢.
+
+**Observability gaps surfaced:**
+- `trailing_stop_active` is transient state (need sticky `trail_was_engaged`)
+- No `min_price_during_hold` (intra-hold drawdown tracking)
+- No exit-time bc_progress capture (carry-through detection)
+
+**Stop-condition check:** 0 of 4 STOP conditions tripped (DB OK; no test exceeded 30s; PATCH A ROI well above 0.5 SOL/week threshold; H1+H5 not BOTH untestable as H1 returned PARTIAL signal).
+
+**Blockers cleared:** None directly (investigation session). POST-GRAD-LOSS-INVESTIGATION-001 closed as ✅ INVESTIGATION COMPLETE.
+
+**Blockers new/active:**
+- 📋 **POST-GRAD-ENTRY-GATE-001 (NEW)** — Tier 1 🔴 PROPOSED, the highest-ROI Track-B lever currently identified. Pending implementation session (not in current 6-prompt chain).
+- 📋 **NO-MOMENTUM-90S-AUDIT-001 (NEW)** — Tier 1 🟡 PROPOSED, separate audit needed.
+- 📋 **OBS-TRAIL-ENGAGEMENT-001 (NEW)** — Tier 2 🟢 PROPOSED, observability.
+- 📋 **OBS-INTRA-HOLD-DRAWDOWN-001 (NEW)** — Tier 2 🟢 PROPOSED, observability.
+- 📋 **OBS-EXIT-TIME-BC-PROGRESS-001 (NEW)** — Tier 2 🟢 PROPOSED, observability (low priority since current data shows no carry-through case).
+
+**V5a precondition delta:** **-1 backward (de facto blocker added).** AGENT_CONTEXT.md §6.5 surfaces the post-grad bleed: at MAX_POSITION_SOL=0.25, live mode would amplify -7 SOL/week to ~-35 SOL/week if paper-to-live edge holds. **POST-GRAD-ENTRY-GATE-001 should land BEFORE V5a flip** (or trial at sub-floor sizing). Adding to CONDITIONAL_GO criteria for Session 6 V5A-GO-NO-GO.
+
+**Next prompt:** **ML-THRESHOLD-DATA-DRIVEN-RETUNE-001** (Session 4 of 6). Per Session 4 prompt §2 Step 3, the band sweep should be RE-RUN filtering for pre-grad-only exits (this session's H2 finding shows the loss profile is dominated by post-grad mechanics, so pre-grad-only is the right ML signal measurement).
+
+**Pending Claude-chat prompts not yet pasted:** none — chained 6-prompt sequence pasted; POST-GRAD is Session 3 of 6.
+
+**Verdict:** POST-GRAD-LOSS-INVESTIGATION-001 ✅ DELIVERED — Investigation complete, REAL bleed source identified (post-grad ENTRY not carry-through), highest-ROI patch proposed (POST-GRAD-ENTRY-GATE-001 +7 SOL/week). 0 STOP conditions tripped. Audit doc `docs/audits/POST_GRAD_LOSS_INVESTIGATION_2026_05_01.md`.
+
+---
+
 ## 2026-05-01 — STATE-RECONCILE-2026-05-01 (Session: doc reconciliation against verified DB findings — Session 2 of 6 in chained-prompt sequence)
 
 **Committed (this session):** `<hash>` docs(state-reconcile): STATE-RECONCILE-2026-05-01 — reconcile canonical docs against verified A-E findings. Files: `CLAUDE.md` (ML threshold 2026-05-01 addendum), `AGENT_CONTEXT.md` (header refresh + TIME_PRIME env rows), `ZMN_ROADMAP.md` (STATE-RECONCILE Decision Log entry + 4 new future-queued levers: POST-GRAD-LOSS-INVESTIGATION-001, ML-THRESHOLD-DATA-DRIVEN-RETUNE-001, TIME-PRIME-AEDT-AEST-DRIFT-001, TIME-PRIME-CALIBRATION-001), `MONITORING_LOG.md` (2026-05-01 entry prepended), `STATUS.md` (this prepend), `docs/audits/USERMEMORIES_DRIFT_2026_05_01.md` (NEW, 6 sections).
