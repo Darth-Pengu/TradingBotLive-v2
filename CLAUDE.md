@@ -211,6 +211,8 @@ use MCAP columns (USD) — consistent convention across all trade tables.
 
   **Current policy:** `ML_THRESHOLD_SPEED_DEMON` floor = 40 (gated at signal_aggregator). No upper bound. Higher scores are better, not worse. The Issue #1 entry below is historical and superseded by this block.
 
+  **2026-05-01 update (STATE-RECONCILE-2026-05-01).** The 2026-04-17/19 magnitudes have collapsed by ~50-100× in the recent 7d sample. Current 7d SD-paper (n=689): 30-40 +0.49 / 40-50 **-1.98 SOL (worst)** / 50-60 -0.18 / 60-70 -0.70 / 70-80 **+1.63 (best)** / 80-90 -0.35 / 90+ +0.005. "Higher scores are better" now holds only weakly — only 70-80 reliably positive in the sample, while 80-90 is mildly negative. **The 2026-04-17/19 block remains a historical reference**; current cutoff guidance is uncertain pending `ML-THRESHOLD-DATA-DRIVEN-RETUNE-001` (Session 4 of 2026-05-01 chained-prompt sequence). See `docs/audits/USERMEMORIES_DRIFT_2026_05_01.md` §1A for full data and `.tmp_state_reconcile/findings_A_through_E.txt` for raw SQL output.
+
 ### CFGI state
 - Primary source: **cfgi.io Solana** — NOW ACTIVE (credits topped up)
 - market:health.cfgi = 41.5 (cfgi.io SOL, primary)

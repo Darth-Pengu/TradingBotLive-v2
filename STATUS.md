@@ -7,6 +7,59 @@
 
 ---
 
+## 2026-05-01 — STATE-RECONCILE-2026-05-01 (Session: doc reconciliation against verified DB findings — Session 2 of 6 in chained-prompt sequence)
+
+**Committed (this session):** `<hash>` docs(state-reconcile): STATE-RECONCILE-2026-05-01 — reconcile canonical docs against verified A-E findings. Files: `CLAUDE.md` (ML threshold 2026-05-01 addendum), `AGENT_CONTEXT.md` (header refresh + TIME_PRIME env rows), `ZMN_ROADMAP.md` (STATE-RECONCILE Decision Log entry + 4 new future-queued levers: POST-GRAD-LOSS-INVESTIGATION-001, ML-THRESHOLD-DATA-DRIVEN-RETUNE-001, TIME-PRIME-AEDT-AEST-DRIFT-001, TIME-PRIME-CALIBRATION-001), `MONITORING_LOG.md` (2026-05-01 entry prepended), `STATUS.md` (this prepend), `docs/audits/USERMEMORIES_DRIFT_2026_05_01.md` (NEW, 6 sections).
+
+**State changes:** None to deployed config. Docs-only commit. Per RAILWAY-REDEPLOY-DISCIPLINE-001, accept that the docs commit may also redeploy services.
+
+**Bot state at session start (~2026-05-01 ~12:18 UTC):**
+- TEST_MODE=true on bot_core ✓ (Railway MCP env list confirms)
+- bot:status RUNNING, paper portfolio 23.89 SOL, daily_pnl -0.16 SOL, market_mode NORMAL ✓
+- consecutive_losses 3, 0 open positions, bot:emergency_stop absent ✓
+- Session 1 deploy verified: container restarted 12:14:08 UTC with Sentry release `13d43242` matching commit `13d4324`; startup banner clean.
+- Pre-fix evidence preserved: 2 historical TIME_PRIME log lines (08:11 AEDT hr=19, 09:21 AEDT hr=20) showing 2.0× sizing. Post-fix: env-controlled, default disabled.
+
+**§2 Findings A-E (verified production DB, run 2026-05-01 ~12:18 UTC):**
+- **A:** ML score band: 30-40 +0.49 / **40-50 -1.98 (worst)** / 50-60 -0.18 / 60-70 -0.70 / **70-80 +1.63 (best)** / 80-90 -0.35 / 90+ +0.005. Aggregate -1.09 SOL on 689 trades. Chat-side "50+ mostly profitable" REFUTED — only 70-80 reliably positive. The 2026-04-17/19 magnitudes have collapsed by ~50-100×.
+- **B:** AEST 18-20 -2.46 SOL on 114 trades (worst, confirmed); AEST 11-17 +0.18 (flat, confirmed); AEST 21-23 + 00-08 -1.45 SOL (chat said +1, REFUTED).
+- **C:** TRAILING_STOP +7.93 / 206 / 76.7% WR (dominant winner); top losers `no_momentum_90s` -7.40 (largest, chat omitted), `graduation_stop_loss` -6.36, `stop_loss_20%` -5.16. Post-grad bleed = -12.09 SOL (chat -23, HALF). TRAILING_STOP captures 69% of gains (chat 98%, OVERSTATED).
+- **D:** Last analyst entry 2026-04-28 13:02 UTC; 0 last 3 days. ANALYST-DISABLE-002 confirmed.
+- **E:** SD WR 04-22/23 ~50% → 04-30 17.9%. Direction confirmed; 14d net +9.0 SOL but recent 4d -1.18 SOL.
+
+**§3 Reconciliation outcome:** PROCEED with nuanced edits (headlines confirmed, details corrected). No STOP triggered. Drift classification: 0 🔴 ACTION-CHANGING / 2 🟡 SCOPE-CONFUSION (ML threshold drift, AEDT/AEST timezone drift) / 3 🟢 SAMPLE-STALE (TRAILING_STOP %, stop_loss_35% absent, SD profitability window) / 1 🔵 NUANCE-MISSING (no_momentum_90s vs stop_loss categorization).
+
+**§4 Doc updates applied (single commit):**
+1. CLAUDE.md ML threshold 2026-05-01 addendum after the 2026-04-17/19 block (preserved as historical evidence) + reference to USERMEMORIES_DRIFT_2026_05_01.md.
+2. AGENT_CONTEXT.md state-header refresh; TIME_PRIME_MULTIPLIER + TIME_PRIME_HOURS_AEST rows added to bot_core config table.
+3. ZMN_ROADMAP.md STATE-RECONCILE Decision Log entry above TIME-PRIME entry; 4 new future-queued levers (POST-GRAD-LOSS-INVESTIGATION-001 Tier 1 🔴 with corrected -12 SOL ROI; ML-THRESHOLD-DATA-DRIVEN-RETUNE-001 Tier 1 🟡 gated on POST-GRAD; TIME-PRIME-AEDT-AEST-DRIFT-001 LOW; TIME-PRIME-CALIBRATION-001 MEDIUM).
+4. MONITORING_LOG.md 2026-05-01 entry prepended summarizing Findings A-E + reconciliation outcome.
+5. docs/audits/USERMEMORIES_DRIFT_2026_05_01.md NEW (6 sections, full data tables + classifications).
+6. STATUS.md (this prepend).
+
+**§5 quiz.md verification:** post-edit reader-perspective check confirms updated docs answer the 5 quiz questions unambiguously and consistently across files.
+
+**Stop-condition check:** 0 of 3 STOP conditions tripped (DB connection OK; headline directions all confirmed; quiz consistency verified).
+
+**Blockers cleared:** None this session — bookkeeping only.
+
+**Blockers new/active:**
+- 📋 **POST-GRAD-LOSS-INVESTIGATION-001 (NEW)** — Tier 1 🔴, queued for Session 3. Investigate -12.09 SOL/7d post-grad bleed (graduation_stop_loss + stop_loss_20% + graduation_time_exit). 5-hypothesis investigation; no code change.
+- 📋 **ML-THRESHOLD-DATA-DRIVEN-RETUNE-001 (NEW)** — Tier 1 🟡, queued for Session 4. Gated on POST-GRAD outcome (if loss profile is dominated by graduation mechanics, ML retune impact is smaller).
+- 📋 **TIME-PRIME-AEDT-AEST-DRIFT-001 (NEW)** — LOW, surfaced by Session 1.
+- 📋 **TIME-PRIME-CALIBRATION-001 (NEW)** — MEDIUM, future-queued.
+- All other carries unchanged.
+
+**V5a precondition delta:** **0 forward this session** (bookkeeping only). Continued: TIME_PRIME ✅ closed Session 1; remaining: ~3 SOL wallet top-up, Path B, 24-48h paper observation, ML retune.
+
+**Next prompt:** **POST-GRAD-LOSS-INVESTIGATION-001** (Session 3 of 6).
+
+**Pending Claude-chat prompts not yet pasted:** none — chained 6-prompt sequence pasted in conversation; STATE-RECONCILE is Session 2 of 6.
+
+**Verdict:** STATE-RECONCILE-2026-05-01 ✅ DELIVERED — 5 doc files updated + 1 NEW audit doc; chat-side framings reconciled with actual production data; no code or env changes; doc consistency verified.
+
+---
+
 ## 2026-05-01 — TIME-PRIME-CONTRADICTION-FIX-001 (Session: env-driven multiplier; default disabled — Session 1 of 6 in chained-prompt sequence)
 
 **Committed (this session):** `<hash>` fix(bot_core): TIME-PRIME-CONTRADICTION-FIX-001 — neutralize 2× AEST 17-19 upsize via env-driven multiplier (default 1.0×). Files: `services/bot_core.py:704-720` (TIME_PRIME branch replaced; TIME_GOOD/DEAD/SLEEP/WEEKEND_BOOST untouched per §10) + `docs/audits/TIME_PRIME_CONTRADICTION_FIX_2026_04_30.md` (NEW, 9 sections) + `STATUS.md` prepend + `ZMN_ROADMAP.md` (Decision Log + §7 row update) + `AGENT_CONTEXT.md` (§7 row update).

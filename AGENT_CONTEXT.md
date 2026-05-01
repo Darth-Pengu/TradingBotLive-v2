@@ -1,6 +1,6 @@
 # AGENT_CONTEXT — current bot state
 
-**Last updated:** 2026-04-30 ~13:40 UTC by REALISM-AND-ROADMAP-CLEANUP-2026-04-30 (Phases 1+2+3: MARKET-MODE-001 unblocked HIBERNATE-forever, SOCIAL-SCORING-001 added 4 ML features, ROADMAP cleanup closed 4 Class A items including DOCS-004 Vybe URL fix and TUNE-004 SA env hygiene). Prior: FEE-LATENCY-REALISM-2026-04-30 (Path A slippage tier fix).
+**Last updated:** 2026-05-01 ~12:30 UTC by STATE-RECONCILE-2026-05-01 (Session 2 of 6 chained sequence; reconciled docs against Findings A-E from production DB — full data in `docs/audits/USERMEMORIES_DRIFT_2026_05_01.md`). Prior: TIME-PRIME-CONTRADICTION-FIX-001 (Session 1, commit `13d4324`; TIME_PRIME 2× upsize at code aedt_hour 18-20 / Sydney AEST 17-19 neutralized via env-control). Pre-Sessions: REALISM-AND-ROADMAP-CLEANUP-2026-04-30 + FEE-LATENCY-REALISM-2026-04-30 (Path A slippage tier fix).
 **Source:** Read directly from Railway env, Redis, DB, on-chain.
 **NOT a chat-side carry.** Memory drift policy: see CLAUDE.md "Persistence Convention" (added Session E).
 
@@ -38,6 +38,8 @@ Live mode flip is **session-gated** per CLAUDE.md "Live trading mode — session
 | STAGED_TAKE_PROFITS_JSON | `[[2.00,0.20],[5.00,0.375],[10.00,1.00]]` | |
 | TIERED_TRAIL_SCHEDULE_JSON | `[[0.10,0.30],[0.50,0.25],[1.00,0.20],[2.00,0.15],[5.00,0.12]]` | |
 | STOP_LOSS_PCT | 0.20 | |
+| TIME_PRIME_MULTIPLIER | 1.0 | TIME-PRIME-CONTRADICTION-FIX-001 (2026-05-01 commit `13d4324`); was hardcoded 2.0 at AEDT 18-20, now env-controlled and disabled by default |
+| TIME_PRIME_HOURS_AEST | (unset → code default `""`) | empty hours = TIME_PRIME branch never fires; future re-tune lever |
 | DAILY_LOSS_LIMIT_SOL | 4.0 | |
 | DAILY_LOSS_LIMIT_PCT | 0.10 | |
 | SD_EARLY_CHECK_SECONDS | 60 | TUNE-009 ⏸ DEFERRED — empirical evidence rules out relax |

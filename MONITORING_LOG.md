@@ -2,6 +2,35 @@
 
 ---
 
+## 2026-05-01 ~12:30 UTC — STATE-RECONCILE-2026-05-01 (Session 2 of 6 chained-prompt sequence)
+
+### Findings A-E (verified production DB, last 7d SD-paper unless noted)
+
+- **A — ML score band performance:** 30-40 +0.49 / **40-50 -1.98 (worst)** / 50-60 -0.18 (flat) / 60-70 -0.70 / **70-80 +1.63 (best)** / 80-90 -0.35 / 90+ +0.005. Chat-side framing of "50+ mostly profitable" REFUTED — only 70-80 reliably positive. The 2026-04-17/19 magnitudes (CLAUDE.md ML threshold block table) have collapsed by ~50-100×.
+- **B — AEST hour distribution:** 18-20 -2.46 SOL on 114 trades (worst, confirmed); 11-17 +0.18 (flat, confirmed); chat's "AEST 21-23 + 00-08 ~+1 SOL" disconfirmed (actual ~-1.45 SOL).
+- **C — Exit reasons:** TRAILING_STOP +7.93 / 206 / 76.7% WR ✓ dominant winner. Top losers: `no_momentum_90s` -7.40 / 356 / 0% (LARGEST, chat omitted), `graduation_stop_loss` -6.36 / 67 / 0%, `stop_loss_20%` -5.16 / 74 / 0%. Post-grad bleed = -12.09 SOL on 173 trades (chat said -23; actual is HALF). TRAILING_STOP captures **69%** of gains, not 98%.
+- **D — Analyst recency:** Last entry 2026-04-28 13:02 UTC. 0 entries last 3 days. ANALYST-DISABLE-002 enforcement confirmed.
+- **E — SD daily trend:** WR 04-22/23 ~50% → 04-30 17.9% → 05-01 (early) 0%. Direction confirmed; aggregate 14d still net +9.0 SOL but recent 4d -1.18 SOL.
+
+### Reconciliation outcome
+
+PROCEED with nuanced doc reconciliation. No STOP triggered (headlines confirmed). Chat-side detail-level framings adjusted to actual data where they overstated (50+ profitability, post-grad bleed magnitude, TRAILING_STOP %, +1 SOL elsewhere claim). 0 🔴 ACTION-CHANGING / 2 🟡 SCOPE-CONFUSION / 3 🟢 SAMPLE-STALE / 1 🔵 NUANCE-MISSING per drift severity classification.
+
+### Doc updates landed
+
+- CLAUDE.md: ML threshold block 2026-05-01 addendum + reference to USERMEMORIES_DRIFT_2026_05_01.md
+- AGENT_CONTEXT.md: state-header refresh + TIME_PRIME env vars added to bot_core config table
+- ZMN_ROADMAP.md: STATE-RECONCILE Decision Log entry; future-queued POST-GRAD-LOSS-INVESTIGATION-001 (with corrected -12 SOL ROI estimate), ML-THRESHOLD-DATA-DRIVEN-RETUNE-001, TIME-PRIME-AEDT-AEST-DRIFT-001, TIME-PRIME-CALIBRATION-001
+- MONITORING_LOG.md: this entry
+- STATUS.md: Session 2 entry prepended
+- docs/audits/USERMEMORIES_DRIFT_2026_05_01.md: NEW
+
+### Carry-overs to Session 3
+
+POST-GRAD-LOSS-INVESTIGATION-001 should test 5 hypotheses against the -12.09 SOL post-grad bleed (NOT chat's -23 SOL — recalibrate ROI expectation). The largest single loss-source is actually `no_momentum_90s` (-7.40 SOL), which is a SEPARATE category from the post-grad investigation scope.
+
+---
+
 ## 2026-04-17 ~morning AEDT — Helius URL resolver + sell-storm circuit breaker
 
 ### Diagnosis
