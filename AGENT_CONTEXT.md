@@ -144,21 +144,24 @@ Last 24h SD trend (2026-04-30 08:53 UTC – 24h, snapshot):
 - [ ] **Renew Redis daily TTLs** before V5a flip: `market:mode:override=NORMAL EX 86400`, `nansen:disabled=true EX 86400`. Both expired at session-E snapshot time.
 - [ ] **V5a flip:** `TEST_MODE=false` on bot_core per CLAUDE.md "Live trading mode — session-gated" rule (§Operating Principles).
 
-> **⚠ V5a flip pre-patch will AMPLIFY known leaks linearly with sizing.** See §6.5 below — POST-GRAD-ENTRY-GATE-001 (~-7 SOL/week unmitigated) and `no_momentum_90s` (~-4 SOL/week, separate audit) are still open. At MAX_POSITION_SOL=0.25 (5× MIN_POSITION_SOL=0.05), live mode would amplify the post-grad-entry bleed to ~-35 SOL/week if paper-to-live edge holds. Do not flip live until POST-GRAD-ENTRY-GATE-001 lands AND 48h paper observation confirms the gate works.
+> **⚠ V5a flip-time leak status (revised after Session 4 correction, 2026-05-01):** the post-grad-entry bleed identified in Session 3 was MISATTRIBUTED — see §6.5 below. The actual current bleed for SD-paper (the personality that will run live) is `no_momentum_90s` (~-4 SOL/week pre-grad) + `stop_loss_20%` (~-3 SOL/week pre-grad). At MAX_POSITION_SOL=0.25 (5× MIN_POSITION_SOL=0.05), live mode would amplify these to ~-35 SOL/week IF paper-to-live edge holds. The `POST-GRAD-ENTRY-GATE-001` mitigation has been re-scoped to insurance value only (analyst already disabled). NO-MOMENTUM-90S-AUDIT-001 is the next-highest-ROI investigation.
 
 ---
 
-## §6.5 Known leaks under investigation (post-Session-3, 2026-05-01)
+## §6.5 Known leaks under investigation (post-Session-4 correction, 2026-05-01)
 
-| Leak | 14d attribution | Status | Patch path | Audit |
+> **Session 4 correction (2026-05-01):** Session 3 H2 attributed the post-grad bleed (-14.60 SOL/14d on 280 trades) as "structural across personalities". Session 4 personality breakdown shows ALL 280 graduation_* exits are from `analyst`, NOT speed_demon. Analyst is disabled since 2026-04-28 13:02 UTC (ANALYST-DISABLE-002). **The post-grad bleed has ALREADY STOPPED.** SD has 0 post-grad entries. POST-GRAD-ENTRY-GATE-001 has been re-scoped to insurance value only.
+
+| Leak | 14d attribution | Personality | Status | Patch path |
 |---|---:|---|---|---|
-| **Post-grad entry bleed** | **−14.60 SOL on 280 trades (~−7.3 SOL/week)** | 📋 PATCH PROPOSED — `POST-GRAD-ENTRY-GATE-001` | Gate out SD signals where `features.bonding_curve_progress >= 0.99` at signal_aggregator. Cost S, ROI ~+7 SOL/week. | `docs/audits/POST_GRAD_LOSS_INVESTIGATION_2026_05_01.md` |
-| `no_momentum_90s` (pre-grad) | −8.48 SOL on 423 trades (~−4 SOL/week) | 📋 AUDIT PROPOSED — `NO-MOMENTUM-90S-AUDIT-001` | Investigation first (signal quality vs exit-timer); patch second. | `docs/audits/POST_GRAD_LOSS_INVESTIGATION_2026_05_01.md` §4 PATCH B |
-| `stop_loss_20%` (pre-grad) | −8.00 SOL on 119 trades | 🟡 PARTIAL — likely correlated with above | May be addressed by `no_momentum_90s` audit; no direct patch yet. | same |
+| `no_momentum_90s` (pre-grad) | −8.48 SOL on 423 trades | speed_demon (paper) | 📋 AUDIT PROPOSED — `NO-MOMENTUM-90S-AUDIT-001` | Investigation first (signal quality vs exit-timer); patch second. |
+| `stop_loss_20%` (pre-grad) | −8.00 SOL on 119 trades | speed_demon (paper) | 🟡 PARTIAL — likely correlated with above | May be addressed by `no_momentum_90s` audit; no direct patch yet. |
+| Historical `graduation_*` (analyst) | −14.60 SOL on 280 trades / 14d | analyst (DISABLED since 2026-04-28) | ⏸ STOPPED via `ANALYST_DISABLED=true` | None needed — bleed already stopped. Insurance: `POST-GRAD-ENTRY-GATE-001` (re-scoped to Tier 2) layered atop ANALYST_DISABLED for safety. |
+| **ML threshold not enforced on paper** | — (constraint, not direct loss) | all (paper) | ⏸ STOP per Session 4 §8 | `BOT-CORE-ML-GATE-001` (Tier 1) — add second ML gate at bot_core to make env changes take effect. Recommended threshold = 55 per sweep. |
 
-**Interpretation:** The post-grad-entry bleed is the SINGLE LARGEST tractable structural leak (-14.60 SOL/14d on a clearly-defined entry condition). PATCH A is the highest-ROI Track-B profitability lever currently identified. `no_momentum_90s` is larger by total SOL but less tractable — needs investigation first.
+**Interpretation:** With analyst disabled, the SD-paper bleed is dominated by `no_momentum_90s` and `stop_loss_20%` (combined ~-16.5 SOL/14d on 542 trades). These are pre-grad mechanisms. The next-highest-ROI investigation is `NO-MOMENTUM-90S-AUDIT-001`. ML threshold retune is data-supported (optimum 55) but blocked by AGGRESSIVE_PAPER+TEST_MODE override; needs `BOT-CORE-ML-GATE-001` code change first.
 
-**For V5a decision:** unmitigated, the post-grad-entry leak alone would amplify to ~-35 SOL/week at MAX_POSITION_SOL=0.25 (assuming paper-to-live edge holds). This is V5a-blocking unless POST-GRAD-ENTRY-GATE-001 lands first OR live trial is run at sub-floor sizing (e.g., MIN_POSITION_SOL=0.025) for limited duration.
+**For V5a decision:** the historical post-grad bleed has stopped (analyst disabled) so V5a is NOT blocked on that mitigation. SD-paper-active leaks remain (no_momentum_90s + stop_loss_20%); these would amplify on live at sizing factor. Recommended V5a flip caps: `MAX_POSITION_SOL=0.10` (vs current 0.25) for first 24h to limit blast radius until live data confirms paper-to-live edge ratio.
 
 ---
 

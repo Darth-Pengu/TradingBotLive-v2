@@ -7,6 +7,60 @@
 
 ---
 
+## 2026-05-01 — ML-THRESHOLD-DATA-DRIVEN-RETUNE-001 (Session: STOP per §8 + correction to Session 3 — Session 4 of 6 in chained-prompt sequence)
+
+**Committed (this session):** `<hash>` docs(ml-retune): ML-THRESHOLD-DATA-DRIVEN-RETUNE-001 — STOP per §8; threshold sweep complete; correction to Session 3 finding. Files: `docs/audits/ML_THRESHOLD_DATA_DRIVEN_RETUNE_2026_05_01.md` (NEW, 9 sections), `ZMN_ROADMAP.md` (Decision Log entry + 2 new future-queued levers BOT-CORE-ML-GATE-001 + AGGRESSIVE-PAPER-DISABLE-001 + revised POST-GRAD-ENTRY-GATE-001 to insurance Tier 2), `AGENT_CONTEXT.md` (revised §6.5 with corrected leak attribution), `STATUS.md` (this prepend).
+
+**State changes:** None. **NO env-var change.** Bot continues TEST_MODE=true, market_mode=NORMAL, signal_aggregator's AGGRESSIVE_PAPER+TEST_MODE override remains in effect (effective paper SD threshold = 30).
+
+**Bot state at session start (~12:35 UTC):** unchanged from Session 3 close. TEST_MODE=true, paper portfolio 23.89, NORMAL.
+
+**§2 STOP per §8 — TWO conditions tripped:**
+1. **AGGRESSIVE_PAPER_TRADING bypass cannot be reconciled.** `services/signal_aggregator.py:158-160` overrides ML thresholds to 30 (SD/AN) / 20 (WT) when `AGGRESSIVE_PAPER_TRADING=true AND TEST_MODE=true`. Both currently true. Effective paper SD threshold = **30**, NOT env value 65. Env-var change has ZERO effect on paper sample.
+2. **bot_core threshold filtering code cannot be located.** `grep "ml_score|ML_THRESHOLD"` returns 0 matches in `services/bot_core.py`. No fallback gate at the bot_core layer.
+
+**§3 Threshold sweep results (informational):**
+| | 14d | 7d |
+|---|---|---|
+| n total SD-paper | 994 | 684 |
+| Optimum threshold | **55** (sum_admitted +8.71 SOL on 448 trades, mean +0.019, WR 37.5%) | **55** (sum_admitted +1.48 on 293 trades, mean +0.005, WR 30.4%) |
+| §3 hard rule (n_admitted >= 50) | ✓ (448) | ✓ (293) |
+Pre-grad-only sweep returned IDENTICAL numbers — SD-paper has 0 graduation_* exits.
+
+**§4 Major correction to Session 3 H2 finding:**
+- All 280 graduation_* exits in 14d are from `analyst` personality (NOT speed_demon)
+- Analyst is disabled since 2026-04-28 13:02 UTC (ANALYST-DISABLE-002)
+- The post-grad bleed has **ALREADY STOPPED** — no analyst entries in last 3+ days
+- POST-GRAD-ENTRY-GATE-001 actual current ROI: **~0 SOL/week** (NOT +7 SOL/week)
+- Insurance value only — would prevent recurrence if analyst is ever re-enabled
+- **Re-scoped POST-GRAD-ENTRY-GATE-001 from Tier 1 🔴 PROPOSED to Tier 2 🟢 (insurance only)**
+
+**Recommended path forward (per audit §6 and STOP_REASON.md):**
+- **Option A (preferred): `BOT-CORE-ML-GATE-001`** (Tier 1 🟡 NEW). Single code change in bot_core to add second ML threshold gate. Independent of AGGRESSIVE_PAPER. Lets future env changes take effect on paper. Cost S.
+- **Option B: `AGGRESSIVE-PAPER-DISABLE-001`** (Tier 2 🟢 NEW, evaluation required). Set AGGRESSIVE_PAPER_TRADING=false. Risk: may reduce ML training sample volume; needs evaluation.
+- **Option C: Wait for V5a flip** — when TEST_MODE=false, the override doesn't apply.
+
+**Stop-condition check:** 2 of 4 STOP conditions tripped (§8 #3 AGGRESSIVE_PAPER bypass; §8 #4 bot_core gate not located). Full sweep completed for informational purposes; no env change.
+
+**Blockers cleared:** None.
+
+**Blockers new/active:**
+- ⏸ **ML-THRESHOLD-DATA-DRIVEN-RETUNE-001** STOPPED at §8 — re-attempt after BOT-CORE-ML-GATE-001 OR after V5a flip
+- 📋 **BOT-CORE-ML-GATE-001 (NEW)** — Tier 1 🟡, recommended path forward; add second ML gate at bot_core. Recommended threshold = 55.
+- 📋 **AGGRESSIVE-PAPER-DISABLE-001 (NEW)** — Tier 2 🟢, evaluation required.
+- 📋 **POST-GRAD-ENTRY-GATE-001 RE-SCOPED** — was Tier 1 🔴 (Session 3 framing), now Tier 2 🟢 insurance-only.
+- All other carries unchanged (NO-MOMENTUM-90S-AUDIT-001 still Tier 1 🟡; analyst already disabled per ANALYST-DISABLE-002).
+
+**V5a precondition delta:** **+1 forward (de facto).** Session 3 framed POST-GRAD-ENTRY-GATE as V5a-amplifying. With Session 4 correction, that bleed has stopped (analyst disabled), so it's NOT a V5a blocker. The remaining SD-paper leaks (`no_momentum_90s` ~-4 SOL/week, `stop_loss_20%` ~-3 SOL/week) are smaller and partially addressed by NO-MOMENTUM-90S-AUDIT-001. AGENT_CONTEXT.md §6.5 V5a recommendation: cap `MAX_POSITION_SOL=0.10` for first 24h post-flip (vs current 0.25) to limit blast radius until paper-to-live edge ratio is confirmed.
+
+**Next prompt:** **LIVE-FEE-CAPTURE-002 (Path B)** (Session 5 of 6). V5a-blocking-but-degradable; Helius parseTransactions for actual fill data on live trades.
+
+**Pending Claude-chat prompts not yet pasted:** none — chained 6-prompt sequence complete.
+
+**Verdict:** ML-THRESHOLD-DATA-DRIVEN-RETUNE-001 ⏸ STOPPED per §8 — env-var change has zero paper effect due to AGGRESSIVE_PAPER+TEST_MODE override + missing bot_core gate. Threshold sweep documented for future use (optimum = 55 across both 14d/7d). Major Session-3 correction propagated: POST-GRAD-ENTRY-GATE-001 actual ROI ~0 (analyst-disabled bleed has stopped); re-scoped to insurance Tier 2. New Tier-1 lever proposed: BOT-CORE-ML-GATE-001. Audit: `docs/audits/ML_THRESHOLD_DATA_DRIVEN_RETUNE_2026_05_01.md`.
+
+---
+
 ## 2026-05-01 — POST-GRAD-LOSS-INVESTIGATION-001 (Session: 5-hypothesis investigation; H2 reveals real bleed source — Session 3 of 6 in chained-prompt sequence)
 
 **Committed (this session):** `<hash>` docs(post-grad-investigation): POST-GRAD-LOSS-INVESTIGATION-001 — 5-hypothesis investigation reveals post-grad ENTRY (bc=1.0 at entry) as bleed source. Files: `docs/audits/POST_GRAD_LOSS_INVESTIGATION_2026_05_01.md` (NEW, 8 sections), `ZMN_ROADMAP.md` (Decision Log entry + 5 new future-queued levers including POST-GRAD-ENTRY-GATE-001), `AGENT_CONTEXT.md` (NEW §6.5 "Known leaks under investigation"), `STATUS.md` (this prepend).
