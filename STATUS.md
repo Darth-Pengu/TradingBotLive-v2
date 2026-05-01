@@ -7,6 +7,72 @@
 
 ---
 
+## 2026-05-01 — V5A-GO-NO-GO-CHECKLIST-001 (Session 6 of 6 — FINAL of chained sequence; Verdict: NO_GO)
+
+**Committed (this session):** `<hash>` docs(v5a-checklist): V5A-GO-NO-GO-CHECKLIST-001 — final precondition audit. Verdict NO_GO. Files: `docs/audits/V5A_GO_NO_GO_2026_05_01.md` (NEW, 7 sections), `ZMN_ROADMAP.md` (Decision Log entry), `AGENT_CONTEXT.md` (NEW §6.6 V5A readiness), `STATUS.md` (this prepend).
+
+**State changes:** None. **Read-only audit.** Bot continues TEST_MODE=true.
+
+**Bot state at audit time (~13:00 UTC):**
+- TEST_MODE=true ✓ (verified Railway MCP env list + Redis bot:status)
+- bot:status RUNNING, paper portfolio 23.89 SOL, 0 open positions
+- bot:emergency_stop absent ✓
+- market:mode:current = **HIBERNATE** at 12:58:54 UTC (was NORMAL during Session 1; cycling per MARKET-MODE-001 recalibrated thresholds)
+- market:sol_price = 84.3 (recent)
+- Sessions 1-5 deployed cleanly (release `2bc12f8` on bot_core)
+
+**§3 Composite verdict: 🔴 NO_GO**
+
+**Aggregate: 3 PASS / 4 CONDITIONAL / 3 FAIL** (any FAIL → NO_GO per §3)
+
+| # | Precondition | Verdict |
+|---|---|---|
+| 1 | Wallet capacity | 🔴 FAIL (0.064 SOL << 0.5 floor) |
+| 2 | Path B parity-of-truth | ✅ PASS (id 6580 err 0.000000 SOL) |
+| 3 | TIME_PRIME closed | 🟡 CONDITIONAL (env confirmed, sample small) |
+| 4 | Post-grad outcome | ✅ PASS (analyst-driven, already disabled) |
+| 5 | 48h observation | 🔴 FAIL (<1h since latest deploy) |
+| 6 | ML retune verified | 🟡 CONDITIONAL (Session 4 stopped, no deploy) |
+| 7 | Service health | 🔴 FAIL (market_mode=HIBERNATE) |
+| 8 | Env drift | 🟡 CONDITIONAL (ML threshold drift documented) |
+| 9 | Recent 7d P&L | 🟡 CONDITIONAL (-0.98 SOL on 682 trades) |
+| 10 | Kill switch | ✅ PASS |
+
+**§3 NO_GO blocking issues (3 FAILs):**
+1. **PC1 wallet capacity:** Helius getBalance = 0.064 SOL << 0.5 floor. **Jay action: top-up trading wallet `4h4pstXd5JtQuiFFSiLyP5DWWdpaLJAMLNzKwfoii8xJ` to ~3 SOL.**
+2. **PC5 48h observation:** Sessions 1-5 deployed today (12:14 UTC to 12:55 UTC). 48h window opens ~2026-05-03 12:55 UTC.
+3. **PC7 service health:** market:mode:current=HIBERNATE at audit. Cycling per recalibrated MARKET-MODE-001 thresholds. Wait for NORMAL window.
+
+**§3 Recommended caps when GO** (per session prompt CONDITIONAL_GO recommendation):
+- TEST_MODE: false on bot_core ONLY
+- MAX_POSITION_SOL: 0.10 (vs current 0.25)
+- MAX_SD_POSITIONS: 5 (vs current 20)
+- Live trial duration: 24h before scale-up
+
+**§4 Outstanding risks at GO:** paper-to-live edge ratio untested at scale (id 6580 showed 96× divergence); no_momentum_90s + stop_loss_20% pre-grad bleed unaddressed (~-15 SOL/14d); HIBERNATE cycling reduces throughput; ML threshold not retuned (Session 4 stopped).
+
+**§5 First-24h plan documented in audit doc** (hourly monitoring queries + flip-back triggers).
+
+**Stop-condition check:** 0 of 1 STOP conditions tripped. All 10 preconditions assessable (DB ✓, Helius ✓, Railway MCP ✓, Redis MCP ✓).
+
+**Blockers cleared:** None this session (read-only audit).
+
+**Blockers new/active:**
+- 📋 **Jay action: trading wallet top-up to ~3 SOL** (PC1 blocker)
+- 📋 **48h observation window** opens ~2026-05-03 12:55 UTC (PC5 blocker)
+- 📋 **Wait for market:mode:current=NORMAL** before re-running V5A-GO-NO-GO (PC7 blocker)
+- All other carries unchanged (NO-MOMENTUM-90S-AUDIT-001, BOT-CORE-ML-GATE-001, MARKET-MODE-001-RE-CALIBRATE, etc.)
+
+**V5a precondition delta:** Audit complete. V5a flip GATED on the 3 FAIL blockers. AGENT_CONTEXT.md §6.6 (NEW) captures the readiness state with explicit unblock criteria.
+
+**Next prompt:** **N/A** — chained 6-prompt sequence complete. Recommended next action: Jay performs wallet top-up + waits 48h, then re-runs V5A-GO-NO-GO-CHECKLIST.
+
+**Pending Claude-chat prompts not yet pasted:** none — sequence complete.
+
+**Verdict:** V5A-GO-NO-GO-CHECKLIST-001 ✅ AUDIT COMPLETE — NO_GO with 3 actionable blockers. Audit doc `docs/audits/V5A_GO_NO_GO_2026_05_01.md` provides full evidence, recommended live params, outstanding risks, and 24h post-flip monitoring plan.
+
+---
+
 ## 2026-05-01 — LIVE-FEE-CAPTURE-002 (Path B Helius parseTransactions — Session 5 of 6 in chained-prompt sequence)
 
 **Committed (this session):** `<hash>` feat(bot_core): LIVE-FEE-CAPTURE-002 Path B — Helius parseTransactions wired into live-close. Files: `services/helius_parser.py` (NEW), `services/bot_core.py:1346` (Path B branch + parameterised correction_method=$16 in live-close UPDATE), `docs/audits/LIVE_FEE_CAPTURE_002_PATH_B_2026_05_01.md` (NEW, 8 sections), `ZMN_ROADMAP.md` (Decision Log + future-queued status), `AGENT_CONTEXT.md` (V5a precondition strike), `STATUS.md` (this prepend). Plus DB UPDATE: id 6580 backfilled to `correction_method='live_actual_v1'`.

@@ -148,6 +148,34 @@ Last 24h SD trend (2026-04-30 08:53 UTC – 24h, snapshot):
 
 ---
 
+## §6.6 V5A readiness (post-Session-6 audit, 2026-05-01 ~13:00 UTC)
+
+**Current verdict: 🔴 NO_GO** — 3/10 PASS, 4/10 CONDITIONAL, 3/10 FAIL.
+
+**Blockers:**
+- 🔴 PC1 wallet capacity: 0.064 SOL on-chain << 0.5 SOL floor. **Jay action: top-up to ~3 SOL.**
+- 🔴 PC5 48h observation: <1h since most-recent behavioral deploy (Session 5 LIVE-FEE-CAPTURE-002 at 12:55 UTC). 48h window opens ~2026-05-03 12:55 UTC.
+- 🔴 PC7 service health: market:mode:current=HIBERNATE at audit time. Wait for NORMAL window.
+
+**When all 3 blockers resolved, recommended live mode parameters (per CONDITIONAL_GO):**
+```
+TEST_MODE: false (set on bot_core ONLY; signal_aggregator stays true)
+MAX_POSITION_SOL: 0.10 (reduced from 0.25 for first 24h)
+MAX_SD_POSITIONS: 5 (reduced from 20 for first 24h)
+Suggested duration: 24h before scale-up evaluation
+Re-run V5A-GO-NO-GO after 24h
+```
+
+**Persistent CONDITIONAL items (do not block GO but track):**
+- 🟡 PC3 TIME_PRIME small post-fix sample (forward PASS pending data accumulation)
+- 🟡 PC6 ML retune (Session 4 stopped; threshold remains at original env values; reduced confidence)
+- 🟡 PC8 ML threshold drift across services (SA=65 / bot_core=40 / web=45)
+- 🟡 PC9 recent 7d aggregate -0.98 SOL (mildly negative; degradation watch)
+
+See `docs/audits/V5A_GO_NO_GO_2026_05_01.md` for full evidence + recommendations.
+
+---
+
 ## §6.5 Known leaks under investigation (post-Session-4 correction, 2026-05-01)
 
 > **Session 4 correction (2026-05-01):** Session 3 H2 attributed the post-grad bleed (-14.60 SOL/14d on 280 trades) as "structural across personalities". Session 4 personality breakdown shows ALL 280 graduation_* exits are from `analyst`, NOT speed_demon. Analyst is disabled since 2026-04-28 13:02 UTC (ANALYST-DISABLE-002). **The post-grad bleed has ALREADY STOPPED.** SD has 0 post-grad entries. POST-GRAD-ENTRY-GATE-001 has been re-scoped to insurance value only.
