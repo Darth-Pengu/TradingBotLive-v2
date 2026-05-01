@@ -159,7 +159,7 @@ Last 24h SD trend (2026-04-30 08:53 UTC – 24h, snapshot):
 | TUNE-009 (SD_EARLY_CHECK relax) | ⏸ DEFERRED | empirical data does not support relax — see audit §6 conditions for re-evaluation. |
 | SD_MC_CEILING_001 | ⚠️ SUPERSEDED | _002 replaces inert gate. Keep marker for git-history reference. |
 | SD_MC_CEILING_002 | ✅ DEPLOYED 2026-04-30 ~12:30 UTC | BC-reserves MC compute in SA gate. Step 6 + 24h verification queued. |
-| TIME_PRIME-CONTRADICTION-001 | 📋 | bot_core upsizes 2× at AEDT 18-20, contradicting SD_DEAD_ZONE_001 finding. |
+| TIME_PRIME-CONTRADICTION-001 | ✅ DEPLOYED 2026-05-01 | Resolved via env-driven multiplier (defaults disabled). State: TIME_PRIME disabled (multiplier=1.0, hours=""). See `docs/audits/TIME_PRIME_CONTRADICTION_FIX_2026_04_30.md`. New follow-ups: TIME-PRIME-AEDT-AEST-DRIFT-001 (LOW), TIME-PRIME-CALIBRATION-001 (MEDIUM). |
 | TUNE-006 (other components) | 📋 | SD_DEAD_ZONE_001, SD_ML_THRESHOLD_LIFT 40→50 — deferred from chain A-D. |
 | TUNE-005-ROLLBACK validation | 📋 | 24h window closes ~2026-04-30 09:34 UTC. Decide codify-rollback vs reapply. |
 | SILENCE-RECOVERY (post-2026-04-25 EMERGENCY_STOP) | ✅ CLEARED | bot recovered between 2026-04-28 13:02 UTC (first close) and 2026-04-30 (current). |

@@ -701,12 +701,23 @@ class BotCore:
         _max_pos = min(_max_pos_abs, _max_pos_frac) if _max_pos_frac > 0 else _max_pos_abs
         size_sol = max(_min_pos, min(size_sol, _max_pos))
 
-        # CHANGE 4: Time-of-day sizing (AEDT — Sydney) — data-driven from 426-trade analysis
+        # CHANGE 4: Time-of-day sizing. Note: `aedt_hour` uses UTC+11 but Sydney is AEST/UTC+10
+        # post-DST-end 2026-04-05 — code's "hour=18" maps to Sydney clock 17.
+        # TIME_PRIME (was hardcoded 18-20=2.0×) is now env-controlled, disabled by default per
+        # TIME-PRIME-CONTRADICTION-FIX-001 (2026-05-01): recent 7d sample showed that window was
+        # the WORST (-2.46 SOL on 114 trades). See docs/audits/TIME_PRIME_CONTRADICTION_FIX_2026_04_30.md.
         from datetime import timedelta as _td
         aedt_hour = datetime.now(timezone(_td(hours=11))).hour
-        if aedt_hour in (18, 19, 20):
-            size_sol *= 2.0
-            logger.info("TIME_PRIME: hour=%d AEDT — 2.0x sizing (peak WR hours)", aedt_hour)
+        _tp_hours_raw = os.environ.get("TIME_PRIME_HOURS_AEST", "")
+        _tp_multiplier = float(os.environ.get("TIME_PRIME_MULTIPLIER", "1.0"))
+        try:
+            _tp_hours = {int(h.strip()) for h in _tp_hours_raw.split(",") if h.strip()}
+        except ValueError:
+            _tp_hours = set()
+        if aedt_hour in _tp_hours:
+            size_sol *= _tp_multiplier
+            logger.info("TIME_PRIME: hour=%d AEDT — %.2fx sizing (env-controlled)",
+                        aedt_hour, _tp_multiplier)
         elif aedt_hour in (7, 8, 9, 21):
             size_sol *= 1.5
             logger.info("TIME_GOOD: hour=%d AEDT — 1.5x sizing", aedt_hour)

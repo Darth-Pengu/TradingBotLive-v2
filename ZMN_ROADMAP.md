@@ -37,6 +37,7 @@
 
 | Date | Lever | Status | Reasoning (1-line) |
 |---|---|---|---|
+| 2026-05-01 | TIME-PRIME-CONTRADICTION-FIX-001 | ✅ DEPLOYED `<hash>` | TIME_PRIME 2× upsize at code aedt_hour 18-20 (= AEST 17-19 post-DST 2026-04-05 due to UTC+11 vs UTC+10 drift) was empirically the WORST window: AEST 18-20 −2.46 SOL on 114 trades / 7d (chat-side framing) and AEST 17-19 −2.76 SOL / 114 (actual code firing). §2 Step 3 confirmed multiplier ratio 2.05× via avg amount_sol comparison. Now env-controlled (TIME_PRIME_HOURS_AEST="" / TIME_PRIME_MULTIPLIER=1.0 by default = disabled). Verify-fix PASS: 2/5 test cases neutralized. New roadmap follow-ups: TIME-PRIME-AEDT-AEST-DRIFT-001 (LOW), TIME-PRIME-CALIBRATION-001 (MEDIUM). Audit: `docs/audits/TIME_PRIME_CONTRADICTION_FIX_2026_04_30.md`. |
 | 2026-04-30 | MARKET-MODE-001 (HIBERNATE-forever fix) | ✅ DEPLOYED `932ae08` | signal_aggregator wrote market:grad_rate_estimate as RATIO (~0.0001); market_health thresholds (0.5/0.8/1.0/1.5) assumed RATE per hour. Definition mismatch → HIBERNATE-forever for ~weeks. Fix: market_health reads market:migration_count_1h directly + recalibrate to count-based thresholds (10/30/100/200). Sample 73 migs/hr → NORMAL post-deploy (verified live 13:36 UTC). |
 | 2026-04-30 | SOCIAL-SCORING-001 (STATE C → fix) | ✅ DEPLOYED `627f4c9` | Audit verdict STATE C: social fetch + score modifier worked, but features_json captured only `has_social` (any) + `twitter_followers`. Missing `has_twitter` / `has_telegram` / `has_website` / `social_count`. Patch 2C adds 4 keys to features dict at signal_aggregator.py:2022. ML training gains 4 social-component features on fresh entries. |
 | 2026-04-30 | DOCS-004 (Vybe URL) | ✅ FIXED | CLAUDE.md:478 + AGENT_CONTEXT.md:576 + 1883: `.com (NOT .xyz)` → `.xyz (NOT .com)`. Verified source `BITFOOT_2026_BASELINE_2026_04_23.md` §1. |
@@ -73,7 +74,7 @@
 |---|---|---|
 | LIVE-FEE-CAPTURE-002 (Path B) | 📋 PLANNED | V5a-blocking-but-degradable; right long-term answer for parity-of-truth. |
 | SD_MC_CEILING_002 | ✅ DEPLOYED 2026-04-30 | Resolved via Option 2 (BC-reserves compute in SA gate). See Decision Log entry above. |
-| TIME_PRIME-CONTRADICTION-001 | 📋 PLANNED | bot_core upsizes 2× at AEDT 18-20, contradicting SD_DEAD_ZONE_001. Must neutralize before V5a. |
+| TIME_PRIME-CONTRADICTION-001 | ✅ DEPLOYED 2026-05-01 | Resolved via env-driven multiplier (`TIME_PRIME_HOURS_AEST=""` / `TIME_PRIME_MULTIPLIER=1.0` defaults disable the 2× upsize). See Decision Log entry above. |
 | SD_DEAD_ZONE_001 (AEDT 11-17 pause) | ⏸ DEFERRED | Sample size insufficient post-recovery; revisit after Sessions A-D 24-48h obs. |
 | SD_ML_THRESHOLD_LIFT (40→50) | ⏸ DEFERRED | (40,50] band signal may shift after this chain's other changes; re-evaluate post-observation. |
 | Top-up trading wallet to ~3 SOL | ⏸ JAY ACTION | V5a precondition. Confirmed Branch 1 means transfer can proceed. |

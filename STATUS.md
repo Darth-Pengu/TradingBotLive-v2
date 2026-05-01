@@ -7,6 +7,78 @@
 
 ---
 
+## 2026-05-01 — TIME-PRIME-CONTRADICTION-FIX-001 (Session: env-driven multiplier; default disabled — Session 1 of 6 in chained-prompt sequence)
+
+**Committed (this session):** `<hash>` fix(bot_core): TIME-PRIME-CONTRADICTION-FIX-001 — neutralize 2× AEST 17-19 upsize via env-driven multiplier (default 1.0×). Files: `services/bot_core.py:704-720` (TIME_PRIME branch replaced; TIME_GOOD/DEAD/SLEEP/WEEKEND_BOOST untouched per §10) + `docs/audits/TIME_PRIME_CONTRADICTION_FIX_2026_04_30.md` (NEW, 9 sections) + `STATUS.md` prepend + `ZMN_ROADMAP.md` (Decision Log + §7 row update) + `AGENT_CONTEXT.md` (§7 row update).
+
+**State changes:**
+- Code only at git push time. No Railway env touched in commit.
+- Post-push: Railway env vars on bot_core set to `TIME_PRIME_MULTIPLIER=1.0` and `TIME_PRIME_HOURS_AEST=""` via Railway MCP (second redeploy accepted per RAILWAY-REDEPLOY-DISCIPLINE-001 — directive in §3 Path A).
+- Single git push triggers bot_core auto-redeploy. No other services touched.
+
+**Bot state at session start (~2026-05-01 ~00:30 UTC):**
+- TEST_MODE=true on bot_core (verified via STATUS.md 2026-04-30 entry + AGENT_CONTEXT.md §1) ✓
+- market_mode=NORMAL (post-MARKET-MODE-001 fix in `932ae08`) ✓
+- Last meaningful behavioral deploy: `f3a1741` (FEE-LATENCY-REALISM Path A)
+- bot:emergency_stop absent ✓
+
+**§2 Step 1 — TIME_PRIME logic located:**
+- `services/bot_core.py:704-718` hardcoded `if aedt_hour in (18,19,20): size_sol *= 2.0`
+- Multiplier applied to `size_sol` post-min/max-clamp; re-clamped at L727
+- Other branches: TIME_GOOD/DEAD/SLEEP/WEEKEND_BOOST — out of scope per §10
+- Tangent finding: code `timezone(timedelta(hours=11))` = AEDT/UTC+11; Sydney is currently AEST/UTC+10 post-DST 2026-04-05. Code's `aedt_hour=18` = Sydney clock 17. Tracked as TIME-PRIME-AEDT-AEST-DRIFT-001 (LOW, NEW).
+
+**§2 Step 2 — AEST hour distribution (last 7d, SD-paper):**
+- AEST 18-20 (chat-side framing): n=114, sum=−2.4629 SOL — confirmed worst window
+- AEST 17-19 (actual code firing window): n=114, sum=−2.7563 SOL
+- AEST other (non-firing): n=580, sum=+3.6258 SOL
+- Hypothesis CONFIRMED, no STOP
+
+**§2 Step 3 — Multiplier ratio confirms TIME_PRIME fires:**
+- avg `amount_sol` AEST 17-19: 0.1845 SOL
+- avg `amount_sol` AEST 15,16,20,21 neighbors: 0.0902 SOL
+- Ratio: **2.05×** — exact match for the 2.0× multiplier (within sampling noise)
+- min position size at AEST 17-19 jumps to 0.0985 (≈ 2× MIN_POSITION_SOL=0.05 floor)
+- TIME_PRIME definitively fires, no STOP
+
+**§3 Patch chosen: Path A** (env-driven multiplier; defaults disabled). Single-file change. Path C explicitly rejected per session §3 (different-window calibration is separate session).
+
+**§4 verify_time_prime_fix.py output (.tmp_time_prime_fix/verify_output.txt):**
+- 5 timestamps tested: AEST 08:30 / 18:30 / 19:30 / 20:30 / 22:30
+- ASSERT NEW=1.0× for all 5 cases — PASS
+- Smoke: env re-enable to 1.5× on hour 20 works ✓
+- Smoke: malformed env_hours fail-safe to 1.0× ✓
+- BEHAVIOR DELTA: 2/5 test cases (AEST 18:30, 19:30) had upsize neutralized; AEST 20:30 was actually never in TIME_PRIME old window (chat-side label off by 1h due to DST drift)
+
+**Compile-checked:** `python -m py_compile services/bot_core.py` → COMPILE OK.
+
+**§5 Deploy verification — queued post-deploy:**
+1. Poll Railway MCP for bot_core SUCCESS, +90s warmup
+2. Set env vars via Railway MCP (TIME_PRIME_MULTIPLIER=1.0 + TIME_PRIME_HOURS_AEST="")
+3. Confirm both env vars present
+4. SQL: count entries last 30min; if zero (HIBERNATE), log and proceed
+5. If entries present and any AEST 17-19: confirm no ~2× spike
+
+**Stop-condition check:** 0 of 4 STOP conditions tripped (§9). §2 Step 2 hypothesis confirmed both ways. §2 Step 3 multiplier ratio 2.05× (>1.5 threshold). Path A within 2-file budget.
+
+**Blockers cleared:**
+- ✅ **TIME_PRIME-CONTRADICTION-001** — 2× upsize at AEST 17-19 (code's UTC+11 18-20) neutralized; env-driven going forward.
+
+**Blockers new/active:**
+- 📋 **TIME-PRIME-AEDT-AEST-DRIFT-001 (NEW, LOW)** — `aedt_hour` uses UTC+11 timezone but Sydney is AEST/UTC+10 post-DST 2026-04-05. All TIME_GOOD/TIME_DEAD/TIME_SLEEP windows fire 1h earlier than their labels suggest. Fix: replace `_td(hours=11)` with `zoneinfo.ZoneInfo('Australia/Sydney')`.
+- 📋 **TIME-PRIME-CALIBRATION-001 (NEW, MEDIUM)** — does any hour deserve a 2× upsize? Current data says no; future deeper-history analysis.
+- All other carries unchanged (LIVE-FEE-CAPTURE-002 Path B, ~3 SOL wallet top-up, ML-THRESHOLD-DRIFT, etc.).
+
+**V5a precondition delta:** **+1 forward.** TIME_PRIME-CONTRADICTION-001 closed. Live mode flip will no longer amplify the AEST 17-19 loss window by 2×. Net live loss reduction at expected throughput: ~2× the −2.46 SOL/week paper bleed if edge holds.
+
+**Next prompt:** **STATE-RECONCILE-2026-05-01** (Session 2 of 6). Bookkeeping; reconcile canonical docs with verified data findings.
+
+**Pending Claude-chat prompts not yet pasted:** none — chained 6-prompt sequence pasted by Jay; TIME-PRIME is Session 1 of 6 (sessions 2-6: STATE-RECONCILE, POST-GRAD-LOSS-INVESTIGATION, ML-THRESHOLD-RETUNE, LIVE-FEE-CAPTURE-002, V5A-GO-NO-GO).
+
+**Verdict:** TIME-PRIME-CONTRADICTION-FIX-001 ✅ DELIVERED — Path A patch (single-file env-driven multiplier with safe defaults). Verify-fix PASS (2 of 5 cases neutralized). AEST 17-19 (code's UTC+11 18-20) 2× upsize disabled by default. V5a precondition closed. Audit: `docs/audits/TIME_PRIME_CONTRADICTION_FIX_2026_04_30.md`.
+
+---
+
 ## 2026-04-30 — REALISM-AND-ROADMAP-CLEANUP-2026-04-30 (Session: 3-phase autonomous-loop — MARKET-MODE-001 + SOCIAL-SCORING-001 + ROADMAP CLEANUP)
 
 **Committed (this session):** `932ae08` fix(market_health): MARKET-MODE-001 — calibrate thresholds + fix metric. Files: `services/market_health.py` + `services/signal_aggregator.py` (ratio-writer removed). | `627f4c9` fix(signal_aggregator): SOCIAL-SCORING-001 — per-component social fields in features_json. Files: `services/signal_aggregator.py`. | `<hash>` final docs commit (audit + STATUS + ROADMAP + AGENT_CONTEXT + CLAUDE.md DOCS-004).
