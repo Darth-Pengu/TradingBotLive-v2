@@ -48,6 +48,18 @@ NANSEN_DAILY_BUDGET = int(os.getenv("NANSEN_DAILY_BUDGET", "50"))
 # of current wallet to keep T5 semantics meaningful at all wallet sizes.
 # Binds as min(MAX_POSITION_SOL, wallet_sol * MAX_POSITION_SOL_FRACTION).
 MAX_POSITION_SOL_FRACTION = float(os.getenv("MAX_POSITION_SOL_FRACTION", "0.10"))
+
+# BOT-CORE-ML-GATE-001 (2026-05-05) — bot_core-side ML threshold gate.
+# signal_aggregator.py:158-160 forces an effective paper threshold of 30/30/20
+# when AGGRESSIVE_PAPER_TRADING + TEST_MODE are both true, making
+# ML_THRESHOLD_SPEED_DEMON env-tuning a no-op for paper mode. This bot_core
+# gate restores env-controllable filtering. Default 0 = gate disabled (no
+# behaviour change at deploy time); set ML_THRESHOLD_BOT_CORE_SD>0 to activate.
+# ml_score is None or threshold==0 → ACCEPT (fail open). Boundary inclusive
+# (ml_score == threshold → ACCEPT).
+ML_THRESHOLD_BOT_CORE_SD = int(os.getenv("ML_THRESHOLD_BOT_CORE_SD", "0"))
+ML_THRESHOLD_BOT_CORE_ANALYST = int(os.getenv("ML_THRESHOLD_BOT_CORE_ANALYST", "0"))
+
 _start_time = time.time()
 
 # Personality position size adjustments
@@ -113,6 +125,32 @@ def get_tiered_trail_pct(peak_gain: float) -> float | None:
         if peak_gain >= min_gain:
             result = trail_pct
     return result
+
+
+def _ml_gate_reject_reason(personality, ml_score):
+    """Return a human-readable reason if the bot_core ML gate rejects, else None.
+
+    Rules:
+      - threshold lookup: speed_demon → ML_THRESHOLD_BOT_CORE_SD,
+        analyst → ML_THRESHOLD_BOT_CORE_ANALYST, anything else → ungated.
+      - threshold <= 0 → gate disabled (always ACCEPT).
+      - ml_score is None → fail open (ACCEPT) — do not block on missing data.
+      - ml_score < threshold → REJECT, return reason string.
+      - boundary inclusive: ml_score == threshold → ACCEPT.
+    """
+    if personality == "speed_demon":
+        threshold = ML_THRESHOLD_BOT_CORE_SD
+    elif personality == "analyst":
+        threshold = ML_THRESHOLD_BOT_CORE_ANALYST
+    else:
+        return None
+    if threshold <= 0:
+        return None
+    if ml_score is None:
+        return None
+    if ml_score < threshold:
+        return f"ml_score={ml_score} below threshold={threshold}"
+    return None
 
 
 EXIT_STRATEGIES = {
@@ -630,6 +668,12 @@ class BotCore:
 
         if len(self.positions) >= gov.get("max_concurrent_positions", 10):
             logger.info("Governance: max positions %d reached", gov["max_concurrent_positions"])
+            return
+
+        # BOT-CORE-ML-GATE-001: env-controllable per-personality ML threshold filter.
+        ml_reject = _ml_gate_reject_reason(personality, ml_score)
+        if ml_reject:
+            logger.info("BOT_CORE_ML_GATE: skip %s mint=%s %s", personality, mint[:12], ml_reject)
             return
 
         gov_size_mult = gov.get("size_multiplier", 1.0)
