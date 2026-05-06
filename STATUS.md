@@ -7,6 +7,18 @@
 
 ---
 
+## 2026-05-05 15:01 UTC — BOT-CORE-ML-GATE-001 (env-controllable bot_core ML gate)
+
+**Committed:** `ea0da2f` feat(bot_core): BOT-CORE-ML-GATE-001 — env-controllable ML threshold gate; default disabled. Audit + persistence updates landing in follow-up commit (this session, docs-only).
+**State changes:** Set `ML_THRESHOLD_BOT_CORE_SD=40` on bot_core (Railway). bot_core redeployed twice — code at ~14:13Z (gate inert, env=0 default), env-active at **14:16:48Z** UTC. No Redis keys directly touched. SA gate semantics unchanged (signal_aggregator.py:158-160 override preserved by design, retains ML training data composition).
+**Bot state:** TEST_MODE=true on bot_core. 1 paper open observed at 14:58Z (id=8039, mint EV1na7Wj5WLX, ml_score=47.0, mode=DEFENSIVE; may have already exited via TP/stop/time-exit by now). 0 live open. Circuit_breaker (`bot:state:consecutive_losses`) absent → effectively 0. market_mode=DEFENSIVE at verification time. Wallet 0.064 SOL on-chain (unchanged; trading remains paper-only). Paper portfolio 22.59 SOL on bot_core startup load.
+**Blockers cleared:** **BOT-CORE-ML-GATE-001** ✅. V5a §6.5 patch path closed. ML-RETUNE Session 4 §8 STOP rationale resolved (env-var change now actually controls paper admission via the new bot_core gate).
+**Blockers new/active:** **MARKET-MODE-001-RE-CALIBRATE** (queued — DEFENSIVE/HIBERNATE cycling suppresses gate-verification confidence; 50% zero-trade-hour rate post-Session-2 per chat-side analysis). **TIMEZONE-AUDIT-001** (queued, pure read-only audit). **ML-THRESHOLD-DATA-DRIVEN-RETUNE-002** (re-queue ≥2026-05-12 14:16Z after 7d of post-gate sample accumulates).
+**Next prompt:** TIMEZONE-AUDIT-001 (predecessor §0 satisfied by this session's audit doc + Railway env state).
+**Pending Claude-chat prompts not yet pasted:** TIMEZONE-AUDIT-001 and MARKET-MODE-001-RE-CALIBRATE both already pasted into this same CC session by Jay; will run in chain immediately after this docs commit lands.
+
+---
+
 ## 2026-05-01 — V5A-GO-NO-GO-CHECKLIST-001 (Session 6 of 6 — FINAL of chained sequence; Verdict: NO_GO)
 
 **Committed (this session):** `<hash>` docs(v5a-checklist): V5A-GO-NO-GO-CHECKLIST-001 — final precondition audit. Verdict NO_GO. Files: `docs/audits/V5A_GO_NO_GO_2026_05_01.md` (NEW, 7 sections), `ZMN_ROADMAP.md` (Decision Log entry), `AGENT_CONTEXT.md` (NEW §6.6 V5A readiness), `STATUS.md` (this prepend).

@@ -2,6 +2,22 @@
 
 ---
 
+## 2026-05-05 14:16-15:01 UTC — BOT-CORE-ML-GATE-001 deploy + §6 verification
+
+- Code commit `ea0da2f` deployed at ~14:13Z (gate inert because env defaults to 0 — verifies the "default-safe" deploy property).
+- Env `ML_THRESHOLD_BOT_CORE_SD=40` set at 14:16Z; second deploy auto-triggered, container start **14:16:48Z** UTC = canonical gate-active timestamp.
+- §6 verification at ~15:01Z (45min post-cutoff under DEFENSIVE market mode):
+  - `below_40` SD-paper admission count post-cutoff = **0** (gate firing OR no <40 signals reaching bot_core; both indistinguishable in this sample).
+  - `40_plus` count = **1** (id=8039, mint EV1na7Wj5WLX, ml_score=47.0, admitted at 14:58:36Z, 41m48s post-cutoff).
+  - `BOT_CORE_ML_GATE` reject log lines = **0** (consistent with steady-state agreement of SA gate at 30 / bot_core gate at 40 — bot_core gate fires only on the discrepancy edge).
+  - `market:mode:current` = **DEFENSIVE** (suppresses upstream throughput, explains the small sample).
+  - `bot:emergency_stop` = absent (not tripped).
+- **Verdict: PASS (low-confidence, single-sample).** Gate landed cleanly; full confidence pending NORMAL-mode window with multi-trade-per-hour throughput (blocked by the queued MARKET-MODE-001-RE-CALIBRATE follow-up).
+- Predecessor for: TIMEZONE-AUDIT-001, MARKET-MODE-001-RE-CALIBRATE (both queued in this same CC session).
+- Audit: `docs/audits/BOT_CORE_ML_GATE_001_2026_05_05.md` (536 lines, 9 sections).
+
+---
+
 ## 2026-05-01 ~12:30 UTC — STATE-RECONCILE-2026-05-01 (Session 2 of 6 chained-prompt sequence)
 
 ### Findings A-E (verified production DB, last 7d SD-paper unless noted)

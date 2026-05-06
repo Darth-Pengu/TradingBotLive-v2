@@ -32,9 +32,11 @@ Live mode flip is **session-gated** per CLAUDE.md "Live trading mode — session
 | MAX_SD_POSITIONS | 20 | |
 | MAX_CONCURRENT_POSITIONS | 6 | |
 | MAX_TRADES_PER_HOUR | 500 | |
-| ML_THRESHOLD_SPEED_DEMON | 40 | drifts vs SA=65 vs web=45 — see ML-THRESHOLD-DRIFT-2026-04-29 🟡 |
-| ML_THRESHOLD_ANALYST | 35 | drifts |
-| ML_THRESHOLD_WHALE_TRACKER | 35 | drifts |
+| ML_THRESHOLD_SPEED_DEMON | 40 | bot_core no longer reads this var directly — deprecated in favour of ML_THRESHOLD_BOT_CORE_SD per BOT-CORE-ML-GATE-001 (2026-05-05). Kept for cross-service env hygiene. |
+| ML_THRESHOLD_ANALYST | 35 | bot_core no longer reads this var directly — deprecated in favour of ML_THRESHOLD_BOT_CORE_ANALYST. |
+| ML_THRESHOLD_WHALE_TRACKER | 35 | bot_core does not gate Whale Tracker by env (helper returns None for ungated personalities). Reserved for future. |
+| **ML_THRESHOLD_BOT_CORE_SD** | **40** | **NEW (BOT-CORE-ML-GATE-001, 2026-05-05).** Env-active 14:16:48Z. The bot_core-side per-personality ML floor; binds at `process_signal` consumption time. Default 0 = disabled. Gate semantics: ml_score=None → ACCEPT (fail open); threshold ≤ 0 → ACCEPT (disabled); ml_score < threshold → REJECT; ml_score == threshold → ACCEPT (boundary inclusive). Independent of SA override; closes the AGGRESSIVE_PAPER+TEST_MODE bypass discovered in ML-RETUNE Session 4 §8. |
+| ML_THRESHOLD_BOT_CORE_ANALYST | 0 | NEW (BOT-CORE-ML-GATE-001). Reserved analyst-side var; not active (Analyst is HARD DISABLED via ANALYST_DISABLED=true). Activates if/when Analyst is re-enabled. |
 | STAGED_TAKE_PROFITS_JSON | `[[2.00,0.20],[5.00,0.375],[10.00,1.00]]` | |
 | TIERED_TRAIL_SCHEDULE_JSON | `[[0.10,0.30],[0.50,0.25],[1.00,0.20],[2.00,0.15],[5.00,0.12]]` | |
 | STOP_LOSS_PCT | 0.20 | |
