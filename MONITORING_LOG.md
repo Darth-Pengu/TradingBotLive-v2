@@ -2,6 +2,17 @@
 
 ---
 
+## 2026-05-05 ~15:30 UTC — TIMEZONE-AUDIT-001 (read-only sweep, no code change)
+
+- Repository-wide grep sweep for hardcoded TZ offsets across services/, dashboard/, Scripts/.
+- **Findings:** 2 🔴 BUG (both `services/bot_core.py:754,776` — covered by existing TIME-PRIME-AEDT-AEST-DRIFT-001), 2 🔵 MARGINAL, 5 🟡 OK-WITH-CAVEAT, 20+ 🟢 SAFE.
+- **`services/market_health.py` is 🟢 SAFE** — fully DST-aware via `pytz.timezone("Australia/Sydney")`. Critical for the next session: MARKET-MODE-001-RE-CALIBRATE can proceed without bundling a TZ fix.
+- 4 new LOW-priority hygiene items filed: TZ-CONVENTION-DOC-001, RISK-MGR-TZ-COMMENT-001, SIGAGG-ML-HOUR-LABEL-001, DASH-AEDT-LABEL-001.
+- Recommended convention codified into AGENT_CONTEXT.md + CLAUDE.md: decision logic uses `ZoneInfo("Australia/Sydney")` or pytz; storage uses UTC; no hardcoded offsets anywhere except UTC-by-design global-session bands (which must be commented).
+- Audit: `docs/audits/TIMEZONE_AUDIT_2026_05_05.md` (~265 lines, §1-§10).
+
+---
+
 ## 2026-05-05 14:16-15:01 UTC — BOT-CORE-ML-GATE-001 deploy + §6 verification
 
 - Code commit `ea0da2f` deployed at ~14:13Z (gate inert because env defaults to 0 — verifies the "default-safe" deploy property).

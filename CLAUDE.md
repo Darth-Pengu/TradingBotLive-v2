@@ -577,6 +577,29 @@ signals:evaluated (last 50), signals:raw, signals:scored
 - Position sizing multiplier stack: personality(0.7) × rugcheck(0.35-0.60) × confidence × base. MIN_POSITION_SOL=0.05 on bot_core.
 - ML training excludes pre-9b880e1 contaminated rows via WHERE NOT clause. Cutoff configurable: ML_TRAINING_CONTAMINATION_CUTOFF env var (default 1775767260.0 = 2026-04-09 20:41 UTC).
 
+## Timezone convention (added 2026-05-05 by TIMEZONE-AUDIT-001)
+
+- **Decision logic:** use `zoneinfo.ZoneInfo("Australia/Sydney")` or
+  `pytz.timezone("Australia/Sydney")` — DST-aware. This applies to entry
+  filters, sizing multipliers, gates, scheduled-task firing branches,
+  and daily/weekly window rollovers.
+- **Storage:** `datetime.now(timezone.utc)` everywhere. All
+  `paper_trades`, `portfolio_snapshots`, log timestamps, and Redis
+  timestamps store UTC.
+- **Display:** Postgres `AT TIME ZONE 'Australia/Sydney'`, JS
+  `toLocaleString` with `timeZone:'Australia/Sydney'`. Browser/Postgres
+  handle DST automatically.
+- **Forbidden:** hardcoded offsets like `timezone(timedelta(hours=11))`,
+  `"+10:00"`, `"+11:00"`, `_td(hours=11)` — these silently drift across
+  DST boundaries (Sydney AEDT ↔ AEST, 2026-04-05 most recent flip).
+- **UTC-by-design exception** allowed for genuinely UTC-anchored
+  decisions (e.g. `risk_manager._time_of_day_multiplier` global market
+  sessions; `signal_aggregator` `hour_of_day` ML feature). MUST be
+  commented as `# UTC by design — <one-line reason>`.
+- **Outstanding 🔴 in production code (one root cause):**
+  `TIME-PRIME-AEDT-AEST-DRIFT-001` (`services/bot_core.py:754,776`).
+  See `docs/audits/TIMEZONE_AUDIT_2026_05_05.md` for the full audit.
+
 ## Emergency Stop Reset
 1. Redis: SET bot:consecutive_losses 0
 2. Redis: DEL bot:emergency_stop

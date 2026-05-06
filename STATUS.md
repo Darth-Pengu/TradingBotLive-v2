@@ -7,6 +7,18 @@
 
 ---
 
+## 2026-05-05 ~15:30 UTC — TIMEZONE-AUDIT-001 (read-only repository sweep)
+
+**Committed:** docs-only — single commit landing `docs/audits/TIMEZONE_AUDIT_2026_05_05.md` + ZMN_ROADMAP/AGENT_CONTEXT/CLAUDE.md/STATUS.md persistence updates. NO code change.
+**State changes:** None. NO Redis writes, NO env changes, NO service redeploys.
+**Bot state:** TEST_MODE=true (unchanged). Paper open: as observed in prior STATUS entry (id=8039 earlier; check current Redis for live count). 0 live open. Wallet 0.064 SOL on-chain (unchanged). market_mode=DEFENSIVE (unchanged from BOT-CORE-ML-GATE-001 verification window).
+**Blockers cleared:** Predecessor verification for MARKET-MODE-001-RE-CALIBRATE — `services/market_health.py` is 🟢 SAFE (no timezone bug); the next session can proceed without bundling a fix.
+**Blockers new/active:** None new. Existing **TIME-PRIME-AEDT-AEST-DRIFT-001** confirmed as the single root cause for all 2 🔴 production-code hits found (services/bot_core.py:754,776). Existing **MARKET-MODE-001-RE-CALIBRATE** still queued (next session in chain).
+**Next prompt:** MARKET-MODE-001-RE-CALIBRATE (predecessor §0 satisfied: this session's audit doc exists + market_health.py is clean).
+**Pending Claude-chat prompts not yet pasted:** MARKET-MODE-001-RE-CALIBRATE already pasted in this CC session by Jay; will run next.
+
+---
+
 ## 2026-05-05 15:01 UTC — BOT-CORE-ML-GATE-001 (env-controllable bot_core ML gate)
 
 **Committed:** `ea0da2f` feat(bot_core): BOT-CORE-ML-GATE-001 — env-controllable ML threshold gate; default disabled. Audit + persistence updates landing in follow-up commit (this session, docs-only).

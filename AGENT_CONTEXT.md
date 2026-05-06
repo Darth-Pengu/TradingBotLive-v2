@@ -296,6 +296,39 @@ mcp__railway__list-variables(service="<bot_core|signal_aggregator|treasury|...>"
 
 ---
 
+## §12 Timezone convention (added 2026-05-05 by TIMEZONE-AUDIT-001)
+
+**Rule:** All time-based **decision** logic (entry filters, sizing
+multipliers, gates, scheduled-task firing branches, daily/weekly window
+rollovers) MUST resolve the timezone dynamically via
+`zoneinfo.ZoneInfo("Australia/Sydney")` (preferred, stdlib in 3.9+) or
+`pytz.timezone("Australia/Sydney")` (existing convention in
+`market_health.py` and `governance.py`). All **storage** timestamps MUST
+use `datetime.now(timezone.utc)`. All **display** layers SHOULD use
+`Australia/Sydney` (Postgres `AT TIME ZONE`, JS `toLocaleString` with
+`timeZone:'Australia/Sydney'`).
+
+**Forbidden:** hardcoded fixed offsets — `timezone(timedelta(hours=N))`,
+`+10:00`, `+11:00`, `_td(hours=11)`, etc. — for any decision/scheduling
+purpose.
+
+**Legitimate UTC-by-design exception:** when a decision is genuinely
+UTC-anchored (e.g. `services/risk_manager.py:160-174`
+`_time_of_day_multiplier` global market-session bands; the
+`signals_aggregator` `hour_of_day` ML feature). Such uses MUST be
+commented as `# UTC by design` with a one-line rationale.
+
+**Pending 🔴 fixes (production code):** **1** — `TIME-PRIME-AEDT-AEST-DRIFT-001`
+(`services/bot_core.py:754,776`). Single fix-point in
+`_compute_position_size_for_signal` clears both lines. See
+`docs/audits/TIMEZONE_AUDIT_2026_05_05.md` for the full sweep.
+
+**Audit:** `docs/audits/TIMEZONE_AUDIT_2026_05_05.md` (TIMEZONE-AUDIT-001,
+2026-05-05). Verified `services/market_health.py` is fully DST-aware via
+pytz Australia/Sydney.
+
+---
+
 ═══════════════════════════════════════════════════════════════
 HISTORICAL ARCHIVE — pre-2026-04-30 content preserved below
 ═══════════════════════════════════════════════════════════════
