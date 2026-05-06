@@ -2,6 +2,19 @@
 
 ---
 
+## 2026-05-06 ~13:00 UTC — MARKET-MODE-001-RE-CALIBRATE (Path C / STOP, no code change)
+
+- §0 predecessor verification PASS for both BOT-CORE-ML-GATE-001 and TIMEZONE-AUDIT-001.
+- §3 Step 1 throughput: **45.8% zero-trade hours** (55/120, post-Session-2 5-day window) — above 20% STOP threshold; recalibration technically warranted on volume grounds.
+- §3 Step 2 mode distribution (n=1,436 5-min snapshots): NORMAL 51.7%, DEFENSIVE 46.8%, HIBERNATE 1.3%, AGGRESSIVE 0.2%, FRENZY 0%. **HIBERNATE-cycling premise was incorrect** — actual problem is DEFENSIVE share.
+- **Surprise finding (PnL inversion):** NORMAL has WORSE per-trade PnL than DEFENSIVE in the post-Session-2 sample. NORMAL: 121 trades / -1.09 SOL / 24.8% WR. DEFENSIVE: 45 trades / +0.25 SOL / 28.9% WR. Expanding NORMAL would have been actively harmful.
+- §3 Step 3 binding constraint: **`dex_vol` not `grad_rate`** (matches §4 Path C explicit STOP example). Live mig=215 is 7× the NORMAL threshold of 30. Off-peak Solana dex_vol drops to $800M-1B band, below $1B NORMAL gate.
+- §4 decision: **Path C / STOP**. Per the prompt's own §4 Path C: "If §3 reveals something unexpected (e.g., dex_vol is the binding constraint...), STOP and emit a finding doc. Do not patch into uncertainty."
+- New roadmap items: DEFENSIVE-VS-NORMAL-PNL-INVERSION-001 (Tier 1), MARKET-MODE-001-RE-CALIBRATE-V2 (Tier 1, re-scoped), PUMPFUN-VOL-PLACEHOLDER-001 (Tier 2), MM-HYSTERESIS-ONLY-001 (Tier 2).
+- **`services/market_health.py` UNCHANGED.** No deploy. No env change. Finding doc only: `docs/audits/MARKET_MODE_001_RE_CALIBRATE_FINDINGS_2026_05_05.md`.
+
+---
+
 ## 2026-05-05 ~15:30 UTC — TIMEZONE-AUDIT-001 (read-only sweep, no code change)
 
 - Repository-wide grep sweep for hardcoded TZ offsets across services/, dashboard/, Scripts/.

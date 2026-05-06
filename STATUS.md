@@ -7,6 +7,18 @@
 
 ---
 
+## 2026-05-06 ~13:00 UTC — MARKET-MODE-001-RE-CALIBRATE (Path C / STOP, no code change)
+
+**Committed:** docs-only — single commit landing `docs/audits/MARKET_MODE_001_RE_CALIBRATE_FINDINGS_2026_05_05.md` + ZMN_ROADMAP/STATUS/MONITORING_LOG persistence updates. **NO market_health.py edit, NO deploy, NO env change.**
+**State changes:** None. Investigation only — read SQL, read Redis, no writes.
+**Bot state:** TEST_MODE=true (unchanged). market_mode=NORMAL (live snapshot 12:50 UTC; mig=215, dex_vol=$1.51B, pumpfun=$226M). 0 paper open in Redis at investigation time. 0 live open. Wallet 0.064 SOL on-chain (unchanged). bot_core ML gate (`ML_THRESHOLD_BOT_CORE_SD=40`) still active from previous session.
+**Blockers cleared:** None. Investigation revealed prompt's premise was incorrect; honoring §4 Path C STOP preserves capital.
+**Blockers new/active:** **DEFENSIVE-VS-NORMAL-PNL-INVERSION-001** (Tier 1 — NORMAL bleeds, DEFENSIVE returns; investigate before any market-mode threshold change). **MARKET-MODE-001-RE-CALIBRATE-V2** (Tier 1 — re-scoped session needed). **PUMPFUN-VOL-PLACEHOLDER-001** (Tier 2 — placeholder math makes AND gate effectively 2-metric). **MM-HYSTERESIS-ONLY-001** (Tier 2 — standalone hysteresis still beneficial).
+**Next prompt:** None auto-triggered. Jay should read the finding doc and decide whether to (a) re-prompt MARKET-MODE-001-RE-CALIBRATE-V2 with corrected framing, (b) run DEFENSIVE-VS-NORMAL-PNL-INVERSION-001 first, or (c) wait 7 days for post-BOT-CORE-ML-GATE sample to mature before any market-mode work.
+**Pending Claude-chat prompts not yet pasted:** None — all three sessions in this CC chain (BOT-CORE-ML-GATE-001 → TIMEZONE-AUDIT-001 → MARKET-MODE-001-RE-CALIBRATE) are now resolved; the third terminated cleanly via Path C.
+
+---
+
 ## 2026-05-05 ~15:30 UTC — TIMEZONE-AUDIT-001 (read-only repository sweep)
 
 **Committed:** docs-only — single commit landing `docs/audits/TIMEZONE_AUDIT_2026_05_05.md` + ZMN_ROADMAP/AGENT_CONTEXT/CLAUDE.md/STATUS.md persistence updates. NO code change.
