@@ -178,6 +178,38 @@ See `docs/audits/V5A_GO_NO_GO_2026_05_01.md` for full evidence + recommendations
 
 ---
 
+## §6.7 External-API state matrix (post-API-CREDITS-HEALTH-DIAGNOSTIC-001 audit, 2026-05-05 ~14:50 UTC)
+
+> Snapshot from read-only diagnostic (`docs/audits/SERVICE_HEALTH_SNAPSHOT_2026_05_05.md`).
+> Rebuild via the §11 reproducibility recipe; refresh if older than 7 days OR after any external-API config change.
+
+| API / dependency | Status | Evidence | Notes |
+|---|---|---|---|
+| Helius RPC + parseTx | 🟢 | `getNetworkStatus` returned epoch 967, ~1227 TPS; `getBalance(4h4pst…)`= 0.064095633 SOL | All 5 Helius URLs identical across 8 services; single api-key family `0f2e5160-...` |
+| PumpPortal WebSocket | 🟢 | signal_listener log: 186 new_token + 157 new_pool signals/8.5min; 0 disconnects | Trade endpoint not probed (would risk real trade); inferred healthy |
+| Binance SOL price | 🟢 | `price=85.32` | `service:health.binance` warn 319ms — slightly slow but functional |
+| Jupiter V3 SOL price | 🟢 | `usdPrice=85.31`, agreement within $0.03 | `service:health.jupiter` ok 2050ms (slow; watch) |
+| Anthropic | 🔴 | governance log 13:55:58: `400 Your credit balance is too low` | **BUG-010 still active.** Falls back to CONSERVATIVE defaults. Jay action: top-up |
+| SocialData.tools | 🔴 | signal_aggregator log: 113 `SocialData out of credits` ERROR/11min | `twitter_followers` permanently sentinel `-1`. Promotes SOCIALDATA-AUTO-TOPUP-001 to ACTIVE |
+| Vybe | 🔴 | `.com` → 404; `.xyz` → 401 (auth, route exists). signal_aggregator.py:753/850/2568 use `.com` | **VYBE-URL-CODE-DRIFT-001 NEW Tier 1.** DOCS-004 fixed docs not code |
+| Telethon / Telegram | 🟡 | listener connected (2 channel update events in 8.5min); no FloodWait/AuthRestart | channel `cryptoyeezuscalls` quiet during this window — not a session issue |
+| Nansen | 🟢 (dormant) | `service:health.nansen` warn HTTP 401; but `NANSEN_DRY_RUN=TRUE` on hot services | Effective consumption ≈ 0 credits. SEC-001 split-key hygiene-only |
+| TabPFN | 🟢 | JWT exp = **2027-04-05 04:55:55 UTC** (≈335 days runway) | TABPFN-EXPIRY-DOC-DRIFT: handoff doc said 2033 — wrong by ~6 years |
+| Sentry | 🟢 | Distinct DSN per service across all 8; release `ea0da2f89164` matches main HEAD | Release tagging active for V5a flip retrospectives |
+| Railway | 🟢 | All 8 services running; all started in same ~21-min window | Confirms `RAILWAY-REDEPLOY-DISCIPLINE-001` (no `paths` filter on docs commits) |
+| Discord webhook | 🔴 | signal_listener: 2× `403 lacks permission` per 5min | `BUG-020` still firing — permission/role config issue |
+| Discord bot read | n/a | (carryover BUG-020) | |
+
+**Treasury Helius gate:** `services/treasury.py:60` early-returns None when `HELIUS_DAILY_BUDGET=="0"` (treasury env doesn't set the var). This produces 270+ misleading `WARNING: Could not fetch trading wallet balance` per 22h. Helius RPC itself is healthy — this is **TREASURY-HELIUS-LOG-NOISE-001** (rename WARN to reflect the gate, not connectivity). Currently dormant because wallet=0.064 SOL << 30 SOL trigger.
+
+**Dashboard health-check probe depth:** `service:health.anthropic = ok "key configured"` — only checks env-var presence, NOT actual API responsiveness. While BUG-010 is active this status is **misleading**. New tracking item `DASHBOARD-HEALTH-CHECK-PROBE-DEPTH-001`.
+
+**ML AUC=0.0000:** `ml:model:meta.auc=0.0000` after 7109-sample retrain at 14:00 UTC — separate ML quality investigation. Feature coverage 13-14/55 = 24-25% (CLAUDE.md Issue #2). Not API-related.
+
+**V5a impact:** None of the 4 🔴 findings are V5a-blocking by current gating rules. Original V5a blockers (wallet 0.064 SOL, 48h observation, NORMAL window) unchanged.
+
+---
+
 ## §6.5 Known leaks under investigation (post-Session-4 correction, 2026-05-01)
 
 > **Session 4 correction (2026-05-01):** Session 3 H2 attributed the post-grad bleed (-14.60 SOL/14d on 280 trades) as "structural across personalities". Session 4 personality breakdown shows ALL 280 graduation_* exits are from `analyst`, NOT speed_demon. Analyst is disabled since 2026-04-28 13:02 UTC (ANALYST-DISABLE-002). **The post-grad bleed has ALREADY STOPPED.** SD has 0 post-grad entries. POST-GRAD-ENTRY-GATE-001 has been re-scoped to insurance value only.

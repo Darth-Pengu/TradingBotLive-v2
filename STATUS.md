@@ -7,6 +7,33 @@
 
 ---
 
+## 2026-05-06 ~02:00 AEDT (15:00 UTC) — API-CREDITS-HEALTH-DIAGNOSTIC-001 (read-only audit)
+
+**Committed:** `<hash>` docs(api-credits-health): API-CREDITS-HEALTH-DIAGNOSTIC-001 — service-health snapshot across 12 dependencies. Files: `docs/audits/SERVICE_HEALTH_SNAPSHOT_2026_05_05.md` (NEW, 10 sections), `ZMN_ROADMAP.md` (Decision Log entry), `AGENT_CONTEXT.md` (NEW §6.7 external-API state matrix), `STATUS.md` (this prepend).
+**State changes:** None. Read-only — no code, no env, no redeploy. Probes were `getNetworkStatus`/`getBalance` (Helius), `WebFetch` (Binance/Jupiter/Vybe `.com`/`.xyz`), Railway `list-variables` × 8, Railway `get-logs` × 7, Redis `get`/`list` (~30 keys).
+**Bot state:** TEST_MODE=true (unchanged). bot:status RUNNING, paper portfolio 22.59 SOL, 0 open positions. market_mode=DEFENSIVE @ 14:50 UTC (cycling per recalibrated thresholds). bot:emergency_stop absent. Wallet 0.064 SOL (unchanged — V5a PC1 still failing).
+**Findings:** 4 🔴 (SocialData credits exhausted 113 ERROR/11min, **VYBE-URL-CODE-DRIFT-001** — signal_aggregator.py:753/850/2568 use `.com` → 404 vs `.xyz` → 401, BUG-010 Anthropic still exhausted, BUG-020 Discord 403 still firing) / 9 🟡 / 7 🟢 / 1 ⚪ (signals:raw LLEN unmeasurable via Redis MCP).
+**Blockers cleared:** None this session.
+**Blockers new/active:**
+- 📋 **VYBE-URL-CODE-DRIFT-001 NEW Tier 1** — DOCS-004 (2026-04-30) fixed CLAUDE.md but never migrated SA code; HOLDER fallback + creator-history + KOL/MM signal modifier fail silently
+- 📋 **SOCIALDATA-AUTO-TOPUP-001 promoted QUEUED → ACTIVE** — Jay action: top-up + auto-renewal alerting
+- 📋 **TREASURY-HELIUS-LOG-NOISE-001 NEW** — 270+ misleading "Could not fetch trading wallet balance" warnings/22h are caused by `treasury.py:60` HELIUS_DAILY_BUDGET=0 gate, NOT Helius RPC outage (Helius MCP `getBalance` works fine)
+- 📋 **DASHBOARD-CORRECTED-PNL-WARN-001 NEW** — 127 "column corrected_pnl_sol does not exist" warnings/28min on web (likely a query against `trades` table without column)
+- 📋 **TABPFN-EXPIRY-DOC-DRIFT** — JWT exp = 2027-04-05 04:55:55 UTC (NOT 2033 as documented; ≈335 days runway)
+- All other carries unchanged (BUG-010, BUG-020, V5a wallet/observation/NORMAL blockers, ML threshold drift, signals:raw TTL, etc.)
+
+**V5a precondition delta:** None. The 4 🔴 findings are all NOT V5a-blocking by current rules — original 3 blockers (wallet 0.064, 48h obs, NORMAL window) hold; reaffirmed.
+
+**Concurrent-session compatibility:** Ran in parallel with TIMEZONE-AUDIT-001 (their `<hash>`) and MARKET-MODE-001-RE-CALIBRATE (their `<hash>`). Persistence updates are all append-only — clean rebase expected. Per §1.4 git discipline.
+
+**Next prompt:** None queued. Recommended follow-ups: (a) `VYBE-URL-CODE-DRIFT-001` Tier 1 fix session (S, 3 strings + redeploy SA + verify holder fallback path responds); (b) Jay action: SocialData top-up + Anthropic top-up; (c) re-run this diagnostic after top-ups land to verify recovery.
+
+**Pending Claude-chat prompts not yet pasted:** none — independent session complete.
+
+**Verdict:** API-CREDITS-HEALTH-DIAGNOSTIC-001 ✅ AUDIT COMPLETE. Service-health baseline established for future regression detection. Snapshot timestamp: 2026-05-05 14:50 UTC.
+
+---
+
 ## 2026-05-06 ~13:00 UTC — MARKET-MODE-001-RE-CALIBRATE (Path C / STOP, no code change)
 
 **Committed:** docs-only — single commit landing `docs/audits/MARKET_MODE_001_RE_CALIBRATE_FINDINGS_2026_05_05.md` + ZMN_ROADMAP/STATUS/MONITORING_LOG persistence updates. **NO market_health.py edit, NO deploy, NO env change.**
