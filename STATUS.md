@@ -7,6 +7,49 @@
 
 ---
 
+## 2026-05-07 ~10:00 AEDT (~23:00 UTC 2026-05-06) — CLIFF-VYBE-SOCIALDATA-SUPPLEMENT-001 (read-only)
+
+**Committed:** `<hash>` docs(cliff-supplement): CLIFF-VYBE-SOCIALDATA-SUPPLEMENT-001 — both candidates NOT CLIFF. Files: `docs/audits/CLIFF_VYBE_SOCIALDATA_SUPPLEMENT_2026_05_05.md` (NEW, 8 sections), `ZMN_ROADMAP.md` (Decision Log entry), `STATUS.md` (this prepend).
+**State changes:** None. Read-only — git blame, git log -S, DB SELECT against `paper_trades_archive_20260421` and `paper_trades`. No code/env/redeploy.
+**Bot state:** TEST_MODE=true (unchanged). market_mode cycling. Wallet 0.064 SOL (unchanged). bot_core ML gate at threshold 40 still active (release `ea0da2f`).
+**Findings:**
+- **Vybe NOT CLIFF**: Lines 753/850/2568 in signal_aggregator.py use `.com`, all introduced 2026-04-04 to 2026-04-08 (commits `672eb8ac`, `94b3c564`, `751680e3`) — 13-17 days BEFORE 2026-04-21 cliff. `.xyz` has never appeared in signal_aggregator.py per `git log -S`. Sibling `nansen_wallet_fetcher.py:209` was correct from creation 2026-03-29.
+- **SocialData NOT CLIFF**: DB temporal pattern shows pct_sentinel jumped 18.7% → 99.2% on 2026-04-16 (5 days pre-cliff). Commit `35bdfe6` (2026-04-19) explicitly: "495/495 of most-recent 500 SD paper trades have twitter_followers=-1". Pre-cliff sentinel-bucket (n=2101) outperformed populated-bucket (n=883) on mean PnL +0.231 vs +0.127 SOL/trade — Twitter feature NOT load-bearing.
+- **BONUS**: SocialData drained AGAIN starting 2026-05-03 (10 days post-Jay's $10 top-up of 2026-04-22). Confirms yesterday's audit observation (113 ERROR/11min on 2026-05-05). Strengthens SOCIALDATA-AUTO-TOPUP-001 auto-renewal case.
+
+**Synthesis:** Both candidates pre-date the cliff. Both were already broken during the bot's +598 SOL pre-cliff era. **Reinforces parent STRATEGY-CLIFF-INVESTIGATION-001 "DO NOT REVERT"** — the cliff is a fee-model accounting artifact, not a strategy/feature edge regression.
+
+**Blockers cleared:** None this session (read-only).
+**Blockers new/active:** No new blockers. **Existing items refined:**
+- VYBE-URL-CODE-DRIFT-001 (Tier 1) — re-classified as **current-edge-restoration only**, not cliff-recovery. Estimated lift small (~+0.4-0.5 SOL/day at current sizing).
+- SOCIALDATA-AUTO-TOPUP-001 (ACTIVE) — re-confirmed via second drain on 2026-05-03. Jay's manual top-ups last ~10 days; auto-renewal mechanism warranted.
+
+**Concurrent-session compatibility:** Ran cleanly alongside the just-landed STRATEGY-CLIFF-INVESTIGATION-001 entry (now directly below mine). My Decision Log row added above the parent's row.
+
+**Next prompt:** None queued. Recommended next actions: (a) ship VYBE-URL-CODE-DRIFT-FIX-001 at low priority (Tier 1 fix, S cost); (b) Jay action: SocialData top-up + alerting per SOCIALDATA-AUTO-TOPUP-001; (c) defer to parent's other follow-ups (BREAKEVEN-DECISION-001, TP-SCHEDULE-EVAL-001, SIGNAL-MIX-ANALYSIS-001).
+
+**Pending Claude-chat prompts not yet pasted:** none — independent session complete.
+
+**Verdict:** CLIFF-VYBE-SOCIALDATA-SUPPLEMENT-001 ✅ INVESTIGATION COMPLETE. Both NOT CLIFF; reinforces parent's DO NOT REVERT.
+
+---
+
+## 2026-05-07 ~01:30 UTC — STRATEGY-CLIFF-INVESTIGATION-001 (NO REVERT, no code change)
+
+**Committed:** docs-only — single commit landing `docs/audits/STRATEGY_CLIFF_INVESTIGATION_001_2026_05_05.md` + `ZMN_ROADMAP.md` Decision Log + 5 new Tier-2 entries + `AGENT_CONTEXT.md` new §6.8 + `STATUS.md` (this prepend) + `MONITORING_LOG.md`. **NO services/* edit, NO deploy, NO env change, NO Redis writes.**
+**State changes:** None. Read-only investigation: SQL against production DB (`paper_trades` current + `paper_trades_archive_20260421` archive), git log, audit docs, code reads. No writes.
+**Bot state:** TEST_MODE=true (unchanged). market_mode unverified at session end (no Redis read this session — last verified DEFENSIVE 2026-05-06 13:00 UTC per MARKET-MODE-001-RE-CALIBRATE entry; cycling per recalibrated thresholds). Wallet 0.064 SOL on-chain (unchanged). bot_core ML gate (`ML_THRESHOLD_BOT_CORE_SD=40`) still active from BOT-CORE-ML-GATE-001 deploy.
+**Verdict:** 🟡 **STOP / NO REVERT.** The 2026-04-20→21 paper-PnL "cliff" (+0.20 → +0.014 mean SOL/trade) is **primarily a fee-model accounting artifact**, not a strategy regression. PRE-cliff archive rows were written under the OLD paper fee model that under-counted fees by ~96× per FEE-MODEL-001 (commit `e078b4c`); per-trade fee correction is -0.391 SOL. Apples-to-apples: PRE-cliff under realistic fees ≈ -0.19 SOL/trade (-566 SOL on 2,984 trades) vs POST-cliff +0.014 SOL/trade. **Under fair accounting, the new strategy is +0.20 SOL/trade BETTER than the old.**
+**Hypotheses scored:** FEE-MODEL-001 🟢 HIGH match. GATES-V5 sizing/stop-loss/gates 🟢 HIGH match (all real strategy changes, downscale magnitudes appropriately under realistic accounting). Breakeven removal & TP flatten 🟢 HIGH match (env overrides removed BREAKEVEN_STOP and staged_tp_+50/+100/+250/+400/+500%). Signal-source shift 🔴 REFUTED (100% pumpportal both eras). Telegram channel switch / Discord BUG-020 onset / Nansen state change 🔴 all REFUTED via cross-reference with API-CREDITS audit. Market regime shift 🟡 LOW (too coincidental with 3 single-day commits to be regime alone).
+**Counterfactual:** lift if cliff "reverted" = 0 SOL/day (likely negative -2 to -5 SOL/day on real edge). The §7 STOP condition triggers per prompt — "counterfactual < 1 SOL/day → STOP".
+**Blockers cleared:** None this session (read-only investigation).
+**Blockers new/active:** 5 new Tier-2 🟢 follow-ups proposed (none V5a-blocking): **STRATEGY-CLIFF-FOLLOWUP-001** (re-validate at 14d POST sample ≥2026-05-12), **PRE-DEPLOY-PNL-VALIDATION-001** (process), **BREAKEVEN-DECISION-001** (A/B test), **TP-SCHEDULE-EVAL-001** (full-ladder re-eval), **SIGNAL-MIX-ANALYSIS-001** (per-gate ablation). Existing Tier-1 carries unchanged (DEFENSIVE-VS-NORMAL-PNL-INVERSION-001, MARKET-MODE-001-RE-CALIBRATE-V2, NO-MOMENTUM-90S-AUDIT-001, ML-THRESHOLD-DATA-DRIVEN-RETUNE-002, VYBE-URL-CODE-DRIFT-001 from API-CREDITS audit).
+**Institutional learning (per §9 of prompt):** every audit since 2026-04-22 operated exclusively on POST-cliff data because DASH-RESET wiped current `paper_trades` into the archive. The drift report (USERMEMORIES_DRIFT_2026_05_01.md) had access to the cliff data via the archive table but used "last 7d/14d" windows that exclusively look at POST-cliff. The chat-side prompt's premise (that the cliff = strategy regression) was a natural conclusion from raw `realised_pnl_sol` comparison, missing the FEE-MODEL-001 accounting transition. **Process improvement:** PRE-DEPLOY-PNL-VALIDATION-001 codifies "check accounting-regime deploys at the boundary" for future cliff investigations.
+**Next prompt:** None auto-triggered. Recommended next session: STRATEGY-CLIFF-FOLLOWUP-001 (re-validate after ≥2026-05-12 once POST-cliff sample reaches 14d) OR continue work on already-tracked Tier-1 carries (DEFENSIVE-VS-NORMAL-PNL-INVERSION-001 first per the post-cliff degradation concern).
+**Pending Claude-chat prompts not yet pasted:** None — chat-side STRATEGY-CLIFF-INVESTIGATION-001 is now resolved.
+
+---
+
 ## 2026-05-06 ~02:00 AEDT (15:00 UTC) — API-CREDITS-HEALTH-DIAGNOSTIC-001 (read-only audit)
 
 **Committed:** `<hash>` docs(api-credits-health): API-CREDITS-HEALTH-DIAGNOSTIC-001 — service-health snapshot across 12 dependencies. Files: `docs/audits/SERVICE_HEALTH_SNAPSHOT_2026_05_05.md` (NEW, 10 sections), `ZMN_ROADMAP.md` (Decision Log entry), `AGENT_CONTEXT.md` (NEW §6.7 external-API state matrix), `STATUS.md` (this prepend).

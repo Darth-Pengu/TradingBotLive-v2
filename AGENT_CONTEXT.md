@@ -1,6 +1,6 @@
 # AGENT_CONTEXT — current bot state
 
-**Last updated:** 2026-05-01 ~12:30 UTC by STATE-RECONCILE-2026-05-01 (Session 2 of 6 chained sequence; reconciled docs against Findings A-E from production DB — full data in `docs/audits/USERMEMORIES_DRIFT_2026_05_01.md`). Prior: TIME-PRIME-CONTRADICTION-FIX-001 (Session 1, commit `13d4324`; TIME_PRIME 2× upsize at code aedt_hour 18-20 / Sydney AEST 17-19 neutralized via env-control). Pre-Sessions: REALISM-AND-ROADMAP-CLEANUP-2026-04-30 + FEE-LATENCY-REALISM-2026-04-30 (Path A slippage tier fix).
+**Last updated:** 2026-05-07 by STRATEGY-CLIFF-INVESTIGATION-001 (read-only investigation; new §6.8 added; no env / Redis / code changes). Prior: API-CREDITS-HEALTH-DIAGNOSTIC-001 (2026-05-06; new §6.7 external-API state matrix), MARKET-MODE-001-RE-CALIBRATE (2026-05-06; Path C / STOP, no code change), TIMEZONE-AUDIT-001 (2026-05-05; read-only sweep), BOT-CORE-ML-GATE-001 (2026-05-05; commit `ea0da2f`; ML_THRESHOLD_BOT_CORE_SD=40 env-active 14:16:48Z UTC). Earlier: STATE-RECONCILE-2026-05-01, TIME-PRIME-CONTRADICTION-FIX-001 (commit `13d4324`).
 **Source:** Read directly from Railway env, Redis, DB, on-chain.
 **NOT a chat-side carry.** Memory drift policy: see CLAUDE.md "Persistence Convention" (added Session E).
 
@@ -175,6 +175,37 @@ Re-run V5A-GO-NO-GO after 24h
 - 🟡 PC9 recent 7d aggregate -0.98 SOL (mildly negative; degradation watch)
 
 See `docs/audits/V5A_GO_NO_GO_2026_05_01.md` for full evidence + recommendations.
+
+---
+
+## §6.8 Strategy cliff (added 2026-05-07 by STRATEGY-CLIFF-INVESTIGATION-001)
+
+**Cliff date:** 2026-04-20 → 2026-04-21. Magnitude: PRE-cliff archive (`paper_trades_archive_20260421`) shows mean +0.20 SOL/trade on 2,984 SD-paper trades; POST-cliff current shows +0.014 SOL/trade on 528 SD-paper trades.
+
+**Verdict: 🟡 STOP / NO REVERT.** The cliff is **primarily a fee-model accounting artifact**, NOT a strategy regression.
+
+The two eras are not on the same accounting basis:
+- PRE rows (archive) were written under the OLD paper fee model that under-counted fees by ~96× per FEE-MODEL-001 (commit `e078b4c`, deployed 2026-04-21 07:26 AEDT)
+- POST rows (current) are written under the realistic fee model
+- Per-trade fee correction quoted in `e078b4c`: **-0.391 SOL/trade**
+
+**Apples-to-apples calculation (PRE-cliff under realistic fees):**
+- PRE-cliff +598 SOL → estimated **-566 SOL** under realistic accounting (mean -0.19 SOL/trade)
+- POST-cliff +9.3 SOL (mean +0.014 SOL/trade)
+- **Under fair accounting, the new strategy is +0.20 SOL/trade BETTER than the old.**
+
+**Key implication for any future audit:** raw `realised_pnl_sol` is **incomparable across the 2026-04-21 boundary**. To compare across the cliff, either re-derive from raw fields (entry_price, exit_price, amount_sol) under a single fee model OR confine analysis to one side. Default queries that hit only `paper_trades` (current) implicitly choose the latter — that's fine for in-era questions but invalidates "edge collapsed" claims that span the cliff.
+
+**5 follow-up items proposed (all Tier 2 🟢, none V5a-blocking):**
+- STRATEGY-CLIFF-FOLLOWUP-001: re-validate at 14d POST sample (≥2026-05-12)
+- PRE-DEPLOY-PNL-VALIDATION-001: process improvement (accounting-regime check on cliff investigations)
+- BREAKEVEN-DECISION-001: A/B test breakeven lock (PRE: 131 fires, -8.1 SOL realized; POST: 0 fires)
+- TP-SCHEDULE-EVAL-001: re-evaluate full ladder TP (PRE had +50/+100/+200/+250/+400/+500/+1000% schedule; POST only +200/+1000%)
+- SIGNAL-MIX-ANALYSIS-001: per-gate ablation of HOLDER/BSR/PRE_FILTER/CFGI
+
+**Post-cliff degradation 04-25 onwards is a SEPARATE concern**, not caused by the cliff itself, already tracked via NO-MOMENTUM-90S-AUDIT-001 + ML-THRESHOLD-DATA-DRIVEN-RETUNE-002 + DEFENSIVE-VS-NORMAL-PNL-INVERSION-001.
+
+See `docs/audits/STRATEGY_CLIFF_INVESTIGATION_001_2026_05_05.md` for full evidence (cliff confirmation, FEE-MODEL-001 rebaseline math, exit-reason composition, signal-source REFUTED, MC-band shift, cause-effect mapping, counterfactual estimate, why this wasn't caught earlier).
 
 ---
 

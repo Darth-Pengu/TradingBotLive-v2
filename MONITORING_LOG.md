@@ -2,6 +2,22 @@
 
 ---
 
+## 2026-05-07 ~01:30 UTC — STRATEGY-CLIFF-INVESTIGATION-001 (read-only investigation, NO REVERT)
+
+- Read-only investigation of the 2026-04-20→21 paper-PnL "cliff" via SQL on production DB (`paper_trades` current + `paper_trades_archive_20260421` archive table) + git log + audit doc + code reads.
+- §3 cliff CONFIRMED in DB: archive 8-day SD-paper sample (n=2,984) shows mean +0.20 SOL/trade summing +598 SOL; current 4-day POST sample (n=528) shows mean +0.014 SOL/trade summing +9.3 SOL. Numbers match chat-side prompt's framing within rounding.
+- §3 KEY FINDING — fee-model accounting mismatch: PRE rows written under OLD fee model that under-counted fees by ~96× per FEE-MODEL-001 (commit `e078b4c`, deployed 2026-04-21 07:26 AEDT). Per-trade fee correction: -0.391 SOL. Apples-to-apples math: PRE-cliff under realistic fees = -566 SOL on 2,984 trades = mean -0.19 SOL/trade. POST-cliff = +0.014 SOL/trade. **Under fair accounting, POST is +0.20 SOL/trade BETTER than PRE.**
+- §3 sizing verification: archive p50 amount 0.32 SOL → current p50 0.082 SOL (5× reduction); archive effective fee rate 0.36% of position → current 1.50% (4× reduction in fee % efficiency at smaller positions).
+- §5 exit-reason composition: BREAKEVEN_STOP 131 fires PRE → 0 POST (env override removed); staged_tp_+50/+100/+250/+400/+500% all REMOVED via env override; staged_tp_+200/+1000% RETAINED. TRAILING_STOP mean dropped 12× (sizing 5× × fee impact 2.4× explains full magnitude). Stop-loss tighten (35→20%) improved per-fire mean 3.3× (-0.244 → -0.074).
+- §5b signal-source: 100% pumpportal both eras. Source-shift hypothesis REFUTED. MC-band shift CONFIRMED (89% in $1-5M PRE → 41.5% POST, gate-driven). Cross-reference with API-CREDITS audit: Telegram channel ID stable, Discord BUG-020 pre-existed cliff, Nansen on dry-run both eras.
+- §6 cause-effect: 6 candidates (FEE-MODEL-001, GATES-V5 sizing/stop-loss/gates, breakeven removal, TP flatten) all 🟢 HIGH match. 4 source/regime hypotheses 🔴 REFUTED.
+- §7 counterfactual: revert lift = 0 SOL/day (likely negative -2 to -5 SOL/day). §7 prompt's STOP condition triggers — counterfactual < 1 SOL/day.
+- §8 recommendation: 🟡 STOP / NO REVERT. Keep FEE-MODEL-001, DASH-RESET, GATES-V5 sizing/stop-loss/gates, ML-012 fix. Track 5 follow-ups (Tier 2 🟢): STRATEGY-CLIFF-FOLLOWUP-001, PRE-DEPLOY-PNL-VALIDATION-001, BREAKEVEN-DECISION-001, TP-SCHEDULE-EVAL-001, SIGNAL-MIX-ANALYSIS-001.
+- §10 institutional learning: every audit since 04-22 operated only on POST-cliff data (DASH-RESET wiped current paper_trades; archive table existed but no query used it). Process improvement codified in PRE-DEPLOY-PNL-VALIDATION-001.
+- **NO services/* edit, NO deploy, NO env change, NO Redis writes.** Audit: `docs/audits/STRATEGY_CLIFF_INVESTIGATION_001_2026_05_05.md`. Recommendation: `.tmp_cliff_investigation/recommendation.md` (gitignored).
+
+---
+
 ## 2026-05-06 ~13:00 UTC — MARKET-MODE-001-RE-CALIBRATE (Path C / STOP, no code change)
 
 - §0 predecessor verification PASS for both BOT-CORE-ML-GATE-001 and TIMEZONE-AUDIT-001.
