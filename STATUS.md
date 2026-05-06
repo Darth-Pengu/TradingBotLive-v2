@@ -7,6 +7,41 @@
 
 ---
 
+## 2026-05-06 22:29 UTC — DEFENSIVE-OVERRIDE-PROBE-001 START (no code change)
+
+**Committed:** `<hash>` docs(defensive-probe): DEFENSIVE-OVERRIDE-PROBE-001 — A/B-probe set, 24h TTL. Files: `MONITORING_LOG.md` (entry), `ZMN_ROADMAP.md` (Decision Log + 2 new items), `STATUS.md` (this prepend). NO services/* edit, NO deploy, NO env change. Single Redis SET.
+**State changes:** `market:mode:override=DEFENSIVE EX 86400` SET at **2026-05-06T22:29:10Z UTC** (verified value+propagation). No other Redis writes. No DB writes.
+**Bot state:** TEST_MODE=true (paper), bot:status=RUNNING, paper portfolio 22.92 SOL, 1 open position (`speed_demon:C7Ad1dff…` opened+closed under DEFENSIVE during this session — `no_momentum_90s` -0.0152 SOL, n=1 throughput proof), consecutive_losses=2, emergency_stop=ABSENT, market:mode:current=**DEFENSIVE** (was NORMAL pre-SET; switched at 22:29:44Z = ~34s post-SET). Wallet 0.064 SOL (unchanged). bot_core ML gate at threshold=40 still active (release `cf4d4d6`).
+**Probe purpose:** A/B-test the DEFENSIVE-VS-NORMAL-PNL-INVERSION-001 finding (Tier 1 Q from MARKET-MODE-001-RE-CALIBRATE Path C). Pre-probe baselines reinforce the inversion at multiple sample sizes:
+- Post-Session-2 5d (MARKET-MODE audit): NORMAL **-1.09 SOL on 121 trades / 24.8% WR** vs DEFENSIVE **+0.25 SOL on 45 / 28.9% WR**.
+- Last 48h (this session §2): NORMAL **-0.80 SOL on 103 / 33.0% WR** vs DEFENSIVE **+0.44 SOL on 17 / 64.7% WR**.
+
+Probe generates a real DEFENSIVE-only sample to either confirm at scale (n≥80) or refute as small-sample noise.
+**Override propagation verification:**
+- Code path: `services/market_health.py:409` reads `market:mode:override`, short-circuits threshold logic at L412-414, logs `Market mode OVERRIDE active: %s`. Loop cadence 300s (`market_health.py:476`).
+- Observed: `market_health` log at **22:34:45Z** shows explicit `Market mode OVERRIDE active: DEFENSIVE`. `market:mode:current` flipped NORMAL→DEFENSIVE by 22:29:44Z (1 cycle post-SET). `bot:status.market_mode` reflects DEFENSIVE by next bot_core heartbeat (22:39:31Z snapshot read).
+**Re-evaluation milestone:** ≥**2026-05-08T22:29Z UTC** (48h). Sample target: ≥80 SD-paper trades under DEFENSIVE override. Run as DEFENSIVE-OVERRIDE-PROBE-EVAL-001 (paste-ready prompt to follow).
+**Renewal requirement:** TTL 86400 (24h). Override must be re-SET every 24h via Redis MCP (`SET market:mode:override DEFENSIVE EX 86400`) until probe ends. Filed as **DEFENSIVE-OVERRIDE-DAILY-RENEWAL-001** (operational, Tier-2 daily action). Auto-expires safely if forgotten — bot reverts to threshold-based mode determination (no destructive default).
+**Rollback triggers (any one ends probe early):**
+- Cumulative SOL since probe start < -0.50 SOL on n≥30 trades
+- Win rate < 18% on n≥30 trades
+- Throughput drop to <5 SD-paper trades/day for 24h consecutive
+- Bot enters HIBERNATE for >2h consecutive (override SHOULD prevent this — code reads override before threshold logic; if HIBERNATE persists, override-read path bug)
+
+Rollback procedure: `DEL market:mode:override` via Redis MCP; document outcome in MONITORING_LOG.
+**Blockers cleared:** None this session.
+**Blockers new/active:**
+- 📋 **DEFENSIVE-OVERRIDE-DAILY-RENEWAL-001 NEW Tier-2 OPERATIONAL** — daily Redis renewal until probe ends or rollback fires.
+- 📋 **DEFENSIVE-OVERRIDE-PROBE-EVAL-001 NEW Tier-1** — 48h evaluation session, queued for ≥2026-05-08T22:29Z. Decides KEEP / REVERT / EXTEND.
+- All carries unchanged from prior STATUS entries (CLIFF-VYBE-SOCIALDATA-SUPPLEMENT-001, STRATEGY-CLIFF-INVESTIGATION-001, API-CREDITS-HEALTH-DIAGNOSTIC-001, V5a wallet/observation/NORMAL blockers).
+**V5a precondition delta:** Mixed signal — running DEFENSIVE for 48h means the V5a NORMAL-window precondition is intentionally suspended for the duration of the probe. The probe outcome will inform whether NORMAL is even the right V5a-flip mode (if DEFENSIVE keeps outperforming at scale, V5a may want DEFENSIVE-flip semantics instead).
+**Concurrent-session compatibility:** Independent of STRATEGY-CLIFF-INVESTIGATION-001 and CLIFF-VYBE-SOCIALDATA-SUPPLEMENT-001 (different file/Redis surface). No conflict expected.
+**Next prompt:** **DEFENSIVE-OVERRIDE-PROBE-EVAL-001** (paste-ready prompt to follow). Do NOT auto-trigger — needs 48h wall clock first. Concurrent operational task: daily renewal of override key.
+**Pending Claude-chat prompts not yet pasted:** none — independent session complete.
+**Verdict:** DEFENSIVE-OVERRIDE-PROBE-001 ✅ STARTED. Override SET, propagation verified, throughput confirmed (1 trade in first ~10 min). 48h sample accumulation in progress.
+
+---
+
 ## 2026-05-07 ~10:00 AEDT (~23:00 UTC 2026-05-06) — CLIFF-VYBE-SOCIALDATA-SUPPLEMENT-001 (read-only)
 
 **Committed:** `<hash>` docs(cliff-supplement): CLIFF-VYBE-SOCIALDATA-SUPPLEMENT-001 — both candidates NOT CLIFF. Files: `docs/audits/CLIFF_VYBE_SOCIALDATA_SUPPLEMENT_2026_05_05.md` (NEW, 8 sections), `ZMN_ROADMAP.md` (Decision Log entry), `STATUS.md` (this prepend).

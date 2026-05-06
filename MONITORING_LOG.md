@@ -2,6 +2,29 @@
 
 ---
 
+## 2026-05-06 22:29 UTC — DEFENSIVE-OVERRIDE-PROBE-001 START (no code change, single Redis SET)
+
+- Single state change: `SET market:mode:override DEFENSIVE EX 86400` at **2026-05-06T22:29:10Z UTC** via Redis MCP. No code edits, no env changes, no service redeploys.
+- Probe rationale: A/B-test the NORMAL-vs-DEFENSIVE PnL inversion finding from **MARKET-MODE-001-RE-CALIBRATE Path C / STOP** (audit `MARKET_MODE_001_RE_CALIBRATE_FINDINGS_2026_05_05.md`). Pre-probe finding (post-Session-2 5-day window): NORMAL -1.09 SOL on 121 trades (24.8% WR) vs DEFENSIVE +0.25 SOL on 45 (28.9% WR) — counterintuitive, sample n=45 too small for confidence.
+- §2 baseline (last 48h SD-paper, captured pre-SET): NORMAL n=103 / -0.80 SOL / mean -0.0078 / **33.0% WR**; AGGRESSIVE n=1; DEFENSIVE n=17 / +0.44 SOL / mean +0.026 / **64.7% WR**; TOTAL n=121 / -0.37 SOL / 37.2% WR. Reinforces inversion at smaller window with same direction. Raw output saved to `.tmp_defensive_probe/baseline.txt`.
+- §2 bot health pre-SET: bot:status RUNNING, paper portfolio 22.92 SOL, 0 open positions, market_mode NORMAL, consecutive_losses=2, test_mode=true, emergency_stop=ABSENT. All §2 STOP conditions PASSED.
+- §3 Redis SET landed (verified via `GET market:mode:override` → "DEFENSIVE"). Pre-SET value: key absent (no prior override). Pre-SET market:mode:current=NORMAL.
+- §4 propagation verification (within prompt's 5-min ceiling):
+  - 22:29:44Z (34s post-SET): `market_health` log shows `Market mode: DEFENSIVE` — first cycle picked up override.
+  - 22:34:45Z (5m35s post-SET): `market_health` log shows explicit `Market mode OVERRIDE active: DEFENSIVE` — confirms `services/market_health.py:412-414` override-read path firing as expected.
+  - `market:mode:current` = DEFENSIVE (verified via Redis MCP).
+  - `bot:status.market_mode` = DEFENSIVE (verified via bot_core heartbeat at 22:39:31Z).
+  - First post-SET trade observed at 22:39 UTC (`speed_demon:C7Ad1dff…`, no_momentum_90s -0.0152 SOL on 0.091 SOL position) — throughput confirmed flowing under DEFENSIVE override; bot_core ML gate at 40 still rejecting <40 ml_score signals (4+ skip lines logged at 22:02-22:15 UTC).
+- §5 documentation: STATUS.md prepended; MONITORING_LOG.md prepended (this entry); ZMN_ROADMAP.md Decision Log row + 2 new Tier-2 OPERATIONAL / Tier-1 EVAL roadmap rows added (`DEFENSIVE-OVERRIDE-DAILY-RENEWAL-001`, `DEFENSIVE-OVERRIDE-PROBE-EVAL-001`).
+- §6 daily renewal: filed as `DEFENSIVE-OVERRIDE-DAILY-RENEWAL-001` (operational, Tier 2 🟢). Until probe ends, override must be re-SET every 24h. Auto-expires safely if forgotten (bot reverts to threshold-based mode = safe failure mode).
+- §7 STOP conditions: NONE triggered. All four (§2 unexpected state / §3 SET fail / §4 propagation fail >10min / §1.4 git rebase fail 3×) cleared.
+- Re-evaluation milestone: ≥**2026-05-08T22:29Z UTC** (48h). Sample target ≥80 SD-paper trades under DEFENSIVE. Run as `DEFENSIVE-OVERRIDE-PROBE-EVAL-001` (paste-ready prompt to follow). Do NOT auto-trigger.
+- Rollback triggers (any one ends probe early): cumulative < -0.50 SOL on n≥30 / WR < 18% on n≥30 / throughput < 5 SD-paper trades/day for 24h consecutive / bot HIBERNATE > 2h consecutive (override-read path bug indicator).
+- Rollback procedure: `DEL market:mode:override` via Redis MCP. Document in MONITORING_LOG.
+- **NO services/* edit, NO deploy, NO env change.** Sole runtime change: 1 Redis key SET with 24h TTL. Audit predecessor: `docs/audits/MARKET_MODE_001_RE_CALIBRATE_FINDINGS_2026_05_05.md`. Scratch artifacts: `.tmp_defensive_probe/baseline.txt`, `.tmp_defensive_probe/baseline_query.py` (gitignored).
+
+---
+
 ## 2026-05-07 ~01:30 UTC — STRATEGY-CLIFF-INVESTIGATION-001 (read-only investigation, NO REVERT)
 
 - Read-only investigation of the 2026-04-20→21 paper-PnL "cliff" via SQL on production DB (`paper_trades` current + `paper_trades_archive_20260421` archive table) + git log + audit doc + code reads.
