@@ -9,7 +9,7 @@
 
 ## 2026-05-09 ~UTC — STOP-LOSS-20-RUG-INVESTIGATION-001 (read-only investigation, DEPLOY-RECOMMENDED)
 
-**Committed:** `<hash>` docs(stop-loss-20-rug): STOP-LOSS-20-RUG-INVESTIGATION-001 — fill-time MC ceiling lever identified. Files: `docs/audits/STOP_LOSS_20_RUG_INVESTIGATION_001_2026_05_09.md` (NEW), `docs/audits/STOP_LOSS_20_RUG_FILTER_DEPLOY_PROMPT_2026_05_09.md` (NEW), `AGENT_CONTEXT.md` (§6.5 leaks updated), `ZMN_ROADMAP.md` (Decision Log + 4 new follow-up items), `MONITORING_LOG.md` (entry), `STATUS.md` (this prepend), `.gitignore` (`.tmp_stop_loss_20_rug/`).
+**Committed:** `27f623b` docs(stop-loss-20-rug): STOP-LOSS-20-RUG-INVESTIGATION-001 — fill-time MC ceiling lever identified. Files: `docs/audits/STOP_LOSS_20_RUG_INVESTIGATION_001_2026_05_09.md` (NEW), `docs/audits/STOP_LOSS_20_RUG_FILTER_DEPLOY_PROMPT_2026_05_09.md` (NEW), `AGENT_CONTEXT.md` (§6.5 leaks updated), `ZMN_ROADMAP.md` (Decision Log + 4 new follow-up items), `MONITORING_LOG.md` (entry), `STATUS.md` (this prepend), `.gitignore` (`.tmp_stop_loss_20_rug/`).
 **State changes:** None. Read-only — DB SELECT against `paper_trades` (read-only), Railway MCP `list-variables` × 2 services, code grep, no Redis/env/DB writes, no redeploy.
 **Bot state:** TEST_MODE=true (paper). Wallet 0.064 SOL on-chain (UNCHANGED from 2026-04-30 baseline). SD_MC_CEILING_USD=3000 confirmed live on signal_aggregator. STOP_LOSS_PCT=0.20 confirmed at bot_core code default. Concurrent state: not verified live this session (read-only DB+code work; STATE-SNAPSHOT-2026-05-08 last live verify).
 **Findings (key):**
