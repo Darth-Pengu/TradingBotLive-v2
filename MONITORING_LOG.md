@@ -2,6 +2,30 @@
 
 ---
 
+## 2026-05-09 — STOP-LOSS-20-RUG-INVESTIGATION-001 (read-only investigation, DEPLOY-RECOMMENDED)
+
+- Read-only investigation of `stop_loss_20%` as the largest SD-paper bleed since 2026-05-02 (n=65, sum −6.03 SOL, 0% WR). Triggered by chat-side data analysis.
+- Pre-claim verification (STOP-A): 65 rugs since 2026-05-02 (chat said 61; close — chat ran ~6h earlier and the May 8 spike was still accumulating). Hold time min 0.099s, max 2.021s, median 0.991s — matches chat's 0.10-2.02s/median 1.04s. Median observed drop −74.03% — matches chat's −74.7%. peak_price NULL on 100% of rows — consistent with chat's "0/61 went up", but limited evidence (peak_price column never written for sub-second exits; the INSERT in `paper_trader.paper_buy` doesn't set peak_price, and the bot_core UPDATE either doesn't fire or fails silently inside `except Exception: pass`).
+- Code archaeology: exit logic at `services/bot_core.py:1815-1824` — `f"stop_loss_{sl_pct:.0%}"` f-string label fires whenever `multiple <= (1 - 0.20)` regardless of how deep the actual drop. The label is "≥-20% drop observed at the 2-second exit-check tick", not "exit at -20%". Polling cadence `await asyncio.sleep(2)` at L1940. STOP_LOSS_PCT=0.20 confirmed from `services/bot_core.py:166` (env-controlled, default 0.20).
+- Gate verification (STOP-B): SD_MC_CEILING_002 gate intact at `services/signal_aggregator.py:1846-1881`; Railway env `SD_MC_CEILING_USD=3000` confirmed live on signal_aggregator. STOP-B does not fire.
+- Field sample (STOP-C): features_json populated on 186/186 (100%) SD-paper stop_loss_20% rows since (mis-set) SINCE date — STOP-C does not fire. Sample 5 rows showed market_cap_at_entry $3,033-$24,383 — all above the SA $3K threshold. The SA gate is being bypassed.
+- **Smoking gun (Phase 2)**: `market_cap_at_entry` cleanly separates RUG from WIN at $3K cut on 273-row sample (65 rugs / 208 trailing-stop wins) since 2026-05-02. RUG: min $3,181, p10 $3,436, median $7,881, p90 $37,615, max $181,519 — **100% > $3K**. WIN: min $321, median $623, p90 $756, max $832 — **0% > $3K**. Zero overlap.
+- Root cause: SA gate evaluates BC reserves *as carried in raw_data at PumpPortal-publish time*. For fresh pump.fun tokens, raw_data carries the seed values (vSol≈30, vTokens≈1.073e9), so SA-computed MC ≈ $2,400 — always under the $3K gate. Between signal-publish and bot_core fill (1-15s window), Jupiter / GeckoTerminal indexes the token and returns a *current* USD price reflecting in-flight sniper buys. `paper_buy._get_token_price(mint)` (paper_trader.py:96-139) prefers Jupiter's live price over the BC fallback. The DB column `market_cap_at_entry = entry_price * 1B` reflects this fill-time price. The SA gate is structurally inert against this failure mode because it gates on signal-time data while the failure mode is fill-time price divergence.
+- Discriminative-feature scan (Phase 2.3): no feature in features_json clears the 1.5× separation threshold. All ratios in [0.82, 1.21]. Confirms the only data-supported lever is fill-time MC (which is the DB column `market_cap_at_entry`).
+- Filter F1 design + counterfactual (Phase 3-4):
+  - F1: at `paper_trader.paper_buy`, after `entry_price` computation, reject if `entry_price * 1_000_000_000 > BOT_CORE_FILL_MC_CEILING_USD`. Default disabled in code; env-active at $3,000.
+  - 7d window (since 2026-05-02): blocks 69 / 473, NET LIFT +6.20 SOL, **+0.93 SOL/day**, 0/211 winner FP.
+  - 14d window (since 2026-04-25): blocks 139 / 1,091, NET LIFT +11.00 SOL, **+0.80 SOL/day**, 0/349 winner FP.
+  - 17d POST-cliff (since 2026-04-22): blocks 203 / 1,493, NET LIFT +14.65 SOL, **+0.88 SOL/day**, 0/544 winner FP.
+  - STOP-E (≤10% winner-SOL FP) clears by 0%; STOP-F (≥+0.30 SOL/day) clears by 2.7-3.1×; STOP-D and STOP-G clear.
+  - Tighter $2K threshold lifts another +0.7 SOL/day but blocks 56% of trades — recommend $3K for parity with SA gate, conservative blast radius (14% blocked), zero FP cost. Tightening can follow as a separate post-deploy sweep.
+- May 8 spike: 40 of 65 rugs (62%) on a single day. F1 is forward-protective regardless of whether the spike is structural or transient.
+- Verdict: 🟢 **DEPLOY-RECOMMENDED**. Single-lever, env-controlled, reversible, paper-only at flip. Follow-on prompt at `docs/audits/STOP_LOSS_20_RUG_FILTER_DEPLOY_PROMPT_2026_05_09.md`.
+- Investigation evidence: `.tmp_stop_loss_20_rug/{01_exit_logic,02_entry_path,03_field_sample,04_gate_verification,05_signal_vs_fill,06_discriminative_features,07_sizing,08_temporal,09_candidate_F1}.md` + `phase2_output.txt` + `verify_output.txt`. Audit doc: `docs/audits/STOP_LOSS_20_RUG_INVESTIGATION_001_2026_05_09.md`.
+- NO code/env/Redis writes this session. Read-only DB SELECT, read-only Railway MCP `list-variables`, read-only code grep. Single push expected (audit doc + canonical-doc updates only).
+
+---
+
 ## 2026-05-08 13:30 UTC — VYBE-URL-CODE-DRIFT-001-FIX-2026-05-08 (read-only investigation, STOP per Step 7 #2)
 
 - Read-only investigation of the 3 hardcoded `.com` Vybe URLs at `services/signal_aggregator.py:753, 850, 2568` flagged by API-CREDITS-HEALTH-DIAGNOSTIC-001 (2026-05-05). Session prompt anticipated a `.com → .xyz` TLD swap based on prior audit's `.xyz → 401` probe inference.

@@ -1,6 +1,6 @@
 # AGENT_CONTEXT — current bot state
 
-**Last updated:** 2026-05-08 ~13:21 UTC by STATE-SNAPSHOT-2026-05-08 (read-only; verified probe expiry, wallet balances, env state, code state — see `docs/audits/STATE_SNAPSHOT_2026_05_08.md`). Prior: STRATEGY-CLIFF-INVESTIGATION-001 (2026-05-07; new §6.8), API-CREDITS-HEALTH-DIAGNOSTIC-001 (2026-05-06; new §6.7 external-API state matrix), MARKET-MODE-001-RE-CALIBRATE (2026-05-06; Path C / STOP, no code change), TIMEZONE-AUDIT-001 (2026-05-05; read-only sweep), BOT-CORE-ML-GATE-001 (2026-05-05; commit `ea0da2f`; ML_THRESHOLD_BOT_CORE_SD=40 env-active 14:16:48Z UTC). Earlier: STATE-RECONCILE-2026-05-01, TIME-PRIME-CONTRADICTION-FIX-001 (commit `13d4324`).
+**Last updated:** 2026-05-09 by STOP-LOSS-20-RUG-INVESTIGATION-001 (read-only investigation; §6.5 leaks updated for `stop_loss_20%` row — DIAGNOSED, F1 fill-time MC ceiling deploy prompt ready). Prior: STATE-SNAPSHOT-2026-05-08 (~13:21 UTC; read-only; verified probe expiry, wallet balances, env state, code state — see `docs/audits/STATE_SNAPSHOT_2026_05_08.md`). Earlier: STRATEGY-CLIFF-INVESTIGATION-001 (2026-05-07; new §6.8), API-CREDITS-HEALTH-DIAGNOSTIC-001 (2026-05-06; new §6.7 external-API state matrix), MARKET-MODE-001-RE-CALIBRATE (2026-05-06; Path C / STOP, no code change), TIMEZONE-AUDIT-001 (2026-05-05; read-only sweep), BOT-CORE-ML-GATE-001 (2026-05-05; commit `ea0da2f`; ML_THRESHOLD_BOT_CORE_SD=40 env-active 14:16:48Z UTC). Earlier: STATE-RECONCILE-2026-05-01, TIME-PRIME-CONTRADICTION-FIX-001 (commit `13d4324`).
 **Source:** Read directly from Railway env, Redis, DB, on-chain.
 **NOT a chat-side carry.** Memory drift policy: see CLAUDE.md "Persistence Convention" (added Session E).
 
@@ -248,7 +248,7 @@ See `docs/audits/STRATEGY_CLIFF_INVESTIGATION_001_2026_05_05.md` for full eviden
 | Leak | 14d attribution | Personality | Status | Patch path |
 |---|---:|---|---|---|
 | `no_momentum_90s` (pre-grad) | −8.48 SOL on 423 trades | speed_demon (paper) | 📋 AUDIT PROPOSED — `NO-MOMENTUM-90S-AUDIT-001` | Investigation first (signal quality vs exit-timer); patch second. |
-| `stop_loss_20%` (pre-grad) | −8.00 SOL on 119 trades | speed_demon (paper) | 🟡 PARTIAL — likely correlated with above | May be addressed by `no_momentum_90s` audit; no direct patch yet. |
+| `stop_loss_20%` (pre-grad) | −8.00 SOL on 119 trades / 14d (post-investigation: −10.43 SOL on 128 trades / 14d, −14.65 SOL on 186 trades / 17d POST-cliff) | speed_demon (paper) | 🟢 DIAGNOSED 2026-05-09 — STOP-LOSS-20-RUG-INVESTIGATION-001 — F1 fill-time MC ceiling lever validated | Deploy `STOP-LOSS-20-RUG-FILTER-DEPLOY-001`. Forward ROI +0.80-0.93 SOL/day at $3K threshold; 0% winner FP. SA `SD_MC_CEILING_002` is structurally inert (signal-time vs fill-time MC divergence); F1 mirrors at fill time. |
 | Historical `graduation_*` (analyst) | −14.60 SOL on 280 trades / 14d | analyst (DISABLED since 2026-04-28) | ⏸ STOPPED via `ANALYST_DISABLED=true` | None needed — bleed already stopped. Insurance: `POST-GRAD-ENTRY-GATE-001` (re-scoped to Tier 2) layered atop ANALYST_DISABLED for safety. |
 | **ML threshold not enforced on paper** | — (constraint, not direct loss) | all (paper) | ⏸ STOP per Session 4 §8 | `BOT-CORE-ML-GATE-001` (Tier 1) — add second ML gate at bot_core to make env changes take effect. Recommended threshold = 55 per sweep. |
 

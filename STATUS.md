@@ -7,6 +7,34 @@
 
 ---
 
+## 2026-05-09 ~UTC — STOP-LOSS-20-RUG-INVESTIGATION-001 (read-only investigation, DEPLOY-RECOMMENDED)
+
+**Committed:** `<hash>` docs(stop-loss-20-rug): STOP-LOSS-20-RUG-INVESTIGATION-001 — fill-time MC ceiling lever identified. Files: `docs/audits/STOP_LOSS_20_RUG_INVESTIGATION_001_2026_05_09.md` (NEW), `docs/audits/STOP_LOSS_20_RUG_FILTER_DEPLOY_PROMPT_2026_05_09.md` (NEW), `AGENT_CONTEXT.md` (§6.5 leaks updated), `ZMN_ROADMAP.md` (Decision Log + 4 new follow-up items), `MONITORING_LOG.md` (entry), `STATUS.md` (this prepend), `.gitignore` (`.tmp_stop_loss_20_rug/`).
+**State changes:** None. Read-only — DB SELECT against `paper_trades` (read-only), Railway MCP `list-variables` × 2 services, code grep, no Redis/env/DB writes, no redeploy.
+**Bot state:** TEST_MODE=true (paper). Wallet 0.064 SOL on-chain (UNCHANGED from 2026-04-30 baseline). SD_MC_CEILING_USD=3000 confirmed live on signal_aggregator. STOP_LOSS_PCT=0.20 confirmed at bot_core code default. Concurrent state: not verified live this session (read-only DB+code work; STATE-SNAPSHOT-2026-05-08 last live verify).
+**Findings (key):**
+- 🟢 **DISCRIMINATOR FOUND**: `market_cap_at_entry` perfectly separates RUG from WIN at $3K cut on 273-row sample (65 rugs / 208 trailing-stop wins) since 2026-05-02. RUG min $3,181 → max $181,519 (100% > $3K); WIN min $321 → max $832 (0% > $3K). Zero overlap.
+- 🟢 **ROOT CAUSE**: SA `SD_MC_CEILING_002` gate evaluates BC reserves at signal-publish time (raw_data carries fresh-mint vSol≈30, vTokens≈1.073e9 → MC≈$2,400 < $3K, always passes). Bot_core fills via Jupiter/Gecko *current* price, which has pumped during 1-15s signal-to-fill window. The gate is structurally inert against this failure mode. Fix has to be at fill time.
+- 🟢 **F1 FILTER**: reject if `entry_price * 1B > $3,000` at `paper_trader.paper_buy` after entry_price computation. Counterfactual ROI **+0.80 to +0.93 SOL/day** across 7d/14d/17d-POST-cliff windows. Zero winner false positives (0/544 over 17d). STOP-E and STOP-F clear by 2.7-3.1×.
+- 🟢 features_json features all default to sentinels for fresh tokens age <30s — none discriminate. The lever has to use a fill-time quantity, which is `market_cap_at_entry`.
+- 🟡 **May 8 spike**: 40 of 65 rugs (62%) on a single day. Could be transient or structural; F1 is forward-protective regardless.
+- 🟡 peak_price NULL on 100% of rugs (data limitation; OBS-INTRA-HOLD-DRAWDOWN-001 already proposed).
+**Verdict:** ✅ **DEPLOY-RECOMMENDED**. Single-lever, env-controlled (default OFF), reversible, paper-only at flip. Follow-on prompt at `docs/audits/STOP_LOSS_20_RUG_FILTER_DEPLOY_PROMPT_2026_05_09.md`.
+**Blockers cleared:** None this session (read-only investigation).
+**Blockers new/active:**
+- 📋 **STOP-LOSS-20-RUG-FILTER-DEPLOY-001 NEW Tier-1 🟢** — single-lever code change, env=$3000, ~30-45min wall clock. Paper-only at flip; no live risk.
+- 📋 **STOP-LOSS-20-RUG-FILTER-EVAL-001 NEW Tier-2** — re-evaluate at +14d post-deploy (queue ≥2026-05-23). Decide keep/tighten/loosen.
+- 📋 **PAPER-ENTRY-PRICE-DENOMINATION-001 NEW Tier-3 🟢** — TRAILING_STOP winners cluster at MC $321-832 (well below BC fresh-mint baseline ~$2,400). Likely Jupiter v3 sub-baseline pricing for fresh pump.fun pools. Doesn't affect F1; observability follow-up only.
+- 📋 **OBS-INTRA-HOLD-DRAWDOWN-001 EXISTING (reinforced)** — peak_price NULL on 100% of rugs prevents direct measurement of "did stop_loss_20% amputate winners". Add `min_price_during_hold` column.
+- All carries unchanged from prior STATUS entries (DEFENSIVE-OVERRIDE-PROBE-001 EXPIRED, VYBE-URL-CODE-DRIFT-001 scope expanded, STRATEGY-CLIFF NO-REVERT, CLIFF-VYBE-SOCIALDATA-SUPPLEMENT carries, BUG-010 Anthropic, SOCIALDATA-AUTO-TOPUP-001 ACTIVE, V5a wallet/observation/NORMAL blockers).
+**V5a precondition delta:** None. F1 deploy is paper-only and orthogonal to V5a (TEST_MODE=true unchanged at flip; live-mode parity is a separate session). NO-MOMENTUM-90S-AUDIT-001 still next-highest-ROI on the V5a-blocking SD-paper bleed list.
+**Concurrent-session compatibility:** Pull-rebase before push (retry up to 3× on conflict per CLAUDE.md). Append-only updates to AGENT_CONTEXT.md / MONITORING_LOG.md / STATUS.md. ZMN_ROADMAP.md Decision Log row added at top of table.
+**Next prompt:** **STOP-LOSS-20-RUG-FILTER-DEPLOY-001** (paste-ready at `docs/audits/STOP_LOSS_20_RUG_FILTER_DEPLOY_PROMPT_2026_05_09.md`). Single push, no `railway up`, ~30-45 min wall clock. Recommended priority: high — clearest ROI lever in current backlog at low risk.
+**Pending Claude-chat prompts not yet pasted:** none — independent session complete.
+**Verdict:** ✅ INVESTIGATION COMPLETE. Filter F1 designed and validated at +0.80-0.93 SOL/day with 0% winner FP. Deploy prompt ready.
+
+---
+
 ## 2026-05-08 ~13:21 UTC — STATE-SNAPSHOT-2026-05-08 (read-only verification, no env / Redis / code changes)
 
 **Committed:** `<hash>` docs(state-snapshot): STATE-SNAPSHOT-2026-05-08 — refresh stale claims pre probe eval. Files: `docs/audits/STATE_SNAPSHOT_2026_05_08.md` (NEW), `AGENT_CONTEXT.md` (header + §3 wallet + §8 Redis-snapshot refresh), `MONITORING_LOG.md` (entry), `ZMN_ROADMAP.md` (Decision Log entry), `STATUS.md` (this prepend), `.gitignore` (`.tmp_state_snapshot/`).
