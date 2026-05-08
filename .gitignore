@@ -31,17 +31,20 @@ package.json
 package-lock.json
 .DS_Store
 
-# Python venv — never commit
+# Python venv ï¿½ never commit
 Lib/
 venv/
 .venv/
 env/
 pyvenv.cfg
 
-# Session outputs / scratch — not for commit
+# Session outputs / scratch ï¿½ not for commit
 session_outputs/
 
 # Session 3 devnet test (never commit)
 scripts/devnet_*
 /tmp/devnet.env
 /tmp/zmn_devnet_*
+
+# State snapshot scratch (read-only audit work products)
+.tmp_state_snapshot/

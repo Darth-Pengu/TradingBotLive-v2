@@ -1,6 +1,6 @@
 # AGENT_CONTEXT — current bot state
 
-**Last updated:** 2026-05-07 by STRATEGY-CLIFF-INVESTIGATION-001 (read-only investigation; new §6.8 added; no env / Redis / code changes). Prior: API-CREDITS-HEALTH-DIAGNOSTIC-001 (2026-05-06; new §6.7 external-API state matrix), MARKET-MODE-001-RE-CALIBRATE (2026-05-06; Path C / STOP, no code change), TIMEZONE-AUDIT-001 (2026-05-05; read-only sweep), BOT-CORE-ML-GATE-001 (2026-05-05; commit `ea0da2f`; ML_THRESHOLD_BOT_CORE_SD=40 env-active 14:16:48Z UTC). Earlier: STATE-RECONCILE-2026-05-01, TIME-PRIME-CONTRADICTION-FIX-001 (commit `13d4324`).
+**Last updated:** 2026-05-08 ~13:21 UTC by STATE-SNAPSHOT-2026-05-08 (read-only; verified probe expiry, wallet balances, env state, code state — see `docs/audits/STATE_SNAPSHOT_2026_05_08.md`). Prior: STRATEGY-CLIFF-INVESTIGATION-001 (2026-05-07; new §6.8), API-CREDITS-HEALTH-DIAGNOSTIC-001 (2026-05-06; new §6.7 external-API state matrix), MARKET-MODE-001-RE-CALIBRATE (2026-05-06; Path C / STOP, no code change), TIMEZONE-AUDIT-001 (2026-05-05; read-only sweep), BOT-CORE-ML-GATE-001 (2026-05-05; commit `ea0da2f`; ML_THRESHOLD_BOT_CORE_SD=40 env-active 14:16:48Z UTC). Earlier: STATE-RECONCILE-2026-05-01, TIME-PRIME-CONTRADICTION-FIX-001 (commit `13d4324`).
 **Source:** Read directly from Railway env, Redis, DB, on-chain.
 **NOT a chat-side carry.** Memory drift policy: see CLAUDE.md "Persistence Convention" (added Session E).
 
@@ -92,8 +92,8 @@ For full per-service env inventory see `docs/audits/ENV_AUDIT_2026_04_29.md` §2
 
 | wallet | address | balance | last verified |
 |---|---|---:|---|
-| Trading | `4h4pstXd5JtQuiFFSiLyP5DWWdpaLJAMLNzKwfoii8xJ` | **0.064095633 SOL** | 2026-04-30 ~09:00 UTC via Helius `getBalance` |
-| Holding | `2gfHQvyQdpDtiyUcFQJE6o15VkrHn7YXubp8DRwttWJ9` | ~0.0098 SOL | 2026-04-29 12:39 UTC via ENV_AUDIT |
+| Trading | `4h4pstXd5JtQuiFFSiLyP5DWWdpaLJAMLNzKwfoii8xJ` | **0.064095633 SOL** | 2026-05-08 13:21 UTC via Helius `getBalance` (UNCHANGED from 2026-04-30) |
+| Holding | `2gfHQvyQdpDtiyUcFQJE6o15VkrHn7YXubp8DRwttWJ9` | **0.190842421 SOL** 🟡 | 2026-05-08 13:21 UTC via Helius (was 0.0098 SOL on 2026-04-29; +0.181 drift — confirm with Jay; treasury is dormant so this should not be automation) |
 
 **Wallet history (per CLAUDE.md "Live trading mode" + audits):**
 - 5.0 → 1.564 SOL: v3/v4 trial real on-chain trades 2026-04-16/17 (~3.4 SOL net cost; per `1b40df3` forensics)
@@ -222,7 +222,7 @@ See `docs/audits/STRATEGY_CLIFF_INVESTIGATION_001_2026_05_05.md` for full eviden
 | Jupiter V3 SOL price | 🟢 | `usdPrice=85.31`, agreement within $0.03 | `service:health.jupiter` ok 2050ms (slow; watch) |
 | Anthropic | 🔴 | governance log 13:55:58: `400 Your credit balance is too low` | **BUG-010 still active.** Falls back to CONSERVATIVE defaults. Jay action: top-up |
 | SocialData.tools | 🔴 | signal_aggregator log: 113 `SocialData out of credits` ERROR/11min | `twitter_followers` permanently sentinel `-1`. Promotes SOCIALDATA-AUTO-TOPUP-001 to ACTIVE |
-| Vybe | 🔴 | `.com` → 404; `.xyz` → 401 (auth, route exists). signal_aggregator.py:753/850/2568 use `.com` | **VYBE-URL-CODE-DRIFT-001 NEW Tier 1.** DOCS-004 fixed docs not code |
+| Vybe | 🔴 | With valid key: `.com/token/...` → 404, `.xyz/token/...` → 404, `.xyz/v4/tokens/...` → 200. signal_aggregator.py:753/850/2568 still use `.com/token/...` | **VYBE-URL-CODE-DRIFT-001 scope expanded 2026-05-08** — fix is URL+path migration to `/v4/tokens/`, not just TLD swap (per VYBE_URL_FIX_2026_05_08.md STOP). v4 Token Details has no `creator` field (L850 affected); `/top-holders` returns `ownerName` not `ownerLabel`/`label` (L2568 affected). Pending VYBE-URL-CODE-DRIFT-001-FIX-V2 |
 | Telethon / Telegram | 🟡 | listener connected (2 channel update events in 8.5min); no FloodWait/AuthRestart | channel `cryptoyeezuscalls` quiet during this window — not a session issue |
 | Nansen | 🟢 (dormant) | `service:health.nansen` warn HTTP 401; but `NANSEN_DRY_RUN=TRUE` on hot services | Effective consumption ≈ 0 credits. SEC-001 split-key hygiene-only |
 | TabPFN | 🟢 | JWT exp = **2027-04-05 04:55:55 UTC** (≈335 days runway) | TABPFN-EXPIRY-DOC-DRIFT: handoff doc said 2033 — wrong by ~6 years |
@@ -282,26 +282,28 @@ For the full Tier-1/2/3 list see `ZMN_ROADMAP.md`.
 
 ---
 
-## §8 Recent Redis state snapshot (2026-04-30 ~08:52 UTC)
+## §8 Recent Redis state snapshot (2026-05-08 ~13:21 UTC, refreshed by STATE-SNAPSHOT-2026-05-08)
 
-| key | value | TTL |
-|---|---|---:|
-| bot:status | RUNNING, portfolio 23.97 SOL, daily_pnl=0.0, test_mode=true | 27s |
-| bot:emergency_stop | (none) | -2 |
-| bot:loss_pause_until | (none) | -2 |
-| bot:consecutive_losses | 1 | -1 |
-| market:mode:current | **HIBERNATE** | -1 |
-| market:mode:override | (none — TTL expired) | -2 |
-| market:sol_price | (none — TTL expired) | -2 |
-| governance:latest_decision | CONSERVATIVE; all personalities `enabled=true` (Redis override clobbered as expected — env-vars load-bearing) | 28518s |
-| nansen:disabled | (none — TTL expired) | -2 |
-| signal_aggregator:health | ok at 08:52:34 UTC | 99s |
-| **bot_core:health** | **(absent — OBS-014)** | -2 |
+| key | value | notes |
+|---|---|---|
+| bot:status | RUNNING, paper portfolio 24.83 SOL, daily_pnl=+0.41 SOL, test_mode=true, market_mode=NORMAL, 1 open partial position (mint GnNFCenU…, +339% unrealised — staged_tp_+200% partial exit, 80% remaining; cosmetic, not a ghost-cache bug) | 27s TTL |
+| bot:emergency_stop | (absent) | not tripped |
+| bot:loss_pause_until | (not checked this session) | — |
+| bot:consecutive_losses | 1 | — |
+| market:mode:current | **NORMAL** | thresholds determining (probe expired) |
+| market:mode:override | **(absent — DEFENSIVE-OVERRIDE-PROBE-001 EXPIRED 2026-05-07 22:29 UTC, no renewal)** 🔴 | probe ran 24h before lapsing; sample n=54 underpowered; eval session needs decision (re-run with renewal or use thin sample) |
+| market:sol_price | 88.37 USD | fresh |
+| market:health | mode=NORMAL, cfgi_sol=46 (cfgi.io primary), dex_volume_24h $1.75B | fresh ~30s old |
+| governance:latest_decision | mode=CONSERVATIVE; reasoning="classification failed: Error code: 400 ... 'Your cred..." | 🔴 BUG-010 still firing (Anthropic credit exhaustion confirmed) |
+| nansen:disabled | (absent — TTL expired) | renewal needed if Nansen budget enforcement matters; NANSEN_DRY_RUN=TRUE on SA effectively neutralizes |
+| signal_aggregator:health | ok at 2026-05-08 13:20:57 UTC | 4s before audit fetch — fresh |
+| **bot_core:health** | **(absent — OBS-014 still open)** | bot_core lacks heartbeat key |
 
-**Action items from snapshot:**
-- Renew `market:mode:override=NORMAL EX 86400` daily (currently expired; AGGRESSIVE_PAPER_TRADING masks effect for paper but blocks live entries).
-- Renew `nansen:disabled=true EX 86400` daily (currently expired; combined with NANSEN_DAILY_BUDGET=2000 on SA/ml_engine/signal_listener, Nansen calls may fire).
-- bot_core lacks heartbeat key — OBS-014 cleanup.
+**Action items from snapshot (2026-05-08):**
+- 🔴 DEFENSIVE-OVERRIDE-PROBE expired without renewal at 2026-05-07 22:29 UTC. Eval session must decide: re-run with renewal vs accept underpowered 24h sample (n=54).
+- 🔴 Anthropic credits still exhausted (BUG-010). Top-up required for governance to function beyond CONSERVATIVE fallback.
+- bot_core still lacks heartbeat key — OBS-014 cleanup.
+- Holding wallet drift 0.0098 → 0.190 SOL since 2026-04-29; treasury is dormant — confirm with Jay.
 
 ---
 

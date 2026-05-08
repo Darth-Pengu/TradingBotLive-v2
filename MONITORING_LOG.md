@@ -2,6 +2,37 @@
 
 ---
 
+## 2026-05-08 13:30 UTC — VYBE-URL-CODE-DRIFT-001-FIX-2026-05-08 (read-only investigation, STOP per Step 7 #2)
+
+- Read-only investigation of the 3 hardcoded `.com` Vybe URLs at `services/signal_aggregator.py:753, 850, 2568` flagged by API-CREDITS-HEALTH-DIAGNOSTIC-001 (2026-05-05). Session prompt anticipated a `.com → .xyz` TLD swap based on prior audit's `.xyz → 401` probe inference.
+- Probe with valid `VYBE_API_KEY` (sourced from Railway signal_aggregator env, never written to disk) reveals: both `.com/token/...` and `.xyz/token/...` return HTTP 404 ("The requested endpoint does not exist"). The 401 the prior audit observed was from probing `.xyz` without auth — Vybe's auth middleware fires before the not-found check.
+- Vybe MCP `search-endpoints` + `get-endpoint` confirm canonical paths are versioned: `/v4/tokens/{mint}/top-holders` and `/v4/tokens/{mint}` — both explicitly noted in OpenAPI as **"Replaces"** the older `/token/...` paths. Probes against `.xyz/v4/tokens/...` return HTTP 200 with valid data (BONK test mint).
+- Two breaking downstream issues for the URL-only fix:
+  - L850 `_fetch_creator_history`: v4 Token Details response has no `creator` field. Function continues to return empty dict even after URL+path fix. Need alternative data source (Helius parseTransactions first-slot, pump.fun metadata, or other). Tracked as new VYBE-CREATOR-LOOKUP-DEPRECATED-001 (Tier 2).
+  - L2568 KOL/MM detection: v4 `/top-holders` returns `ownerName` (e.g. "Binance Exchange 1"), not `ownerLabel`/`label`. KOL detection reads the wrong field — `kol_count` stays 0 → `whale_boost` stays 1.0. Trivial paired field-name update needed; bundle with V2 fix. Tracked as new VYBE-KOL-FIELD-MAPPING-001 (Tier 2).
+- L753 `_fetch_holder_data_vybe`: response shape compatible (`data` array with `balance` field). URL+path fix alone fully restores HOLDER fallback.
+- Caller analysis (Step 4): no caller breaks on empty returns. All three call sites already handle silent-failure gracefully — they have for the bot's entire +598 SOL pre-cliff era and post-cliff period. Adding real Vybe data is additive feature restoration.
+- Per Step 7 condition #2 ("Vybe API documentation indicates breaking changes between the old endpoint and a current canonical one — i.e., the fix is more than a TLD swap"), **STOP triggered**. Findings audit committed; no code change to `services/signal_aggregator.py`; no Railway redeploy.
+- Concurrent STATE-SNAPSHOT-2026-05-08 (entry below) ran the same window; their §3 finding "Vybe `.xyz` route alive (401/400 with bogus auth)" matches: with bogus/empty auth, `.xyz` returns 401/400; with valid auth, `.xyz/token/...` returns 404. The 401 was an auth-middleware artifact, not evidence of a working route.
+- Follow-up: `VYBE-URL-CODE-DRIFT-001-FIX-V2` (Path A1 in audit §7) — URL+path migration at all 3 sites + L2568 `ownerName` field update; track creator-source replacement separately. Cost S.
+- **NO services/* edit, NO deploy, NO env change, NO Redis writes, NO DB writes.** Audit: `docs/audits/VYBE_URL_FIX_2026_05_08.md`. Scratch artifacts: `.tmp_vybe_fix/probe_urls.py`, `.tmp_vybe_fix/probe_v4_urls.py`, `.tmp_vybe_fix/probe_output.txt`, `.tmp_vybe_fix/probe_v4_output.txt`, `.tmp_vybe_fix/STOPPED.md`, `.tmp_vybe_fix/vybe_references.txt`, `.tmp_vybe_fix/git_history.txt` (untracked).
+
+---
+
+## 2026-05-08 ~13:21 UTC — STATE-SNAPSHOT-2026-05-08 (read-only verification, no env / Redis / code changes)
+
+- Read-only state snapshot to refresh the [STALE]/[ASSUMED] items in the 2026-05-07 handover before the DEFENSIVE-OVERRIDE-PROBE-EVAL window opens.
+- §1 PROBE STATE: 🔴 **EXPIRED.** `market:mode:override` is absent at audit time; `market:mode:current=NORMAL`. Probe was set 2026-05-06 22:29:10 UTC with 24h TTL → expired 2026-05-07 22:29:10 UTC. Renewal did NOT fire. Probe ran ~24h before lapsing.
+- §2 WALLETS: trading wallet UNCHANGED at 0.064095633 SOL [VERIFIED:helius]. Holding wallet rose to 0.190842421 SOL from prior 0.0098 SOL baseline (+0.181 drift; treasury dormant — confirm with Jay).
+- §3 API HEALTH: Helius 🟢 (epoch 968, ~1588 real TPS); Vybe `.com` 🔴 still 404 (code drift unchanged); Vybe `.xyz` route alive (401/400 with bogus auth); SocialData route alive 401 (real credit state not probed); Anthropic 🔴 confirmed firing now via Redis `governance:latest_decision` body; PumpPortal/Jupiter/Binance 🟢 (inferred via `signal_aggregator:health` heartbeat fresh).
+- §4 PROBE-PERIOD PAPER: n=263 since 2026-05-07 00:00 UTC, all SD-paper closed, +2.0625 SOL net, 52.9% WR. Window split: probe-active 24h n=54 / +0.640 SOL / 44.4% WR; probe-expired ~14h45m n=212 / +1.398 SOL / 54.2% WR. **Mode coverage gap: `mode_at_entry` absent in 263/263 sample rows** — per-row mode reconstruction not possible from DB alone for this window. Filing MODE-AT-ENTRY-FEATURE-001 (Tier 2 🟢).
+- §5 ENV: bot_core / signal_aggregator / treasury / ml_engine / market_health all match handover §3.2 with no drift. SEC-001 split-Nansen-key state still present (treasury+market_health on `cL2tgvKP`; rest on `nsn_2ef9`). Vestigial sizing values still on treasury/ml_engine/market_health (TUNE-008 cleanup carry-over).
+- §6 CODE STATE: BOT-CORE-ML-GATE-001 commit `ea0da2f` present in HEAD `15a334a`; SD_MC_CEILING_002 gate at signal_aggregator.py:1846-1881 (handover line range was approximate); TIME_PRIME env-controlled block at bot_core.py:750-764; hardcoded TZ at bot_core.py:754 still present (TIME-PRIME-AEDT-AEST-DRIFT-001 unchanged); Vybe `.com` URLs at signal_aggregator.py:753, 850, 2568 still present (VYBE-URL-CODE-DRIFT-001 unchanged).
+- §7 RECOMMENDATIONS for eval session: (a) decide treatment of underpowered 24h probe sample — recommend re-run with renewal commitment (option 2); (b) file MODE-AT-ENTRY-FEATURE-001 to add `mode_at_entry` to features_json so future audits can do per-row mode analysis; (c) confirm holding-wallet drift; (d) carry-over Anthropic/Vybe/SocialData fixes still pending.
+- **NO services/* edit, NO deploy, NO env change, NO Redis writes.** Audit: `docs/audits/STATE_SNAPSHOT_2026_05_08.md`. Scratch: `.tmp_state_snapshot/` (gitignored).
+
+---
+
 ## 2026-05-06 22:29 UTC — DEFENSIVE-OVERRIDE-PROBE-001 START (no code change, single Redis SET)
 
 - Single state change: `SET market:mode:override DEFENSIVE EX 86400` at **2026-05-06T22:29:10Z UTC** via Redis MCP. No code edits, no env changes, no service redeploys.

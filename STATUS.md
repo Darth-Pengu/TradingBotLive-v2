@@ -7,6 +7,53 @@
 
 ---
 
+## 2026-05-08 ~13:21 UTC — STATE-SNAPSHOT-2026-05-08 (read-only verification, no env / Redis / code changes)
+
+**Committed:** `<hash>` docs(state-snapshot): STATE-SNAPSHOT-2026-05-08 — refresh stale claims pre probe eval. Files: `docs/audits/STATE_SNAPSHOT_2026_05_08.md` (NEW), `AGENT_CONTEXT.md` (header + §3 wallet + §8 Redis-snapshot refresh), `MONITORING_LOG.md` (entry), `ZMN_ROADMAP.md` (Decision Log entry), `STATUS.md` (this prepend), `.gitignore` (`.tmp_state_snapshot/`).
+**State changes:** None. Read-only — Redis MCP get/list, Helius MCP getBalance/getNetworkStatus, Railway MCP list-variables × 6 services, Postgres query against `paper_trades` (read-only), aiohttp/curl probes against Vybe / SocialData / Anthropic / Helius routes (no real-key probes burning credits). NO services/* edit, NO deploy, NO env / Redis writes.
+**Bot state:** TEST_MODE=true (paper). Paper portfolio 24.83 SOL (live), 1 open partial position (mint GnNFCenU…, staged_tp_+200% 80% remaining — cosmetic). market_mode=NORMAL (probe expired). emergency_stop=ABSENT. Trading wallet 0.064095633 SOL (UNCHANGED from 2026-04-30 baseline). Holding wallet 0.190842421 SOL (UP from 0.0098 SOL on 2026-04-29 — drift +0.181, confirm with Jay).
+**Findings (key):**
+- 🔴 **DEFENSIVE-OVERRIDE-PROBE-001 EXPIRED.** `market:mode:override` absent; expired 2026-05-07 22:29 UTC after one TTL cycle (no renewal fired). Probe sample n=54 SD-paper closed during pure 24h window — under the 80-trade target.
+- 🟡 Probe-period sample (since 2026-05-07 00:00 UTC) is contaminated. n=263 SD-paper closed, +2.06 SOL net, 52.9% WR. Window split: probe-active 24h n=54 / +0.640 SOL / 44.4% WR; probe-expired ~14h45m n=212 / +1.398 SOL / 54.2% WR.
+- 🔴 Mode coverage gap: `mode_at_entry` ABSENT in 263/263 sample rows. Per-row mode reconstruction not possible from DB alone.
+- 🟢 Code state intact: BOT-CORE-ML-GATE-001 commit `ea0da2f` present in HEAD `15a334a`; SD_MC_CEILING_002 gate at signal_aggregator.py:1846-1881; TIME_PRIME env-controlled at bot_core.py:750-764.
+- Carry-overs unchanged: 🔴 Anthropic credits firing now (Redis governance log); 🔴 Vybe URL drift (signal_aggregator.py:753/850/2568 still on `.com`); 🟡 SocialData status assumed unchanged.
+**Blockers cleared:** None this session.
+**Blockers new/active:**
+- 📋 **MODE-AT-ENTRY-FEATURE-001 NEW Tier 2 🟢** — paper_trader / signal_aggregator should write `mode_at_entry` to features_json so future audits can do per-row mode-coverage analysis. Trivial change; high diagnostic ROI.
+- 📋 **HOLDING-WALLET-DRIFT-2026-05-08 NEW Tier 3 🟢** — confirm +0.181 SOL increase to holding wallet (treasury dormant; should NOT be automation).
+- 📋 **DEFENSIVE-OVERRIDE-DAILY-RENEWAL-001** carry-over: probe needs renewal mechanism if eval session re-runs.
+- All carries unchanged from prior STATUS entries (BUG-010 Anthropic, VYBE-URL-CODE-DRIFT-001, SOCIALDATA-AUTO-TOPUP-001 ACTIVE, V5a wallet/observation/NORMAL blockers, TREASURY-TEST-MODE-002 dormant).
+**V5a precondition delta:** None. The probe expiration does NOT block V5a (V5a blockers per V5A_GO_NO_GO_2026_05_01.md unchanged: wallet 0.064 SOL, 48h obs window, NORMAL window). The probe needs re-run with renewal commitment for confident eval.
+**Concurrent-session compatibility:** Pull-rebase before push (retry up to 3× on conflict per CLAUDE.md). NOTE: a concurrent session ran VYBE-URL-CODE-DRIFT-001-FIX-2026-05-08 in parallel — its untracked audit doc `docs/audits/VYBE_URL_FIX_2026_05_08.md` is left untouched for that session's own commit. Its STATUS.md entry (immediately below this) and its updates to `AGENT_CONTEXT.md §6.7 Vybe row` are in this session's working tree by happenstance and are bundled into this commit since they're consistent with this audit's findings.
+**Next prompt:** `DEFENSIVE-OVERRIDE-PROBE-EVAL-001` per the 2026-05-06 22:29 UTC MONITORING_LOG entry. **Decision required from eval prompt:** re-run probe with renewal commitment (recommended) vs use underpowered 24h sample.
+**Pending Claude-chat prompts not yet pasted:** none — independent session complete.
+**Verdict:** ✅ COMPLETE (read-only). Audit doc + canonical-doc updates landed. Probe state finding flagged for eval session.
+
+---
+
+## 2026-05-08 13:30 UTC — VYBE-URL-CODE-DRIFT-001-FIX-2026-05-08 (read-only investigation, STOP per Step 7 #2)
+
+**Committed:** `<hash>` docs(vybe-url): VYBE-URL-CODE-DRIFT-001-FIX-2026-05-08 STOP — investigation only, NO code change. Files: `docs/audits/VYBE_URL_FIX_2026_05_08.md` (NEW), `STATUS.md` (this prepend), `ZMN_ROADMAP.md` (Decision Log entry), `AGENT_CONTEXT.md` (Vybe row refined), `MONITORING_LOG.md` (entry).
+**State changes:** None. Read-only — Vybe MCP search-endpoints/get-endpoint, aiohttp probes against `.com` / `.xyz` / `/v4/tokens/` URLs (BONK mint), git blame on the 3 sites, Railway list-variables for VYBE_API_KEY. No DB/Redis/env/code writes.
+**Bot state:** TEST_MODE=true (unchanged). `DEFENSIVE-OVERRIDE-PROBE-001` already EXPIRED at 2026-05-07T22:29Z UTC per concurrent STATE-SNAPSHOT-2026-05-08 (renewal did not fire — `market:mode:override` absent at audit; `market:mode:current=NORMAL`). Wallet 0.064 SOL (unchanged).
+**Findings:** Step 7 STOP condition #2 triggered. Probe with valid `VYBE_API_KEY` confirms the prior session's "`.com → .xyz` TLD swap" hypothesis is INVALID — both `.com` and `.xyz` versions of `/token/{mint}/...` return HTTP 404 ("The requested endpoint does not exist"). Canonical Vybe v4 paths `https://api.vybenetwork.xyz/v4/tokens/{mint}/top-holders` and `https://api.vybenetwork.xyz/v4/tokens/{mint}` return HTTP 200 (verified BONK). Vybe OpenAPI explicitly notes these "**Replace**" the older `/token/...` paths. Two breaking downstream issues: (1) v4 Token Details no longer returns `creator` — `_fetch_creator_history` Vybe step continues to return empty even after URL fix; (2) v4 `/top-holders` returns `ownerName` not `ownerLabel`/`label` — L2568 KOL detection needs paired field-name update.
+**Blockers cleared:** None this session.
+**Blockers new/active:**
+- 📋 **VYBE-URL-CODE-DRIFT-001 status updated** — scope expanded from "TLD swap" (3-string subst) to "URL+path migration + paired downstream field-name updates". Recommended follow-up: `VYBE-URL-CODE-DRIFT-001-FIX-V2` (Path A1 in audit §7 — URL+path migration at all 3 sites + L2568 `ownerName` field update; track creator-source replacement separately).
+- 📋 **VYBE-CREATOR-LOOKUP-DEPRECATED-001 NEW Tier 2** — v4 Token Details no longer returns `creator`. `_fetch_creator_history` Vybe-step-1 needs an alternative data source (Helius parseTransactions first-slot, pump.fun metadata, or other). Bigger scope; defer to its own session.
+- 📋 **VYBE-KOL-FIELD-MAPPING-001 NEW Tier 2** — L2568 KOL detection reads `ownerLabel`/`label`; v4 returns `ownerName`. Trivial field-name update; bundle with VYBE-URL-CODE-DRIFT-001-FIX-V2.
+
+All carries unchanged from prior STATUS entries (DEFENSIVE-OVERRIDE-PROBE-001 expired ~24h after start — see STATE-SNAPSHOT-2026-05-08; CLIFF-VYBE-SOCIALDATA-SUPPLEMENT-001, STRATEGY-CLIFF-INVESTIGATION-001, V5a wallet/observation/NORMAL blockers, BUG-010 Anthropic, SOCIALDATA-AUTO-TOPUP-001 ACTIVE).
+
+**V5a precondition delta:** None. Vybe URL fix is current-edge-restoration only, not V5a-blocking (per CLIFF supplement: Vybe was non-load-bearing pre-cliff). Cliff supplement's bound on lift (~+0.4-0.5 SOL/day) still applies after the scope expansion since fix is structurally the same set of code paths.
+**Concurrent-session compatibility:** Pull-rebase before push (retry up to 3× on conflict per CLAUDE.md). Append-only updates to AGENT_CONTEXT.md / MONITORING_LOG.md / STATUS.md. ZMN_ROADMAP.md Decision Log row added at top of table.
+**Next prompt:** Optional `VYBE-URL-CODE-DRIFT-001-FIX-V2` (paste-ready prompt structure documented in audit §7 Path A1). Cost S. NOT auto-triggered.
+**Pending Claude-chat prompts not yet pasted:** none — independent session complete.
+**Verdict:** ⏸ STOP per Step 7 condition #2. Findings audit committed; no code change. User to decide on follow-up scope.
+
+---
+
 ## 2026-05-06 22:29 UTC — DEFENSIVE-OVERRIDE-PROBE-001 START (no code change)
 
 **Committed:** `<hash>` docs(defensive-probe): DEFENSIVE-OVERRIDE-PROBE-001 — A/B-probe set, 24h TTL. Files: `MONITORING_LOG.md` (entry), `ZMN_ROADMAP.md` (Decision Log + 2 new items), `STATUS.md` (this prepend). NO services/* edit, NO deploy, NO env change. Single Redis SET.
