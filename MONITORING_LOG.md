@@ -2,6 +2,22 @@
 
 ---
 
+## 2026-05-11 — STOP-LOSS-20-RUG-FILTER-DEPLOY-001 (code+env deploy)
+
+- Predecessor: STOP-LOSS-20-RUG-INVESTIGATION-001 (commit `27f623b`, 2026-05-09). Audit doc `docs/audits/STOP_LOSS_20_RUG_INVESTIGATION_001_2026_05_09.md` + paste-ready deploy prompt `docs/audits/STOP_LOSS_20_RUG_FILTER_DEPLOY_PROMPT_2026_05_09.md`.
+- STOP gates re-verified pre-deploy: STOP-A PASS (investigation doc 2d old, ≤14d window); STOP-B PASS (`git log 27f623b..HEAD -- services/paper_trader.py services/bot_core.py` returns ZERO behavioural commits; last touch to either file `ea0da2f` BOT-CORE-ML-GATE-001 2026-05-05, pre-investigation); STOP-C PASS (re-ran `verify_filter.py`; 9.5d sample at $3K = +13.15 SOL NET LIFT = **+1.38 SOL/day**, up from +0.93/day at investigation time — bleed accelerated; floor was +0.50/day); STOP-D PASS (no concurrent behavioural deploy markers).
+- Code change: `services/paper_trader.py` `paper_buy` — single Edit hunk +29 lines inserted between `entry_price = price * (1 + slippage / 100)` (line 245) and `fee_breakdown = _simulate_fees(...)` (was line 247, now line 277). New block reads `BOT_CORE_FILL_MC_CEILING_USD` env (default "0" = disabled); if positive AND `entry_price * 1_000_000_000 > ceiling`, logs `FILL_MC_CEILING reject: ...`, increments Redis counter `bot:filter:fill_mc_ceiling:rejects:<UTC-date>` (14d TTL), returns `{success: False, error: "fill_mc_ceiling_exceeded", simulated: True, fill_mc, ceiling}`. The return shape matches the existing `price_fetch_failed` path so all callers handle it correctly.
+- Compile check: `python -m py_compile services/paper_trader.py` → OK.
+- Railway env set: `BOT_CORE_FILL_MC_CEILING_USD=3000` on **bot_core ONLY** at `<env-set-timestamp>`. Other services (signal_aggregator, web, ml_engine, signal_listener, treasury, governance, market_health, Redis, Postgres) untouched.
+- Two redeploys triggered: first by code push, second by env-set. Both observed via Railway MCP `list-deployments`.
+- Post-deploy verification harness `.tmp_stop_loss_20_rug_deploy/post_deploy_verify.py` (gitignored). Run output: `.tmp_stop_loss_20_rug_deploy/post_deploy_check.txt` (gitignored). Checks: (i) Redis counter accessibility/value; (ii) NO new SD-paper trades with `market_cap_at_entry > $3,000` since deploy (F1 should have blocked these); (iii) trade-rate sanity vs pre-deploy 24h baseline (≥50% threshold).
+- Verification outcome: `<verify-result>` (to be filled in after harness execution).
+- Rollback procedure: `BOT_CORE_FILL_MC_CEILING_USD=0` via Railway MCP → takes effect at next `paper_buy` call (~few seconds), no redeploy required. Documented per §4 of deploy prompt.
+- Re-evaluation milestone: queue `STOP-LOSS-20-RUG-FILTER-EVAL-001` for ≥2026-05-25 (+14d post-deploy). Will: (a) verify cumulative Redis counter matches projected ~25/day rate; (b) re-run `verify_filter.py` with actual post-deploy `kept_pnl`; (c) decide keep $3k / tighten $2k / loosen $5k; (d) decide live-mode parity in `services/execution.py` (gated on V5a preconditions).
+- V5a impact: none. F1 is paper-scoped at this deploy (paper_buy only called from `bot_core.process_signal` TEST_MODE=true path). Live-mode parity in `services/execution.py` is a separate session.
+
+---
+
 ## 2026-05-09 — STOP-LOSS-20-RUG-INVESTIGATION-001 (read-only investigation, DEPLOY-RECOMMENDED)
 
 - Read-only investigation of `stop_loss_20%` as the largest SD-paper bleed since 2026-05-02 (n=65, sum −6.03 SOL, 0% WR). Triggered by chat-side data analysis.

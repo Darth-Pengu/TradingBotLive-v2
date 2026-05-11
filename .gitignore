@@ -49,3 +49,4 @@ scripts/devnet_*
 # State snapshot scratch (read-only audit work products)
 .tmp_state_snapshot/
 .tmp_stop_loss_20_rug/
+.tmp_stop_loss_20_rug_deploy/

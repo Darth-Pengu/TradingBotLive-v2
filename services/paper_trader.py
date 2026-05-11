@@ -244,6 +244,36 @@ async def paper_buy(
     slippage = _simulate_slippage(slippage_tier, amount_sol)
     entry_price = price * (1 + slippage / 100)
 
+    # F1 — Fill-time MC ceiling (STOP-LOSS-20-RUG-FILTER-DEPLOY-001).
+    # Default disabled (env=0). When set, rejects trades whose entry price
+    # implies MC > threshold — catches the SA SD_MC_CEILING_002 fail-open
+    # mode where signal-time BC reserves report < threshold but bot_core
+    # fills at a Jupiter/Gecko-derived price reflecting in-flight pumps.
+    # Rollback: set BOT_CORE_FILL_MC_CEILING_USD=0 (no redeploy).
+    fill_mc_ceiling = float(os.getenv("BOT_CORE_FILL_MC_CEILING_USD", "0"))
+    if fill_mc_ceiling > 0:
+        fill_mc = entry_price * 1_000_000_000  # mirrors total_supply in market_cap calc below
+        if fill_mc > fill_mc_ceiling:
+            logger.info(
+                "FILL_MC_CEILING reject: %s mc=$%.0f > ceiling=$%.0f "
+                "(slippage_tier=%s, slippage=%.1f%%)",
+                mint[:12], fill_mc, fill_mc_ceiling, slippage_tier, slippage,
+            )
+            if redis_conn is not None:
+                try:
+                    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                    await redis_conn.incr(f"bot:filter:fill_mc_ceiling:rejects:{today}")
+                    await redis_conn.expire(f"bot:filter:fill_mc_ceiling:rejects:{today}", 86400 * 14)
+                except Exception:
+                    pass
+            return {
+                "success": False,
+                "error": "fill_mc_ceiling_exceeded",
+                "simulated": True,
+                "fill_mc": fill_mc,
+                "ceiling": fill_mc_ceiling,
+            }
+
     fee_breakdown = _simulate_fees("buy", amount_sol, pool, bonding_curve_progress)
     fees = fee_breakdown["total"]
     net_amount = amount_sol - fees

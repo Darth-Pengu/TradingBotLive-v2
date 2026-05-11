@@ -7,6 +7,26 @@
 
 ---
 
+## 2026-05-11 — STOP-LOSS-20-RUG-FILTER-DEPLOY-001 (code+env deploy)
+
+**Committed:** `<hash1>` feat(filter): F1 fill-time MC ceiling (default disabled, env-controlled). Files: `services/paper_trader.py` (+29 lines in `paper_buy` after entry_price computation), `.tmp_stop_loss_20_rug_deploy/post_deploy_verify.py` (NEW, gitignored), `STATUS.md` (this prepend), `ZMN_ROADMAP.md` (Decision Log + 2 item-status updates), `AGENT_CONTEXT.md` (§2 bot_core + §6.5 leaks), `MONITORING_LOG.md` (entry), `.gitignore` (`.tmp_stop_loss_20_rug_deploy/`).
+**State changes:** Railway env `BOT_CORE_FILL_MC_CEILING_USD=3000` SET on bot_core ONLY at `<deploy-timestamp>`. Triggered 2 redeploys (code push + env set). Code default in `services/paper_trader.py:253` reads env=0 = disabled, so the gate is inert on services where the env isn't set (signal_aggregator, web, ml_engine, etc.).
+**Bot state:** TEST_MODE=true (paper, unchanged). Trading wallet 0.064 SOL on-chain (unchanged). Pre-deploy STOP gate verification: STOP-A PASS (investigation doc 2d old, ≤14d window); STOP-B PASS (no behavioural change to paper_trader/bot_core since investigation commit 27f623b — last touch ea0da2f was BOT-CORE-ML-GATE-001 on 2026-05-05, pre-investigation); STOP-C PASS (re-ran verify_filter; 9.5d ROI at $3K = **+1.38 SOL/day**, up from +0.93/day at investigation — bleed accelerating, filter more valuable); STOP-D PASS (no concurrent deploy).
+**Findings (post-deploy verification):**
+- `<verify-outcome>` filled in after harness run.
+**Verdict:** `<DEPLOYED-VERIFIED | DEPLOYED-PENDING | DEPLOYED-ROLLED-BACK>` — finalized after verification.
+**Blockers cleared:**
+- ✅ **STOP-LOSS-20-RUG-FILTER-DEPLOY-001** — DEPLOYED.
+**Blockers new/active:**
+- 📋 **STOP-LOSS-20-RUG-FILTER-EVAL-001** unchanged — re-evaluate at +14d post-deploy (queue ≥2026-05-25). Verify Redis counter rate ~25/day, re-run verify_filter, decide keep/tighten/loosen, decide live-mode parity in `services/execution.py`.
+- All other carries unchanged from prior STATUS entries.
+**V5a precondition delta:** None. F1 is paper-only at flip; TEST_MODE=true unchanged. Live-mode parity in `services/execution.py` is a separate (gated on V5a-go-no-go) session.
+**Concurrent-session compatibility:** Pull-rebase before push (retry up to 3× on conflict). Single behavioural code change to `services/paper_trader.py` (one Edit hunk). Append-only updates to canonical docs.
+**Next prompt:** **STOP-LOSS-20-RUG-FILTER-EVAL-001** at +14d (queue ≥2026-05-25). No auto-trigger.
+**Pending Claude-chat prompts not yet pasted:** none — independent session complete.
+
+---
+
 ## 2026-05-09 ~UTC — STOP-LOSS-20-RUG-INVESTIGATION-001 (read-only investigation, DEPLOY-RECOMMENDED)
 
 **Committed:** `27f623b` docs(stop-loss-20-rug): STOP-LOSS-20-RUG-INVESTIGATION-001 — fill-time MC ceiling lever identified. Files: `docs/audits/STOP_LOSS_20_RUG_INVESTIGATION_001_2026_05_09.md` (NEW), `docs/audits/STOP_LOSS_20_RUG_FILTER_DEPLOY_PROMPT_2026_05_09.md` (NEW), `AGENT_CONTEXT.md` (§6.5 leaks updated), `ZMN_ROADMAP.md` (Decision Log + 4 new follow-up items), `MONITORING_LOG.md` (entry), `STATUS.md` (this prepend), `.gitignore` (`.tmp_stop_loss_20_rug/`).
