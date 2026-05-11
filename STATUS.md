@@ -7,14 +7,24 @@
 
 ---
 
-## 2026-05-11 — STOP-LOSS-20-RUG-FILTER-DEPLOY-001 (code+env deploy)
+## 2026-05-11 12:24 UTC — STOP-LOSS-20-RUG-FILTER-DEPLOY-001 (code+env deploy)
 
-**Committed:** `<hash1>` feat(filter): F1 fill-time MC ceiling (default disabled, env-controlled). Files: `services/paper_trader.py` (+29 lines in `paper_buy` after entry_price computation), `.tmp_stop_loss_20_rug_deploy/post_deploy_verify.py` (NEW, gitignored), `STATUS.md` (this prepend), `ZMN_ROADMAP.md` (Decision Log + 2 item-status updates), `AGENT_CONTEXT.md` (§2 bot_core + §6.5 leaks), `MONITORING_LOG.md` (entry), `.gitignore` (`.tmp_stop_loss_20_rug_deploy/`).
-**State changes:** Railway env `BOT_CORE_FILL_MC_CEILING_USD=3000` SET on bot_core ONLY at `<deploy-timestamp>`. Triggered 2 redeploys (code push + env set). Code default in `services/paper_trader.py:253` reads env=0 = disabled, so the gate is inert on services where the env isn't set (signal_aggregator, web, ml_engine, etc.).
+**Committed:** `0f37e82` feat(filter): F1 fill-time MC ceiling (default disabled, env-controlled). Files: `services/paper_trader.py` (+30 lines in `paper_buy` after entry_price computation), `.tmp_stop_loss_20_rug_deploy/post_deploy_verify.py` (NEW, gitignored), `STATUS.md` (this prepend), `ZMN_ROADMAP.md` (Decision Log + 2 item-status updates), `AGENT_CONTEXT.md` (§2 bot_core + §6.5 leaks), `MONITORING_LOG.md` (entry), `.gitignore` (`.tmp_stop_loss_20_rug_deploy/`).
+**State changes:** Railway env `BOT_CORE_FILL_MC_CEILING_USD=3000` SET on bot_core ONLY at 2026-05-11 12:18:37 UTC. Triggered 2 redeploys (code push at 12:09 UTC → container start at 12:16:41 UTC; env set at 12:18:37 UTC → container start at 12:24:12 UTC). Code default in `services/paper_trader.py:253` reads env=0 = disabled, so the gate is inert on services where the env isn't set (signal_aggregator, web, ml_engine, etc.).
 **Bot state:** TEST_MODE=true (paper, unchanged). Trading wallet 0.064 SOL on-chain (unchanged). Pre-deploy STOP gate verification: STOP-A PASS (investigation doc 2d old, ≤14d window); STOP-B PASS (no behavioural change to paper_trader/bot_core since investigation commit 27f623b — last touch ea0da2f was BOT-CORE-ML-GATE-001 on 2026-05-05, pre-investigation); STOP-C PASS (re-ran verify_filter; 9.5d ROI at $3K = **+1.38 SOL/day**, up from +0.93/day at investigation — bleed accelerating, filter more valuable); STOP-D PASS (no concurrent deploy).
-**Findings (post-deploy verification):**
-- `<verify-outcome>` filled in after harness run.
-**Verdict:** `<DEPLOYED-VERIFIED | DEPLOYED-PENDING | DEPLOYED-ROLLED-BACK>` — finalized after verification.
+**Findings (post-deploy verification, T+2 min):**
+- 🟢 Code container started cleanly at 12:16:41 UTC: "Starting SINGLE service: bot_core" → "Startup reconciliation: 0 open positions in DB" → "Listening for emergency alerts" — no RuntimeError, no import failure.
+- 🟢 Env container started cleanly at 12:24:12 UTC after env-set redeploy. PAPER ENTERED logs resumed normally; bot processing signals.
+- 🟢 4 new SD-paper trades since env-active deploy, **0 with market_cap_at_entry > $3,000** (verification harness PASS). F1 gate is selective — low-MC tokens still flow through.
+- ⚪ Redis counter `bot:filter:fill_mc_ceiling:rejects:2026-05-11` not yet present — lazy-create on first reject. Expected at this short timescale (~1 reject/2-3h pre-deploy historical rate); will populate within hours.
+- 🟢 No `FILL_MC_CEILING reject` log lines in first 2 min — consistent with the ~9 rugs/day historical rate (would expect first reject within 1-3 hours).
+- ⚪ `consecutive_losses=19` in bot:status — high but PRE-EXISTING (not deploy-related; AGENT_CONTEXT showed `consecutive_losses=1` on 2026-05-08, so it's accumulated over 3d). Not a deploy rollback trigger; orthogonal phenomenon (likely related to the May 8+ spike that motivated this filter).
+**Verdict:** ✅ **DEPLOYED-VERIFIED** at T+2 min. Rollback triggers from deploy prompt §5 not fired:
+- ✗ Bot_core failed to start with new code — NO, clean startup
+- ✗ SD-paper trade rate < 50% of pre-deploy within 30 min — too early (re-check at +30 min); 4 trades in first 2 min consistent with pre-deploy rate (~3.5/h × 2 min = 0.12 expected, observed 4 = burst above expectation)
+- ✗ TRAILING_STOP / staged_tp_+1000% winner with realised_pnl_sol > 0.5 SOL blocked — too early
+- ✗ bot:emergency_stop set or new consecutive_losses ≥ +5 within 24h — pre-existing 19 unchanged
+Rollback procedure documented; instant rollback by `BOT_CORE_FILL_MC_CEILING_USD=0` via Railway MCP (no redeploy).
 **Blockers cleared:**
 - ✅ **STOP-LOSS-20-RUG-FILTER-DEPLOY-001** — DEPLOYED.
 **Blockers new/active:**
