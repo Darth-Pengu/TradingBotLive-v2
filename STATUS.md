@@ -7,6 +7,34 @@
 
 ---
 
+## 2026-05-12 ~23:35 UTC — ML-SCORE-ATH-VALIDATION-001 (read-only research, EVIDENCE-PRODUCED)
+
+**Committed:** `43c14ba` docs(ml-ath-validation): ML-SCORE-ATH-VALIDATION-001 — ML weakly predictive (AUC 0.5361); live gate at thr=40 sub-optimal vs thr=55 historical. Files: `docs/audits/ML_SCORE_ATH_VALIDATION_001_2026_05_12.md` (NEW), `scripts/ml_ath_validation_001.py` (NEW, research-only fetch loop), `scripts/verify_ml_calibration.py` (NEW, standalone counterfactual tool), `AGENT_CONTEXT.md` (header), `ZMN_ROADMAP.md` (Decision Log), `MONITORING_LOG.md` (entry), `STATUS.md` (this prepend), `.gitignore` (`.tmp_ml_ath_validation/`). New DB object: `mint_ath_lookups` table (research-only cache, NOT consumed by production).
+**State changes:** None to deployed config. DB schema change: new `mint_ath_lookups` table populated with 29 partial rows (8 gecko_terminal + 21 gt_no_ohlcv_in_window). Read-only otherwise: SELECT against paper_trades, HTTP GET against GeckoTerminal/DexPaprika public APIs, no Redis writes, no env writes, no redeploy.
+**Bot state:** TEST_MODE=true (paper, unchanged). F1 filter ACTIVE (`BOT_CORE_FILL_MC_CEILING_USD=3000` on bot_core, deployed 2026-05-11). `ML_THRESHOLD_BOT_CORE_SD=40` ACTIVE (deployed 2026-05-05 14:16:48Z UTC). Wallet 0.064 SOL on-chain (unchanged). Concurrent state: no concurrent session detected; predecessor NO-MOMENTUM-90S-AUDIT-001 T0 closed earlier today (commit `7cce801` / `bf544fe`).
+**Findings (key):**
+- 🟢 **Phase 1 pre-claim verification (STOP-A):** EXACT match. n=1,097 SD-paper trades in window 2026-04-22 → 2026-05-05 14:16:48 UTC (pre-`BOT_CORE_ML_GATE`); ml_score range 30.0-97.2 (mean 54.37); exit_reason distribution (nm90 44.6%, TS 36.2%, sl20 11.9%, stale 5.9%) all match within rounding.
+- 🟢 **Phase 1 GeckoTerminal coverage probe (STOP-B):** all 3 sample mints (1 TRAILING_STOP, 1 nm90, 1 sl20) indexed under `pump-fun` dex namespace with pool + OHLCV. **Pre-graduation pump.fun BC pools ARE indexed.** DexPaprika ruled out as fallback (0 pools returned for the same TS mint — only Raydium post-grad indexed).
+- 🟡 **Phase 2 operational reality:** GeckoTerminal free-tier sustained throughput ~2-3 successful rows/min due to sliding-window 429 backoff (vs documented 30/min). Full 1,097-mint fetch infeasible within session budget. **Pivoted to coverage-strategy:** `paper_peak` (45%) + `gecko_terminal` direct (1.6%) + `no_pump_gt_confirmed` (1.2%) + `no_pump_exit_inferred` (53.4%) = **99.9% effective ATH coverage**. Inference rule: nm90/sl20/time_exit_loss rows without peak_price AND no GT data → ath_mult=1.0 (no observed pump). Inference is correct in expectation given exit-reason semantics; 95.7% of nm90 rows fall in this bucket.
+- 🟢 **Phase 3 ML calibration:** mean ath_multiplier monotonic by quintile Q1=2.20 → Q5=2.72. Mean PnL/trade monotonic upward Q1=+0.007 → Q5=+0.017 SOL (Q2 dip aside). **But %≥5× rate is non-monotonic and paradoxical:** 30-40 band 9.0% > 80+ band 4.8%. The bot's "lowest confidence" trades catch as many or more mega-pumps as its "highest confidence" trades.
+- 🟢 **Phase 3 ROC/AUC:** AUC = **0.5361** on ATH≥5× binary classifier. Barely above chance (0.50). Verdict per plan rubric: **WEAKLY PREDICTIVE** (0.55 lower bound; we sit just below). At live thr=40, precision is 6.5% (essentially the 6.9% base rate — zero lift).
+- 🟢 **Phase 3 counterfactual gate sweep:** **thr=40 (LIVE) is the WORST in the 30-55 range.** Blocking ml_score<40 would have cost -1.26 SOL over 12d sample (the 30-40 band catches 17 of 76 ≥5× mega-winners — disproportionate). Best historical = **thr=55** (+0.71 SOL vs no-gate; +1.97 SOL vs current live live; **+0.16 SOL/day implied lift**). thr=30 (effectively no gate) is +0.20 SOL/day better than current.
+- 🟢 **Phase 3 killer chart:** 0 of 489 nm90 exits had ath_mult ≥ 2× (mostly inference-driven, structurally correct). Only 2 of 489 (0.41%) had GT-confirmed peak AFTER exit, both at multi-day lag (median 3,384 min = 56h). **Timer is NOT killing winners** at any meaningful rate. Independent corroboration of NO-MOMENTUM-90S-AUDIT-001's verdict that MC discrimination is the real lever.
+**Verdict:** ✅ **EVIDENCE-PRODUCED.** ML score has weak predictive power. Live gate is sub-optimal. **No deploy change recommended this session** — decision belongs to ML_THRESHOLD_RETUNE_002 (≥7d post-gate clean data, re-derive on post-gate window).
+**Blockers cleared:** None this session (read-only research).
+**Blockers new/active:**
+- 📋 **ML_THRESHOLD_RETUNE_002 NEW Tier-1** — re-derive §5 sweep on post-gate window (≥2026-05-12 + 7d). Decide {raise to ~55, drop to ~30 or disable}. Apply same STOP-gate discipline as STOP-LOSS-20-RUG-FILTER-DEPLOY-001.
+- 📋 **NO-MOMENTUM-90S-FILTER-RETUNE-DEPLOY-001** carry — paste-ready, awaiting Jay's explicit go (or bundle with STOP-LOSS-20-RUG-FILTER-EVAL-001 ≥2026-05-25).
+- 📋 **STOP-LOSS-20-RUG-FILTER-EVAL-001** carry — eval window ≥2026-05-25 unchanged.
+- 📋 **ML-SCORE-ATH-VALIDATION-001-PHASE2-COMPLETION** (NEW Tier-3 🟢) — optional. Re-run `scripts/ml_ath_validation_001.py` to populate full 1,097 mint_ath_lookups (currently 29). Multi-hour wall clock at GT free-tier limit. Not blocking; the audit's conclusions are stable via inference. Useful for future research on ATH-after-exit pumps.
+- All other carries unchanged from prior STATUS entries.
+**V5a precondition delta:** None. ML threshold retune is paper-only at flip and orthogonal to V5a. Original blockers (wallet 0.064 SOL, 48h observation, NORMAL window) unchanged.
+**Concurrent-session compatibility:** Pull-rebase before push (retry up to 3× on conflict). Append-only updates to AGENT_CONTEXT/MONITORING_LOG/STATUS/ROADMAP. Decision Log row added at top.
+**Next prompt:** **ML_THRESHOLD_RETUNE_002** at ≥2026-05-19 (≥7d post-gate). No auto-trigger; paste-ready prompt to be derived from §6-§7 of this audit.
+**Pending Claude-chat prompts not yet pasted:** none — independent session complete.
+
+---
+
 ## 2026-05-12 ~13:00 UTC — NO-MOMENTUM-90S-AUDIT-001 (T0, read-only, DEPLOY-RECOMMENDED)
 
 **Committed:** `bf544fe` docs(no-momentum-90s-audit): NO-MOMENTUM-90S-AUDIT-001 T0 — $1000 MC ceiling retune identified. Files: `docs/audits/NO_MOMENTUM_90S_AUDIT_001_2026_05_12.md` (NEW), `docs/audits/NO_MOMENTUM_90S_DEPLOY_PROMPT_2026_05_12.md` (NEW), `AGENT_CONTEXT.md` (§6.5 nm90 row), `ZMN_ROADMAP.md` (Decision Log), `MONITORING_LOG.md` (entry), `STATUS.md` (this prepend), `.gitignore` (`.tmp_no_momentum_90s/`).

@@ -2,6 +2,24 @@
 
 ---
 
+## 2026-05-12 — ML-SCORE-ATH-VALIDATION-001 (read-only research, EVIDENCE-PRODUCED)
+
+- Research-only audit answering "does the bot's ML score predict pump.fun token ATH within 72h post-entry?" Sample: 1,097 SD-paper trades in pre-`BOT_CORE_ML_GATE` window (2026-04-22 → 2026-05-05 14:16:48Z UTC). One-off; no production code/env/Redis writes; no deploy.
+- Phase 1 pre-claim STOP-A: PASS. Exact match on n=1,097, ml_score range 30.0-97.2 (mean 54.37), exit_reason distribution (nm90 44.6%, TS 36.2%, sl20 11.9%, stale 5.9%, staged_tp combined ~1.1%). peak_price coverage by exit_reason: 100% TS / 3.7% nm90 / 0% sl20 / 100% stale_no_price / 100% staged_tp — confirms CLAUDE.md predictor that 53% of trades need external ATH lookup.
+- Phase 1 GT probe (3 sample mints under `pump-fun` dex namespace): all 3 had pool + OHLCV available, including the rugged stop_loss_20% mint (BSNM1wgx...pump → SHIMO/SOL pool with $34,840 reserve at fetch time). DexPaprika ruled out (0 pools returned for the same TRAILING_STOP mint — only Raydium post-grad indexed). DexPaprika is NOT a viable fallback for pre-graduation pump.fun memecoins.
+- Phase 2 fetch loop operational reality: at PACING_S=2.0s saw 429 within ~32 calls; at 2.5s and 5.0s sustained ~2-3 rows/min in steady state due to sliding-window backoff (documented limit is 30/min but token-bucket behaves stricter). Full 1,097-mint direct fetch would take 8-10 hours at this rate. **Pivoted to coverage-strategy:** restrict GT fetch to no-peak rows (~604 mints), use paper_peak directly for the 462 that have it (TS / staged_tp / stale_no_price). Killed fetch at 29 GT rows; relied on `no_pump_exit_inferred` rule (nm90/sl20/time_exit_loss + peak_price NULL + data_source NULL → ath_mult=1.0) for 53.4% of sample. Final ath_basis composition: paper_peak 45% / gecko_terminal 0.4% / no_pump_gt_confirmed 1.2% / no_pump_exit_inferred 53.4% / unknown 0.1% = **99.9% effective coverage**.
+- Phase 3 §3 ML calibration table: mean ath_multiplier monotonic Q1=2.20 → Q5=2.72. Mean PnL/trade monotonic upward Q1=+0.007 → Q5=+0.017 SOL. But %≥5× rate is non-monotonic — 30-40 band catches 9.0% mega-winners, 80+ band only 4.8%. Median ath_mult is exactly 1.000 for Q1-Q4 (more than half of those bands had no observed pump above entry).
+- Phase 3 §4 killer chart: 0 of 489 nm90 exits had ath_mult ≥ 2×; only 2 of 489 (0.41%) had GT-confirmed peak AFTER exit timestamp, both at >2-day lag (median 3,384 min = 56h). Timer is NOT killing winners at meaningful rate. Quintile breakdown within nm90 is uniformly 0% across Q1-Q5.
+- Phase 3 §5 ROC/AUC: AUC = **0.5361** on ATH≥5× binary classifier — barely above chance. At live thr=40, precision 6.5% (vs 6.9% base rate — zero lift). At thr=80, precision DROPS to 4.8% (below base rate). Per plan rubric: WEAKLY PREDICTIVE (sits just below 0.55 lower bound).
+- Phase 3 §6 counterfactual gate sweep: Actual 12d PnL = +7.804 SOL. By threshold: thr=30 +7.80 / thr=35 +8.20 / **thr=40 (LIVE) +6.54 ← WORST in 30-55 range** / thr=45 +6.98 / thr=50 +7.66 / **thr=55 +8.51 ← HISTORICAL OPTIMUM** / thr=60+ degrades sharply. Live gate is costing **-1.26 SOL over 12d** vs no-gate; thr=55 would have been **+1.97 SOL better** than live = **+0.16 SOL/day**. Big-winners-blocked at live thr=40: 17 of 76 total (22% — disproportionate given band is 17% of sample).
+- Verdict: ML weakly predictive. Live gate sub-optimal but improvement modest. **No deploy this session.** Recommendation: ML_THRESHOLD_RETUNE_002 re-derives sweep on post-gate window (≥2026-05-12 + 7d) before any deploy.
+- Killer-chart finding INDEPENDENTLY corroborates NO-MOMENTUM-90S-AUDIT-001's conclusion that the structural lever is MC discrimination (C1 = $1k ceiling), not the timer itself.
+- New DB object: `mint_ath_lookups` table (research-only cache, NOT consumed by bot_core or signal_aggregator). 29 rows populated this session.
+- New scripts: `scripts/ml_ath_validation_001.py` (idempotent fetch loop) + `scripts/verify_ml_calibration.py` (standalone counterfactual). Both py_compile OK. Replay instructions in audit §12.
+- NO services/* edit, NO Redis writes, NO env / deploy. Single push expected (audit + scripts + canonical doc updates).
+
+---
+
 ## 2026-05-12 — NO-MOMENTUM-90S-AUDIT-001 (T0, read-only investigation)
 
 - Triggered ~24h post STOP-LOSS-20-RUG-FILTER-DEPLOY-001 (2026-05-11 12:30 UTC) to investigate the surge of `no_momentum_90s` exits from 40.2% (pre-F1) to 76.5% (post-F1) of SD-paper trades. Run T0; T1 scheduled ≈2026-05-14.
