@@ -2,6 +2,22 @@
 
 ---
 
+## 2026-05-12 — NO-MOMENTUM-90S-AUDIT-001 (T0, read-only investigation)
+
+- Triggered ~24h post STOP-LOSS-20-RUG-FILTER-DEPLOY-001 (2026-05-11 12:30 UTC) to investigate the surge of `no_momentum_90s` exits from 40.2% (pre-F1) to 76.5% (post-F1) of SD-paper trades. Run T0; T1 scheduled ≈2026-05-14.
+- Phase 0 premise verification: nm90 mean PnL anchor verified at −0.017 SOL (predicted −0.018). The hold-time prose ("80-90s") was wrong — actual median is 51s. Code (`services/bot_core.py:1782-1787`) with env `SD_EARLY_CHECK_SECONDS=60`/`SD_EARLY_MIN_MOVE_PCT=3.0` defines window `(50, 90)s` and the price-monitor loop iterates ≤1s, so first eligible iteration ~51s. Not material to the conclusion.
+- Code archaeology: no_momentum_90s checked BEFORE stop_loss_20%, staged_tp, trailing_stop. peak_price updates monotonically (`bot_core.py:1761-1772`) — for nm90 exits price never crosses entry, so peak_price stays NULL on 100% of sampled rows. Sample of 5 W4 rows: all 5 in $2332-$2462 MC band, all 5 with peak_price NULL, all 5 with `signal_detected_at`/`scored_at`/`traded_at` NULL → Phase 2.4 signal-age check INFEASIBLE.
+- Window baselines (SD-paper, n by window): W1 04-16..04-24 242 / +6.48 / WR 51.2% / nm90 26.9% / nm90 sum -1.06; W2 04-29..05-04 347 / +0.69 / WR 18.4% / nm90 64.0% / -3.98; W3 05-05..05-11 12:30 959 / +9.30 / WR 38.7% / nm90 38.3% / -8.55; W4 post-filter 264 / -2.18 / WR 14.4% / nm90 76.5% / -3.47. W2 pre-dates W4 with the same nm90-dominant signature; W3 was the anomalous good window dominated by TRAILING_STOP (+22.40 SOL).
+- W4 MC-band distribution (n=264): $0-500 5/+0.72/100% WR; $500-1k 46/+0.76/72% WR; $1k-1k5 5/-0.09/0%; $1k5-2k 3/-0.04/0%; $2k-2k5 58/-0.68/0%; $2k5-3k 147/-2.86/0%. **78% of volume is in $2k-3k with 0 winners** — 202 of 205 trades in that band exit as nm90. F1 ($3k) cleared the $3k+ rugs; the next bleed tier is $1k-3k.
+- Feature discrimination (W3+W4 SD-paper, exit IN nm90/TRAILING_STOP): trail_win (n=393) p25/p50/p75 MC = $550/$639/$720; trail_loss (n=85) p25/p50/p75 = $939/$1129/$1602; nm90 (n=569) p25/p50/p75 = $2615/$2778/$2909. **market_cap_at_entry is the SOLE discriminator** — ml_score (54.9 vs 57.1 vs 57.4), rugcheck (6036 vs 6030 vs 4988), liq_velocity (~19), cfgi (~55), bc_progress (~0.354), age (~1.6s) all identical across groups. Max trail_win MC in W3+W4 = $892.
+- Candidate counterfactual (verify_intervention.py against W3+W4 1223-row sample, 7.49d): F1 production state at $3000 baseline (201 blocked / -12.73 SOL saved); **C1 $1000 ceiling**: 790 total blocked / 589 incremental over F1 / **-10.86 SOL saved** = +1.45 SOL/day W3+W4 rate, +3.67 SOL/day W4-only rate, **0 false positives** (max trail_win MC $892 < $1000), KEPT 433 trades / +30.71 SOL / WR 94.2%. C2 ($1500): +1.31/d, 0 FP. C3 ($750): +1.23/d but 59 FP at -2.09 SOL (loses 0.5 SOL/day in winners) — too aggressive.
+- STOP gates: A PASS (PnL anchor); B PASS (features populated); C PASS (0% trail_win lost at C1); D PASS by 5×+ at C1 (+1.45 to +3.67 vs 0.3 floor); E PASS (C1+C2 viable); F N/A (T0); G PASS (no concurrent session).
+- **Verdict: DEPLOY-RECOMMENDED** for C1 ($1000 ceiling). Same env var as F1 (`BOT_CORE_FILL_MC_CEILING_USD`); §9 prohibits touching F1 in this session — deploy is a follow-on paste-ready prompt at `docs/audits/NO_MOMENTUM_90S_DEPLOY_PROMPT_2026_05_12.md`. Two timing paths: bundle into STOP-LOSS-20-RUG-FILTER-EVAL-001 (≥2026-05-25) or Jay-authorized early retune.
+- T1 STOP-F test scheduled ≈2026-05-14: re-run prompt and compare to `.tmp_no_momentum_90s/T0_BASELINE.json`. If W4 nm90_rate drops >10pp AND $1k-3k WR rises >15pp → regime transient → STOP-F → no action. Else → structural confirmed → execute deploy prompt.
+- NO services/* edit, NO Redis writes, NO env / deploy. Single push, no `railway up`.
+
+---
+
 ## 2026-05-11 — STOP-LOSS-20-RUG-FILTER-DEPLOY-001 (code+env deploy)
 
 - Predecessor: STOP-LOSS-20-RUG-INVESTIGATION-001 (commit `27f623b`, 2026-05-09). Audit doc `docs/audits/STOP_LOSS_20_RUG_INVESTIGATION_001_2026_05_09.md` + paste-ready deploy prompt `docs/audits/STOP_LOSS_20_RUG_FILTER_DEPLOY_PROMPT_2026_05_09.md`.

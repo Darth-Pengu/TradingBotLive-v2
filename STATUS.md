@@ -7,6 +7,33 @@
 
 ---
 
+## 2026-05-12 ~13:00 UTC — NO-MOMENTUM-90S-AUDIT-001 (T0, read-only, DEPLOY-RECOMMENDED)
+
+**Committed:** `bf544fe` docs(no-momentum-90s-audit): NO-MOMENTUM-90S-AUDIT-001 T0 — $1000 MC ceiling retune identified. Files: `docs/audits/NO_MOMENTUM_90S_AUDIT_001_2026_05_12.md` (NEW), `docs/audits/NO_MOMENTUM_90S_DEPLOY_PROMPT_2026_05_12.md` (NEW), `AGENT_CONTEXT.md` (§6.5 nm90 row), `ZMN_ROADMAP.md` (Decision Log), `MONITORING_LOG.md` (entry), `STATUS.md` (this prepend), `.gitignore` (`.tmp_no_momentum_90s/`).
+**State changes:** None. Read-only — DB SELECT against `paper_trades` (read-only via DATABASE_PUBLIC_URL), no code/env/Redis writes, no redeploy.
+**Bot state:** TEST_MODE=true (paper). F1 filter ACTIVE (`BOT_CORE_FILL_MC_CEILING_USD=3000` on bot_core, deployed 2026-05-11 12:24 UTC). Wallet 0.064 SOL on-chain (unchanged from 2026-04-30 baseline). Concurrent state: no concurrent session detected in STATUS.md (last entry STOP-LOSS-20-RUG-FILTER-DEPLOY-001 closed 2026-05-11).
+**Findings (key):**
+- 🟢 **Phase 0 pre-claim verification:** mean PnL −0.018 ✓; **hold-time prose was wrong** (actual median 51s, not 80-90s — exit fires at window-open since timer env=60s makes window (50, 90)s and the loop iterates fast); $0-1k WR 72-100% ✓; $1k-3k WR 0% ✓; filter deploy time ✓. STOP-A passes on load-bearing anchor.
+- 🟢 **Window pattern:** W2 (29 Apr - 4 May, pre-F1) already showed the W4 pattern (nm90 rate 64%, WR 18.4%, sum +0.69 SOL). W3 was the anomalously-good window (+9.30 SOL on 959 trades). W4 is a regression-to-W2, not a novel failure mode.
+- 🟢 **MC-band structural cliff:** W4 ($0-1k = 51 trades / +1.48 SOL / 73% WR) vs ($2k-3k = 205 trades / -3.54 SOL / **0** winners / 202 nm90 exits). Same cliff existed in W3 ($1k-3k: 376 trades / -7.20 SOL / 0-4% WR). Filter just exposed the next layer.
+- 🟢 **DISCRIMINATOR FOUND:** market_cap_at_entry is the SOLE discriminative feature. trail_win p25/p50/p75 = $550/$639/$720; nm90 p25/p50/p75 = $2615/$2778/$2909. **Max trail_win MC in W3+W4 = $892** — zero overlap with $1000 ceiling. ML score, rugcheck, liq_velocity, cfgi, bc_progress, age all IDENTICAL across nm90/trail_win/trail_loss groups.
+- 🟢 **C1 ($1000 ceiling)** counterfactual: 589 trades blocked incrementally over F1 / -10.86 SOL saved over 7.49d = **+1.45 SOL/day W3+W4 rate / +3.67 SOL/day W4-only rate**. **Zero false positives**. KEPT slice: 433 trades / +30.71 SOL / WR 94.2%. STOP-C clears (0% trail_win lost). STOP-D clears 5×+. STOP-E clears (C1+C2 both viable).
+- 🟡 **Scope collision:** the recommended lever IS a retune of F1 (same env var). §9 of audit prompt prohibits touching F1 in this session; deploy is a follow-on paste-ready prompt for Jay-authorized early retune OR bundled into STOP-LOSS-20-RUG-FILTER-EVAL-001 (≥2026-05-25).
+- ⚪ **Phase 2.4 signal-age check INFEASIBLE:** signal_detected_at/scored_at/traded_at NULL on 100% of post-filter rows (LATENCY-OBSERVABILITY-001 still open). Phase 2.5 time-of-day pattern confounded with W4 timing — not actionable.
+**Verdict:** ✅ **DEPLOY-RECOMMENDED** (deploy in follow-on session per Jay's authorization). Forward ROI midpoint **+1.5 to +2.5 SOL/day** at zero FP cost. T1 re-run scheduled ≈2026-05-14 to test regime-vs-structural via STOP-F.
+**Blockers cleared:** None this session (read-only).
+**Blockers new/active:**
+- 📋 **NO-MOMENTUM-90S-FILTER-RETUNE-DEPLOY-001 NEW Tier-1 🟢** — single env-var change, ~20 min wall clock, paper-only at flip, instant rollback. Paste-ready at `docs/audits/NO_MOMENTUM_90S_DEPLOY_PROMPT_2026_05_12.md`.
+- 📋 **NO-MOMENTUM-90S-AUDIT-001-T1 NEW Tier-1** — re-run THIS prompt at ≈2026-05-14 to test STOP-F (regime reverting). Compare against `.tmp_no_momentum_90s/T0_BASELINE.json`.
+- 📋 **STOP-LOSS-20-RUG-FILTER-EVAL-001** carry — eval window pushed to ≥2026-05-26 if C1 deploy lands ≥2026-05-12 (else unchanged at ≥2026-05-25).
+- All other carries unchanged from prior STATUS entries.
+**V5a precondition delta:** None. C1 retune is paper-only and orthogonal to V5a. Original blockers (wallet 0.064 SOL, 48h observation, NORMAL window) unchanged.
+**Concurrent-session compatibility:** Pull-rebase before push (retry up to 3× on conflict). Append-only updates to AGENT_CONTEXT/MONITORING_LOG/STATUS. Decision Log row added at top.
+**Next prompt:** `NO-MOMENTUM-90S-FILTER-RETUNE-DEPLOY-001` (paste-ready). DO NOT auto-trigger — Jay must explicitly authorize early retune of F1 (or wait for STOP-LOSS-20-RUG-FILTER-EVAL-001 to bundle).
+**Pending Claude-chat prompts not yet pasted:** none — independent session complete.
+
+---
+
 ## 2026-05-11 12:24 UTC — STOP-LOSS-20-RUG-FILTER-DEPLOY-001 (code+env deploy)
 
 **Committed:** `0f37e82` feat(filter): F1 fill-time MC ceiling (default disabled, env-controlled). Files: `services/paper_trader.py` (+30 lines in `paper_buy` after entry_price computation), `.tmp_stop_loss_20_rug_deploy/post_deploy_verify.py` (NEW, gitignored), `STATUS.md` (this prepend), `ZMN_ROADMAP.md` (Decision Log + 2 item-status updates), `AGENT_CONTEXT.md` (§2 bot_core + §6.5 leaks), `MONITORING_LOG.md` (entry), `.gitignore` (`.tmp_stop_loss_20_rug_deploy/`).

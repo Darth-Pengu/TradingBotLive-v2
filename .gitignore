@@ -50,3 +50,4 @@ scripts/devnet_*
 .tmp_state_snapshot/
 .tmp_stop_loss_20_rug/
 .tmp_stop_loss_20_rug_deploy/
+.tmp_no_momentum_90s/
