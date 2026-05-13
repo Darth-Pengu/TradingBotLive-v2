@@ -2,6 +2,20 @@
 
 ---
 
+## 2026-05-13 — NO-MOMENTUM-90S-FILTER-RETUNE-DEPLOY-001 (C1, env-only deploy, DEPLOYED-VERIFIED)
+
+- Single env-var retune of `BOT_CORE_FILL_MC_CEILING_USD` on bot_core: **3000 → 1000** at 2026-05-13 03:29:21Z UTC. Jay-authorized fast-track (audit's path b, §9); T1 standalone audit at ~2026-05-14 SKIPPED per audit §12 (added this session).
+- **Pre-deploy STOP gates all PASS.** STOP-A retest on fresh 8.12d sample (vs audit's 7.49d): C1 marginal blocked 589 trades, sum_pnl saved -10.86 SOL → **+1.49 SOL/day W3+W4 rate** (≥+1.0 threshold), **+3.02 SOL/day W4-only rate**; **0 FP winners** (matches audit exactly); KEPT slice 523 trades / +32.62 SOL / **91.4% WR** (stronger than audit's 433 / +30.71 / 94.2%). STOP-B PASS (last fill-path commit = `0f37e82` F1 itself). STOP-C PASS (no concurrent bot_core deploy in latest STATUS entries). STOP-D PASS (Jay authorization explicit + named env var).
+- **Container restart 03:38:37Z UTC.** Clean startup verified: `TEST_MODE=True`, `Starting SINGLE service: bot_core`, `Startup reconciliation: 0 open positions in DB`, `Loaded portfolio state: 30.7304 SOL`, `Loaded 44 whale wallets into Redis cache`, `Bot Core ready — managing 3 personalities`, `Listening for emergency alerts`. No RuntimeError / Traceback / ImportError.
+- **First post-deploy rejection log:** `2026-05-13 03:41:38,829 [paper_trader] INFO: FILL_MC_CEILING reject: 6X5V79NvN85P mc=$10753 > ceiling=$1000` — env plumbed through to rejection logic correctly. (This particular mint at $10K would have been rejected by the old $3K ceiling too; the meaningful $1k-$3k rejections will accumulate over the next hours.)
+- Cross-audit reinforcement from ML-SCORE-ATH-VALIDATION-001 (2026-05-12) — 2 of 489 nm90 post-exit pumps at 56h median lag confirms timer is NOT killing winners → MC discriminator is the right lever.
+- Rollback procedure (instant, no code revert): `BOT_CORE_FILL_MC_CEILING_USD=3000` via Railway MCP / CLI. Triggers single auto-redeploy. Same env command as the F1 → C1 transition, just inverted threshold.
+- Eval folded: combined STOP-LOSS-20-RUG-FILTER-EVAL-001 + NO-MOMENTUM-90S-EVAL-001 at ≥2026-05-27 (+14d from this deploy; original ≥2026-05-25 superseded).
+- Rollback triggers (per deploy doc §"Rollback triggers"): ANY of these within 24h → revert to 3000 immediately: bot_core fails to start, SD-paper trade rate <1/h for 2 consecutive hours, TRAILING_STOP winner with `realised_pnl_sol > 0.10 SOL` blocked, sum_pnl on kept slice ≤ -0.5 SOL within 24h, `bot:emergency_stop` set, consecutive_losses +5 within 24h.
+- Single push, `git commit --amend` to backfill commit hash into STATUS.md per RAILWAY-REDEPLOY-DISCIPLINE-001.
+
+---
+
 ## 2026-05-12 — ML-SCORE-ATH-VALIDATION-001 (read-only research, EVIDENCE-PRODUCED)
 
 - Research-only audit answering "does the bot's ML score predict pump.fun token ATH within 72h post-entry?" Sample: 1,097 SD-paper trades in pre-`BOT_CORE_ML_GATE` window (2026-04-22 → 2026-05-05 14:16:48Z UTC). One-off; no production code/env/Redis writes; no deploy.

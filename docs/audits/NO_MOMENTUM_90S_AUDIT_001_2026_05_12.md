@@ -128,3 +128,26 @@ Two timing paths:
 - `AGENT_CONTEXT.md` §6.5 update
 - `MONITORING_LOG.md` entry
 - `STATUS.md` prepend
+
+---
+
+## §12 Decision to skip T1 (added 2026-05-13 by NO-MOMENTUM-90S-FILTER-RETUNE-DEPLOY-001)
+
+The audit's §9 offered two timing paths: (a) wait for STOP-LOSS-20-RUG-FILTER-EVAL-001 at ≥2026-05-25 and bundle, or (b) bring the eval forward with Jay's explicit authorization. **Path (b) was taken at 2026-05-13 03:29:21Z UTC.** T1 standalone audit run scheduled for ≈2026-05-14 is **SKIPPED**; the regime-reversion (STOP-F) test is folded into the combined +14d eval at ≥2026-05-27 (per Decision Log entry 2026-05-13).
+
+**Justification, from data accumulated 2026-05-12 → 2026-05-13:**
+
+1. **$1k-$3k MC band: 0 winners across 276 trades over 2.5 days post-F1-filter.** Pattern repeated across every hour-of-day, every market condition. Structural, not noise.
+2. **Bi-modal operation visible in fresh data:** when signal_aggregator delivers low-MC tokens (median <$1k), bot wins at 60-87% WR via TRAILING_STOP. When it delivers mid-MC tokens (median $2-3k), bot bleeds at 0-5% WR via no_momentum_90s. Same day, same regime, same week — the only differentiator is which side of $1k the signals land.
+3. **Cross-audit confirmation from ML-SCORE-ATH-VALIDATION-001 (2026-05-12):** the no_momentum_90s timer is NOT killing winners (2/489 post-exit pumps at 56h median lag — late-recovery noise, not bot-cut-it-short). Independent confirmation that the MC discriminator (this deploy) is the right lever, not the timer.
+4. **The audit's STOP-F (regime reversion) requires no_momentum rate dropping >10pp AND $1k-$3k WR rising >15pp.** Current data showed the opposite — $1k-$3k WR remained 0% across all hours through 2026-05-13.
+
+**Pre-deploy STOP-A retest on fresh 8.12d sample (vs audit's 7.49d) confirmed the structural pattern held:**
+
+- C1 marginal blocked: 589 trades, sum_pnl_sol -10.86 SOL saved → **+1.49 SOL/day W3+W4 rate** (≥+1.0 threshold), **+3.02 SOL/day W4-only rate**.
+- False positives (winners blocked): **0** (matches audit exactly).
+- KEPT slice: 523 trades, +32.62 SOL, **91.4% WR** (vs audit's 433 / +30.71 / 94.2%).
+
+**Deploy executed:** single env-var change `BOT_CORE_FILL_MC_CEILING_USD=1000` on bot_core. Container restart at 03:38:37Z UTC; clean startup verified (`Startup reconciliation: 0 open positions in DB`, `Bot Core ready`, `Listening for emergency alerts`, no RuntimeError). First post-deploy reject log: `FILL_MC_CEILING reject: 6X5V79NvN85P mc=$10753 > ceiling=$1000` at 03:41:38Z confirms env plumbed through to rejection logic.
+
+**Eval folded:** combined STOP-LOSS-20-RUG-FILTER-EVAL-001 + NO-MOMENTUM-90S-EVAL-001 at ≥2026-05-27 (+14d from this deploy). T1 STOP-F regime test rolled into that combined evaluation.

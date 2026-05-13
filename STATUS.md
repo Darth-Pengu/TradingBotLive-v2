@@ -7,6 +7,32 @@
 
 ---
 
+## 2026-05-13 03:29 UTC — NO-MOMENTUM-90S-FILTER-RETUNE-DEPLOY-001 (C1, env-only deploy, DEPLOYED-VERIFIED)
+
+**Committed:** `a3ee421` docs+deploy(no-momentum-90s-retune): NO-MOMENTUM-90S-FILTER-RETUNE-DEPLOY-001 C1 — `BOT_CORE_FILL_MC_CEILING_USD` retuned 3000 → 1000 on bot_core at 2026-05-13 03:29:21Z UTC; container restart 03:38:37Z UTC clean. Files: `AGENT_CONTEXT.md` (header + §2 bot_core row + §6.5 nm90 row), `ZMN_ROADMAP.md` (Decision Log + STOP-LOSS-20-RUG-FILTER-DEPLOY-001/EVAL-001 rows superseded/folded), `docs/audits/NO_MOMENTUM_90S_AUDIT_001_2026_05_12.md` (§12 "Decision to skip T1" appended), `MONITORING_LOG.md` (entry), `STATUS.md` (this prepend). NO services/* code change. No `railway up`; single env command via Railway MCP triggered auto-redeploy.
+**State changes:** Railway env: `BOT_CORE_FILL_MC_CEILING_USD=1000` (was 3000) on bot_core ONLY. No Redis writes. No code edits. No other service touched. Bot_core container restarted at 03:38:37Z UTC.
+**Bot state:** TEST_MODE=true (paper, unchanged), F1+C1 filter ACTIVE at $1000, `ML_THRESHOLD_BOT_CORE_SD=40` ACTIVE (unchanged from 2026-05-05 14:16:48Z UTC), 0 open positions in DB at restart (`Startup reconciliation: 0 open positions in DB`), `Bot Core ready`, market mode NORMAL at restart, 44 whale wallets reloaded, portfolio 30.7304 SOL paper, wallet 0.064 SOL on-chain (unchanged), circuit_breaker N/A. Concurrent: no concurrent session detected; predecessor ML-SCORE-ATH-VALIDATION-001 closed 2026-05-12 (commit `c3a6ba1` / `e96fa1a`).
+**Findings (key):**
+- 🟢 **STOP-A retest PASS on fresh 8.12d sample** (vs audit's 7.49d). C1 ($1000 ceiling) marginal blocked: 589 trades / sum_pnl saved -10.86 SOL → **+1.49 SOL/day W3+W4 rate**, **+3.02 SOL/day W4-only rate**. Both exceed ≥+1.0 SOL/d threshold. **False-positive winners blocked: 0** (matches audit exactly). KEPT slice strengthened: 523 trades / +32.62 SOL / **91.4% WR** (vs audit's 433 / +30.71 / 94.2%). Structural pattern held: $1k-$3k cliff persists.
+- 🟢 **STOP-B PASS:** last fill-path commit on `services/paper_trader.py` / `services/bot_core.py` = `0f37e82` (the F1 deploy itself). No behavioural drift since audit.
+- 🟢 **STOP-C PASS:** no concurrent bot_core deploy in flight. Last STATUS entries are read-only research sessions (ML-SCORE-ATH-VALIDATION-001 docs-only, predecessor audit T0 docs-only).
+- 🟢 **STOP-D PASS:** Jay authorization explicit in session prompt; named `BOT_CORE_FILL_MC_CEILING_USD=1000` by name; provided rollback steps; acknowledged this is a fast-track decision and authorized T1 skip.
+- 🟢 **Deploy:** env set via Railway MCP at 03:29:21Z UTC. Triggered one auto-redeploy. Container `Starting Container` at 03:38:37Z UTC (~9 min after env set — longer than doc's ~90s but within bounds). Clean startup: `TEST_MODE=True` → `Starting SINGLE service: bot_core` → `Startup reconciliation: 0 open positions in DB` → `Bot Core ready — managing 3 personalities` → `Listening for emergency alerts`. No RuntimeError / Traceback / ImportError.
+- 🟢 **First post-deploy rejection log:** `[paper_trader] INFO: FILL_MC_CEILING reject: 6X5V79NvN85P mc=$10753 > ceiling=$1000` at 03:41:38Z. Env plumbed through to rejection logic. (Mint at $10K would also have hit old $3K ceiling; meaningful $1k-$3k rejections accrue over next hours.)
+**Verdict:** ✅ **DEPLOYED-VERIFIED** at T+~12 min. Plumbing confirmed. T+30 min and T+24h verification scheduled per deploy doc.
+**Blockers cleared:** NO-MOMENTUM-90S-FILTER-RETUNE-DEPLOY-001 (was paste-ready carry).
+**Blockers new/active:**
+- 📋 **STOP-LOSS-20-RUG-FILTER-EVAL-001 + NO-MOMENTUM-90S-EVAL-001 (combined)** — eval queue date pushed from ≥2026-05-25 to ≥2026-05-27 (+14d from this deploy). T1 STOP-F regime test rolled into combined eval.
+- 📋 **ML_THRESHOLD_RETUNE_002** carry — re-derive sweep on post-gate window ≥2026-05-12 + 7d (≥2026-05-19).
+- All other carries unchanged from prior STATUS entries.
+**V5a precondition delta:** None directly. F1+C1 reduces SD-paper-active leak (`no_momentum_90s` $1k-3k bleed) which would amplify on live at sizing factor. Audit §6.5 noted V5a flip caps could be re-evaluated post-eval window; original blockers (wallet 0.064 SOL, 48h observation, NORMAL window) unchanged.
+**Rollback procedure (instant):** `BOT_CORE_FILL_MC_CEILING_USD=3000` via Railway MCP / CLI. Triggers single auto-redeploy. No code revert. Rollback triggers per deploy doc §"Rollback triggers" — see MONITORING_LOG entry.
+**Concurrent-session compatibility:** Pull-rebase before push (retry up to 3× on conflict). Append-only updates to AGENT_CONTEXT/MONITORING_LOG/STATUS/ROADMAP. Decision Log row added at top of ZMN_ROADMAP.
+**Next prompt:** Combined STOP-LOSS-20-RUG-FILTER-EVAL-001 + NO-MOMENTUM-90S-EVAL-001 at ≥2026-05-27. T+30 min and T+24h observability checks per deploy doc (Jay-side spot-checks).
+**Pending Claude-chat prompts not yet pasted:** none — this session executed the previously-queued retune deploy.
+
+---
+
 ## 2026-05-12 ~23:35 UTC — ML-SCORE-ATH-VALIDATION-001 (read-only research, EVIDENCE-PRODUCED)
 
 **Committed:** `c3a6ba1` docs(ml-ath-validation): ML-SCORE-ATH-VALIDATION-001 — ML weakly predictive (AUC 0.5361); live gate at thr=40 sub-optimal vs thr=55 historical. Files: `docs/audits/ML_SCORE_ATH_VALIDATION_001_2026_05_12.md` (NEW), `scripts/ml_ath_validation_001.py` (NEW, research-only fetch loop), `scripts/verify_ml_calibration.py` (NEW, standalone counterfactual tool), `AGENT_CONTEXT.md` (header), `ZMN_ROADMAP.md` (Decision Log), `MONITORING_LOG.md` (entry), `STATUS.md` (this prepend), `.gitignore` (`.tmp_ml_ath_validation/`). New DB object: `mint_ath_lookups` table (research-only cache, NOT consumed by production).
