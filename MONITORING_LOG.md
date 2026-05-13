@@ -2,6 +2,21 @@
 
 ---
 
+## 2026-05-13 09:31 UTC — DASHBOARD-AUDIT-002 (read-only investigation, AUDIT COMPLETE)
+
+- Re-evaluation of the 2026-04-19 dashboard audit suite against current bot reality (F1 deploy 2026-05-11, C1 deploy 2026-05-13, ML weakly-predictive finding 2026-05-12, Analyst hard-disabled).
+- **STOP-B PASS:** only 1 commit on `dashboard/` / `services/dashboard_api.py` since 2026-04-19 (`bc622eb` BUG-021 trade_mode filter on `api_paper_stats` + `api_portfolio_history`). Baseline materially unchanged.
+- **Inventory:** 14 panels on main `dashboard.html` (Equity Curve / Today's Session / Signal Funnel / ML Status / Personality P/L / P/L Distribution / API Health / Whale / Win Rates / Governance / Open Positions / Recent Trades / Recent Signals / topbar KPIs); 44 routes registered in `dashboard_api.py`, 18 consumed by main, ~20 orphaned or secondary-only. `dashboard-analytics.html` + `dashboard-wallet.html` remain orphaned (no nav links from main — unchanged from 2026-04-19 §1.2).
+- **Decision-flow audit (8 operator decisions):** 0 fully SUPPORTED, 4 PARTIAL (bot health / daily PnL / regime shift / wallet stable), 4 MISSING (filter visibility / rollback triggers / pipeline ready / deploy decision). New operator workload uniformly under-served.
+- **Reality-shift gap analysis (top 7 of 10):** G-01 F1+C1 filter visibility (sev 5), G-02 exit-reason time-series (sev 4), G-03 MC-band histogram (sev 4), G-04 ML gate effectiveness (sev 3), G-05 paper/live separation (sev 3), G-06 disabled-personality badge (sev 2), G-08 rollback trigger surface (sev 3). G-07 / G-09 / G-10 are carry-overs from 2026-04-19.
+- **Bug status:** 4 closed since 2026-04-19 (B-002 via BUG-022 pass-through, B-004 confirmed, B-011 + B-012 already closed); 9 still apply (defer to rebuild); 2 separate fix candidates (DASHBOARD-CORRECTED-PNL-WARN-001, DASHBOARD-HEALTH-CHECK-PROBE-DEPTH-001); 3 unverified (B-007/B-008/B-009 → DASH-T-001 Playwright suite, blocked on OBS-004 Playwright stability).
+- **Prioritized top 10:** PATCH-NOW count = 1 definitive (G-01, M-effort ~2-3h) + 2 conditional. Below §8 BUNDLE threshold. All 10 items survive DASH-001 rebuild.
+- **Decision tree result:** 1 PATCH-NOW item, M-effort → neither BUNDLE nor ACCELERATE; **REAFFIRM REBUILD with explicit scheduling ask.** STOP-A applies weakly (prior audits cover all framing except G-01 urgency).
+- **Verdict:** ✅ **AUDIT COMPLETE. REAFFIRM REBUILD. Recommend DASH-001 promotion QUEUED → Tier 1.** DASH-001 has been QUEUED ~4 weeks; F1+C1 deploys + ML retune queue + audit-pipeline-tracking need create accumulating observability gaps that the rebuild naturally closes. ⛔ DASH-PATCH stays deferred (rebuild-not-patch). Open question to Jay flagged in audit §1 / §7 / §9.
+- **NO services/* edit, NO env change, NO Redis writes, NO DB writes.** Audit: `docs/audits/DASHBOARD_AUDIT_002_2026_05_13.md`. Scratch artifacts: `.tmp_dashboard_audit/01_widget_inventory.md`, `03_decision_flow.md`, `04_gap_analysis.md`, `05_bug_status.md`, `06_prioritized.md`, `07_decision.md` (untracked).
+
+---
+
 ## 2026-05-13 — NO-MOMENTUM-90S-FILTER-RETUNE-DEPLOY-001 (C1, env-only deploy, DEPLOYED-VERIFIED)
 
 - Single env-var retune of `BOT_CORE_FILL_MC_CEILING_USD` on bot_core: **3000 → 1000** at 2026-05-13 03:29:21Z UTC. Jay-authorized fast-track (audit's path b, §9); T1 standalone audit at ~2026-05-14 SKIPPED per audit §12 (added this session).

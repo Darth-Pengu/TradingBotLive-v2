@@ -7,6 +7,30 @@
 
 ---
 
+## 2026-05-13 09:31 UTC — DASHBOARD-AUDIT-002 (read-only investigation, AUDIT COMPLETE)
+
+**Committed:** `12434e2` docs(dashboard-audit-002): DASHBOARD-AUDIT-002 — REAFFIRM REBUILD; promote DASH-001 QUEUED → Tier 1. Files: `docs/audits/DASHBOARD_AUDIT_002_2026_05_13.md` (NEW), `ZMN_ROADMAP.md` (Decision Log), `AGENT_CONTEXT.md` (header), `MONITORING_LOG.md` (entry), `STATUS.md` (this prepend). NO services/* edit, NO env change, NO Redis writes.
+**State changes:** None. Read-only — repo + git history + ROADMAP + 3 prior dashboard audits + 2 post-Apr-19 reality-shift audits.
+**Bot state:** TEST_MODE=true (paper, unchanged from C1 deploy). F1+C1 filter ACTIVE (`BOT_CORE_FILL_MC_CEILING_USD=1000` on bot_core). `ML_THRESHOLD_BOT_CORE_SD=40` ACTIVE. Wallet 0.064 SOL on-chain (unchanged). Paper portfolio ~30.7 SOL.
+**Findings (key):**
+- 🟢 **STOP-B PASS:** only 1 commit on `dashboard/` / `services/dashboard_api.py` since 2026-04-19 baseline (`bc622eb` BUG-021 trade_mode filter). Source is materially unchanged.
+- 🟡 **Decision-flow audit:** 0 of 8 operator decisions fully SUPPORTED. 4 PARTIAL, 4 MISSING. New operator workload (deploy verification, audit pipeline, rollback triggers) uniformly under-served.
+- 🟡 **Reality-shift gap analysis:** 10 items; only 1 severity-5 (G-01 F1+C1 filter visibility); all 10 survive DASH-001 rebuild and would be built there anyway.
+- 🟢 **Bug status:** 4 closed since 2026-04-19 (B-002 via BUG-022 pass-through, B-004 confirmed, B-011 + B-012 already closed); 9 still apply (defer to rebuild); 2 separate fix candidates (DASHBOARD-CORRECTED-PNL-WARN-001, DASHBOARD-HEALTH-CHECK-PROBE-DEPTH-001); 3 unverified (B-007/B-008/B-009 → DASH-T-001 Playwright suite).
+- 🟢 **Prioritized list:** PATCH-NOW count = 1 definitive (G-01, M-effort) + 2 conditional. Below §8 BUNDLE threshold (3-5 small items).
+- 🟢 **STOP-A applies weakly:** prior audits cover all framing except G-01 (F1+C1 verification urgency).
+**Verdict:** ✅ **AUDIT COMPLETE. REAFFIRM REBUILD.** Recommendation: promote DASH-001 from QUEUED → Tier 1 scheduled. DASH-001 has been QUEUED ~4 weeks; F1+C1 deploys + ML retune queue + audit pipeline create accumulating observability gaps that the rebuild naturally closes. ⛔ DASH-PATCH stays deferred (rebuild-not-patch). Open question to Jay: schedule DASH-001 now or continue queuing?
+**Blockers cleared:** None this session (read-only).
+**Blockers new/active:**
+- 📋 **DASH-001 promotion decision** — recommendation in audit §1 + §7 + §9 to elevate QUEUED → Tier 1. Jay-decision.
+- All prior carries unchanged (combined STOP-LOSS-20-RUG-FILTER-EVAL-001 + NO-MOMENTUM-90S-EVAL-001 ≥2026-05-27, ML_THRESHOLD_RETUNE_002 ≥2026-05-19, V5a wallet/observation/NORMAL blockers, BUG-010 Anthropic).
+**V5a precondition delta:** None.
+**Concurrent-session compatibility:** No concurrent session detected at audit time. Pull-rebase before push (retry up to 3× on conflict). Append-only updates.
+**Next prompt:** Either (a) DASH-001 scheduling discussion / kickoff session if Jay accepts promotion, or (b) continue with combined eval at ≥2026-05-27. NOT auto-triggered.
+**Pending Claude-chat prompts not yet pasted:** none — this audit terminated with verdict.
+
+---
+
 ## 2026-05-13 03:29 UTC — NO-MOMENTUM-90S-FILTER-RETUNE-DEPLOY-001 (C1, env-only deploy, DEPLOYED-VERIFIED)
 
 **Committed:** `a3ee421` docs+deploy(no-momentum-90s-retune): NO-MOMENTUM-90S-FILTER-RETUNE-DEPLOY-001 C1 — `BOT_CORE_FILL_MC_CEILING_USD` retuned 3000 → 1000 on bot_core at 2026-05-13 03:29:21Z UTC; container restart 03:38:37Z UTC clean. Files: `AGENT_CONTEXT.md` (header + §2 bot_core row + §6.5 nm90 row), `ZMN_ROADMAP.md` (Decision Log + STOP-LOSS-20-RUG-FILTER-DEPLOY-001/EVAL-001 rows superseded/folded), `docs/audits/NO_MOMENTUM_90S_AUDIT_001_2026_05_12.md` (§12 "Decision to skip T1" appended), `MONITORING_LOG.md` (entry), `STATUS.md` (this prepend). NO services/* code change. No `railway up`; single env command via Railway MCP triggered auto-redeploy.
