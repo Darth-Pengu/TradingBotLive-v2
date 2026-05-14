@@ -1,5 +1,7 @@
 # ZMN dashboard — teardown + redesign analysis
 
+> **SUPERSEDED for scope by `DASHBOARD_DESIGN_REALIGNMENT_001_2026_05_14.md` (2026-05-14).** Concept C "Unified Cockpit" has been re-scoped to a mobile-first glanceable monitor (6 cards, single screen, PWA-installable). The legacy `dashboard.html` retro CRT is retained alongside for desktop analytical inspection. Original Concept A/B/C content preserved below for design-history reference; do not treat the build-time estimates or layout decisions here as current. See the realignment doc for the active spec and the build-session breakdown (DASH-001-BUILD-0 / BUILD-1 / BUILD-2, 3 × 2.5h).
+>
 > **STATUS (2026-04-19):** This audit's actionable items are consolidated in `ZMN_ROADMAP.md`. Refer there for current status, priority, and dependencies. This doc is retained as evidence / deep-dive detail.
 
 

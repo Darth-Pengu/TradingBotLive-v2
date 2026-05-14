@@ -7,6 +7,37 @@
 
 ---
 
+## 2026-05-14 — DASHBOARD-DESIGN-REALIGNMENT-001 (design session, DESIGN COMPLETE)
+
+**Committed:** `fb1b80f` docs(dashboard-design-realignment): DASHBOARD-DESIGN-REALIGNMENT-001 — re-scope DASH-001 to mobile-first 6-card monitor. Files: `docs/audits/DASHBOARD_DESIGN_REALIGNMENT_001_2026_05_14.md` (NEW, main deliverable), `docs/audits/DASHBOARD_REDESIGN_2026_04_19.md` (header note: SUPERSEDED for scope; original preserved), `ZMN_ROADMAP.md` (Decision Log + DASH-001 row + references table), `AGENT_CONTEXT.md` (header), `MONITORING_LOG.md` (entry), `STATUS.md` (this prepend). **NO services/* code change, NO env change, NO Redis writes, NO redeploy.**
+**State changes:** None. Read-only design — repo + 4 prior dashboard audits + `services/dashboard_api.py` route inventory + ZMN_ROADMAP + AGENT_CONTEXT + STATUS.
+**Bot state:** TEST_MODE=true (paper, unchanged from C1 deploy 2026-05-13 03:38:37Z UTC). F1+C1 filter ACTIVE (`BOT_CORE_FILL_MC_CEILING_USD=1000` on bot_core). `ML_THRESHOLD_BOT_CORE_SD=40` ACTIVE. Wallet 0.064 SOL on-chain (unchanged from STATE-SNAPSHOT-2026-05-08). Paper portfolio ~30.7 SOL. Open positions count not refreshed this session (design-only, no behavioural deploy since DASHBOARD-AUDIT-002 yesterday — carry-forward acceptable). circuit_breaker N/A (paper mode). market_mode read deferred to next behavioural session.
+**Findings (key):**
+- 🟢 **STOP-A weak:** Concept C "Unified Cockpit" did NOT already fit the re-scoped mobile-monitor purpose (desktop-first, ~30 surfaces, 14 legacy panels). Re-scope produced a materially smaller spec — STOP-A correctly did not fire.
+- 🟢 **STOP-B pass:** 1 of 6 cards needs backend work (`/api/active-alerts` endpoint, ~30 lines, 0.5h). ≪50% threshold. UI is the bulk of the work.
+- 🟢 **STOP-C did not trigger:** card set sits at 6 within the ≤6 cap. No tabs, no routes, no sub-pages. The re-scope did not creep back to Unified Cockpit.
+- 🟢 **STOP-D N/A:** frontend-design skill loaded cleanly via Skill tool.
+- 🟢 **STOP-E none:** no concurrent session at session-start; STATUS.md head is DASHBOARD-AUDIT-002 from yesterday.
+- 🟢 **Scope diff:** ~30 Concept C surfaces → 6 cards on one screen. ≈5-7× smaller. Analytical surfaces (equity curve / P/L distribution / exit analysis / win-rates × regime / signal funnel / ML status / personality stats / governance / whale activity) DEFER-TO-CLAUDE-LOOP. Sidebar / tabs / routes / accent picker / breadcrumb / sub-pages CUT.
+- 🟢 **Backend dependencies:** 1 new endpoint (~30 lines, aggregates existing Redis keys). All 5 other cards backed by existing endpoints (`/api/status`, `/api/session-stats`, `/api/wallets`, `/api/positions`, `/api/trades`) — verified by direct read of `services/dashboard_api.py` route registrations 256-2548.
+- 🟢 **Build breakdown:** 3 sessions × 2.5h = 7.5h (vs Concept C's 4-6 × 3h = 12-18h, ~55% smaller). BUILD-0 backend endpoint 0.5h; BUILD-1 UI scaffold + Cards 1/2/4 + `/m` route 2.5h; BUILD-2 Cards 3/5/6 + PWA + offline-shell 2.5h.
+- 🟢 **Sequencing:** June parallel-track with Analyst Phase 0, NOT May trading-logic critical path.
+- 🟢 **Legacy:** `dashboard.html` retained at `/` for desktop analytical depth; new monitor at `/m`; coexist ≥30 days.
+- 🟢 **Testability:** DASH-T-001 test list shrinks (3-4h → ~2.5h); does NOT need its own realignment doc — 30m test-list refresh once OBS-004 unblocks. Build NOT blocked on DASH-T-001.
+
+**Verdict:** ✅ **DESIGN COMPLETE.** Ready for build sessions DASH-001-BUILD-0 / BUILD-1 / BUILD-2 to come off this spec in June (parallel with Analyst Phase 0).
+**Blockers cleared:** None this session (design-only).
+**Blockers new/active:**
+- 📋 **6 open questions to Jay** (audit §9): re-scope acceptance, 30-day legacy coexistence, single accent vs picker, Sentry fold-in v1.5, active emergency-stop from phone (deferred — auth-impact), June timing window.
+- All prior carries unchanged (C1 observation, combined STOP-LOSS-20-RUG-FILTER-EVAL-001 + NO-MOMENTUM-90S-EVAL-001 ≥2026-05-27, ML_THRESHOLD_RETUNE_002 ≥2026-05-19, V5a wallet/observation/NORMAL blockers, BUG-010 Anthropic).
+
+**V5a precondition delta:** None.
+**Concurrent-session compatibility:** No concurrent session detected at design-start. Pull-rebase before push (retry up to 3× on conflict). Append-only updates only.
+**Next prompt:** Either (a) Jay-decision on the 6 open questions (in particular re-scope acceptance + June timing), then DASH-001-BUILD-0 (`/api/active-alerts` endpoint, 0.5h, can ship as a standalone micro-session if F1+C1 observability is acutely needed before June) → BUILD-1 → BUILD-2; or (b) continue with May trading-logic critical path (C1 observation → combined eval ≥2026-05-27). NOT auto-triggered.
+**Pending Claude-chat prompts not yet pasted:** none — this design session terminated with verdict.
+
+---
+
 ## 2026-05-13 09:31 UTC — DASHBOARD-AUDIT-002 (read-only investigation, AUDIT COMPLETE)
 
 **Committed:** `12434e2` docs(dashboard-audit-002): DASHBOARD-AUDIT-002 — REAFFIRM REBUILD; promote DASH-001 QUEUED → Tier 1. Files: `docs/audits/DASHBOARD_AUDIT_002_2026_05_13.md` (NEW), `ZMN_ROADMAP.md` (Decision Log), `AGENT_CONTEXT.md` (header), `MONITORING_LOG.md` (entry), `STATUS.md` (this prepend). NO services/* edit, NO env change, NO Redis writes.

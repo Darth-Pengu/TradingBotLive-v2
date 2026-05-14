@@ -2,6 +2,24 @@
 
 ---
 
+## 2026-05-14 — DASHBOARD-DESIGN-REALIGNMENT-001 (design session, DESIGN COMPLETE)
+
+- **Trigger:** DASHBOARD-AUDIT-002 (2026-05-13) recommended promoting DASH-001 from QUEUED → Tier 1. Existing DASH-001 spec was Concept C "Unified Cockpit" (2026-04-19) — a 3-route × 3-tab × 14-panel desktop dashboard scoped when the dashboard was meant to be the operational center. Jay's clarified purpose narrows the dashboard's job to **"lightweight monitoring once live, on the go, especially mobile"**. Re-scope before any build session, to prevent rebuilding Unified Cockpit under a new name.
+- **STOP results:** STOP-A applies weakly (Concept C did NOT already fit the re-scoped purpose). STOP-B passed (1 of 6 cards needs backend work, ≪50% threshold). STOP-C did not fire (card set sits at 6, within the cap). STOP-D N/A (frontend-design skill read OK). STOP-E none (no concurrent session).
+- **Scope diff:** ~30 Concept C surfaces (3 routes × 3 tabs × 14 panels + sidebar nav + accent picker + 6 sub-pages) collapse to **6 cards on a single screen, one column at every viewport**. ≈5-7× smaller. Analytical surfaces (equity curve, P/L distribution, exit analysis, win-rates × regime, signal funnel, ML status, personality stats, governance, whale activity) DEFER-TO-CLAUDE-LOOP. Sidebar / tabs / routes / accent picker / breadcrumb / signals-route / wallet-route / settings-route — all CUT.
+- **Card set (priority order):** (1) Bot status sticky-top with ALIVE/STOPPED/EMERGENCY/HIBERNATE pill + mode chip + last-heartbeat — `/api/status` EXISTS; (2) Today's P&L large number with trades/WR/best/worst sub-line — `/api/session-stats` EXISTS; (3) Active alerts conditional visibility (folds G-01 F1+C1 rejects + G-08 rollback triggers) — **PARTIAL backend, needs new `/api/active-alerts` endpoint ~30 lines**; (4) Wallet trading-on-chain + paper portfolio + holding — `/api/status` + `/api/wallets` EXISTS; (5) Open positions count + aggregate + tap-to-expand — `/api/positions` EXISTS; (6) Recent trades last 5 + footer-link to legacy dashboard — `/api/trades` EXISTS.
+- **Technical shape:** single vertical column ≤480px on every viewport (no multi-column desktop — guards against drift back to Unified Cockpit); Geist + Geist Mono typography; dark default + light toggle; single chartreuse accent (no picker in v1); polling-only ~6 req/min ~1.5 MB/hr; PWA manifest + service worker for Add-to-Home-Screen + offline shell with stale badge; ≤80 KB total page weight; no JS framework; no analytical charting libraries.
+- **Auth:** reuse existing JWT-in-localStorage pattern; longer-lived/biometric flagged for separate session as `DASH-AUTH-001` Tier 3.
+- **Legacy relationship:** new monitor at `/m`; legacy `dashboard.html` stays at `/` for desktop analytical depth; coexist ≥30 days; deprecation decision after.
+- **Build breakdown:** **3 sessions × 2.5h = 7.5h** (vs Concept C's 4-6 × 3h = 12-18h, ~55% smaller). BUILD-0 backend endpoint 0.5h; BUILD-1 UI scaffold + Cards 1/2/4 + `/m` route 2.5h; BUILD-2 Cards 3/5/6 + PWA + offline-shell 2.5h.
+- **Sequencing:** **June parallel-track with Analyst Phase 0**, NOT May trading-logic critical path (C1 observation → combined eval ≥2026-05-27 → ML_THRESHOLD_RETUNE_002).
+- **Testability:** DASH-T-001 test list shrinks (3-4h → ~2.5h); does NOT need its own realignment doc — a 30m test-list refresh once OBS-004 unblocks. Reused tests B-002/B-003/B-006/B-007/B-009; N/A under re-scope B-001/B-004/B-005/B-008/B-014; new tests alerts-collapse, pwa-manifest-valid, sw-caches-shell, sticky-status-card. Build NOT blocked on DASH-T-001.
+- **Open questions to Jay:** (1) acceptance of re-scope; (2) 30-day legacy coexistence; (3) single accent vs picker; (4) Sentry fold-in v1.5; (5) active emergency-stop controls from phone (auth-impact, deferred); (6) June timing window.
+- **Outputs:** `docs/audits/DASHBOARD_DESIGN_REALIGNMENT_001_2026_05_14.md` (main deliverable, ≤2500 words, §1-10); header-note on `docs/audits/DASHBOARD_REDESIGN_2026_04_19.md` (SUPERSEDED for scope; original preserved); `ZMN_ROADMAP.md` (Decision Log + DASH-001 row updates); `AGENT_CONTEXT.md` (header); `STATUS.md` (prepend); `.tmp_dashboard_realignment/` (untracked: 01_scope_diff.md / 02_card_specs.md / 03_technical_shape.md / 04_build_breakdown.md / 05_testability.md / PROGRESS.md).
+- **NO services/* code change, NO env change, NO Redis writes, NO redeploy.**
+
+---
+
 ## 2026-05-13 09:31 UTC — DASHBOARD-AUDIT-002 (read-only investigation, AUDIT COMPLETE)
 
 - Re-evaluation of the 2026-04-19 dashboard audit suite against current bot reality (F1 deploy 2026-05-11, C1 deploy 2026-05-13, ML weakly-predictive finding 2026-05-12, Analyst hard-disabled).
