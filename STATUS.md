@@ -7,6 +7,33 @@
 
 ---
 
+## 2026-05-14 — V5A-PRECONDITION-CHECKLIST-CLEANUP-001 (docs-only, CHECKLIST REWRITTEN)
+
+**Committed:** `f8af901` docs(v5a-precondition-checklist-cleanup): V5A-PRECONDITION-CHECKLIST-CLEANUP-001 — rewrote AGENT_CONTEXT §6 against verified 2026-05-14 live state. Files: `AGENT_CONTEXT.md` (header + §6 rewritten), `docs/audits/V5A_PRECONDITION_CHECKLIST_CLEANUP_001_2026_05_14.md` (NEW), `ZMN_ROADMAP.md` (Decision Log), `MONITORING_LOG.md` (entry), `STATUS.md` (this prepend), `.gitignore` (`.tmp_v5a_cleanup/`). **NO services/* code change, NO env change, NO Redis writes (read-only on live state), NO deploy.**
+**State changes:** None. Read-only on live state — Railway MCP env reads on bot_core + signal_aggregator, Redis MCP key reads (`market:mode:override`, `nansen:disabled`, `market:mode:current`, `bot:status`), Helius MCP `getBalance` on trading wallet.
+**Bot state:** TEST_MODE=true on bot_core + signal_aggregator (verified Railway MCP). F1+C1 filter ACTIVE (`BOT_CORE_FILL_MC_CEILING_USD=1000`). `ML_THRESHOLD_BOT_CORE_SD=40` ACTIVE. `SD_MC_CEILING_USD=3000` ACTIVE on SA. `ANALYST_DISABLED=true` on SA. `NANSEN_DRY_RUN=TRUE` on SA. Trading wallet **0.064095633 SOL** (Helius `getBalance`, UNCHANGED). Paper portfolio 39.73 SOL via `bot:status`. 0 open positions. `consecutive_losses=1`. `market:mode:current=NORMAL` (automated; no override key). circuit_breaker N/A (paper). Heartbeat 2026-05-14T12:56:38Z UTC. Concurrent: no concurrent session detected at session-start (STATUS head was LIVE-MODE-FILTER-PARITY-001, read-only, complete).
+**Findings (key):**
+- 🟢 **§6 rewrite landed atomically.** Verified-against-live-state: all 7 old items + LIVE-MODE-FILTER-PARITY-001-V2 (newly added) classified into kept / re-framed / completed / removed / added; one inline `<!-- STALE: ... -->` flag for §7 broader staleness (STOP-C).
+- 🟢 **PC1 (wallet top-up):** STILL OUTSTANDING — 0.064095633 SOL verified, unchanged from 2026-04-21.
+- 🟢 **PC2 (observation window):** REFRAMED — was "Sessions A-D / 24-48h" (meaningless after 5+ config changes), now "post-C1 deploy 2026-05-13 03:38:37Z UTC → combined STOP-LOSS-20-RUG-FILTER-EVAL-001 + NO-MOMENTUM-90S-EVAL-001 ≥2026-05-27". ~33h elapsed at session start of T+14d window.
+- 🟢 **PC3 (LIVE-MODE-FILTER-PARITY-001-V2):** ADDED — resolves audit §8.2 open question from yesterday's investigation. Recommended Option A scope: gate in `bot_core.py` live branch before `execute_trade` using `self._get_token_price(mint)`.
+- 🟢 **PC4 (flip-itself):** KEPT with expanded pre-flip self-check (CLEAN-003 script + `market:mode:current=NORMAL` flip-time verify + DAILY_LOSS_LIMIT + sell-storm breaker). The old "renew `market:mode:override` Redis daily TTL" precondition was folded here as a flip-time verification step — current state automatically NORMAL, no manual override required.
+- 🟢 **2 completed preconditions** moved to historical subsection (verified live): SD_MC_CEILING_002, LIVE-FEE-CAPTURE-002 Path B.
+- 🟢 **3 obsolete preconditions removed** with audit trail: SD_EARLY_CHECK relax (TUNE-009 deferred permanently); `nansen:disabled` Redis renewal (migrated to env `NANSEN_DRY_RUN=TRUE`); `market:mode:override` standing renewal (folded into PC4 flip-time check).
+- 🟡 **STOP-C broader staleness flagged:** §7 row `LIVE-FEE-CAPTURE-002 (Path B) 📋 V5a-blocking-but-degradable` contradicts the Decision Log + §6 deploy carry. Inline `<!-- STALE: ... -->` left in §6 for a separate small §7 sync session; NOT silently rewritten this session.
+- 🟢 **STATUS UNKNOWN items:** zero. All preconditions had at least one verifiable signal.
+**Verdict:** ✅ **CHECKLIST REWRITTEN.** Honest V5A blocker count post-rewrite: **4 outstanding** (PC1-PC4), **2 completed (historical)**, **3 removed/folded**.
+**Blockers cleared:** None (no behavioural blockers cleared; this was a docs-accuracy cleanup).
+**Blockers new/active:**
+- 📋 **AGENT_CONTEXT-SECTION-7-SYNC** (NEW Tier-3 🟢 hygiene) — separate small session to sync §7 row statuses against the Decision Log (specifically the `LIVE-FEE-CAPTURE-002 (Path B)` stale row + audit any other §7 rows that are post-deploy carry-forwards). Inline `<!-- STALE: ... -->` flag left in §6.
+- All prior carries unchanged (PC1 wallet top-up, PC2 observation, PC3 LIVE-MODE-FILTER-PARITY-001-V2, PC4 flip, combined eval ≥2026-05-27, ML_THRESHOLD_RETUNE_002 ≥2026-05-19, BUG-010 Anthropic).
+**V5a precondition delta:** **net 0 outstanding count** (1 reframed, 1 added, 1 folded, 1 removed) — but the checklist is now ACCURATE and INTERPRETABLE against today's state. PC3 was added yesterday by LIVE-MODE-FILTER-PARITY-001; this session formalizes it into §6.
+**Concurrent-session compatibility:** No concurrent session detected at session-start. Pull-rebase before push (retry up to 3× on conflict). Append-only updates to canonical docs (MONITORING_LOG / STATUS / Decision Log). §6 itself rewritten as atomic Edit (per piece 2 — never half-done).
+**Next prompt:** None auto-triggered. The next behavioural session is gated on Jay decisions: (a) explicit authorization to scope LIVE-MODE-FILTER-PARITY-001-V2 (PC3); (b) wallet top-up timing (PC1); (c) optionally a small AGENT_CONTEXT-SECTION-7-SYNC hygiene session. Combined eval at ≥2026-05-27 remains the next observability checkpoint.
+**Pending Claude-chat prompts not yet pasted:** LIVE-TRADES-LOGGING-AUDIT-001 (paste-status unknown — Jay to confirm; carries from yesterday's LIVE-MODE-FILTER-PARITY-001 entry).
+
+---
+
 ## 2026-05-14 — LIVE-MODE-FILTER-PARITY-001 (read-only investigation, STOP-C / SCOPING NEEDED)
 
 **Committed:** `600f726` docs(live-mode-filter-parity): LIVE-MODE-FILTER-PARITY-001 — STOP-C, execution.py has no clean insertion point for a fill-time MC gate. Files: `docs/audits/LIVE_MODE_FILTER_PARITY_001_2026_05_14.md` (NEW, main deliverable), `ZMN_ROADMAP.md` (Decision Log + new item LIVE-MODE-FILTER-PARITY-001-V2), `AGENT_CONTEXT.md` (header), `MONITORING_LOG.md` (entry), `STATUS.md` (this prepend), `.gitignore` (`.tmp_live_filter_parity/`). **NO services/* code change, NO env change, NO Redis writes, NO deploy.**

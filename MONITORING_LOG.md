@@ -2,6 +2,27 @@
 
 ---
 
+## 2026-05-14 — V5A-PRECONDITION-CHECKLIST-CLEANUP-001 (docs-only, CHECKLIST REWRITTEN)
+
+- **Trigger:** chat-side state synthesis on 2026-05-14 found `AGENT_CONTEXT.md` §6 ~1 month stale: "Sessions A-D"/"session-E snapshot" anchors meaningless after 5+ config changes, +1 new V5A blocker (LIVE-MODE-FILTER-PARITY-001-V2) added 2026-05-14 not yet in §6.
+- **Verification (all parallel, 2026-05-14 ~12:57 UTC):**
+  - On-chain wallet `4h4pst…ii8xJ` = **0.064095633 SOL** via Helius `getBalance` (UNCHANGED since 2026-04-21).
+  - Railway env bot_core: `TEST_MODE=true`, `BOT_CORE_FILL_MC_CEILING_USD=1000` (C1), `SD_EARLY_CHECK_SECONDS=60`, `ML_THRESHOLD_BOT_CORE_SD=40`, `MAX_POSITION_SOL=0.25`, `DAILY_LOSS_LIMIT_SOL=4.0`.
+  - Railway env signal_aggregator: `TEST_MODE=true`, `ANALYST_DISABLED=true`, `SD_MC_CEILING_USD=3000`, `NANSEN_DRY_RUN=TRUE` (replaces `nansen:disabled` Redis key).
+  - Redis: `market:mode:override` **not found**; `nansen:disabled` **not found**; `market:mode:current=NORMAL` (automated); `bot:status` RUNNING (portfolio 39.73 SOL, 0 open, consecutive_losses=1).
+- **Changes to §6 (rewritten):**
+  - KEPT: PC1 wallet top-up (re-anchored to today's verified balance).
+  - REFRAMED: PC2 observation window — was "Sessions A-D / 24-48h", now "post-C1 deploy (2026-05-13 03:38:37Z UTC) → combined eval ≥2026-05-27" (~33h elapsed of T+14d window).
+  - ADDED: PC3 `LIVE-MODE-FILTER-PARITY-001-V2` — resolves the LIVE_MODE_FILTER_PARITY_001 audit §8.2 open question from yesterday's investigation.
+  - KEPT (expanded): PC4 V5A flip itself — added CLEAN-003 pre-flip script + `market:mode:current=NORMAL` flip-time check + DAILY_LOSS_LIMIT + sell-storm breaker.
+  - MOVED: SD_MC_CEILING_002 + LIVE-FEE-CAPTURE-002 Path B → "Completed preconditions (historical)" subsection.
+  - REMOVED: `SD_EARLY_CHECK relax confirmation` (TUNE-009 deferred permanently); `nansen:disabled` Redis renewal (migrated to env `NANSEN_DRY_RUN=TRUE`); `market:mode:override` standing renewal (folded into PC4 flip-time check).
+- **STOP-C flagged broader staleness:** §7 row `LIVE-FEE-CAPTURE-002 (Path B) 📋 V5a-blocking-but-degradable` contradicts the Decision Log + §6 deploy carry — inline `<!-- STALE: ... -->` left for a separate §7 sync session; NOT silently rewritten this session per STOP-C.
+- **Honest V5A blocker count post-rewrite:** **4 outstanding** (wallet, observation, V2, flip-itself), **2 completed (historical)**, **3 removed/folded**.
+- **NO services/* code change, NO env change, NO Redis writes (read-only on live state), NO deploy.** Audit: `docs/audits/V5A_PRECONDITION_CHECKLIST_CLEANUP_001_2026_05_14.md`. Scratch (untracked): `.tmp_v5a_cleanup/PROGRESS.md`, `01_verification.md`, `02_classification.md`.
+
+---
+
 ## 2026-05-14 — LIVE-MODE-FILTER-PARITY-001 (read-only investigation, STOP-C / SCOPING NEEDED)
 
 - **Trigger:** NO_MOMENTUM_90S_AUDIT_001 §10 open item — port the C1 fill-time MC ceiling to `services/execution.py` (the live execution path) before any V5A relaunch.
