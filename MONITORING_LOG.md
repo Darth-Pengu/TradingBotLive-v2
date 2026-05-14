@@ -2,6 +2,23 @@
 
 ---
 
+## 2026-05-14 — LIVE-TRADES-LOGGING-AUDIT-001 (code+schema fix, FIXED + DEPLOYED)
+
+- **Trigger:** chat-side analysis of `live_trades` vs `paper_trades` exports found apparent cross-contamination — a "live_trades" table with 9,521 rows whose recent dates matched `paper_trades` SD counts and whose early-April rows showed impossible PnL for a 5 SOL live budget.
+- **PREREQ gate PASS:** LIVE-MODE-FILTER-PARITY-001 shown completed in STATUS.md (commit `81a20a0`, STOP-C). A concurrent docs-only session (V5A-PRECONDITION-CHECKLIST-CLEANUP-001) completed during this session — not behavioural, not in-flight; proceeded with pull-rebase discipline.
+- **Premise corrected:** there is **no `live_trades` table** (repo grep 0 hits; `to_regclass('live_trades')` → NULL). The chat-side "live_trades" is the **`trades` table** (exact 9,521-row / date-range / personality-split match). `trades` is the **paper+live combined ML-training corpus by design** — `bot_core.py` writes to it from both the paper branch (`:881`) and live branch (`:973`); `ml_model_accelerator` trains from both `trades` + `paper_trades`. **No misrouting bug.** The real defect: `trades` had no `trade_mode` discriminator, so the 41 genuine live rows were *buried* among 9,480 paper rows. `paper_trades` already has `trade_mode` and is correctly separated; `live_trade_log` is correctly live-only.
+- **Classification (9,521 `trades` rows):** paper 9,480 (6,612 archive-matched + 2,868 current-matched) / live 41 / unclassifiable 0. The 41 live = 35 v3/v4 trial trades (no `paper_trades` mirror — predate DASH-ENTRY-001; **all 35 confirmed via `live_trade_log` TX_SUBMIT signatures**; sum −3.3609 SOL, 25.7% WR) + 1 genuine on-chain round-trip (`trades` id 6596 / `paper_trades` id 6580) + 5 reconcile-residual rows (`trade_mode='live'` in `paper_trades`, NULL sigs — not real money).
+- **Isolated real-money result ≈ −3.36 SOL** — cross-validates the ~3.4 SOL on-chain wallet drawdown (5.0 → ~1.6 SOL) in CLAUDE.md's `1b40df3` forensics.
+- **Fix:** `trade_mode TEXT DEFAULT 'paper'` added to `trades` (`db.py` CREATE TABLE + idempotent `ALTER … IF NOT EXISTS` in `_init_tables`); both `bot_core.py` `INSERT INTO trades` sites tagged (`'paper'`/`'live'` literals — branches already gate on `TEST_MODE`, no decision logic touched); one-time backfill `migrations/002_add_trade_mode_to_trades.sql` (mirror from `paper_trades` → archive → `'live'` for the 35 trial rows guarded by `live_trade_log` EXISTS) — **applied to the DB this session, pre-push**.
+- **Verify (`verify_logging_fix.py`, output `.tmp_live_logging_audit/verify_output.txt`) — ALL PASS, iteration 1:** post-fix paper-branch INSERT → `trade_mode='paper'`, live-branch INSERT → `trade_mode='live'` (inside a rolled-back txn, 0 production rows); post-migration split exactly **paper 9,480 / live 41**, 0 NULLs; spot-check `trades.id=6596` → `'live'`.
+- **STOP gates:** not STOP-A (logging ≠ decision logic), not STOP-B (live cleanly separable), not STOP-C (contained: 1 column, 2 INSERT lines, 1 migration).
+- **Purge recommendation: DO NOT PURGE** — the 9,480 paper rows are legitimate ML training data; filter by `trade_mode` instead.
+- **V5A: enabler, not blocker.** Live rows now self-identify in `trades`. New follow-up flagged: **ML-TRAINING-MODE-FILTER-001** (decide include/exclude/weight of live rows in `ml_model_accelerator` — now possible; not decided here, out of scope).
+- **Deploy:** single `git push` of `services/bot_core.py` + `services/db.py` + `migrations/002_*.sql` + doc updates → Railway bot_core redeploy. Container-restart confirmation + post-deploy routing check (new SD-paper trades land in `trades` with `trade_mode='paper'`; no new `'live'` rows while `TEST_MODE=true`) recorded in the STATUS.md entry.
+- Audit: `docs/audits/LIVE_TRADES_LOGGING_AUDIT_001_2026_05_14.md`. Scratch (untracked): `.tmp_live_logging_audit/` — PROGRESS.md, db_probe.py, classify_probe.py, verify_live_onchain.py, 01_write_path_investigation.md, 02_contamination_classification.md, verify_logging_fix.py, verify_output.txt.
+
+---
+
 ## 2026-05-14 — V5A-PRECONDITION-CHECKLIST-CLEANUP-001 (docs-only, CHECKLIST REWRITTEN)
 
 - **Trigger:** chat-side state synthesis on 2026-05-14 found `AGENT_CONTEXT.md` §6 ~1 month stale: "Sessions A-D"/"session-E snapshot" anchors meaningless after 5+ config changes, +1 new V5A blocker (LIVE-MODE-FILTER-PARITY-001-V2) added 2026-05-14 not yet in §6.

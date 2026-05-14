@@ -82,7 +82,8 @@ async def _init_tables():
                 ml_score DOUBLE PRECISION,
                 signal_sources TEXT,
                 created_at DOUBLE PRECISION NOT NULL,
-                closed_at DOUBLE PRECISION
+                closed_at DOUBLE PRECISION,
+                trade_mode TEXT DEFAULT 'paper'
             )
         """)
 
@@ -173,6 +174,17 @@ async def _init_tables():
         try:
             await conn.execute(
                 "ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS rugcheck_risk VARCHAR(10) DEFAULT 'unknown'"
+            )
+        except Exception:
+            pass
+
+        # --- trade_mode discriminator on trades (LIVE-TRADES-LOGGING-AUDIT-001) ---
+        # `trades` is a paper+live combined ML-training corpus; trade_mode lets
+        # queries separate the two. Idempotent — historical backfill is the
+        # one-time migrations/002_add_trade_mode_to_trades.sql.
+        try:
+            await conn.execute(
+                "ALTER TABLE trades ADD COLUMN IF NOT EXISTS trade_mode TEXT DEFAULT 'paper'"
             )
         except Exception:
             pass

@@ -874,11 +874,14 @@ class BotCore:
                 except Exception as e:
                     logger.warning("AUDIT: features_json write failed for paper_trade_id=%d: %s",
                                    paper_trade_id, e)
-                # Write to trades table with features_json for ML training
+                # Write to trades table with features_json for ML training.
+                # trade_mode='paper': this branch is gated by `if TEST_MODE`.
+                # LIVE-TRADES-LOGGING-AUDIT-001 — the `trades` table is a
+                # paper+live combined ML corpus; trade_mode is the discriminator.
                 trades_ml_id = await self.pool.fetchval(
                     """INSERT INTO trades (mint, personality, action, amount_sol, entry_price,
-                       features_json, ml_score, signal_sources, created_at)
-                       VALUES ($1, $2, 'buy', $3, $4, $5, $6, $7, $8) RETURNING id""",
+                       features_json, ml_score, signal_sources, created_at, trade_mode)
+                       VALUES ($1, $2, 'buy', $3, $4, $5, $6, $7, $8, 'paper') RETURNING id""",
                     mint, personality, paper_result["amount_sol"], paper_result["entry_price"],
                     json.dumps(features), ml_score,
                     json.dumps(scored_signal.get("sources", [])), time.time(),
@@ -967,10 +970,13 @@ class BotCore:
                     bonding_curve_progress=bc_progress,
                     entry_slippage_tier=slippage_tier,
                 )
+                # trade_mode='live': this branch runs only when `not TEST_MODE`.
+                # LIVE-TRADES-LOGGING-AUDIT-001 — discriminator on the combined
+                # `trades` ML corpus.
                 trade_id = await self.pool.fetchval(
                     """INSERT INTO trades (mint, personality, action, amount_sol, entry_price,
-                       features_json, ml_score, signal_sources, created_at)
-                       VALUES ($1, $2, 'buy', $3, $4, $5, $6, $7, $8) RETURNING id""",
+                       features_json, ml_score, signal_sources, created_at, trade_mode)
+                       VALUES ($1, $2, 'buy', $3, $4, $5, $6, $7, $8, 'live') RETURNING id""",
                     mint, personality, size_sol, price, json.dumps(features), ml_score,
                     json.dumps(scored_signal.get("sources", [])), time.time(),
                 )

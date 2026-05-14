@@ -7,6 +7,30 @@
 
 ---
 
+## 2026-05-14 — LIVE-TRADES-LOGGING-AUDIT-001 (code+schema fix, FIXED + DEPLOYED)
+
+**Committed:** `b867daa` fix(live-trades-logging): LIVE-TRADES-LOGGING-AUDIT-001 — add trade_mode discriminator to the `trades` ML corpus + backfill. Files: `services/bot_core.py` (2 `INSERT INTO trades` sites tagged), `services/db.py` (`trade_mode` in `trades` CREATE + idempotent ALTER), `migrations/002_add_trade_mode_to_trades.sql` (NEW, one-time backfill — applied to DB this session), `docs/audits/LIVE_TRADES_LOGGING_AUDIT_001_2026_05_14.md` (NEW), `ZMN_ROADMAP.md` (Decision Log), `AGENT_CONTEXT.md` (header), `MONITORING_LOG.md` (entry), `STATUS.md` (this prepend), `.gitignore` (`.tmp_live_logging_audit/`).
+**State changes:** DB schema: `trades.trade_mode` column added + backfilled (9,480 'paper' / 41 'live'). No env changes, no Redis writes. `services/bot_core.py` + `services/db.py` redeploy of bot_core via single `git push`.
+**Bot state:** TEST_MODE=true (paper, unchanged). `BOT_CORE_FILL_MC_CEILING_USD=1000` (C1), `ML_THRESHOLD_BOT_CORE_SD=40` ACTIVE. Wallet 0.064 SOL on-chain (unchanged, per V5A-PRECONDITION-CHECKLIST-CLEANUP-001 2026-05-14 ~12:57 UTC verification). Paper portfolio ~39.7 SOL (per same). 0 open positions / circuit_breaker consecutive_losses=1 (carried from V5A-PRECONDITION-CHECKLIST-CLEANUP-001 Redis read ~12:57 UTC — not re-read this session; this session is a logging-path fix, not a trading-state-sensitive change).
+**Findings (key):**
+- 🟢 **PREREQ gate PASS:** LIVE-MODE-FILTER-PARITY-001 completed (commit `81a20a0`, STOP-C). Concurrent docs-only session V5A-PRECONDITION-CHECKLIST-CLEANUP-001 completed mid-session — not behavioural, not in-flight; proceeded with pull-rebase discipline + re-read all canonical docs before editing.
+- 🟢 **Premise corrected:** NO `live_trades` table exists (repo grep 0 hits; `to_regclass` NULL). Chat-side "live_trades" = the `trades` table — paper+live combined ML-training corpus BY DESIGN (`bot_core.py` writes from both branches; `ml_model_accelerator` trains from both `trades` + `paper_trades`). No misrouting bug. `paper_trades` already correctly mode-separated; `live_trade_log` correctly live-only.
+- 🟢 **Real defect:** `trades` lacked a `trade_mode` discriminator — 41 genuine live rows *buried* among 9,480 paper rows. Classification: paper 9,480 / live 41 / unclassifiable 0. The 41 live = 35 v3/v4 trial trades (all confirmed via `live_trade_log` TX_SUBMIT sigs) + 1 on-chain round-trip (id 6596) + 5 reconcile-residuals.
+- 🟢 **Isolated real-money result ≈ −3.36 SOL** — cross-validates the ~3.4 SOL on-chain wallet drawdown in CLAUDE.md's `1b40df3` forensics.
+- 🟢 **Fix + verify:** `trade_mode TEXT DEFAULT 'paper'` added; both INSERT sites tagged; `migrations/002` backfill applied. `verify_logging_fix.py` ALL PASS iteration 1 (paper INSERT→'paper', live INSERT→'live' in rolled-back txn; split exactly 9,480/41; 0 NULLs). Not STOP-A/B/C.
+**Verdict:** ✅ **FIXED + DEPLOYED.** Historical rows TAGGED (not purged). Purge recommendation: DO NOT PURGE — filter by `trade_mode`.
+**Blockers cleared:** None (this resolves a chat-side investigation request, not a tracked blocker).
+**Blockers new/active:**
+- 📋 **ML-TRAINING-MODE-FILTER-001 NEW (flagged, not Tier-assigned)** — `ml_model_accelerator` reads from both `trades` + `paper_trades` with no `trade_mode` filter; now *possible* to decide include/exclude/weight of live rows. Not decided this session (would touch ML logic, out of scope).
+- All prior carries unchanged (LIVE-MODE-FILTER-PARITY-001-V2 V5A blocker, combined eval ≥2026-05-27, ML_THRESHOLD_RETUNE_002 ≥2026-05-19, V5a wallet/observation/flip blockers, BUG-010 Anthropic, DASH-001 promotion decision).
+**V5a precondition delta:** None as a blocker — this is a V5A *enabler* (live rows now self-identify in the ML corpus). The 4 outstanding V5A blockers (wallet / observation / V2 / flip-itself) per V5A-PRECONDITION-CHECKLIST-CLEANUP-001 §6 are unchanged.
+**Post-deploy verification:** Railway bot_core container-restart confirmation + routing check (new SD-paper trades land in `trades` with `trade_mode='paper'`; no new `'live'` rows while `TEST_MODE=true`) — performed post-push, results reported to Jay.
+**Concurrent-session compatibility:** V5A-PRECONDITION-CHECKLIST-CLEANUP-001 completed mid-session (docs-only). Pull-rebase before push (retry up to 3× on conflict). Append-only updates.
+**Next prompt:** none queued — this was the second of the two sequential sessions (LIVE-MODE-FILTER-PARITY-001 → this). LIVE-MODE-FILTER-PARITY-001-V2 remains paste-ready-pending Jay authorization.
+**Pending Claude-chat prompts not yet pasted:** none.
+
+---
+
 ## 2026-05-14 — V5A-PRECONDITION-CHECKLIST-CLEANUP-001 (docs-only, CHECKLIST REWRITTEN)
 
 **Committed:** `f8af901` docs(v5a-precondition-checklist-cleanup): V5A-PRECONDITION-CHECKLIST-CLEANUP-001 — rewrote AGENT_CONTEXT §6 against verified 2026-05-14 live state. Files: `AGENT_CONTEXT.md` (header + §6 rewritten), `docs/audits/V5A_PRECONDITION_CHECKLIST_CLEANUP_001_2026_05_14.md` (NEW), `ZMN_ROADMAP.md` (Decision Log), `MONITORING_LOG.md` (entry), `STATUS.md` (this prepend), `.gitignore` (`.tmp_v5a_cleanup/`). **NO services/* code change, NO env change, NO Redis writes (read-only on live state), NO deploy.**
