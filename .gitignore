@@ -56,3 +56,4 @@ scripts/devnet_*
 .tmp_live_filter_parity/
 .tmp_live_logging_audit/
 .tmp_v5a_cleanup/
+.tmp_ml_cost_fidelity/

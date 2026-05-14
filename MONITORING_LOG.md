@@ -2,6 +2,26 @@
 
 ---
 
+## 2026-05-14 — ML-TRAINING-COST-FIDELITY-AUDIT-001 (read-only investigation, AUDIT COMPLETE — gap CONFIRMED)
+
+- **Trigger:** LIVE-TRADES-LOGGING-AUDIT-001 §8/§9 raised "does the ML train on realistic transaction costs and latency, or on an optimistic simulation?"
+- **Method:** read `services/ml_model_accelerator.py` end-to-end + `paper_trader.py:142-213` (cost sim) + `paper_trader.py:216-345,353-471` (paper_buy/sell) + `bot_core.py:1149,1365` (outcome writers) + `db.py:114-138,181-190` (schemas); DB queries against gondola.proxy.rlwy.net:29062 for correction_method distribution, trade_mode mix, latency-column NULL state, fee/amount magnitudes.
+- **Training target traced:** `outcome` string column (binary `win`/`loss`/`profit`) → derived from `pnl_sol > 0` → `pnl_sol = (exit-entry)/entry × sell_amount − fees` where `fees` and `exit_price = current_price × (1 − slippage/100)` come from `_simulate_fees` and `_simulate_slippage`. **Cost model IS in the training signal at threshold zero.**
+- **Cost-fidelity gap (DB-verified):** avg `fees_sol`=0.00170 SOL on avg `amount_sol`=0.116 SOL = **1.46% round-trip** in paper sim. Path B truth (id 6580): 0.094 SOL / 0.365 SOL = **25.8% round-trip**. **~17.6× under-count** at avg paper sizing.
+- **Corpus fidelity distribution:** 2873/2874 paper_trades closed rows = `pass_through` (paper sim); 0 `live_estimated_v1`; **1** `live_actual_v1`. ML-eligible corpus ≈ 8,680 rows (5812 `trades` + 2868 `paper_trades`, 30d, contamination-filter survivors). Live share: 41/8680 = **0.47%**. Path-B share: 1/8680 = **0.012%**. Corpus is effectively 100% paper-sim fidelity.
+- **Latency:** 4 columns (`signal_detected_at`, `scored_at`, `traded_at`, `total_latency_ms`) exist on `paper_trades` but **100% NULL across 2874 closed rows** (reaffirms LATENCY-OBSERVABILITY-001 at current sample size). Paper fill uses Jupiter/Gecko quote at `paper_buy` invocation — wall-clock-current, but does NOT model the systematic in-flight pump that C1's fill-time MC gate exists to backstop. No latency feature in FEATURE_SCHEMA.
+- **Severity (honest framing):** NOT a current-profitability fire — ML is already weakly predictive (AUC 0.536 per ML_SCORE_ATH_VALIDATION_001); SD profitability is C1-MC-ceiling structural; +1.49 SOL/day W3+W4 holds with the gap. **Material for two future levers:** (a) ML_THRESHOLD_RETUNE_002 (≥2026-05-19) — retune optimum optimizes against ~17×-optimistic labels; recommend "calibrated against sim costs" caveat in verdict, NOT blocked; (b) Analyst Phase 0 (June) — ML-driven on mature features at higher sizing; recommended gate added: `PAPER-FEE-MODEL-CALIBRATION-001` lands before Analyst ships.
+- **3 new roadmap items + 1 unresolved + 1 re-scoped:**
+  - `PAPER-FEE-MODEL-CALIBRATION-001` Tier 2 🟡 — env-only knob recalibration to Path-B-derived per-component truth; gated on ≥10 Path B rows (currently 1; needs sustained V5A relaunch). 30m env-only deploy + 7d obs.
+  - `PAPER-LATENCY-MODEL-001` Tier 3 🟢 — synthetic signal→fill delay + refetch in `paper_buy`. Gated on LATENCY-OBSERVABILITY-001 backfill.
+  - `PAPER-MEV-SLIPPAGE-MODEL-001` Tier 3 🟢 — structural slippage component for MEV/sandwich/in-flight-pump. Gated on Path B sample sufficiency.
+  - `ML-CONTAMINATION-FILTER-BIAS-001` Tier 3 🟢 — investigate whether the existing `0.97-1.03` exit/entry contamination filter disproportionately removes sim-cost-flipped marginal-win rows. Unresolved §9.3.
+  - **Re-scoped:** `ML-TRAINING-MODE-FILTER-001` (from LIVE-TRADES-LOGGING-AUDIT-001 §9.1) → Tier 3 🟢 hygiene only. 0.47% live share is a rounding error; fidelity problem lives in the paper sim, not the paper/live blend.
+- **Sequencing recommendation:** ML_THRESHOLD_RETUNE_002 ships with caveat — NOT blocked by this audit. PAPER-FEE-MODEL-CALIBRATION-001 should land before Analyst Phase 0 ships.
+- **NO services/* code change, NO env change, NO Redis writes, NO deploy.** Audit: `docs/audits/ML_TRAINING_COST_FIDELITY_AUDIT_001_2026_05_14.md`. Scratch (untracked): `.tmp_ml_cost_fidelity/PROGRESS.md`, `query.py`, query stdout.
+
+---
+
 ## 2026-05-14 — DASHBOARD-DESIGN-REALIGNMENT-001 (amendment, AMENDMENT LANDED)
 
 - **Trigger:** Jay chat-side message resolving 6 §9 open questions + adding 4 design additions to the 2026-05-14 design doc.

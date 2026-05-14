@@ -7,6 +7,34 @@
 
 ---
 
+## 2026-05-14 — ML-TRAINING-COST-FIDELITY-AUDIT-001 (read-only investigation, AUDIT COMPLETE — gap CONFIRMED)
+
+**Committed:** `49290b1` docs(ml-training-cost-fidelity): ML-TRAINING-COST-FIDELITY-AUDIT-001 — sim-to-real gap confirmed; ML trains on ~17.6× optimistic fee labels + zero-latency fills. Files: `docs/audits/ML_TRAINING_COST_FIDELITY_AUDIT_001_2026_05_14.md` (NEW), `ZMN_ROADMAP.md` (Decision Log + 3 new Tier-2/3 items + 1 unresolved + 1 re-scoped), `AGENT_CONTEXT.md` (header), `MONITORING_LOG.md` (entry), `STATUS.md` (this prepend), `.gitignore` (`.tmp_ml_cost_fidelity/`). **NO services/* code change, NO env change, NO Redis writes, NO deploy.**
+**State changes:** None. Read-only — repo + DB SELECTs (DATABASE_PUBLIC_URL via asyncpg). No code/env/Redis writes.
+**Bot state:** TEST_MODE=true (paper, unchanged). F1+C1 filter ACTIVE (`BOT_CORE_FILL_MC_CEILING_USD=1000` on bot_core). `ML_THRESHOLD_BOT_CORE_SD=40` ACTIVE. `trade_mode` discriminator on `trades` table active post LIVE-TRADES-LOGGING-AUDIT-001 (`b867daa`). Wallet 0.064 SOL on-chain (carry-forward from V5A-PRECONDITION-CHECKLIST-CLEANUP-001 2026-05-14 ~12:57 UTC). Paper portfolio carry-forward. 0 open positions / circuit_breaker N/A (paper, this is a read-only research session). Concurrent: no concurrent session detected at session-start (STATUS head was DASHBOARD-DESIGN-REALIGNMENT-001 amendment `b28bdbe`, docs-only, complete).
+**Findings (key):**
+- 🔴 **Sim-to-real gap CONFIRMED.** Training pipeline (`services/ml_model_accelerator.py:351-374`) reads `trades` + `paper_trades` with NO `trade_mode` or `correction_method` filter. Target = `outcome` string (binary win/loss) → `pnl_sol > 0` (`paper_trader.py:415`, `bot_core.py:1149,1365`). `pnl_sol` is net of `_simulate_slippage` + `_simulate_fees` (`paper_trader.py:142-213`). Cost model IS in the training signal at threshold zero.
+- 🔴 **Cost under-count quantified.** DB (n=2874 closed paper_trades post-C1): avg `fees_sol`=0.00170 SOL on avg `amount_sol`=0.116 SOL = **1.46% round-trip**. Path B truth (id 6580, sole `live_actual_v1` row): 0.094 SOL / 0.365 SOL = **25.8% round-trip**. **~17.6× optimistic at avg paper sizing.**
+- 🔴 **Latency not modelled.** 4 latency columns exist on `paper_trades` but 100% NULL across 2874 rows. Paper fill uses Jupiter/Gecko quote at `paper_buy` time — wall-clock-current but no in-flight pump model.
+- 🟡 **Corpus fidelity-tier:** 2873/2874 `pass_through` (paper sim), 0 `live_estimated_v1`, 1 `live_actual_v1`. ML-eligible corpus ≈ 8,680 rows; live share 0.47%; Path-B share 0.012%. **Fidelity problem lives in the paper sim, not the paper/live blend.**
+- 🟢 **NOT a current-profitability fire.** ML already weakly predictive (AUC 0.536); SD profitability is structural-filter-driven (C1 MC ceiling, independent of ML); +1.49 SOL/day W3+W4 holds.
+- 🟡 **DOES materially affect:** (a) ML_THRESHOLD_RETUNE_002 — retune optimizes against ~17× optimistic labels; recommend "calibrated against sim costs" caveat, NOT blocked; (b) Analyst Phase 0 (June) — ML-driven, higher sizing; gap transfers into new personality.
+**Verdict:** ✅ **AUDIT COMPLETE — sim-to-real gap CONFIRMED.**
+**Blockers cleared:** None (read-only investigation).
+**Blockers new/active:**
+- 📋 **PAPER-FEE-MODEL-CALIBRATION-001** (NEW Tier 2 🟡) — env-only recalibration to Path-B-derived truth. Gated on ≥10 Path B rows (currently 1; needs sustained V5A relaunch). 30m deploy + 7d obs.
+- 📋 **PAPER-LATENCY-MODEL-001** (NEW Tier 3 🟢) — gated on LATENCY-OBSERVABILITY-001 backfill.
+- 📋 **PAPER-MEV-SLIPPAGE-MODEL-001** (NEW Tier 3 🟢) — structural; gated on Path B sample sufficiency.
+- 📋 **ML-CONTAMINATION-FILTER-BIAS-001** (NEW Tier 3 🟢, UNRESOLVED) — possible sim-flattering bias in existing exit-near-entry filter; 45m DB analysis.
+- 📋 **ML-TRAINING-MODE-FILTER-001 re-scoped to Tier 3 🟢 hygiene** (from LIVE-TRADES-LOGGING-AUDIT-001 §9.1) — 0.47% live share is a rounding error on training signal.
+- All prior V5A carries unchanged (PC1 wallet, PC2 observation, PC3 V2, PC4 flip).
+**V5a precondition delta:** None directly. PAPER-FEE-MODEL-CALIBRATION-001 is gated BY V5A relaunch (needs ≥10 Path B rows), not blocking V5A. Analyst Phase 0 gains a new gate (PAPER-FEE-MODEL-CALIBRATION-001 lands before Analyst ships).
+**Concurrent-session compatibility:** No concurrent session detected at session-start. Pull-rebase before push (retry up to 3× on conflict). Append-only updates to canonical docs.
+**Next prompt:** None auto-triggered. ML_THRESHOLD_RETUNE_002 (≥2026-05-19) carries forward — should ship with "calibrated against sim costs" caveat in verdict per this audit §6/§7.4.
+**Pending Claude-chat prompts not yet pasted:** LIVE-MODE-FILTER-PARITY-001-V2 paste-ready (carries from 2026-05-14 audit).
+
+---
+
 ## 2026-05-14 — DASHBOARD-DESIGN-REALIGNMENT-001 (amendment, AMENDMENT LANDED)
 
 **Committed:** `431b670` docs(dashboard-design-realignment-amendment): DASHBOARD-DESIGN-REALIGNMENT-001 — Jay §9 resolutions + 4 design additions folded into design doc. Files: `docs/audits/DASHBOARD_DESIGN_REALIGNMENT_001_2026_05_14.md` (amended in place), `ZMN_ROADMAP.md` (Decision Log + DASH-001 row + 3 new roadmap items), `AGENT_CONTEXT.md` (header), `MONITORING_LOG.md` (entry), `STATUS.md` (this prepend). **NO services/* code change, NO env change, NO Redis writes, NO deploy.**
