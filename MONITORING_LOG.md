@@ -2,6 +2,19 @@
 
 ---
 
+## 2026-05-14 — LIVE-MODE-FILTER-PARITY-001 (read-only investigation, STOP-C / SCOPING NEEDED)
+
+- **Trigger:** NO_MOMENTUM_90S_AUDIT_001 §10 open item — port the C1 fill-time MC ceiling to `services/execution.py` (the live execution path) before any V5A relaunch.
+- **Routing confirmed (not STOP-B):** `execution.py` is the LIVE path only. `bot_core.py:82-83` imports `paper_buy` only under `if TEST_MODE`; `bot_core.py:836` paper branch → `paper_buy`, `:948` live branch → `execute_trade`. Every network call in `execution.py` is `TEST_MODE`-guarded. Changing `execution.py` does not affect paper trading or the May 27 SD validation.
+- **Gate absent (not STOP-A):** `execution.py` (816 lines) read end-to-end — no market-cap ceiling check anywhere in the live buy path.
+- **STOP-C fired:** the C1 gate (`paper_trader.py:247-275`) gates on a **fill-time** `entry_price * 1e9` price it computes itself. `execution.py` has (a) 3 execution routes (`_execute_pumpportal_local` / `_execute_pumpportal` / `_execute_jupiter`) and (b) **no fill-time price computation** — it returns a signature from unsigned tx bytes; bot_core fetches the price *after* execution (`:956`). The only MC value reachable inside `execute_trade` is `token.liquidity_usd` = signal-time `features["market_cap_usd"]`; gating on it fails MC-computation parity (prompt §4.3) and merely duplicates SA's existing signal-time `SD_MC_CEILING_USD`. No clean single-gate port achieves parity inside `execution.py`.
+- **Scoping doc produced:** `.tmp_live_filter_parity/02_design.md` — 3 options. **Recommended: Option A** — gate in the `bot_core.py` live branch *before* `execute_trade`, using the existing `self._get_token_price(mint)` helper to compute a fill-time `fill_mc = price * 1e9`, mirroring `paper_buy`'s env var + reject-log + Redis-counter exactly.
+- **New roadmap item:** **LIVE-MODE-FILTER-PARITY-001-V2** (Tier 1 🟡, **V5A relaunch blocker**) — scoped to Option A; needs explicit authorization to edit the `bot_core.py` live branch. Supersedes the NO_MOMENTUM_90S_AUDIT_001 §10 "execution.py parity" open item.
+- **V5A implication:** until V2 lands, a live relaunch reintroduces the $1k-$3k fill-time bleed C1 eliminated on the paper path. SA's signal-time `SD_MC_CEILING_USD` is NOT a substitute — it is the gate C1 was built to backstop.
+- **NO services/* code change, NO env change, NO Redis writes, NO deploy.** Audit: `docs/audits/LIVE_MODE_FILTER_PARITY_001_2026_05_14.md`. Scratch (untracked): `.tmp_live_filter_parity/PROGRESS.md`, `01_investigation.md`, `02_design.md`.
+
+---
+
 ## 2026-05-14 — DASHBOARD-DESIGN-REALIGNMENT-001 (design session, DESIGN COMPLETE)
 
 - **Trigger:** DASHBOARD-AUDIT-002 (2026-05-13) recommended promoting DASH-001 from QUEUED → Tier 1. Existing DASH-001 spec was Concept C "Unified Cockpit" (2026-04-19) — a 3-route × 3-tab × 14-panel desktop dashboard scoped when the dashboard was meant to be the operational center. Jay's clarified purpose narrows the dashboard's job to **"lightweight monitoring once live, on the go, especially mobile"**. Re-scope before any build session, to prevent rebuilding Unified Cockpit under a new name.

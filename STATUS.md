@@ -7,6 +7,28 @@
 
 ---
 
+## 2026-05-14 — LIVE-MODE-FILTER-PARITY-001 (read-only investigation, STOP-C / SCOPING NEEDED)
+
+**Committed:** `600f726` docs(live-mode-filter-parity): LIVE-MODE-FILTER-PARITY-001 — STOP-C, execution.py has no clean insertion point for a fill-time MC gate. Files: `docs/audits/LIVE_MODE_FILTER_PARITY_001_2026_05_14.md` (NEW, main deliverable), `ZMN_ROADMAP.md` (Decision Log + new item LIVE-MODE-FILTER-PARITY-001-V2), `AGENT_CONTEXT.md` (header), `MONITORING_LOG.md` (entry), `STATUS.md` (this prepend), `.gitignore` (`.tmp_live_filter_parity/`). **NO services/* code change, NO env change, NO Redis writes, NO deploy.**
+**State changes:** None. Read-only — repo + `services/execution.py` (full read) + `services/bot_core.py` (routing + buy branches) + `services/paper_trader.py` (C1 gate) + canonical docs + NO_MOMENTUM_90S_AUDIT_001.
+**Bot state:** TEST_MODE=true (paper, unchanged from C1 deploy 2026-05-13 03:38:37Z UTC). F1+C1 filter ACTIVE (`BOT_CORE_FILL_MC_CEILING_USD=1000` on bot_core). `ML_THRESHOLD_BOT_CORE_SD=40` ACTIVE. Wallet 0.064 SOL on-chain (carry-forward from STATE-SNAPSHOT-2026-05-08). Paper portfolio ~30.7 SOL. Open-position count not refreshed (read-only investigation, no behavioural deploy since C1 — carry-forward acceptable, consistent with the two prior read-only STATUS entries). circuit_breaker N/A (paper mode).
+**Findings (key):**
+- 🟢 **Routing confirmed — not STOP-B:** `services/execution.py` is the LIVE path only (`bot_core.py:82-83` imports `paper_buy` only under `TEST_MODE`; `:836` paper→`paper_buy`, `:948` live→`execute_trade`; all `execution.py` network calls `TEST_MODE`-guarded). Changing `execution.py` does not affect paper trading or the May 27 SD validation.
+- 🟢 **Gate absent — not STOP-A:** `execution.py` (816 lines) read end-to-end; no MC ceiling check anywhere in the live buy path.
+- 🔴 **STOP-C fired:** the C1 gate (`paper_trader.py:247-275`) gates on a **fill-time** `entry_price * 1e9` it computes itself. `execution.py` has (a) 3 execution routes and (b) **no fill-time price computation** — it returns a signature from unsigned tx bytes; bot_core fetches price *after* at `:956`. The only MC value inside `execute_trade` is signal-time `token.liquidity_usd` — gating on it fails MC-computation parity (prompt §4.3) and duplicates SA's signal-time `SD_MC_CEILING_USD`. No clean single-gate port achieves parity inside `execution.py`.
+- 🟢 **Scoping doc produced** (`.tmp_live_filter_parity/02_design.md`): 3 options. **Recommended Option A** — gate in `bot_core.py` live branch before `execute_trade` using existing `self._get_token_price(mint)`, mirroring `paper_buy`'s fill-time MC + env var + reject-log + Redis-counter exactly.
+**Verdict:** 🟡 **STOP-C — SCOPING NEEDED.** A STOP is a successful outcome per the session prompt §2/§9. Audit doc written; V5A relaunch implication stated.
+**Blockers cleared:** None.
+**Blockers new/active:**
+- 📋 **LIVE-MODE-FILTER-PARITY-001-V2 NEW Tier-1 🟡 — V5A relaunch blocker.** Scoped to Option A; needs explicit authorization to edit the `bot_core.py` live buy branch. Supersedes the NO_MOMENTUM_90S_AUDIT_001 §10 "execution.py parity" open item. Until V2 lands, a live relaunch reintroduces the $1k-$3k fill-time bleed C1 eliminated on the paper path.
+- All prior carries unchanged (C1 observation → combined STOP-LOSS-20-RUG-FILTER-EVAL-001 + NO-MOMENTUM-90S-EVAL-001 ≥2026-05-27, ML_THRESHOLD_RETUNE_002 ≥2026-05-19, V5a wallet/observation/NORMAL blockers, BUG-010 Anthropic, DASH-001 promotion decision + 6 open questions).
+**V5a precondition delta:** **+1 blocker** — LIVE-MODE-FILTER-PARITY-001-V2 must land before any `TEST_MODE=false` flip (open question §8.2 of the audit: add to AGENT_CONTEXT §6 preconditions). Original blockers (wallet 0.064 SOL, 48h observation, NORMAL window) unchanged.
+**Concurrent-session compatibility:** No concurrent session detected at session-start (STATUS head was DASHBOARD-DESIGN-REALIGNMENT-001, design-only, complete). Pull-rebase before push (retry up to 3× on conflict). Append-only updates.
+**Next prompt:** LIVE-TRADES-LOGGING-AUDIT-001 (the second of the two sequential sessions; its PREREQ gate detects this session finished via this STATUS prepend). Separately, LIVE-MODE-FILTER-PARITY-001-V2 is paste-ready-pending — needs Jay's authorization to scope a `bot_core.py` live-branch edit.
+**Pending Claude-chat prompts not yet pasted:** LIVE-TRADES-LOGGING-AUDIT-001 (paste-status unknown — Jay to confirm).
+
+---
+
 ## 2026-05-14 — DASHBOARD-DESIGN-REALIGNMENT-001 (design session, DESIGN COMPLETE)
 
 **Committed:** `fb1b80f` docs(dashboard-design-realignment): DASHBOARD-DESIGN-REALIGNMENT-001 — re-scope DASH-001 to mobile-first 6-card monitor. Files: `docs/audits/DASHBOARD_DESIGN_REALIGNMENT_001_2026_05_14.md` (NEW, main deliverable), `docs/audits/DASHBOARD_REDESIGN_2026_04_19.md` (header note: SUPERSEDED for scope; original preserved), `ZMN_ROADMAP.md` (Decision Log + DASH-001 row + references table), `AGENT_CONTEXT.md` (header), `MONITORING_LOG.md` (entry), `STATUS.md` (this prepend). **NO services/* code change, NO env change, NO Redis writes, NO redeploy.**
