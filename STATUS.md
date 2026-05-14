@@ -7,6 +7,36 @@
 
 ---
 
+## 2026-05-14 — DASHBOARD-DESIGN-REALIGNMENT-001 (amendment, AMENDMENT LANDED)
+
+**Committed:** `431b670` docs(dashboard-design-realignment-amendment): DASHBOARD-DESIGN-REALIGNMENT-001 — Jay §9 resolutions + 4 design additions folded into design doc. Files: `docs/audits/DASHBOARD_DESIGN_REALIGNMENT_001_2026_05_14.md` (amended in place), `ZMN_ROADMAP.md` (Decision Log + DASH-001 row + 3 new roadmap items), `AGENT_CONTEXT.md` (header), `MONITORING_LOG.md` (entry), `STATUS.md` (this prepend). **NO services/* code change, NO env change, NO Redis writes, NO deploy.**
+**State changes:** None. Docs-only design amendment.
+**Bot state:** TEST_MODE=true (paper, unchanged). `BOT_CORE_FILL_MC_CEILING_USD=1000` (C1) ACTIVE. `ML_THRESHOLD_BOT_CORE_SD=40` ACTIVE. Wallet 0.064 SOL on-chain (carry-forward from V5A-PRECONDITION-CHECKLIST-CLEANUP-001 verification 2026-05-14 ~12:57 UTC). Paper portfolio ~39.7 SOL (carry-forward). Concurrent: `LIVE-TRADES-LOGGING-AUDIT-001` (commit `b867daa`) landed during this session — schema fix + backfill of `trades.trade_mode`, bot_core redeploy. Pulled-rebase clean against `b867daa`; no conflict with my docs-only amendment.
+**Findings (key):**
+- 🟢 **§9 open questions all resolved per Jay's amendment** (re-scope ACCEPTED; ≥30d legacy coexistence; SINGLE accent; Sentry DEFER; emergency-stop-from-phone DEFER; June parallel-track CONFIRMED).
+- 🟢 **4 design additions folded in:**
+  - (A) Card 2 expanded to today + all-time cumulative P&L (single card, two numbers). `paper_trades`-only scope; no `trades` or Redis-aggregate fallback (prevents resurfacing pre-cleanup +601 SOL lifetime contamination from `paper:stats` Redis hash).
+  - (B) NEW Card 7 biggest wins. Top-3 default → top-10 expand. Mint tap-to-copy + DexScreener "↗" link. **CRITICAL hardcoded floor:** `trade_mode='paper' AND entry_time >= 1747104561.0` (C1 deploy 2026-05-13 03:29:21Z UTC) as module constant `BIGGEST_WINS_CLEAN_DATA_FLOOR_TS` with comment ref to audit §3.
+  - (C) Celebration FX on ≥3x wins. Trigger: `realised_pnl_pct >= 200` (column verified `services/db.py:128-129`). Confetti (vendored canvas-confetti ~7KB, `prefers-reduced-motion`-safe) + `navigator.vibrate([60,30,60,30,120])` haptic + optional sound toggle (muted by default, `localStorage`-persisted, iOS-autoplay-aware). `seenTradeIds` Set in `sessionStorage` prevents re-fire on reload within session. Threshold = JS const `BIG_WIN_PCT_THRESHOLD=200` for trivial retune.
+  - (D) Push-notification version EXPLICITLY DEFERRED to post-SD-validation. PWA SW push handler stub (console-log only) in BUILD-2. No backend emitter, no subscription registry, no server keys yet.
+- 🟢 **Card count 6 → 7, cap nudged.** Three merge alternatives evaluated and rejected (Card 6 merge produces confused dual-ordering; Card 2 fold-in causes cognitive density; footer-link violates "first build" intent). Still one route, zero tabs, zero sub-pages. 30 → 7 = ~77% smaller than Concept C (was 80%). Forward guardrail: >7 cards / tabs / sub-pages / second routes trigger fresh STOP-C.
+- 🟢 **STOP-B re-checked post-amendment:** 3/7 cards need backend (Card 2 all-time half + Card 3 alerts + Card 7 biggest wins) ≈ 43%. ≪50% threshold. UI remains the bulk of the work.
+- 🟢 **Build breakdown re-stated honestly:** BUILD-0 0.5h → 1.0h (3 endpoints); BUILD-1 2.5h → 2.8h (Cards 1/2/4/7); BUILD-2 2.5h → 2.8h (Cards 3/5/6 + FX + PWA + push stub). **Total 7.5h → ~8.5h.** Sequencing unchanged: June parallel-track with Analyst Phase 0, NOT May trading-logic critical path.
+- 🟢 **Concurrent reconciliation:** `LIVE-TRADES-LOGGING-AUDIT-001` closed during this session and adds `trade_mode` to `trades` (9,480 paper / 41 live). Card 7's hardcoded floor REMAINS because the floor guards pre-F1 / pre-C1 paper-side variance + pre-cliff archive accounting — not just live-side contamination. DASH-BIGGEST-WINS-SCOPING-001 revisit conditions updated to reflect prereq closure + the residual cliff-accounting reason for the floor.
+**Verdict:** ✅ **AMENDMENT LANDED.** Design doc current; ROADMAP DASH-001 row + 3 new Tier 3 items added; canonical docs synced.
+**Blockers cleared:** None (docs amendment, no behavioural blockers).
+**Blockers new/active:**
+- 📋 **DASH-BIGGEST-WINS-SCOPING-001** (Tier 3 🟢, OPEN with prereq closed) — revisit floor after Jay reviews ≥30d post-C1 sample.
+- 📋 **DASH-PUSH-NOTIFICATIONS-001** (Tier 3 🟢, OPEN) — gated on SD-validation completion + V5A flip stability.
+- 📋 **DASH-CELEBRATION-FX-THRESHOLD-TUNE-001** (Tier 3 🟢, OPEN) — post-deploy fine-tune of `BIG_WIN_PCT_THRESHOLD`.
+- All prior V5A carries unchanged (PC1 wallet 0.064 SOL, PC2 observation through combined eval ≥2026-05-27, PC3 LIVE-MODE-FILTER-PARITY-001-V2, PC4 flip).
+**V5a precondition delta:** None.
+**Concurrent-session compatibility:** Pulled-rebase against `b867daa` LIVE-TRADES-LOGGING-AUDIT-001 (clean — different files except append-only canonical docs). Single push.
+**Next prompt:** None auto-triggered. Next behavioural sessions are gated on Jay decisions (V5A flip scoping + V2 scoping + wallet top-up timing). Build sessions DASH-001-BUILD-0/1/2 remain June parallel-track.
+**Pending Claude-chat prompts not yet pasted:** LIVE-MODE-FILTER-PARITY-001-V2 paste-ready (carries from yesterday's audit).
+
+---
+
 ## 2026-05-14 — LIVE-TRADES-LOGGING-AUDIT-001 (code+schema fix, FIXED + DEPLOYED)
 
 **Committed:** `b867daa` fix(live-trades-logging): LIVE-TRADES-LOGGING-AUDIT-001 — add trade_mode discriminator to the `trades` ML corpus + backfill. Files: `services/bot_core.py` (2 `INSERT INTO trades` sites tagged), `services/db.py` (`trade_mode` in `trades` CREATE + idempotent ALTER), `migrations/002_add_trade_mode_to_trades.sql` (NEW, one-time backfill — applied to DB this session), `docs/audits/LIVE_TRADES_LOGGING_AUDIT_001_2026_05_14.md` (NEW), `ZMN_ROADMAP.md` (Decision Log), `AGENT_CONTEXT.md` (header), `MONITORING_LOG.md` (entry), `STATUS.md` (this prepend), `.gitignore` (`.tmp_live_logging_audit/`).

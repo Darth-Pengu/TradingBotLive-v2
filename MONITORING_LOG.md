@@ -2,6 +2,24 @@
 
 ---
 
+## 2026-05-14 — DASHBOARD-DESIGN-REALIGNMENT-001 (amendment, AMENDMENT LANDED)
+
+- **Trigger:** Jay chat-side message resolving 6 §9 open questions + adding 4 design additions to the 2026-05-14 design doc.
+- **§9 resolutions:** re-scope ACCEPTED; ≥30d legacy coexistence YES; SINGLE accent (no picker); Sentry fold-in DEFER to v1.5; active emergency-stop from phone DEFER (auth surface — separate session); June parallel-track CONFIRMED (NOT May critical path).
+- **Design additions folded into `DASHBOARD_DESIGN_REALIGNMENT_001_2026_05_14.md`:**
+  - **(A) Card 2 — today + all-time cumulative P&L on one card.** Both numbers via `COALESCE(corrected_pnl_sol, realised_pnl_sol)` on `paper_trades` only. No `trades` join, no `paper:stats` Redis-aggregate fallback (prevents resurfacing of pre-cleanup ~+601 SOL lifetime contamination).
+  - **(B) NEW Card 7 — biggest wins.** Top-3 default, expand to top-10. Each row: symbol + `realised_pnl_sol` + `realised_pnl_pct` as Nx multiplier + mint tap-to-copy chip (default tap) + DexScreener "↗" link (secondary). **CRITICAL hardcoded floor:** `trade_mode='paper' AND entry_time >= 1747104561.0` (C1 deploy 2026-05-13 03:29:21Z UTC) as module constant `BIGGEST_WINS_CLEAN_DATA_FLOOR_TS`; endpoint clamps `since` overrides to floor.
+  - **(C) Celebration FX on ≥3x wins.** Trigger: `realised_pnl_pct >= 200` (column verified `services/db.py:128-129`). Confetti (vendored canvas-confetti ~7KB, `prefers-reduced-motion`-safe fallback to "🎉" bloom) + `navigator.vibrate([60,30,60,30,120])` haptic + optional sound toggle (muted by default, `localStorage`-persisted, iOS-autoplay-aware). `seenTradeIds` Set in `sessionStorage` prevents re-fire on reload within session. Threshold = JS const `BIG_WIN_PCT_THRESHOLD=200`.
+  - **(D) Push-notification version EXPLICITLY DEFERRED** to post-SD-validation. PWA SW push handler stub (console-log only) in BUILD-2. No backend emitter on `_close_position`, no subscription registry, no server keys yet. Tracked as DASH-PUSH-NOTIFICATIONS-001.
+- **Card count 6 → 7, cap nudged.** Three merge alternatives evaluated and rejected (§11). Still one route, zero tabs, zero sub-pages, single-column vertical scroll. 30 → 7 = ~77% smaller than Concept C (was 80%). Forward guardrail: >7 cards / tabs / sub-pages / second routes trigger fresh STOP-C audit.
+- **STOP-B re-checked post-amendment:** 3 of 7 cards need backend (Card 2 all-time half + Card 3 alerts + Card 7 biggest wins) ≈ 43% — ≪50% threshold; UI remains bulk of work.
+- **Build breakdown re-stated honestly:** BUILD-0 0.5h → **1.0h** (3 endpoints: `/api/active-alerts` + `/api/top-wins` + `/api/lifetime-pnl`); BUILD-1 2.5h → **2.8h** (Cards 1/2/4/7); BUILD-2 2.5h → **2.8h** (Cards 3/5/6 + celebration FX + PWA + push handler stub). **Total 7.5h → ~8.5h.** Sequencing UNCHANGED: June parallel-track with Analyst Phase 0, NOT May trading-logic critical path.
+- **Concurrent-session reconciliation:** `LIVE-TRADES-LOGGING-AUDIT-001` (commit `b867daa`) landed during this session — added `trade_mode` discriminator to `trades` table + backfill (9,480 paper / 41 live). Pulled-rebase clean; no file conflict (different files except append-only canonical docs). Updated DASH-BIGGEST-WINS-SCOPING-001's prereq state — the live-side contamination angle Jay's amendment anticipated is reconciled there, but Card 7's hardcoded floor REMAINS because it also guards pre-F1 / pre-C1 paper-side variance + pre-cliff archive accounting.
+- **3 new roadmap items** (all Tier 3 🟢, none V5A-blocking): DASH-BIGGEST-WINS-SCOPING-001 (prereq closed, revisit after ≥30d post-C1 sample review); DASH-PUSH-NOTIFICATIONS-001 (gated on SD-validation completion); DASH-CELEBRATION-FX-THRESHOLD-TUNE-001 (post-deploy fine-tune).
+- **NO services/* code change, NO env change, NO Redis writes, NO deploy.** Design doc amended in place; ROADMAP / AGENT_CONTEXT / STATUS / MONITORING_LOG synced.
+
+---
+
 ## 2026-05-14 — LIVE-TRADES-LOGGING-AUDIT-001 (code+schema fix, FIXED + DEPLOYED)
 
 - **Trigger:** chat-side analysis of `live_trades` vs `paper_trades` exports found apparent cross-contamination — a "live_trades" table with 9,521 rows whose recent dates matched `paper_trades` SD counts and whose early-April rows showed impossible PnL for a 5 SOL live budget.
