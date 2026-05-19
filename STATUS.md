@@ -7,6 +7,32 @@
 
 ---
 
+## 2026-05-19 — COST-FIDELITY-FINDINGS-DOCUMENTATION-001 (docs-only, DOCS COMPLETE)
+
+**Committed:** `a3e9ac4` docs(cost-fidelity-findings): COST-FIDELITY-FINDINGS-DOCUMENTATION-001 — make the audit's conclusions survivable. Files: `docs/findings/COST_FIDELITY_GAP.md` (NEW survivable summary), `AGENT_CONTEXT.md` (header + §6 acknowledged-condition entry + retune re-sequencing), `ZMN_ROADMAP.md` (Decision Log + `ANALYST-POST-GRAD-001` cost-fidelity gate), `MONITORING_LOG.md` (entry), `STATUS.md` (this prepend), `.gitignore` (`.tmp_cost_fidelity_docs/`). **NO services/* code change, NO env change, NO Redis writes, NO deploy.**
+**State changes:** None. Docs-only.
+**Bot state:** TEST_MODE=true (paper, unchanged). `BOT_CORE_FILL_MC_CEILING_USD=1000` (C1) ACTIVE per AGENT_CONTEXT §2. `ML_THRESHOLD_BOT_CORE_SD=40` ACTIVE. Wallet 0.064 SOL on-chain (last verified 2026-05-14 ~12:57 UTC via V5A-PRECONDITION-CHECKLIST-CLEANUP-001; not re-read this session — docs-only). Paper portfolio carry-forward. 0 open positions / circuit_breaker N/A. **PC2 observation window advanced:** today is 2026-05-19, +6d post-C1 deploy (2026-05-13 03:38:37Z UTC); combined eval still scheduled ≥2026-05-27 (+14d from C1). Concurrent: no concurrent session detected at session-resume.
+**Mid-session side-task:** Jay requested CSV export of trades data. Ran `Scripts/export_paper_trades.py` (3,158 rows → `session_outputs/paper_trades_export.csv`) + one-shot helper for the sibling `trades` table (9,805 rows → `session_outputs/trades_export.csv`). Naming correction: historical convention used `live_trades_export_*.csv` for the second file — a misnomer per LIVE-TRADES-LOGGING-AUDIT-001 (there is no `live_trades` table). Used corrected name `trades_export.csv`. Both files gitignored. No bearing on the docs work below.
+**Findings (key):**
+- 🟢 **NEW survivable findings doc `docs/findings/COST_FIDELITY_GAP.md`** — first file under `docs/findings/` (new convention dir). ~1,000 words, summary-with-pointers, cites audit by section. Contains the "label corruption in marginal band wider than median trade PnL" framing explicitly (corruption band ~±0.030 SOL vs median `|realised_pnl_sol|` = 0.0257 SOL) so a future session doesn't miss the sharpest expression of the problem.
+- 🟢 **AGENT_CONTEXT §6 carries an acknowledged-condition entry** under a new "Known conditions at relaunch (acknowledged, NOT blocking)" subsection. Sits in front of whoever runs V5A go/no-go. Links to the survivable findings doc in one hop. Deliberately NOT a precondition checkbox.
+- 🟢 **`ML_THRESHOLD_RETUNE_002` re-sequenced** behind `PAPER-FEE-MODEL-CALIBRATION-001`. Date-gate (≥2026-05-19, which is TODAY) replaced with dependency-gate. Two independent reasons stated. Item NOT deleted — re-prioritized. Important because the original date-gate is hitting *right now* on 2026-05-19; without this re-sequencing the retune would be auto-triggerable today against corrupted labels.
+- 🟢 **`ANALYST-POST-GRAD-001` Phase 0 sub-session (c) gated** on `PAPER-FEE-MODEL-CALIBRATION-001` deploy + ≥7d post-calibration data. Sub-sessions (a)(b)(d) NOT gated. Rationale documented in the cell (Analyst sizing 0.2-0.5 SOL vs SD 0.05-0.25 SOL — gap bites harder at higher leverage).
+- 🟢 **`ML-TRAINING-MODE-FILTER-001` single-entry confirmed** (line 329 of Tier 3 table). No duplicate filing. Both Decision Log references point to the same canonical row.
+- 🟢 **No new follow-up items filed** — the audit's 4 + 1 re-scoped (`PAPER-FEE-MODEL-CALIBRATION-001`, `PAPER-LATENCY-MODEL-001`, `PAPER-MEV-SLIPPAGE-MODEL-001`, `ML-CONTAMINATION-FILTER-BIAS-001`, `ML-TRAINING-MODE-FILTER-001`) already filed by prior session. This session re-sequences `ML_THRESHOLD_RETUNE_002` and adds the Analyst gate.
+- 🟢 **No re-investigation, no broader doc-rewrite.** Per §7 scope discipline. The audit is the evidence base.
+**Verdict:** ✅ **DOCS COMPLETE.** Survivable findings doc created; V5A checklist carries acknowledged-condition entry with link; ML retune re-prioritized behind calibration; Analyst Phase 0 gated; follow-up sessions confirmed single-filed; all cross-references consistent.
+**Blockers cleared:** None this session (docs-only).
+**Blockers new/active:**
+- All prior V5A carries unchanged (PC1 wallet 0.064 SOL, PC2 observation through combined eval ≥2026-05-27 [+8d from today], PC3 LIVE-MODE-FILTER-PARITY-001-V2 land, PC4 flip).
+- New **acknowledged condition** (not a blocker): cost-fidelity gap at V5A relaunch — see AGENT_CONTEXT §6 + `docs/findings/COST_FIDELITY_GAP.md`.
+**V5a precondition delta:** No new blockers. The acknowledged-condition entry is a docs surface, not a checkbox.
+**Concurrent-session compatibility:** Pull-rebase before push (retry up to 3× on conflict). Append-only canonical updates. Single push with `git commit --amend` hash backfill into STATUS.md.
+**Next prompt:** None auto-triggered. `ML_THRESHOLD_RETUNE_002` (previously date-gated to ≥2026-05-19 = today) is now correctly dependency-gated behind `PAPER-FEE-MODEL-CALIBRATION-001` and should NOT auto-trigger. Combined eval ≥2026-05-27 (+8d) remains the next observability checkpoint.
+**Pending Claude-chat prompts not yet pasted:** LIVE-MODE-FILTER-PARITY-001-V2 paste-ready (carries from 2026-05-14 audit).
+
+---
+
 ## 2026-05-14 — ML-TRAINING-COST-FIDELITY-AUDIT-001 (read-only investigation, AUDIT COMPLETE — gap CONFIRMED)
 
 **Committed:** `49290b1` docs(ml-training-cost-fidelity): ML-TRAINING-COST-FIDELITY-AUDIT-001 — sim-to-real gap confirmed; ML trains on ~17.6× optimistic fee labels + zero-latency fills. Files: `docs/audits/ML_TRAINING_COST_FIDELITY_AUDIT_001_2026_05_14.md` (NEW), `ZMN_ROADMAP.md` (Decision Log + 3 new Tier-2/3 items + 1 unresolved + 1 re-scoped), `AGENT_CONTEXT.md` (header), `MONITORING_LOG.md` (entry), `STATUS.md` (this prepend), `.gitignore` (`.tmp_ml_cost_fidelity/`). **NO services/* code change, NO env change, NO Redis writes, NO deploy.**

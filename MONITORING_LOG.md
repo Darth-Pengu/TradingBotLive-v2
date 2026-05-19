@@ -2,6 +2,21 @@
 
 ---
 
+## 2026-05-19 — COST-FIDELITY-FINDINGS-DOCUMENTATION-001 (docs-only, DOCS COMPLETE)
+
+- **Trigger:** ML-TRAINING-COST-FIDELITY-AUDIT-001 (2026-05-14) confirmed a sim-to-real gap in the ML training corpus. Chat-side review required folding its conclusions into survivable, discoverable docs — not leaving them in a dated audit doc that future sessions may not read.
+- **Outputs:**
+  - **NEW `docs/findings/COST_FIDELITY_GAP.md`** (~1,000 words; summary-with-pointers, NOT a re-derivation). Sections: §1 plain-language finding (incl. the sharper "label corruption in marginal band wider than median trade PnL" framing — corruption band ~±0.030 SOL vs median |realised_pnl_sol| = 0.0257 SOL); §2 honest severity (NOT a current-profitability fire; matters for retune + Analyst); §3 structural reality (gap CANNOT be closed pre-V5A — calibration needs Path B data that only live trading produces; corpus has exactly 1 Path B row; staged V5A + small sizing already designed-in as the mitigation); §4 follow-up sessions as pointers; §5 source. Every numerical claim cites the audit by section.
+  - **AGENT_CONTEXT §6 gains a NEW "Known conditions at relaunch (acknowledged, NOT blocking)" subsection** with a cost-fidelity entry. Deliberately NOT a precondition checkbox — closing the gap depends on relaunching; a blocking checkbox would be permanently un-tickable. The entry sits in front of whoever runs V5A go/no-go.
+  - **`ML_THRESHOLD_RETUNE_002` re-sequenced** in AGENT_CONTEXT §6 Related milestones: previously gated on "≥7d post-`BOT_CORE_ML_GATE` clean data (≥2026-05-19)"; now gated on `PAPER-FEE-MODEL-CALIBRATION-001` deploy + ≥7d post-recalibration data. Date-gate → dependency-gate. Two independent reasons to wait: (a) C1's structural edge makes retune non-urgent; (b) audit confirms a threshold sweep would optimize on corrupted marginal-band labels. Item NOT deleted, just re-sequenced.
+  - **`ANALYST-POST-GRAD-001` roadmap entry gains an explicit cost-fidelity gate** at top of cell: Phase 0 sub-session (c) "paper-mode activation" must not ship until `PAPER-FEE-MODEL-CALIBRATION-001` deployed + ≥7d post-calibration data accumulated. Sub-sessions (a)(b)(d) NOT gated. Rationale: Analyst sizing 0.2-0.5 SOL vs SD 0.05-0.25 SOL — gap bites harder at higher leverage.
+  - **`ML-TRAINING-MODE-FILTER-001` confirmed as SINGLE Tier 3 🟢 row** (line 329 of Tier 3 table). Both Decision Log references (LIVE-TRADES-LOGGING-AUDIT-001 + ML-TRAINING-COST-FIDELITY-AUDIT-001) point to the same canonical entry — no duplicate filing.
+- **NOT this session:** no re-investigation (audit is evidence base), no new follow-up items filed (audit's 4 + 1 re-scoped already filed by prior session), no code/env/Redis changes, no behavioural change.
+- **Source:** `docs/audits/ML_TRAINING_COST_FIDELITY_AUDIT_001_2026_05_14.md` (full derivation); `docs/findings/COST_FIDELITY_GAP.md` (survivable summary).
+- **NO services/* code change, NO env change, NO Redis writes, NO deploy.** Scratch (untracked): `.tmp_cost_fidelity_docs/PROGRESS.md` + the one-shot `trades` export helper used during the mid-session CSV-export side-task.
+
+---
+
 ## 2026-05-14 — ML-TRAINING-COST-FIDELITY-AUDIT-001 (read-only investigation, AUDIT COMPLETE — gap CONFIRMED)
 
 - **Trigger:** LIVE-TRADES-LOGGING-AUDIT-001 §8/§9 raised "does the ML train on realistic transaction costs and latency, or on an optimistic simulation?"
