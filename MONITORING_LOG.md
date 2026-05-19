@@ -2,6 +2,37 @@
 
 ---
 
+## 2026-05-19 — LIVE-MODE-FILTER-PARITY-001-V2 (code+deploy, GATE IMPLEMENTED + DEPLOYED)
+
+- **Trigger:** Yesterday's `LIVE-MODE-FILTER-PARITY-001` (2026-05-14, STOP-C — `docs/audits/LIVE_MODE_FILTER_PARITY_001_2026_05_14.md`) found `services/execution.py` cannot host a fill-time MC ceiling gate cleanly (3 execution routes; no fill-time price computation — it returns a signature from unsigned tx bytes, bot_core fetches the price *after* at `:956`). The audit's recommended Option A: gate in `bot_core.py` live `else:` branch *before* `execute_trade`, using existing `self._get_token_price(mint)`. This session implements Option A.
+- **Outputs:**
+  - **`services/bot_core.py`** — +20 lines in the `else:` branch at `:953` (between `signal_type = ...` and `result = await execute_trade(...)`). No existing line altered; no re-indent of surrounding code; no new imports. Marker comment `LIVE-MODE-FILTER-PARITY-001-V2`.
+  - **NEW `docs/audits/LIVE_MODE_FILTER_PARITY_001_V2_2026_05_19.md`** — full audit including §8 paper C1 ↔ live V2 parity table (env var, default, env read, gate-enabled guard, MC formula, price source, comparison, log line, Redis counter, TTL, try/except, short-circuit, failure mode — all aligned line-for-line with two documented intentional divergences).
+  - **`AGENT_CONTEXT.md`** — header refresh; §2 `BOT_CORE_FILL_MC_CEILING_USD` row expanded to note "GOVERNS BOTH PAPER AND LIVE PATHS AS OF 2026-05-19" with live-path read/log/Redis-namespace details; §6 PC3 row marked ✅ DEPLOYED with verification handoff; "Outstanding V5A blockers (4)" → "(3)".
+  - **`ZMN_ROADMAP.md`** Decision Log — new 2026-05-19 row marks V2 ✅ DEPLOYED + closes the NO_MOMENTUM_90S_AUDIT_001 §10 "execution.py parity" open item structurally (Option A lands in `bot_core.py`, not `execution.py`).
+  - **`MONITORING_LOG.md`** — this entry.
+  - **`STATUS.md`** — top-of-file prepend with hash backfill via `git commit --amend`.
+  - **Scratch (gitignored, `.tmp_live_filter_parity_v2/`):** `PROGRESS.md`, `01_investigation.md`, `02_design.md`, `verify_live_mc_gate.py`, `verify_output.txt`.
+- **Mirror choices (paper C1 → live V2):**
+  - **Env var:** reuse `BOT_CORE_FILL_MC_CEILING_USD` — one knob governs paper AND live. No new env var introduced.
+  - **MC formula:** `fill_mc = self._get_token_price(mint) * 1_000_000_000` (identical formula to paper's `entry_price * 1_000_000_000`; the slippage padding on `entry_price` is a paper-sim artifact, intentionally not mirrored — live has no simulated slippage because real slippage happens on-chain).
+  - **Threshold:** `if fill_mc > fill_mc_ceiling:` — strict `>` (paper passes `fill_mc == ceiling` — keep identical boundary).
+  - **Reject behavior:** logger `FILL_MC_CEILING reject (live): %s mc=$%.0f > ceiling=$%.0f (slippage_tier=%s)` (suffix `(live)` for grep-distinct paper/live; trailing `slippage=%.1f%%` dropped — no `_simulate_slippage` float in live); Redis `incr` + `expire` on `bot:filter:fill_mc_ceiling:rejects:live:<UTC-date>` with 14d TTL (distinct `:live:` segment); bare `return` short-circuit.
+  - **Failure mode:** fail-OPEN at the gate (price=0.0 → fill_mc=0 < ceiling → pass). Mirrors the C1 gate block's literal logic. Paper's fail-closed at `paper_trader.py:238-240` happens earlier in `paper_buy`, NOT inside the gate.
+- **STOP audit:** STOP-A/B/C/D/E/F/G all evaluated, none triggered. Phase 1 reconfirmed routing (`bot_core.py:82-83` paper_buy gated by TEST_MODE; `:836` paper→paper_buy; `:951` else→execute_trade at `:953-956`); line numbers shifted +3 vs the predecessor audit due to LIVE-TRADES-LOGGING-AUDIT-001 `b867daa` comment additions. `_get_token_price` at `:388-391` returns USD price-per-token — same units as paper's helper. The live branch already uses `price * 1_000_000_000` at `:996` for `_pe_market_cap` — direct empirical confirmation of unit parity.
+- **Validation (dev-loop, 2 iterations within the 3-cap):**
+  - **Iter 1:** gate logic correct (first reject case fired + Redis incr); `print()` crashed on a `→` character due to Windows cp1252 codec. Fixed by `→` → `->` ASCII.
+  - **Iter 2:** sentinel-return string-replace anchored on a wrong indent count (20 spaces vs actual 12 after `textwrap.dedent + indent("    ")`) — two reject cases were *behaviorally* correct (Redis incremented) but outcome registered as `None`. Switched to indent-agnostic regex `^(\s+)return\s*$` with `count=1`, `re.MULTILINE`. ALL 8 cases PASS, exit code 0.
+  - Cases: above-ceiling reject ($1500 > $1000) + Redis incr; at-ceiling pass (strict `>`); below-ceiling pass to `execute_trade` ($500 < $1000); gate disabled (ceiling=$0) pass; env-var absent (default 0) pass; price-fetch failure (`_get_token_price → 0.0`) fail-OPEN; ceiling=$3000 sanity pass ($2500) + reject ($3500).
+  - Raw stdout: `.tmp_live_filter_parity_v2/verify_output.txt`.
+- **Verification standard:** code-level + clean-startup + rolled-back proof (per audit §6; same standard as predecessor LIVE-MODE-FILTER-PARITY-001 §6). `python -m py_compile services/bot_core.py` clean. Railway container restart confirmed clean post-`git push`. **Gate cannot be observed firing in production this session** because `TEST_MODE=true` — the `else:` (live) branch doesn't execute under paper mode. First live-fire is at V5A relaunch. Paper-mode caveat explicit in audit §6.
+- **V5A impact:** **PC3 in AGENT_CONTEXT §6 is CLOSED.** V5A outstanding blockers drop 4 → 3 (PC1 wallet, PC2 ≥2026-05-27 observation, PC4 flip-itself remain). The NO_MOMENTUM_90S_AUDIT_001 §10 "execution.py parity" open item is structurally resolved.
+- **Rollback:** `BOT_CORE_FILL_MC_CEILING_USD=0` (no redeploy; disables both paper and live gates simultaneously). To undo retune only (keep gate enabled, loosen ceiling): env→3000.
+- **NOT this session:** no flip of `TEST_MODE`, no live trade attempted, no `paper_trader.py` edit (paper observation window untouched), no `execution.py` edit (per predecessor audit's reasoning), no other paper/live parity-gap fix (out of scope per session prompt §8; any other gaps would be follow-up sessions).
+- **Source:** `docs/audits/LIVE_MODE_FILTER_PARITY_001_V2_2026_05_19.md` (this session); `docs/audits/LIVE_MODE_FILTER_PARITY_001_2026_05_14.md` (predecessor STOP-C scoping); `.tmp_live_filter_parity_v2/{01_investigation,02_design}.md` (gitignored phase docs).
+
+---
+
 ## 2026-05-19 — COST-FIDELITY-FINDINGS-DOCUMENTATION-001 (docs-only, DOCS COMPLETE)
 
 - **Trigger:** ML-TRAINING-COST-FIDELITY-AUDIT-001 (2026-05-14) confirmed a sim-to-real gap in the ML training corpus. Chat-side review required folding its conclusions into survivable, discoverable docs — not leaving them in a dated audit doc that future sessions may not read.

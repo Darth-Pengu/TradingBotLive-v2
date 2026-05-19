@@ -950,6 +950,34 @@ class BotCore:
                     }))
         else:
             signal_type = scored_signal.get("signal", {}).get("type", "")
+            # LIVE-MODE-FILTER-PARITY-001-V2 — fill-time MC ceiling gate (live
+            # path mirror of paper C1 at paper_trader.py:247-275). Re-checks MC
+            # at fill time using BOT_CORE_FILL_MC_CEILING_USD; catches the
+            # in-flight pump the signal-time SA SD_MC_CEILING gate structurally
+            # cannot see. Default 0 = disabled. Rollback: set env var to 0
+            # (no redeploy). Failure mode: _get_token_price returns 0.0 →
+            # fill_mc=0 → gate fails open (literal mirror of the C1 gate block;
+            # paper's fail-closed happens earlier in paper_buy at :238-240,
+            # not inside the gate). Redis key uses :live: segment so
+            # paper/live reject rates are separable.
+            fill_mc_ceiling = float(os.getenv("BOT_CORE_FILL_MC_CEILING_USD", "0"))
+            if fill_mc_ceiling > 0:
+                fill_price = await self._get_token_price(mint)
+                fill_mc = fill_price * 1_000_000_000
+                if fill_mc > fill_mc_ceiling:
+                    logger.info(
+                        "FILL_MC_CEILING reject (live): %s mc=$%.0f > ceiling=$%.0f "
+                        "(slippage_tier=%s)",
+                        mint[:12], fill_mc, fill_mc_ceiling, slippage_tier,
+                    )
+                    if self.redis is not None:
+                        try:
+                            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                            await self.redis.incr(f"bot:filter:fill_mc_ceiling:rejects:live:{today}")
+                            await self.redis.expire(f"bot:filter:fill_mc_ceiling:rejects:live:{today}", 86400 * 14)
+                        except Exception:
+                            pass
+                    return
             result = await execute_trade(
                 "buy", token, size_sol, slippage_tier=slippage_tier,
                 bonding_curve_progress=bc_progress, signal_type=signal_type,
