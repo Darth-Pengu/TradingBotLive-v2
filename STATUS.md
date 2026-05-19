@@ -7,6 +7,28 @@
 
 ---
 
+## 2026-05-19 12:59 UTC — CLAUDE-MD-FINDINGS-INDEX-001 (docs-only, INDEX ADDED)
+
+**Committed:** session output landed across two commits due to a concurrent hygiene-commit pickup (`5adff0b docs: index docs/findings/ in CLAUDE.md + correct V2 line-count in MONITORING_LOG` — landed the CLAUDE.md +18 lines and MONITORING_LOG.md +14 -1 portions of my working-tree edits, attributed to Jay's hygiene commit but byte-identical to my output) + `0639b3f` docs(claude-md-findings-index-001): CLAUDE-MD-FINDINGS-INDEX-001 — canonical updates (AGENT_CONTEXT.md header refresh + ZMN_ROADMAP.md Decision Log row + STATUS.md prepend). Combined session deliverables: `CLAUDE.md` (+15-line "Standing findings — read before related work" H2 section between Roadmap and Resolved Bugs, table indexing `docs/findings/COST_FIDELITY_GAP.md` + self-amending instruction; landed via `5adff0b`), `MONITORING_LOG.md` (entry prepended; landed via `5adff0b`), `AGENT_CONTEXT.md` (header refresh only — no structural change to §6), `ZMN_ROADMAP.md` (Decision Log entry), `STATUS.md` (this prepend). NO services/* edit, NO env change, NO Redis writes, NO deploy.
+**State changes:** None. Read-only — `ls docs/findings/`, repo grep for `V5A_GO_LIVE_DECISIONS` (0 matches) + `docs/findings` cross-ref verification (3 in AGENT_CONTEXT, 2 in ZMN_ROADMAP, all point at existing `COST_FIDELITY_GAP.md`), CLAUDE.md insertion.
+**Bot state:** TEST_MODE=true (paper, unchanged). `BOT_CORE_FILL_MC_CEILING_USD=1000` active on bot_core paper AND live paths (per LIVE-MODE-FILTER-PARITY-001-V2 yesterday, dormant under TEST_MODE=true). Wallet 0.064 SOL on-chain (unchanged). Outstanding V5A blockers: 3 (PC1 wallet top-up, PC2 observation through ≥2026-05-27 combined eval, PC4 flip-itself).
+**Findings (key):**
+- 🟢 **STOP-A check PASS (partial):** `docs/findings/` exists with one file (`COST_FIDELITY_GAP.md`). Index has content to write.
+- 🟡 **Expected `V5A_GO_LIVE_DECISIONS.md` missing:** dependent session `V5A-GO-LIVE-DECISIONS-RECORD-001` not yet run; no doc references it (0 grep hits); no broken-reference flag needed. Will be indexed when it lands. CLAUDE.md instruction added: "When new findings are added to `docs/findings/`, append a row here as part of the session that creates them."
+- 🟢 **Cross-reference verification clean:** AGENT_CONTEXT.md lines 3 / 162 / 167 + ZMN_ROADMAP.md lines 41 / 315 all reference `docs/findings/COST_FIDELITY_GAP.md` correctly. No drift.
+- 🟢 **CLAUDE.md insertion:** new H2 "Standing findings — read before related work" placed between Roadmap and Resolved Bugs — keeps "what to read first" guidance adjacent. Table lists `COST_FIDELITY_GAP.md` with about + read-before columns. Self-amending instruction added.
+**Verdict:** ✅ **INDEX ADDED.** Future CC sessions reading CLAUDE.md as first action now discover `docs/findings/` without needing to deep-read AGENT_CONTEXT.md or ZMN_ROADMAP.md.
+**Blockers cleared:** discoverability gap for standing findings (the chat-side trigger for this session).
+**Blockers new/active:**
+- 📋 `V5A-GO-LIVE-DECISIONS-RECORD-001` (dependent session) — when it runs, must append its row to CLAUDE.md's standing-findings table (per the instruction added this session).
+- All prior carries unchanged (combined STOP-LOSS-20-RUG-FILTER-EVAL-001 + NO-MOMENTUM-90S-EVAL-001 ≥2026-05-27, V5A wallet/observation/flip blockers, BUG-010 Anthropic, etc.).
+**V5a precondition delta:** None.
+**Concurrent-session compatibility:** No concurrent session detected at audit time. Pull-rebase before push (retry up to 3× on conflict).
+**Next prompt:** None auto-triggered. Future session creating any new finding doc carries the obligation to append a row to CLAUDE.md "Standing findings" table.
+**Pending Claude-chat prompts not yet pasted:** none — this session terminated with verdict.
+
+---
+
 ## 2026-05-19 — LIVE-MODE-FILTER-PARITY-001-V2 (code+deploy, GATE IMPLEMENTED + DEPLOYED)
 
 **Committed:** `7286421` feat(bot_core): LIVE-MODE-FILTER-PARITY-001-V2 — fill-time MC ceiling gate on live buy path; mirrors paper C1; dormant until V5A. Files: `services/bot_core.py` (+28 lines in live `else:` branch — gate now occupies `:953-980`, shifting the original `execute_trade(...)` call to `:982`), `docs/audits/LIVE_MODE_FILTER_PARITY_001_V2_2026_05_19.md` (NEW audit incl. §8 paper↔live parity table), `AGENT_CONTEXT.md` (header + §2 `BOT_CORE_FILL_MC_CEILING_USD` row expanded "GOVERNS BOTH PAPER AND LIVE PATHS AS OF 2026-05-19" + §6 PC3 marked ✅ DEPLOYED + "Outstanding V5A blockers (4)" → "(3)"), `ZMN_ROADMAP.md` (Decision Log new 2026-05-19 row marks V2 DEPLOYED + structurally closes NO_MOMENTUM_90S_AUDIT_001 §10 "execution.py parity" open item — Option A lands in bot_core, not execution.py), `MONITORING_LOG.md` (entry), `STATUS.md` (this prepend), `.gitignore` (`.tmp_live_filter_parity_v2/`).
