@@ -34,6 +34,24 @@ over raw psql (once installed), Playwright MCP over `requests` for dashboard
 scraping, Railway MCP over shelling out to `railway` CLI. Inventory doc has a
 usage cheat sheet listing when to reach for each MCP.
 
+## Standing findings — read before related work
+
+`docs/findings/` contains standing knowledge that survives across sessions —
+conditions and decisions that apply beyond the session that created them.
+Read the relevant finding(s) before starting work in their listed contexts.
+These docs are canonical for their topics. If they conflict with chat-side
+guidance, the findings docs win. To amend a finding: chat-side with explicit
+Jay acknowledgement, recorded as an amendment within the doc (originals
+preserved).
+
+| Finding | About | Read before |
+|---|---|---|
+| `docs/findings/COST_FIDELITY_GAP.md` | The ML training corpus is calibrated to ~17.6× too-cheap costs and zero fill latency; corruption band is wider than the median trade's PnL; gap cannot be closed pre-V5A relaunch (calibration needs Path B data only live trading produces). | Any ML retune / threshold sweep (e.g. `ML_THRESHOLD_RETUNE_002`); any cost-model change (`PAPER-FEE-MODEL-CALIBRATION-001`, `PAPER-LATENCY-MODEL-001`, `PAPER-MEV-SLIPPAGE-MODEL-001`); V5A go/no-go; Analyst Phase 0 paper-mode activation (`ANALYST-POST-GRAD-001` sub-session (c)); any "paper → live" edge projection. |
+
+When new findings are added to `docs/findings/`, append a row here as part of
+the session that creates them. Index discoverability is the whole point of
+this section — leave nothing in `docs/findings/` unindexed.
+
 ## Resolved Bugs (reference only — see MONITORING_LOG.md for details)
 Key fixes: exit pricing pipeline (26e19b4), paper_trader price pass-through (9b880e1), HIBERNATE bypass (47de1fa), SERVICE_NAME routing (April 3). Do NOT revert main.py to asyncio.gather all services.
 
