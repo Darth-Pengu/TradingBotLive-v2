@@ -53,6 +53,70 @@ When new findings are added to `docs/findings/`, append a row here as part of
 the session that creates them. Index discoverability is the whole point of
 this section — leave nothing in `docs/findings/` unindexed.
 
+## MCP servers available
+
+These MCP servers are configured for this repo. **Connected** servers were
+verified callable from this session via a no-op call; prefer them over
+shell-guessing or one-off CLI tools. **Connected per UI but broken in
+session** means the chat-side server list says ✔ but the runtime call
+failed — usually re-auth or session reset is needed. **Configured-but-
+unavailable** means the server is registered but not currently usable;
+prompts must not reference them as if they were callable.
+
+Last verified: 2026-05-20 by `CLAUDE-MD-MCP-INDEX-001`.
+
+### Connected (verified callable this session)
+
+| Server | Use for |
+|---|---|
+| `mcp__redis__*` | Read/write Redis state — `bot:filter:fill_mc_ceiling:rejects:*`, `bot:emergency_stop`, `market:mode:*`, `paper:positions:*`, `bot:status`. Exposes: `get`, `set`, `list`, `delete`. |
+| `mcp__helius__*` | Solana on-chain RPC — `getBalance` for wallet verification, `parseTransactions` / `getTransactionHistory` for forensics, `getAccountInfo` for account-data reads. Single API key family across all 8 services per AGENT_CONTEXT §6.7. |
+| `mcp__github__*` | Repo browsing, PR work, issue tracking, file content reads outside the active clone (project-scoped GitHub MCP). |
+| `mcp__vybe__*` | Solana data API — v4 endpoints (markets, tokens, wallets, oracle pyth, trading). NB: `services/signal_aggregator.py` L753/850/2568 still call legacy v3 paths per `VYBE-URL-CODE-DRIFT-001-FIX-V2` (deferred). |
+| `mcp__dexpaprika__*` | DEX data across ~35 networks (Solana, Ethereum, BSC, etc.) — networks, pools, tokens, OHLCV. Relevant for Analyst Phase 0 design. |
+| `mcp__coingecko__*` | Price/market data (SOL, BTC, major tokens) via `client.simple.price.get` and related. |
+| `mcp__playwright__*` | Browser automation — gates `DASH-T-001` regression suite (blocked on `OBS-004` Win11 stability). |
+| `mcp__shadcn__*` | UI component lookups; configured registry `@shadcn`. Useful for `DASH-001` mobile monitor build (June parallel-track). |
+| `mcp__plugin_context7_context7__*` | Library docs lookup via `resolve-library-id` + `query-docs`. Underused — use for any "how does X library work" question to avoid stale-training-data risk. |
+| `mcp__claude_ai_Google_Drive__*` | Marginal use; ZMN canonical docs live in repo, not Drive. |
+
+### Connected per UI but BROKEN in session (re-auth / session reset needed)
+
+| Server | Failure | What's needed |
+|---|---|---|
+| `mcp__railway__*` | "Not logged in to Railway CLI. Please run 'railway login' first" | Run `railway login` interactively (CLI token expired). Until then, sessions touching Railway env/deploys must fall back to the dashboard or wait for re-auth. **Real blocker** for env-read / deploy-trigger automation. |
+| `mcp__plugin_github_github__*` (built-in) | "Streamable HTTP error: invalid session" | Use `mcp__github__*` (project-scoped, verified callable this session) instead. The plugin/built-in variant is redundant when the project variant works. |
+| `mcp__socket__*` | "Bad Request: No valid session. Send initialize first." | Session-handshake issue. Only exposes `depscore` (dependency security). Re-init or accept the gap (depscore is non-critical for ZMN). |
+
+### Configured-but-unavailable (do not reference in prompts as callable)
+
+| Server | Status | What's needed |
+|---|---|---|
+| `mcp__sentry__*` | △ needs authentication | Run `mcp__sentry__authenticate`. Would unblock `DASHBOARD-HEALTH-CHECK-PROBE-DEPTH-001` and improve Card 3 "Active Alerts" data quality. |
+| `mcp__defillama__*` | △ needs authentication | Run `mcp__defillama__authenticate`. Useful for Analyst Phase 0 (TVL on graduation tokens). |
+| birdeye | ✘ failed (no tools registered) | Server not initializing; diagnose registration. Would be useful as backup Solana token data source. |
+| `mcp__nansen__*` | ✘ failed | **Expected** — disabled via `NANSEN_DRY_RUN=TRUE` on signal_aggregator per AGENT_CONTEXT §6.7. Not a fault; do not re-enable without a separate budget decision. |
+| `mcp__claude_ai_Gmail__*` | △ needs authentication | Marginal use; not bot-related. |
+| `mcp__claude_ai_Google_Calendar__*` | △ needs authentication | Marginal use; not bot-related. |
+
+### Notably absent
+
+- **No Postgres MCP.** Existing chat-side prompts that say "Postgres MCP" are inaccurate (or use it as shorthand for the asyncpg-shim pattern). The canonical pattern for DB queries from a CC session is:
+
+  ```bash
+  DATABASE_PUBLIC_URL="postgresql://..." python -c "<query script>"
+  ```
+
+  Or use the existing `Scripts/export_paper_trades.py` pattern. Historical audit docs under `docs/audits/` (April 2026 — `ZMN_RE_DIAGNOSIS_2026_04_19.md`, `ZMN_OPTIMIZATION_PLAN_2026_04_19.md`, `ZMN_CC_HANDOVER_2026_04_19.md`, `CC_TOOL_SURFACE_2026_04_19.md`) and `docs/SETUP_NEW_MACHINE.md` / `docs/CLAUDE_TOOLING_INVENTORY.md` reference "Postgres MCP" — accurate-in-historical-context (the shim *is* the Postgres-MCP-equivalent) but new prompts should specify the script pattern. Tier 3 follow-up `MCP-REFERENCE-CORRECTION-001` tracks a future sweep to add the "(via asyncpg shim — not an actual MCP)" qualifier to those references.
+
+### Self-amending instruction
+
+When an MCP server is added, authenticated, removed, or transitions between
+states (connected ↔ broken ↔ unavailable), update its row here as part of
+the session that changes its status. Tables above must reflect runtime
+reality verified by no-op calls in the changing session, not aspirational
+state.
+
 ## Resolved Bugs (reference only — see MONITORING_LOG.md for details)
 Key fixes: exit pricing pipeline (26e19b4), paper_trader price pass-through (9b880e1), HIBERNATE bypass (47de1fa), SERVICE_NAME routing (April 3). Do NOT revert main.py to asyncio.gather all services.
 
