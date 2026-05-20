@@ -59,3 +59,4 @@ scripts/devnet_*
 .tmp_ml_cost_fidelity/
 .tmp_cost_fidelity_docs/
 .tmp_live_filter_parity_v2/
+.tmp_api_preflight/
