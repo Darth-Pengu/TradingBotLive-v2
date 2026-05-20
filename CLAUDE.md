@@ -47,6 +47,7 @@ preserved).
 | Finding | About | Read before |
 |---|---|---|
 | `docs/findings/COST_FIDELITY_GAP.md` | The ML training corpus is calibrated to ~17.6× too-cheap costs and zero fill latency; corruption band is wider than the median trade's PnL; gap cannot be closed pre-V5A relaunch (calibration needs Path B data only live trading produces). | Any ML retune / threshold sweep (e.g. `ML_THRESHOLD_RETUNE_002`); any cost-model change (`PAPER-FEE-MODEL-CALIBRATION-001`, `PAPER-LATENCY-MODEL-001`, `PAPER-MEV-SLIPPAGE-MODEL-001`); V5A go/no-go; Analyst Phase 0 paper-mode activation (`ANALYST-POST-GRAD-001` sub-session (c)); any "paper → live" edge projection. |
+| `docs/findings/V5A_GO_LIVE_DECISIONS.md` | The seven decisions governing V5A relaunch — daily/cumulative loss tolerance (1.5 / 3.0 SOL realized), market-mode check method (manual), flip timing window (Wed/Thu AEST evening 18:00-21:00 Sydney), first-24h sizing + scale-up rule (0.10/5 + staged ladder, no WR auto-scale), observer commitment (4-6h active post-flip). Plus a sizing graduation ladder and `GOVERNANCE-AGENT-MARKET-MODE-001` follow-up. | V5A relaunch flip decision; any sizing adjustment during the trial; any halt-rule question; post-trial review; any decision-pattern question about the V5A operational surface. |
 
 When new findings are added to `docs/findings/`, append a row here as part of
 the session that creates them. Index discoverability is the whole point of

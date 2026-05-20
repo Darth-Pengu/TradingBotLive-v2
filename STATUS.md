@@ -7,6 +7,31 @@
 
 ---
 
+## 2026-05-19 23:58 UTC — V5A-GO-LIVE-DECISIONS-RECORD-001 (docs-only, DECISIONS RECORDED)
+
+**Committed:** `753b5ce` docs(v5a-decisions): V5A-GO-LIVE-DECISIONS-RECORD-001 — captured seven chat-side V5A relaunch decisions as a survivable findings doc; filed two roadmap items; linked supersession; updated V5A checklist + CLAUDE.md findings index. Files: `docs/findings/V5A_GO_LIVE_DECISIONS.md` (NEW), `ZMN_ROADMAP.md` (Tier 1 new + Tier 2 new + Decision Log + MARKET-MODE-001-RE-CALIBRATE-V2 absorption link), `AGENT_CONTEXT.md` (§6 new "Decisions (recorded)" subsection + header refresh), `CLAUDE.md` (new row in Standing findings table per yesterday's self-amending instruction), `MONITORING_LOG.md` (entry), `STATUS.md` (this prepend). NO services/* edit, NO env change, NO Redis writes, NO deploy.
+**State changes:** None. Pure docs work — wrote findings doc, filed roadmap items, updated indices.
+**Bot state:** TEST_MODE=true (paper, unchanged). `BOT_CORE_FILL_MC_CEILING_USD=1000` active on bot_core paper + live paths (V2 dormant under TEST_MODE=true). Wallet 0.064 SOL on-chain (unchanged). Outstanding V5A blockers: 3 (PC1 wallet top-up, PC2 observation through ≥2026-05-27 combined eval, PC4 flip-itself — PC3 V2 landed 2026-05-19).
+**Findings (key):**
+- 🟢 **New survivable findings doc:** `docs/findings/V5A_GO_LIVE_DECISIONS.md` (≤1500 words) following the COST_FIDELITY_GAP pattern. Contains all 7 decisions (D-S3 loss tolerance 1.5/3.0 SOL realized; D-S4 manual market-mode check; D-S5 Wed/Thu AEST evening 18:00-21:00; D-S6 0.10/5 + NO auto-scale + staged ladder; D-S7 4-6h active observer) + sizing graduation ladder (§2) + GOVERNANCE-AGENT pointer (§3) + cross-refs (§4) + override path (§5).
+- 🟢 **Roadmap items filed:** Tier 1 `V5A-SIZING-GRADUATION-LADDER-001` (ACTIVE RULE — governs trial sizing, not a session to run); Tier 2 `GOVERNANCE-AGENT-MARKET-MODE-001` (autonomous classifier + halt authority, gated on V5A producing ≥2 distinct regime samples).
+- 🟢 **Supersession linked:** `MARKET-MODE-001-RE-CALIBRATE-V2` Tier 1 row updated with "2026-05-20: absorbed by `GOVERNANCE-AGENT-MARKET-MODE-001`" link — recalibration concern (NORMAL bleeds) becomes one input to the classifier scope. Not deleted; preserved for audit trail.
+- 🟢 **V5A checklist updated:** new "Decisions (recorded)" subsection in `AGENT_CONTEXT.md` §6 between "Known conditions at relaunch" and "Completed preconditions" pointing at findings doc and roadmap items.
+- 🟢 **CLAUDE.md self-amending instruction honored:** new row appended to "Standing findings — read before related work" table for `V5A_GO_LIVE_DECISIONS.md`. Yesterday's CLAUDE-MD-FINDINGS-INDEX-001 instruction: "When new findings are added to `docs/findings/`, append a row here as part of the session that creates them" — this session is the first to fulfill it.
+- 🟢 **No STOP triggered:** no concurrent session in flight (last commit `4210c4b` 2026-05-19 ~13:00 UTC; my session at 23:58 UTC, ~10h gap); §6 V5A checklist locatable; no scope creep; no Claude limit hit.
+**Verdict:** ✅ **DECISIONS RECORDED.** All seven V5A relaunch decisions are now in a discoverable, survivable doc with the same lifespan and prominence as `docs/findings/COST_FIDELITY_GAP.md`. V5A checklist points to them. CLAUDE.md indexes them. Future sessions cannot miss them.
+**Blockers cleared:** chat-side decisions ephemerality (the trigger for this session).
+**Blockers new/active:**
+- 📋 **V5A-SIZING-GRADUATION-LADDER-001 ACTIVE RULE** — consult before any manual sizing change during the trial.
+- 📋 **GOVERNANCE-AGENT-MARKET-MODE-001 Tier 2** — design session pending; gated on V5A live data across ≥2 regimes.
+- All prior carries unchanged (PC1 wallet top-up, PC2 ≥2026-05-27 combined eval, PC4 flip, BUG-010 Anthropic, etc.).
+**V5a precondition delta:** None to the gating blockers themselves. New "Decisions (recorded)" subsection added to §6 — the seven decisions are inputs to the flip, NOT additional preconditions.
+**Concurrent-session compatibility:** No concurrent session detected. Pull-rebase before push (retry up to 3× on conflict per CLAUDE.md). Append-only updates throughout.
+**Next prompt:** None auto-triggered. Future sessions touching V5A sizing or market-mode handling MUST read `docs/findings/V5A_GO_LIVE_DECISIONS.md` first (CLAUDE.md's Standing findings index enforces this).
+**Pending Claude-chat prompts not yet pasted:** none — this session terminated with verdict.
+
+---
+
 ## 2026-05-19 12:59 UTC — CLAUDE-MD-FINDINGS-INDEX-001 (docs-only, INDEX ADDED)
 
 **Committed:** session output landed across two commits due to a concurrent hygiene-commit pickup (`5adff0b docs: index docs/findings/ in CLAUDE.md + correct V2 line-count in MONITORING_LOG` — landed the CLAUDE.md +18 lines and MONITORING_LOG.md +14 -1 portions of my working-tree edits, attributed to Jay's hygiene commit but byte-identical to my output) + `0639b3f` docs(claude-md-findings-index-001): CLAUDE-MD-FINDINGS-INDEX-001 — canonical updates (AGENT_CONTEXT.md header refresh + ZMN_ROADMAP.md Decision Log row + STATUS.md prepend). Combined session deliverables: `CLAUDE.md` (+15-line "Standing findings — read before related work" H2 section between Roadmap and Resolved Bugs, table indexing `docs/findings/COST_FIDELITY_GAP.md` + self-amending instruction; landed via `5adff0b`), `MONITORING_LOG.md` (entry prepended; landed via `5adff0b`), `AGENT_CONTEXT.md` (header refresh only — no structural change to §6), `ZMN_ROADMAP.md` (Decision Log entry), `STATUS.md` (this prepend). NO services/* edit, NO env change, NO Redis writes, NO deploy.

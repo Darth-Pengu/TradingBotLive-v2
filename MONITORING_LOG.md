@@ -2,6 +2,29 @@
 
 ---
 
+## 2026-05-19 23:58 UTC — V5A-GO-LIVE-DECISIONS-RECORD-001 (docs-only, DECISIONS RECORDED)
+
+- Chat-side V5A go-live decision conversation (2026-05-19/20) produced seven decisions across S3-S7 of the pre-go-live checklist plus two strategic follow-ups (staged sizing ladder; autonomous governance agent). This session captured them as a survivable record so chat-history-only ephemerality cannot lose them.
+- **Phase 1 — `docs/findings/V5A_GO_LIVE_DECISIONS.md` created** (≤1500 words, following the COST_FIDELITY_GAP.md pattern):
+  - §1 — seven decisions: D-S3 (daily 1.5 SOL realized halt + cumulative 3.0 SOL hard revert); D-S4 (manual market-mode check at flip-time, NOT autonomous agent yet); D-S5 (Wed/Thu AEST evening 18:00-21:00 Sydney, ramping US trading hours, avoid weekends + Sunday-Monday open + Friday afternoon); D-S6 (conservative `MAX_POSITION_SOL=0.10` + `MAX_SD_POSITIONS=5`, NO auto-scale on WR — overruled because 80% WR in 24-80 trades is not statistically robust evidence — replaced with staged ladder); D-S7 (Jay watches actively 4-6h post-flip, hourly glances first 12h).
+  - §2 — sizing graduation ladder (Hours 0-24 → Day 2-4 hold → Day 5-7 → Week 2; scale on cumulative PnL trajectory + closed-trade count + Path B sample size, not short-window WR).
+  - §3 — strategic follow-up `GOVERNANCE-AGENT-MARKET-MODE-001` filed; absorbs `MARKET-MODE-001-RE-CALIBRATE-V2`.
+  - §4 — cross-references to `COST_FIDELITY_GAP.md`, `AGENT_CONTEXT.md` §6, V2 audit, roadmap entries, CLAUDE.md index.
+  - §5 — override path (chat-side amendments appended to the doc; originals preserved).
+- **Phase 2 — Roadmap items filed:**
+  - `ZMN_ROADMAP.md` Tier 1: `V5A-SIZING-GRADUATION-LADDER-001` (ACTIVE RULE — governs trial sizing, not a session to run; consult before any manual sizing change).
+  - `ZMN_ROADMAP.md` Tier 2: `GOVERNANCE-AGENT-MARKET-MODE-001` (autonomous classifier + halt authority but NOT start authority; gated on V5A live data across ≥2 distinct regimes; absorbs MARKET-MODE-001-RE-CALIBRATE-V2).
+  - `MARKET-MODE-001-RE-CALIBRATE-V2` Tier 1 row updated with absorption link to `GOVERNANCE-AGENT-MARKET-MODE-001` — not deleted, preserved for audit trail. The recalibration concern (NORMAL bleeds, threshold structure may be wrong) becomes one input to the classifier scope.
+  - `ML_THRESHOLD_RETUNE_002` dependency-gate (behind `PAPER-FEE-MODEL-CALIBRATION-001` per COST-FIDELITY-FINDINGS-DOCUMENTATION-001) confirmed unchanged — no drift.
+- **Phase 3 — V5A checklist + CLAUDE.md index:**
+  - `AGENT_CONTEXT.md` §6 gains new "Decisions (recorded)" subsection between "Known conditions at relaunch" and "Completed preconditions" — points at findings doc + roadmap items. STOP-B did not fire (V5A checklist §6 cleanly locatable at line 140).
+  - `CLAUDE.md` "Standing findings — read before related work" table gains a new row for `V5A_GO_LIVE_DECISIONS.md` per yesterday's self-amending instruction (CLAUDE-MD-FINDINGS-INDEX-001). This is the first session to fulfill that contract.
+- **No STOP triggered.** STOP-A (concurrent session): no concurrent session detected; last commit `4210c4b` ~10h before this session started. STOP-B (V5A checklist not locatable): cleanly locatable. STOP-C (scope creep): no decision re-decided; all seven captured verbatim from the prompt. STOP-D (Claude limit): N/A. STOP-E (concurrent-session git conflict): N/A.
+- **Verdict:** ✅ **DECISIONS RECORDED.** All seven V5A relaunch decisions are now in a discoverable, survivable doc with the same lifespan and prominence as `docs/findings/COST_FIDELITY_GAP.md`. V5A checklist points to them. CLAUDE.md indexes them. Roadmap references them. Future sessions cannot miss them.
+- **NO services/* edit, NO env change, NO Redis writes, NO DB writes, NO deploy.** Outputs: `docs/findings/V5A_GO_LIVE_DECISIONS.md` (NEW), `ZMN_ROADMAP.md` (+2 rows + 1 supersession link), `AGENT_CONTEXT.md` (+1 subsection + header refresh), `CLAUDE.md` (+1 table row), this `MONITORING_LOG.md` entry, `STATUS.md` prepend. Scratch (untracked): `.tmp_v5a_decisions/` empty (no derivation needed — decisions are inputs not outputs).
+
+---
+
 ## 2026-05-19 12:59 UTC — CLAUDE-MD-FINDINGS-INDEX-001 (docs-only, INDEX ADDED)
 
 - Chat-side audit (2026-05-19) of the survivability of `docs/findings/` exposed a gap: the directory was referenced only from `AGENT_CONTEXT.md` §6 and the Decision Log. A new CC session that doesn't deeply read either could miss the standing findings entirely. `CLAUDE.md` is the single document every session reads first — must become the authoritative entry point that *names* the findings layer and points sessions at it.
