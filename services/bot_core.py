@@ -246,11 +246,17 @@ class BotCore:
             table = "paper_trades" if TEST_MODE else "trades"
             exit_col = "exit_time" if TEST_MODE else "closed_at"
             current_mode = "paper" if TEST_MODE else "live"
-            mode_clause = f" AND trade_mode = '{current_mode}'" if table == "paper_trades" else ""
+            # V5A-FLIP-RECONCILE-FILTER-001 (2026-05-21): apply trade_mode filter to BOTH
+            # tables (was paper_trades only). The `trades` ML corpus accumulates open
+            # paper rows when paper close runs without `pos.trades_ml_id` set, which
+            # contaminated live mode at V5A-FLIP-001-V2. Both tables carry trade_mode now.
+            mode_clause = f" AND trade_mode = '{current_mode}'"
             rows = await self.pool.fetch(
                 f"SELECT mint, personality FROM {table} WHERE {exit_col} IS NULL{mode_clause}"
             )
             db_mints = {r["mint"] for r in rows}
+            logger.info("[RECONCILE] mode=%s, table=%s, loaded %d position(s)",
+                        current_mode, table, len(db_mints))
             logger.info("Startup reconciliation: %d open positions in DB", len(db_mints))
             if db_mints:
                 logger.info("Open positions: %s", ", ".join(m[:12] for m in db_mints))
@@ -295,11 +301,15 @@ class BotCore:
 
         # Reload open positions from DB (with trailing stop state)
         # Filter by trade_mode so paper positions don't block live MAX_SD_POSITIONS
+        # V5A-FLIP-RECONCILE-FILTER-001 (2026-05-21): mode_clause now applies to BOTH
+        # tables. Previously only filtered when reading paper_trades, so the live-mode
+        # reconciler read `trades` without trade_mode filter and loaded open paper rows
+        # (root cause of V5A-FLIP-001-V2 phantom-position contamination).
         try:
             table = "paper_trades" if TEST_MODE else "trades"
             exit_col = "exit_time" if TEST_MODE else "closed_at"
             current_mode = "paper" if TEST_MODE else "live"
-            mode_clause = f" AND trade_mode = '{current_mode}'" if table == "paper_trades" else ""
+            mode_clause = f" AND trade_mode = '{current_mode}'"
             rows = await self.pool.fetch(
                 f"SELECT * FROM {table} WHERE {exit_col} IS NULL{mode_clause} ORDER BY id ASC"
             )
@@ -335,6 +345,8 @@ class BotCore:
                 )
                 self.positions[key] = pos
                 restored += 1
+            logger.info("[RECONCILE] mode=%s, table=%s, restored %d position(s) into self.positions",
+                        current_mode, table, restored)
             if restored:
                 logger.info("Restored %d open positions from PostgreSQL (trailing stop state preserved)", restored)
         except Exception as e:
