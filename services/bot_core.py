@@ -1526,6 +1526,33 @@ class BotCore:
                 #   (b) pos.trade_id in live mode refers to trades.id; the id-spaces
                 #       overlap with paper_trades.id, so UPDATE WHERE id=pos.trade_id
                 #       would touch an unrelated paper row and corrupt its data.
+                #
+                # V5A-FLIP-CLOSE-TRADE-MODE-001 / Bug 2 (2026-05-21): determine origin
+                # trade_mode by querying the trades row. Defense-in-depth against Bug 1
+                # regression — if the reconciler ever loads paper orphans into the live
+                # container's self.positions (V5A-FLIP-001-V2 root cause), this prevents
+                # the contamination from writing trade_mode='live' to paper_trades.
+                # Position objects don't carry entry_signature/origin info, so we query
+                # trades.trade_mode using pos.trade_id (set to trades.id at entry / load).
+                _origin_trade_mode = "live"
+                try:
+                    _looked_up = await self.pool.fetchval(
+                        "SELECT trade_mode FROM trades WHERE id = $1", pos.trade_id,
+                    )
+                    if _looked_up == "paper":
+                        logger.warning(
+                            "[ORIGIN_MISMATCH] live close path reached for paper-origin "
+                            "position trade_id=%s mint=%s — possible Bug 1 regression; "
+                            "recording trade_mode='paper'",
+                            pos.trade_id, pos.mint[:12],
+                        )
+                        _origin_trade_mode = "paper"
+                    elif _looked_up:
+                        _origin_trade_mode = _looked_up
+                except Exception as _origin_err:
+                    logger.debug("Origin trade_mode lookup failed for trade_id=%s: %s",
+                                 pos.trade_id, _origin_err)
+
                 try:
                     await self.pool.execute(
                         """INSERT INTO paper_trades
@@ -1543,10 +1570,10 @@ class BotCore:
                         _pt_mcap_entry, _pt_mcap_exit, _pt_outcome,
                         pos.signal_source or "unknown", pos.ml_score or 0.0,
                         pos.rugcheck_risk_level or "unknown",
-                        self.portfolio.market_mode or "NORMAL", 50.0, "live",
+                        self.portfolio.market_mode or "NORMAL", 50.0, _origin_trade_mode,
                     )
-                    logger.info("LIVE paper_trades fallback INSERT mint=%s outcome=%s pnl=%.4f (entry INSERT had failed or pos predates Session 2b)",
-                                pos.mint[:12], _pt_outcome, pnl_sol)
+                    logger.info("LIVE paper_trades fallback INSERT mint=%s outcome=%s pnl=%.4f trade_mode=%s (entry INSERT had failed or pos predates Session 2b)",
+                                pos.mint[:12], _pt_outcome, pnl_sol, _origin_trade_mode)
                 except Exception as e:
                     logger.error("LIVE close paper_trades fallback INSERT failed mint=%s: %s",
                                  pos.mint, e)
