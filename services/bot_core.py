@@ -216,6 +216,13 @@ class Position:
     # passed literal "buy" which is NOT a SLIPPAGE_RANGES key, falling back to
     # the (0.5, 2.0, 0.3) default and undercounting pre-grad BC slippage.
     entry_slippage_tier: str = "confirmation"
+    # LIVE-FEE-CAPTURE-ENTRY-SIG-WIRING-001 (2026-05-28): on-chain signature of
+    # the entry buy tx, captured from ExecutionResult.signature at live entry.
+    # Default None covers paper entries (paper_buy has no real sig) and
+    # reconciler-restored Positions (trades table has no entry_signature
+    # column). When None, close-path Path B at L1450 skips the entry parse and
+    # falls back to live_estimated_v1 — same as today (fail-safe).
+    entry_signature: str | None = None
 
 
 SELL_FAIL_THRESHOLD = int(os.getenv("SELL_FAIL_THRESHOLD", "8"))
@@ -1009,7 +1016,14 @@ class BotCore:
                     ml_score=ml_score, signal_source=signal_source,
                     bonding_curve_progress=bc_progress,
                     entry_slippage_tier=slippage_tier,
+                    # LIVE-FEE-CAPTURE-ENTRY-SIG-WIRING-001: capture entry sig
+                    # so close-path Path B parser at L1450 produces
+                    # 'live_actual_v1' instead of 'live_estimated_v1'.
+                    entry_signature=getattr(result, "signature", None),
                 )
+                if pos.entry_signature:
+                    logger.info("[ENTRY_SIG] captured entry_signature=%s... for %s position (mint=%s)",
+                                pos.entry_signature[:8], personality, mint[:12])
                 # trade_mode='live': this branch runs only when `not TEST_MODE`.
                 # LIVE-TRADES-LOGGING-AUDIT-001 — discriminator on the combined
                 # `trades` ML corpus.
