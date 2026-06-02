@@ -7,6 +7,28 @@
 
 ---
 
+## 2026-06-02 — MARKET-REGIME-DIAGNOSTIC-001 (read-only; HIBERNATE = pipeline OUTAGE, not a lull; ⛔ DO-NOT-FLIP)
+
+**Committed:** `356a91a` docs(market-regime-diagnostic-001) — docs-only (hash is the pre-amend content commit, backfilled into this line via `git commit --amend`). NEW `docs/audits/MARKET_REGIME_DIAGNOSTIC_001_2026_06_02.md`, NEW `docs/findings/MARKET_REGIME_GAP.md`, CLAUDE.md (Standing-findings row), AGENT_CONTEXT.md (header + §6 PC4 note + new pipeline-health pre-flip gate), ZMN_ROADMAP.md (Decision Log row), this STATUS prepend, MONITORING_LOG prepend, `.gitignore` (+`.tmp_market_regime/`). NO services/* change. (One all-services auto-redeploy from this docs push — watchPatterns empty.)
+**State changes:** NONE. Read-only (Railway env/Redis reads, deploy logs + `list-deployments`, asyncpg SELECTs, source reads, + a 9-agent external-corroboration/adversarial-verification workflow). No env/Redis/DB/override/redeploy writes.
+**Bot state:** TEST_MODE=true (paper). **DEGRADED/DOWN:** latest Railway deploy of BOTH bot_core AND signal_listener = **CRASHED** (crash-looping ~6.7s on a redis pubsub `TimeoutError`). `market:mode:current=HIBERNATE` (misclassified). override absent. consecutive_losses=0. 0 open. Wallet not re-verified (read-only; predecessor 5.064 SOL; no on-chain activity). Effectively DOWN since ~2026-05-28T13:00Z (1 paper trade in 5 days).
+**Findings (key):**
+- 🔴 **The V3R HIBERNATE is a PIPELINE OUTAGE misclassified as a market lull** — predecessor's "broad memecoin lull" REFUTED. Forced solely by `grad_rate=0` (`market:migration_count_1h` absent), caused by a dual-service pubsub-timeout crash loop (`signal_listener.py:335`/`1395` + bot_core ~`L2410`, unguarded `asyncio.gather`). External (3 sources, conf 0.8-0.9): pump.fun launching ~1,500-2,000/hr + ~350 graduations/day; bot feed ~64/hr = ~3%. `dex_vol=$1.753B` is healthy (NORMAL-tier).
+- 🟢 **Validation edge is genuine-regime** (Q4): +8.91 SOL/day, 91.9% WR, n=1066 (05-20..28) ran NORMAL(830)/DEFENSIVE(236)/HIBERNATE(0); snapshots NORMAL 1747/DEF 691/HIB 0 → **PC2 NOT re-opened** (cost-fidelity gap applies separately; full Path-B cost-correction still leaves +32.5 SOL/76.7% WR).
+- 🔴 **LIVE-TRADES-IN-HIBERNATE** (Q2): HIBERNATE skip (`signal_aggregator.py:1741`) is `AGGRESSIVE_PAPER`-gated (not TEST_MODE); bot_core has no independent skip → a bot_core-only flip would trade live in HIBERNATE (NOT inert), and the flip's redeploy would revive the CRASHED bot_core into live mode.
+- 🟢 All 6 sub-verdicts survived adversarial verification (conf 0.88-0.95).
+**Verdict:** ⛔ **DO NOT FLIP — the system is DOWN, not hibernating.** PATH C (misclassified) + PATH D (flow degraded), one root cause. The V3R NO-FLIP was correct; its *reason* ("wait for market") was wrong — fix the pipeline, not patience.
+**Blockers cleared:** none (diagnostic; it reframes the V3R/PC4 blocker).
+**Blockers new/active:**
+- 🔴 **NEW `PIPELINE-PUBSUB-ISOLATION-001` (Tier 1, V5A flip-blocker)** — isolate pubsub `.listen()` loops from the top-level `asyncio.gather` in signal_listener (L335/L1395) + bot_core (~L2410); promotes+extends `BOT-CORE-EMERGENCY-LISTENER-PUBSUB-ISOLATION-001`. Acceptance gate before any flip: both services RUNNING (not CRASHED), counters recovered, mode non-HIBERNATE for the right reason.
+- 🟡 `MARKET-MODE-001-RE-CALIBRATE-002` (Tier 2) — single-leg `grad_rate` veto + `pumpfun_vol = dex_vol*0.15` placeholder (`market_health.py:390`).
+- 📋 PC4 (V5A flip itself) — stays `[ ]`, now also gated on pipeline restoration.
+**Concurrent-session compatibility:** local HEAD == origin/main `1a44349` (0/0) at start; `git fetch` clean; single docs push at end.
+**Next prompt:** `PIPELINE-PUBSUB-ISOLATION-001` (chat-side to author) — the real flip-unblocker.
+**Pending Claude-chat prompts not yet pasted:** none.
+
+---
+
 ## 2026-06-02 — RAILWAY-CLI-UPGRADE + deploy-SHA RESOLVED (follow-on to V3R; tooling + 1 finding)
 
 **Committed:** docs-only follow-on (audit §9 addendum + ZMN_ROADMAP Decision Log row + this STATUS entry + AGENT_CONTEXT header note). NO services/* code change. NO env/Redis/DB writes. (Two bot_core redeploys were triggered earlier by the V3R docs pushes — see Findings; this commit triggers one more, expected.)

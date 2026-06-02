@@ -2,6 +2,20 @@
 
 ---
 
+## 2026-06-02 — MARKET-REGIME-DIAGNOSTIC-001 (read-only; HIBERNATE = pipeline OUTAGE, DO-NOT-FLIP)
+
+- **Trigger:** follow-on to V5A-FLIP-002-V3R — resolve the unverified HIBERNATE verdict the flip halt left open. Read-only; ZERO state writes.
+- **Headline:** the predecessor's "broad memecoin lull, re-attempt when market recovers" is **REFUTED**. The market is fine (pump.fun ~1,500-2,000 launches/hr, ~350 graduations/day — 3 external sources, conf 0.8-0.9); the **BOT is broken** — both `bot_core` and `signal_listener` are in CRASHED Railway state, crash-looping ~6.7s on `redis.TimeoutError` in pubsub `.listen()` via an unguarded `asyncio.gather`.
+- **Q1 HIBERNATE-MISCLASSIFIED:** `_determine_market_mode` ANDs 3 legs; `dex_vol=$1.753B` clears NORMAL, `pumpfun_vol=$263M` (placeholder `dex×0.15`, `market_health.py:390`) clears AGGRESSIVE, but `grad_rate=0` (`market:migration_count_1h` absent) single-leg-vetoes to HIBERNATE.
+- **Q2 LIVE-TRADES-IN-HIBERNATE:** HIBERNATE skip (`signal_aggregator.py:1741`) is `AGGRESSIVE_PAPER`-gated, NOT TEST_MODE; `bot_core` has no independent skip; a bot_core-only flip would trade live in HIBERNATE (not inert) — and the flip's redeploy would revive the CRASHED bot_core into live mode. Governance veto is dead (Anthropic credits → permissive CONSERVATIVE default).
+- **Q3:** bypass configured-active now (id 10926 traded 06-02 12:47Z in HIBERNATE, labeled DEFENSIVE) but starved to ~1 trade/24h.
+- **Q4 VALIDATION-WAS-TRADEABLE-REGIME:** +8.91 SOL/day, 91.9% WR, n=1066 (05-20..28) ran genuine NORMAL(830)/DEFENSIVE(236)/HIBERNATE(0); `portfolio_snapshots` NORMAL 1747 / DEF 691 / HIB 0 → **PC2 NOT re-opened**. Cost-fidelity gap still applies (orthogonal); even full Path-B cost-correction leaves +32.5 SOL / 76.7% WR.
+- **Q5 FLOW-DEGRADED + the cliff:** daily paper trades healthy thru 05-28 (69-201/day), then **0/0/0/0** on 05-29..06-01, 1 on 06-02; `portfolio_snapshots` stop 2026-05-28T12:57 (the 5-min heartbeat is unconditional → ~1,150 missing = process down, not a lull). Bot feed ~64/hr vs ~1,500/hr on-chain = ~3%.
+- **Verdict:** ⛔ **DO NOT FLIP — system is DOWN, not hibernating.** PATH C (misclassified) + PATH D (flow degraded), one root cause. Recommended next session **`PIPELINE-PUBSUB-ISOLATION-001`** (Tier 1, flip-blocker); secondary `MARKET-MODE-001-RE-CALIBRATE-002` (Tier 2). All 6 sub-verdicts survived adversarial verification (conf 0.88-0.95).
+- **NO env/Redis/DB/override/deploy writes (read-only).** Wallet not re-verified (predecessor 5.064 SOL; no on-chain activity). Outputs: NEW `docs/audits/MARKET_REGIME_DIAGNOSTIC_001_2026_06_02.md`, NEW `docs/findings/MARKET_REGIME_GAP.md`, CLAUDE.md (Standing-findings row), AGENT_CONTEXT.md (header + §6 note), ZMN_ROADMAP.md (Decision Log row), STATUS.md prepend, this entry, `.gitignore` (+`.tmp_market_regime/`). Scratch (gitignored): `.tmp_market_regime/{PROGRESS.md, 02..06_*.md, regime_query.py, ps_query.py}`.
+
+---
+
 ## 2026-06-02 — V5A-FLIP-002-V3R (read-only preflight, ⛔ NO-FLIP — HALTED on STOP-M)
 
 - **Trigger:** Jay-pasted V5A live-flip session (paste = PC4 authorization per CLAUDE.md "Live trading mode — session-gated"; D-S5 timing waived per operator amendment). Predecessor `LIVE-FEE-CAPTURE-ENTRY-SIG-WIRING-001` (2026-05-28, commit `7458f2d`) is the load-bearing context — its first-live-close Path B verification is what tonight's flip would have exercised.
