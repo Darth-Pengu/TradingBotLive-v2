@@ -7,6 +7,26 @@
 
 ---
 
+## 2026-06-02 — RAILWAY-CLI-UPGRADE + deploy-SHA RESOLVED (follow-on to V3R; tooling + 1 finding)
+
+**Committed:** docs-only follow-on (audit §9 addendum + ZMN_ROADMAP Decision Log row + this STATUS entry + AGENT_CONTEXT header note). NO services/* code change. NO env/Redis/DB writes. (Two bot_core redeploys were triggered earlier by the V3R docs pushes — see Findings; this commit triggers one more, expected.)
+**State changes:** **Railway CLI upgraded 4.6.0 → 4.66.0** (npm global, local machine — not a Railway/bot change). bot_core redeployed twice today from the V3R docs pushes (Railway redeploys on every `main` push — watchPatterns empty). No env/Redis/DB/TEST_MODE changes.
+**Bot state:** TEST_MODE=true (paper). **bot_core now running deployment `39b44e7` (SUCCESS)** — `service:bot_core:heartbeat={alive, emergency:false}`, `bot:status={RUNNING, test_mode:true, open_positions:0, market_mode:HIBERNATE, consecutive_losses:0}`. Wallet 5.064095633 SOL (unchanged — no on-chain activity). market:mode still HIBERNATE.
+**Findings (key):**
+- 🟢 **Deploy-SHA carry-forward RESOLVED.** With CLI ≥4.10.0, `list-deployments` confirms bot_core's active deployment is `39b44e7` — a descendant of `7458f2d`. All three V5A fixes (`f3591eb`/`3c50520`/`7458f2d`) are confirmed **running in production**, not just at HEAD. Closes the "deploy unconfirmed since 2026-05-28" item.
+- 🟡 **Transient crash observed + self-recovered.** Deployment `298833d` (V3R audit docs commit) CRASHED at startup: `redis.exceptions.TimeoutError: Timeout reading from redis.railway.internal:6379` in `_emergency_listener` (`bot_core.py:2067`) → propagated through unguarded `asyncio.gather` (`bot_core.py:2410`) → container stopped. Follow-up `39b44e7` came up SUCCESS (same code; Redis blip cleared). No code defect — both commits docs-only on top of `7d33994`.
+- 🟡 **NEW Tier-2 follow-up `BOT-CORE-EMERGENCY-LISTENER-PUBSUB-ISOLATION-001`** (not V5A-blocking). The emergency-listener pubsub `.listen()` TimeoutError isn't isolated → a Redis read-timeout crashes the whole process instead of restarting just that task. Self-heals via restart policy (10 retries) but adds startup flakiness relevant to **flip-time clean-restart verification** (Phase 2.3/4.3/5.1 depend on a clean bot_core restart + `Startup reconciliation: 0`). Recommend a try/except-with-reconnect loop around the listener before the next flip.
+**Verdict:** ✅ Tooling fixed; deploy-SHA blocker CLOSED; 1 new Tier-2 startup-resilience follow-up filed. V3R's NO-FLIP verdict on STOP-M (HIBERNATE) is unchanged.
+**Blockers cleared:** Deploy-SHA verification (Railway CLI now ≥4.10.0; running container confirmed on `7458f2d`-inclusive `39b44e7`).
+**Blockers new/active:**
+- 🟡 **`BOT-CORE-EMERGENCY-LISTENER-PUBSUB-ISOLATION-001` Tier 2** — isolate `_emergency_listener` pubsub timeouts so a Redis blip can't crash the container during a flip restart. Land before the next flip attempt (not strictly blocking — restart policy recovers — but it can abort a flip's clean-restart verification).
+- 📋 **PC4 (V5A flip itself)** — still gated on a non-HIBERNATE window + Jay D-S7 watch.
+**Concurrent-session compatibility:** single push; `git fetch` clean before push.
+**Next prompt:** none. Re-attempt the flip in the next non-HIBERNATE window.
+**Pending Claude-chat prompts not yet pasted:** none.
+
+---
+
 ## 2026-06-02 — V5A-FLIP-002-V3R (read-only preflight, ⛔ NO-FLIP — HALTED at Phase 1 on STOP-M)
 
 **Committed:** `298833d` docs(v5a-flip-002-v3r) — docs-only (this hash backfilled by a small follow-up commit). NEW `docs/audits/V5A_FLIP_002_V3R_2026_06_02.md` (the no-flip audit; prompt referenced it as `_2026_06_01`); `AGENT_CONTEXT.md` (header refresh + §6 PC4 2026-06-02 no-flip note; PC4 stays `[ ]`); `ZMN_ROADMAP.md` (Decision Log row); this `STATUS.md` prepend; `MONITORING_LOG.md` prepend; `.gitignore` (+`.tmp_v5a_flip_v3r/`). NO services/* code change. **NO env change. NO Redis writes. NO Postgres writes. NO deploy/redeploy. NO TEST_MODE flip.**
