@@ -62,3 +62,4 @@ scripts/devnet_*
 .tmp_api_preflight/
 .tmp_v5a_flip/
 .tmp_entrysig/
+.tmp_v5a_flip_v3r/

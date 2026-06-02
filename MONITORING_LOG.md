@@ -2,6 +2,20 @@
 
 ---
 
+## 2026-06-02 — V5A-FLIP-002-V3R (read-only preflight, ⛔ NO-FLIP — HALTED on STOP-M)
+
+- **Trigger:** Jay-pasted V5A live-flip session (paste = PC4 authorization per CLAUDE.md "Live trading mode — session-gated"; D-S5 timing waived per operator amendment). Predecessor `LIVE-FEE-CAPTURE-ENTRY-SIG-WIRING-001` (2026-05-28, commit `7458f2d`) is the load-bearing context — its first-live-close Path B verification is what tonight's flip would have exercised.
+- **Outcome:** ⛔ **NO FLIP.** Phase 1 preflight halted at the market-regime gate. `market:mode:current=HIBERNATE` (D-S4 binding: HIBERNATE aborts) AND signal pipeline near-dead (`market:new_token_count_1h=14` vs 10,257 on 2026-05-20; pumpportal "no signals"). Two independent STOP-M triggers.
+- **Zero state writes.** TEST_MODE stayed `true`; sizing stayed 4.0/0.25/20 (the Phase 2 reconcile to 1.5/0.10/5 was never reached); no Redis/Postgres writes; no redeploy. Phase R not applicable (nothing flipped). NOT STOP-Rollback — re-attemptable in the next non-HIBERNATE window.
+- **Wallet UNCHANGED:** 5.064095633 SOL on-chain (Helius `getBalance`, exact; `bot:onchain:balance` matches). No transaction signed or submitted.
+- **Everything-else-GO (read-only preflight):** Railway authed (10 services); commits `f3591eb`/`3c50520`/`7458f2d` all ancestors of HEAD `7d33994` (local==origin); all 3 fixes present in `services/bot_core.py` source; Path B engine intact (id 6580 on-chain native delta −374,251,786 lamports, exact); orphan baseline clean (`trades WHERE closed_at IS NULL AND trade_mode='live'`=0 — the May-20 vector); sell-storm default 8.
+- **Open tooling item:** Railway CLI is v4.6.0 (`list-deployments` needs ≥4.10.0) — running-container SHA for `7458f2d` UNCONFIRMED since 2026-05-28. Phase 1.5 forced-redeploy fail-safe not triggered because the flip was halted on STOP-M. Next attempt: upgrade CLI ≥4.10.0 OR rely on forced-redeploy.
+- **Market context shift:** SOL ~$85→$78.84; mode DEFENSIVE→HIBERNATE; new-token flow 10,257→14/hr since 2026-05-20 — broad memecoin lull (all data-source health `ok`), not a single-service outage.
+- **All STOPs evaluated:** A/H/Wallet/PathB/Orphan/Scope/Loop/L/Claude no-fire; STOP-M ×2; Deploy/Reconcile/Contamination/DailyHalt/Rollback n/a (never flipped).
+- **NO env changes; 0 code commits to services/*; 0 DB writes; 0 Redis writes; 0 deploy. Outputs:** NEW `docs/audits/V5A_FLIP_002_V3R_2026_06_02.md`, `AGENT_CONTEXT.md` (header + §6 PC4 note), `ZMN_ROADMAP.md` (Decision Log row), `STATUS.md` (prepend), this `MONITORING_LOG.md` entry, `.gitignore` (+`.tmp_v5a_flip_v3r/`). Scratch (gitignored): `.tmp_v5a_flip_v3r/{PROGRESS.md, 01_preflight.md, preflight_db.py}`.
+
+---
+
 ## 2026-05-28 — LIVE-FEE-CAPTURE-ENTRY-SIG-WIRING-001 (code+deploy, ✅ 1 FIX DEPLOYED — V5A-FIXES-001 §11 follow-up resolved)
 
 - **Trigger:** Jay-pasted afternoon session prompt to resolve `LIVE-FEE-CAPTURE-002-PATH-B-ENTRY-SIG-NOT-WIRED-001` (filed Tier 3 by V5A-FIXES-001 §11) before tonight's V5A-FLIP-002-V3 in the D-S5 window. Predecessor `V5A-FIXES-001` audit at `docs/audits/V5A_FIXES_001_2026_05_21.md` §5 + §11 is the load-bearing context — its Bug 2 investigation surfaced that Position dataclass has no `entry_signature` field (making the Path B parser's L1450 `getattr(pos, "entry_signature", None)` always return None and forcing every live close to `live_estimated_v1`). This session adds the field and wires it from `ExecutionResult.signature` at live entry.

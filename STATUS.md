@@ -7,6 +7,31 @@
 
 ---
 
+## 2026-06-02 — V5A-FLIP-002-V3R (read-only preflight, ⛔ NO-FLIP — HALTED at Phase 1 on STOP-M)
+
+**Committed:** docs-only — NEW `docs/audits/V5A_FLIP_002_V3R_2026_06_02.md` (the no-flip audit; prompt referenced it as `_2026_06_01`); `AGENT_CONTEXT.md` (header refresh + §6 PC4 2026-06-02 no-flip note; PC4 stays `[ ]`); `ZMN_ROADMAP.md` (Decision Log row); this `STATUS.md` prepend; `MONITORING_LOG.md` prepend; `.gitignore` (+`.tmp_v5a_flip_v3r/`). NO services/* code change. **NO env change. NO Redis writes. NO Postgres writes. NO deploy/redeploy. NO TEST_MODE flip.**
+**State changes:** **NONE.** Pure read-only preflight (Railway env reads, Redis reads, Helius `getBalance`+`parseTransactions`, asyncpg SELECTs). The bot was not touched.
+**Bot state:** TEST_MODE=true (paper, unchanged). DAILY_LOSS_LIMIT_SOL=4.0, MAX_POSITION_SOL=0.25, MAX_SD_POSITIONS=20 (sizing reconcile to 1.5/0.10/5 was NEVER reached — gate failed first). BOT_CORE_FILL_MC_CEILING_USD=1000. ML_THRESHOLD_BOT_CORE_SD=40. **Wallet 5.064095633 SOL on-chain** (Helius `getBalance`, exact; `bot:onchain:balance` matches). `bot:emergency_stop` absent; `bot:consecutive_losses=0`; `bot:daily_pnl=0`; `bot:loss_pause_until` absent. 0 paper open / 0 live open. `market:mode:current=HIBERNATE`. bot_core alive-but-idle (`bot:filter:fill_mc_ceiling:rejects:2026-06-02=2`; heartbeat/`bot:status` absent = HIBERNATE-quiet artifact, not a crash). Outstanding V5A blockers: **1** (PC4 — the flip itself).
+**Findings (key):**
+- 🔴 **STOP-M FIRED (×2) — NO FLIP.** (1) `market:mode:current=HIBERNATE` (fresh `market:health` ts 12:54:34Z: cfgi 34.0, sentiment 22.5, SOL $78.84). Per D-S4 (binding), HIBERNATE aborts; NORMAL/DEFENSIVE/AGGRESSIVE would proceed. `market:mode:override` not set — computed HIBERNATE genuinely governs. (2) Signal pipeline near-dead: `market:new_token_count_1h=14` (was 10,257 on 2026-05-20 — ~700× collapse); `service:health.pumpportal="no signals"`. A flip would be inert. Setting an override to NORMAL is out of §2 scope AND would defeat the safety gate — not done.
+- 🟢 **Everything-else-GO.** Railway authed (10 services). Commits `f3591eb`/`3c50520`/`7458f2d` all ancestors of HEAD `7d33994` (local==origin 0/0). All 3 fixes present in `services/bot_core.py` source (reconcile filter L260/L319 + `[RECONCILE]`; entry-sig field L225 + kwarg L1022 + `[ENTRY_SIG]`; PC3 MC gate L982; per-decision estop L612; sell-storm default 8 L228; ORIGIN_MISMATCH L1558). Wallet 5.064 SOL ≥ 5.0.
+- 🟢 **Path B engine intact (id 6580).** DB row `correction_method='live_actual_v1'`, both sigs populated; Helius on-chain re-parse of the entry sig → native delta **−374,251,786 lamports** EXACT match. STOP-PathB no-fire.
+- 🟢 **Orphan baseline CLEAN (the May-20 vector).** `trades WHERE closed_at IS NULL AND trade_mode='live'` = **0** (the exact live-reconciler query). paper-open=0; any-mode trades-open=6 (paper orphans Bug-1 now skips); MAX(paper_trades.id)=10926. 14 phantom rows still tagged; 1 real live row. STOP-Orphan no-fire.
+- 🟡 **Deploy-SHA UNCONFIRMABLE (carry-forward).** Railway CLI is **v4.6.0** → `list-deployments` unsupported (needs ≥4.10.0). Running-container SHA for `7458f2d` remains unconfirmed since 2026-05-28. The Phase 1.5 forced-redeploy fail-safe was NOT triggered (flip halted on STOP-M; redeploy is a flip-enablement write). Next attempt: upgrade CLI ≥4.10.0 OR rely on forced-redeploy.
+- 🟡 **Market context shift since 2026-05-20:** SOL ~$85→$78.84; mode DEFENSIVE→HIBERNATE; new-token flow 10,257→14/hr. Looks like a broad memecoin lull (all data-source health `ok`), not a single-service outage.
+- 🟢 **Every STOP evaluated:** A/H/Wallet/PathB/Orphan/Scope/Loop/L/Claude all no-fire; STOP-M fired ×2; Deploy/Reconcile/Contamination/DailyHalt/Rollback n/a (never flipped). **Zero state writes → STOP-Scope clean; Phase R not applicable.**
+**Verdict:** ⛔ **NO FLIP — HALTED at Phase 1 preflight gate on STOP-M (HIBERNATE + dead signal pipeline).** This is a market-timing halt, **NOT STOP-Rollback** — no failed flip, no contamination, no diagnosis-and-fix gate. Re-attemptable in the next non-HIBERNATE window under the same authorization framework. PC4 stays `[ ]`.
+**Blockers cleared:** none (none were closeable — PC4 requires a successful flip, which market regime prevented).
+**Blockers new/active:**
+- 📋 **PC4 (V5A flip itself)** — still Jay-authorization-gated; re-attempt when `market:mode:current` ∈ {NORMAL/DEFENSIVE/AGGRESSIVE} AND `new_token_count_1h` back in the thousands (pumpportal flowing) AND Jay can commit the D-S7 4–6h watch.
+- 📋 **Railway CLI v4.6.0 < 4.10.0** — upgrade so Phase 1.5 deploy-SHA verification works; else use forced-redeploy fail-safe. (Deploy-SHA for `7458f2d` unconfirmed since 2026-05-28.)
+- All prior carries unchanged (3 Tier-3 V5A-FIXES-001 follow-ups, BUG-010 Anthropic, etc.).
+**Concurrent-session compatibility:** No concurrent session at start (last commit `7d33994` from 2026-05-28). `git fetch origin main` clean (0/0). Single docs push at session end; append-only updates throughout.
+**Next prompt:** None auto-triggered. Re-paste V5A-FLIP-002-V3R (or a thin re-run) in the next non-HIBERNATE window. Carry-forward unchanged: Phase 10.5/6.3 first-live-close must produce `correction_method='live_actual_v1'` (entry-sig wiring `7458f2d`).
+**Pending Claude-chat prompts not yet pasted:** none — this session terminated with a NO-FLIP verdict.
+
+---
+
 ## 2026-05-28 — LIVE-FEE-CAPTURE-ENTRY-SIG-WIRING-001 (code+deploy, ✅ 1 FIX DEPLOYED — Path B entry-sig wiring resolved)
 
 **Committed:** `7458f2d` fix(live-exec): LIVE-FEE-CAPTURE-ENTRY-SIG-WIRING-001 — populate Position.entry_signature from live buy result (9 LOC in `services/bot_core.py`); follow-up docs commit (this entry) for audit + canonical doc updates. Files: NEW `docs/audits/LIVE_FEE_CAPTURE_ENTRY_SIG_WIRING_001_2026_05_27.md` (11 sections), `services/bot_core.py` (+9 LOC: Position dataclass `entry_signature` field + live-entry kwarg + `[ENTRY_SIG]` observability log), `AGENT_CONTEXT.md` (header refresh + §6 follow-up resolution), `ZMN_ROADMAP.md` (Decision Log row), `MONITORING_LOG.md` (entry), this STATUS.md prepend, `.gitignore` (.tmp_entrysig/).
