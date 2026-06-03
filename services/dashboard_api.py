@@ -521,8 +521,12 @@ async def api_stats(request):
     }
     try:
         # Use corrected P/L column with post-cleanup window
+        # API-STATS-FSTRING-BUG-001 (FIX #15): these three queries had `{mf}` inside a PLAIN
+        # (non-f) string → the literal text `{mf}` reached Postgres → syntax error → caught by
+        # the except below → api_stats silently returned ZEROS for pnl/win-rate/best/worst/
+        # today/avg-hold (and ignored the intended trade_mode filter). Added the `f` prefix.
         rows = await _query_db(
-            """SELECT COUNT(*) as total,
+            f"""SELECT COUNT(*) as total,
                 SUM(CASE WHEN COALESCE(corrected_pnl_sol, realised_pnl_sol) > 0 THEN 1 ELSE 0 END) as wins,
                 COALESCE(SUM(COALESCE(corrected_pnl_sol, realised_pnl_sol)), 0) as pnl,
                 COALESCE(MAX(COALESCE(corrected_pnl_sol, realised_pnl_sol)), 0) as best,
@@ -542,7 +546,7 @@ async def api_stats(request):
 
         # Today's P/L from closed trades today (corrected column)
         today_rows = await _query_db(
-            """SELECT COALESCE(SUM(COALESCE(corrected_pnl_sol, realised_pnl_sol)), 0) as today_pnl
+            f"""SELECT COALESCE(SUM(COALESCE(corrected_pnl_sol, realised_pnl_sol)), 0) as today_pnl
             FROM paper_trades
             WHERE exit_time IS NOT NULL AND {mf}
             AND exit_time >= EXTRACT(EPOCH FROM date_trunc('day', NOW()))""")
@@ -551,7 +555,7 @@ async def api_stats(request):
 
         # Bug 7 fix: avg hold capped by personality max, only last 24h
         hold_rows = await _query_db(
-            """SELECT AVG(
+            f"""SELECT AVG(
                 LEAST(
                     COALESCE(exit_time, EXTRACT(EPOCH FROM NOW())) - entry_time,
                     CASE personality

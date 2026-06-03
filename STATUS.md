@@ -7,6 +7,18 @@
 
 ---
 
+## 2026-06-03 — API-STATS-FSTRING-BUG-001 (NEW finding, fixed) — api_stats silently returned zeros
+
+**Committed:** `<this commit>` fix(dashboard): add missing `f` prefix to 3 api_stats queries — `services/dashboard_api.py`.
+**Finding (NEW, discovered during #15):** `api_stats` built 3 queries (main pnl/win-rate/best/worst, today-pnl, avg-hold) with `{mf}` inside PLAIN (non-`f`) strings → the literal text `{mf}` reached Postgres → syntax error → swallowed by the function's `except` → **api_stats silently returned ZEROS** for total_pnl_sol/win_rate/best_trade/worst_trade/today_pnl_sol/avg_hold_minutes AND ignored the intended trade_mode filter. Pre-existing; the mode filter was clearly intended (the code already wrote `{mf}`, just missing the `f`).
+**Fix:** added the `f` prefix to all three (lines 524/544/553). The other ~20 `{mf}` queries were already f-strings or use parameterized `$1`; verified none remain plain-string + `{mf}`.
+**Verification:** py_compile PASS; 6/6 prod-replay (all 3 queries × paper+live execute with the mode filter applied). **Paper-observable** (api_stats now returns real mode-filtered numbers). Filed in oversight doc.
+**Rollback:** `git revert` this commit.
+**Next prompt:** Phase-3 capstone.
+**Pending Claude-chat prompts not yet pasted:** none.
+
+---
+
 ## 2026-06-03 — §B Phase-3 #15 FIX-DASHBOARD-MODE-FIDELITY + DASH-CORRECTED-PNL-COLUMN-001 (🎯 PHASE 3 COMPLETE)
 
 **Committed:** `<this commit>` fix(dashboard/accounting): mode-fidelity + corrected-column migration — `services/dashboard_api.py`, `services/bot_core.py`, `migrations/003_add_corrected_pnl_to_trades.sql`. **Plus a prod DB migration already applied** (ALTER TABLE trades — additive, idempotent).
