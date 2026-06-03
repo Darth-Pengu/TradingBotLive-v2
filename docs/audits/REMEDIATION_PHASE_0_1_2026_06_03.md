@@ -151,6 +151,31 @@ Bot state at writing: TEST_MODE=true (paper), 6 services Online, `market:health.
 
 ---
 
+## PHASE 3 — accounting integrity (added 2026-06-03; live-path = flip-confirmed-only, dashboard = paper-observable)
+
+> **Goal:** make the trial's own PnL trustworthy. #14 is live-only (flip-confirmed). #15 is mixed — the dashboard analytics + snapshot daily_pnl ARE paper-observable; the entry-price + populate paths are live-only. A prod DB migration was applied (additive/idempotent).
+
+### 3 #14 — live staged-TP cumulative PnL + Path-B multi-exit + on-chain reconcile  (`b6c52fc`)
+- **Findings:** D05-F1 / D05-F2 / D02-F12 (all live close path).
+- **D05-F1:** the live close booked only the FINAL partial's PnL — earlier staged TPs (the live PARTIAL case just logged+returned) booked **nothing** → multi-TP winners grossly understated. Fix: new Position accumulators (`exit_signatures`, `cumulative_fees_sol`, `cumulative_sell_slippage_sum`, `exit_count`); every live exit leg accumulates `cumulative_pnl_sol += chunk_gross − chunk_sell_fees`; the terminal close subtracts the one-time buy fee ONCE and books the cumulative. `pnl_pct = pnl/size` (also standardises the Path A/B denominator → **D05-F10**).
+- **D05-F2:** Path B paired the full-position entry native-delta with only the last exit sig → could flip a winner to a loss. Fix: sum native deltas across ALL exit sigs (trusted only if entry + every exit parse; else Path A).
+- **D02-F12:** the in-memory daily_pnl/balance (kill-switch inputs) used the oracle estimate. Fix: moved below Path B, driven by `_booked_pnl = Path-B-if-available-else-Path-A` → the halt reconciles to on-chain truth.
+- **Single full close (sell_pct=1.0) reduces to the prior arithmetic exactly.** Paper path untouched (separate branch). **Verification:** py_compile + 6/6 structural + `.tmp_phase3/verify_staged_tp_pnl.py` 7/7 (staged cumulative 0.073 vs old buggy 0.023; Path-B sum +0.057 vs old last-only −0.048). **Reviewer check:** confirm the per-leg accumulation runs on every exit and the one-time buy fee is subtracted once. **Rollback:** `git revert b6c52fc`.
+
+### 3 #15 — dashboard mode-fidelity + corrected-column migration  (`888e2f5` + prod migration 003)
+- **DASH-CORRECTED-PNL-COLUMN-001** (prod, 60s ×3): web logged `column "corrected_pnl_sol" does not exist`. **TRUE root cause (`d89a803`):** NOT a missing `trades` column (the audit's hypothesis). It was a **subquery-alias bug** in `api_status`'s win-rate-window query (3 windows 10/25/50 → the exact 3×/60s, polled via `/api/status`): the OUTER SELECT referenced `COALESCE(corrected_pnl_sol, realised_pnl_sol)` over a subquery `t` that only PROJECTS `pnl` (the COALESCE was aliased to `pnl` inside) → Postgres raised the error against the **subquery**, not a table. Fix: outer uses `pnl`. Verified by prod-replay (the deployed query reproduced the error 2/2; fixed query passes 6/6). **Migration 003** (corrected_* cols onto `trades`, applied to prod) was done first under the audit's hypothesis — it is **harmless + retained** (additive/nullable, useful for `LIVE-TRADES-CORRECTED-POPULATE-001`) but did NOT resolve this error.
+- **D05-F4:** `api_analytics` had NO trade_mode filter on its 6 queries + used uncorrected realised → live view mixed paper+live, ignored Path B. Fix: thread `_mode_filter(mode)` + `COALESCE(corrected_pnl_sol, realised_pnl_sol)` everywhere.
+- **D05-F6:** `float(corrected or realised)` discarded a legit `corrected==0.0`. Fix: `_coalesce_pnl()` explicit None-check (SQL paths use COALESCE = None-only).
+- **D05-F3:** snapshot `daily_pnl_sol` was a LIFETIME SUM, no window, no trade_mode filter (in live mode `trades` holds paper+live). Fix: midnight-UTC window + trade_mode filter (dashboard reads each snapshot's value as-is → safe semantic correction; **paper-observable**).
+- **D02-F13:** live entry used `price=0.000001` on an oracle miss → every exit computed a fabricated giant win + corrupted `trades.entry_price`; verified `pos.entry_price` is NEVER corrected later. Fix: retry `_get_token_price` 3× (stream lag) then `entry_price=0.0` (exit math guarded on `>0` → books 0, defers to Path B) + ERROR + Sentry. Live-only.
+- **D05-F10** already standardised in #14. **D05-F8** (amount_sol paper-net vs live-gross) — documented as a known semantic difference, NOT changed (would break historical analysis; 🟢).
+- **Verification:** py_compile (both files) + 10/10 prod query-replay (rewritten analytics both modes + windowed snapshot both tables) + migration confirmed applied. **Rollback:** `git revert 888e2f5`; optionally `ALTER TABLE trades DROP COLUMN …` (additive/nullable — safe to leave).
+
+### Phase-3 follow-ups (filed, not lost)
+`LIVE-TRADES-CORRECTED-POPULATE-001` (the live `trades` UPDATE still writes only `pnl_sol`; now that `trades` has corrected cols, write the Path-B corrected value there too so the ML corpus carries on-chain truth — deferred, needs moving the trades UPDATE below Path B), `API-STATS-FSTRING-BUG-001` (NEW — see findings flag: several `api_stats` queries use literal `{mf}` without an `f` prefix), `AMOUNT-SOL-SEMANTICS-001` (D05-F8 standardise paper-net vs live-gross).
+
+---
+
 ## Cross-cutting decisions & lessons (for the reviewer's context)
 
 1. **Verification strategy shifted at the Phase boundary.** Phase-0 fixes run in paper → observed in prod (and one prod observation caught the connection leak → hotfix). Phase-1 fixes are in the live branch → not paper-observable → verified by tests + review, runtime-confirmed at the flip. This is inherent, not a shortcut.
@@ -173,11 +198,11 @@ Bot state at writing: TEST_MODE=true (paper), 6 services Online, `market:health.
 
 **Phase 2 — safety rails — ✅ CODE-COMPLETE & DEPLOY-CLEAN (2026-06-03)**, except 3 decision-gated sub-items deferred-and-flagged (see the Phase-2 section above). Done: #9 (`7e83949`), #10 (`7fe2ad1`), #11+#12 (`78cc45c`), #13 fail-CLOSED (`c70aba1`). Live behaviour is flip-confirmed-only (all live-only/default-preserving). Deferred sub-items needing a Jay decision: `SIZING-CAPS-WIRING-001` (MAX_SD_POSITIONS=20 deployed-but-unread → would jump cap 3→20 in paper), `TIMEZONE-SIZING-FIX-001` (changes paper sizing), `GOVERNANCE-STALENESS-POLICY-001` (halt-risk while governance dead). **BUG-010 (Anthropic credits) is a real go-live prerequisite — governance LLM is dead today.**
 
-**Phase 3 — accounting integrity (so trial PnL is trustworthy) — NOT STARTED (not yet authorized):**
-- #14 live staged-TP cumulative PnL (D05-F1) + Path-B multi-exit sum (D05-F2) + in-memory balance reconcile (D02-F12).
-- #15 dashboard mode-fidelity (D05-F3/F4) + entry-price sentinel (D02-F13) + **DASH-CORRECTED-PNL-COLUMN-001** (the `corrected_pnl_sol does not exist` DB error).
+**Phase 3 — accounting integrity — ✅ CODE-COMPLETE & DEPLOY-VERIFIED (2026-06-03).** #14 (`b6c52fc`) live staged-TP cumulative PnL + Path-B multi-exit sum + in-memory on-chain reconcile (D05-F1/F2/D02-F12); #15 (`888e2f5` + prod migration 003) dashboard mode-fidelity (D05-F3/F4/F6) + entry-price sentinel (D02-F13) + **DASH-CORRECTED-PNL-COLUMN-001 resolved** (corrected cols added to `trades`). #14 live-only/flip-confirmed; #15 dashboard parts paper-observable. Phase-3 follow-ups filed: `LIVE-TRADES-CORRECTED-POPULATE-001`, `API-STATS-FSTRING-BUG-001` (✅ already fixed `89ca0a1`), `AMOUNT-SOL-SEMANTICS-001`.
 
-**Deferred reliability follow-ups (filed, not lost):** `JITO-REIMPLEMENT-001`, `SELL-STORM-PARK-PERSISTENCE-001` (D04-F10), `EXEC-FORCE-ABANDON-001` (D03-F8), `MARKET-MODE-THRESHOLD-RECALIBRATE-003`.
+**🎯 ALL OF §B (Phases 0–3) IS CODE-COMPLETE & DEPLOY-VERIFIED.** What remains before a live flip is NOT remediation code — it is: (a) the 4 flagged decision-gated items (BUG-010 credits, `SIZING-CAPS-WIRING-001`, `TIMEZONE-SIZING-FIX-001`, `GOVERNANCE-STALENESS-POLICY-001`); (b) runtime confirmation of all live-only fixes at the supervised first-live-trades flip; (c) the existing CLAUDE.md live-flip preconditions (PC1–PC4).
+
+**Deferred reliability follow-ups (filed, not lost):** `JITO-REIMPLEMENT-001`, `SELL-STORM-PARK-PERSISTENCE-001` (D04-F10), `EXEC-FORCE-ABANDON-001` (D03-F8), `MARKET-MODE-THRESHOLD-RECALIBRATE-003`, plus the Phase-3 follow-ups above, plus `AUDIT-001-SECURITY-HYGIENE` (Phase-4, mostly waived for supervised v5a-c).
 
 **Existing CLAUDE.md live-flip preconditions remain in force on top of all the above.**
 
@@ -201,10 +226,15 @@ e30d41b  Phase-0 #2  FIX-MARKET-MODE-MISCLASSIFICATION
 7fe2ad1  Phase-2 #10 FIX-GOVERNANCE-CFGI-READ (market:health, not phantom market:cfgi)
 78cc45c  Phase-2 #11+#12 live startup-state (daily-loss reload + on-chain balance seed)
 c70aba1  Phase-2 #13 fill-MC-ceiling fail-CLOSED (sizing-caps deferred → follow-ups)
+b6c52fc  Phase-3 #14 live staged-TP cumulative PnL + Path-B multi-exit + on-chain reconcile
+888e2f5  Phase-3 #15 dashboard mode-fidelity + corrected-column migration (D05-F3/F4/F6/D02-F13)
+89ca0a1  (follow-up) API-STATS-FSTRING-BUG-001 — missing f-prefix on 3 api_stats queries
+d89a803  (fix) TRUE DASH-CORRECTED-PNL-COLUMN-001 — api_status wr-window subquery alias (outer→pnl)
+         + prod DB migration 003 applied (ALTER TABLE trades ADD corrected_* cols; idempotent; retained)
 ```
 
-**Verification scripts** (gitignored scratch, run locally, results in commit messages/STATUS): `.tmp_pubsub_fix/verify_pubsub_isolation.py` (25/25), `.tmp_market_mode/verify_market_mode.py` (10/10), `.tmp_phase1/verify_phase1_4_8.py` (10/10), `.tmp_phase1/verify_idempotency.py` (6/6), `.tmp_phase2/` structural greps (#9 5/5, #10 4/4, #11+#12 6/6, #13 3/3).
+**Verification scripts** (gitignored scratch, run locally, results in commit messages/STATUS): `.tmp_pubsub_fix/verify_pubsub_isolation.py` (25/25), `.tmp_market_mode/verify_market_mode.py` (10/10), `.tmp_phase1/verify_phase1_4_8.py` (10/10), `.tmp_phase1/verify_idempotency.py` (6/6), `.tmp_phase2/` structural greps (#9 5/5, #10 4/4, #11+#12 6/6, #13 3/3), `.tmp_phase3/verify_staged_tp_pnl.py` (7/7), prod query-replay (#15 10/10 + api_stats 6/6).
 
 ---
 
-*Maintained alongside FULL_CODE_AUDIT_001. Phases 0, 1, 2 landed. When Phase-3 fixes land, append their section here so this stays the single oversight record through the go-live.*
+*Maintained alongside FULL_CODE_AUDIT_001. **Phases 0, 1, 2, 3 all landed + deploy-verified.** This is the single oversight record through the go-live; remaining items are decision-gated (not remediation code) + flip-time runtime confirmation.*
