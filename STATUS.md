@@ -7,6 +7,21 @@
 
 ---
 
+## 2026-06-03 — DEPLOY-OBSERVABILITY (§B Phase-0 #3) — PHASE 0 COMPLETE
+
+**Committed:** `51ed450` feat(observability): internal-service liveness rows + Discord down-alert in web health-checker.
+**Redis-hardening runtime-confirmed:** post-`2337565` observation — all 6 services Online, **bot_core supervise-restart count = 0** (was restart #8/#9 every 60s → the safety listeners are now stable), `market:migration_count_1h` climbing **2 → 6** (increments landing now), pipeline flowing, paper trades entering. HIBERNATE persists as a warm-up artifact (counter still filling toward DEFENSIVE's ≥10; resolves over ~1h; tracked by MARKET-MODE-THRESHOLD-RECALIBRATE-003). REDIS-CLIENT-HARDENING-001 = success.
+**This fix (#3):** makes a crashed internal service VISIBLE + ALERTED (the gap that made the 05-28 outage silent — D12-F2/F3/F4). Chose to fold the liveness checks into the existing `web` service's `_service_health_checker` (runs every 60s) rather than stand up a new billable Railway worker for `continuous_audit.py`. (a) `services/dashboard_api.py`: adds internal-service rows to `service:health` — bot_core (`service:bot_core:heartbeat`+`bot:status`), signal_aggregator (`signal_aggregator:health`), signal_listener (`signals:raw` freshness proxy), market_health (`market:health` freshness proxy); TTL'd keys mean absence==down. Fires a **rate-limited (30min) Discord alert** when bot_core/signal_aggregator/signal_listener has no liveness key. (b) `dashboard/dashboard-analytics.html`: new "ZMN Services" health section renders those rows (5th svc-grid, index-aligned with the JS `sections` map).
+**Verification:** py_compile PASS; confirmed liveness keys exist+fresh via Redis (`signal_aggregator:health` has a timestamp); HTML/JS alignment verified (5 grids ↔ 5 sections). Dashboard visual not render-tested (Playwright gated on OBS-004) — markup is append-only + mirrors existing cards (low layout risk). NOT runtime-verified against live Railway yet.
+**State changes:** code only; single `git push` redeploys all. No env/Redis/DB writes.
+**Note:** a fully-independent watchdog (`continuous_audit.py` as its own Railway service) would survive a `web` outage too; folding into `web` is the no-new-infra choice — filed as the stronger-option follow-up if `web` reliability becomes a concern.
+**Rollback:** `git revert` this commit → push.
+**§B Phase-0 COMPLETE:** #1 pubsub-isolation (+leak hotfix) ✅, #2 market-mode ✅, #2.5 redis-hardening ✅, #3 observability ✅. Bot recovered + hardened + observable. **Next phases before any live flip:** §B Phase 1 (live-execution correctness — D02-F1/F3/F5, D03-F1), Phase 2 (safety rails), Phase 3 (accounting). Open Phase-0 follow-ups: MARKET-MODE-THRESHOLD-RECALIBRATE-003 (needs ≥1h steady-state counter data).
+**Next prompt:** `FIX-LIVE-SELL-RESULT-CHECK` (§B Phase-1 #4 — the most dangerous live defect) when ready to start the live-execution-correctness phase.
+**Pending Claude-chat prompts not yet pasted:** none.
+
+---
+
 ## 2026-06-03 — REDIS-CLIENT-HARDENING-001 (Phase-0 reliability) + market-mode observation
 
 **Committed:** `b72fac2` fix(redis): harden all aioredis.from_url calls (keepalive/health_check/retry_on_timeout).

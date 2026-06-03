@@ -2,6 +2,14 @@
 
 ---
 
+## 2026-06-03 — DEPLOY-OBSERVABILITY (§B Phase-0 #3) — PHASE 0 COMPLETE
+
+- **REDIS-CLIENT-HARDENING-001 runtime-confirmed (`2337565`):** all 6 services Online; **bot_core supervise-restarts = 0** (was #8/#9 every 60s → safety listeners now stable); `market:migration_count_1h` climbing **2 → 6** (increments landing now); pipeline flowing, paper trades entering. HIBERNATE persists as warm-up (counter still filling toward DEFENSIVE's ≥10). Hardening = success.
+- **#3 DEPLOY-OBSERVABILITY (`51ed450`):** makes a crashed internal service VISIBLE + ALERTED (the D12-F2/F3/F4 gap that made 05-28 silent). Folded into the existing `web` `_service_health_checker` (no new billable Railway worker): internal-service rows in `service:health` (bot_core/signal_aggregator via heartbeat keys; signal_listener/market_health via freshness proxies; TTL → absence==down) + rate-limited (30min) Discord down-alert; dashboard gains a "ZMN Services" section. py_compile PASS; liveness keys verified present+fresh; HTML/JS aligned (5 grids↔5 sections). Dashboard visual not render-tested (Playwright gated on OBS-004; append-only markup).
+- **§B Phase-0 COMPLETE:** #1 pubsub-isolation (+leak hotfix) ✅, #2 market-mode ✅, #2.5 redis-hardening ✅, #3 observability ✅. Bot recovered + hardened + observable. Next before any live flip: §B Phase 1 (live-execution correctness), Phase 2 (safety), Phase 3 (accounting). Open: MARKET-MODE-THRESHOLD-RECALIBRATE-003, stronger-watchdog follow-up. No env/Redis/DB writes. Rollback: `git revert`.
+
+---
+
 ## 2026-06-03 — REDIS-CLIENT-HARDENING-001 (Phase-0 reliability) + market-mode prod observation
 
 - **#2 prod observation:** all 6 services Online; `market:health` = dex $1.65B (healthy), `data_degraded=false`, `mode=HIBERNATE`, `market:migration_count_1h=2`. The market-mode fix is working as designed — it abstains only on an ABSENT counter; here the counter is PRESENT-but-low (2/hr < DEFENSIVE's 10), so it correctly enforces HIBERNATE. The 2/hr is a post-restart warm-up + Redis-timeout-dropped-increment artifact. Paper trades still flow (`ENTERING ... mode=DEFENSIVE [PAPER]` via AGGRESSIVE_PAPER).

@@ -203,6 +203,12 @@ kbd{background:var(--bg-elevated);border:1px solid var(--border-active);border-r
     <div class="svc"><div class="svc-dot ok"></div><div class="svc-info"><div class="svc-name">Discord Bot</div><div class="svc-detail">ZMN Listener</div></div><div class="svc-ms">ok</div></div>
   </div>
 
+  <!-- DEPLOY-OBSERVABILITY: internal ZMN service liveness (from service:health, written by the web health-checker). A crashed internal service now shows here instead of being invisible. -->
+  <div class="sec-h">ZMN Services</div>
+  <div class="svc-grid">
+    <div class="svc"><div class="svc-dot warn"></div><div class="svc-info"><div class="svc-name">Bot Core</div><div class="svc-detail">checking...</div></div><div class="svc-ms">--</div></div>
+  </div>
+
   <div class="grid2">
     <div class="card">
       <div class="card-title">Market Conditions</div>
@@ -407,12 +413,14 @@ try{
     'Blockchain':['helius_rpc','helius_parse','helius_gatekeeper'],
     'Data Feeds':['gecko','dexpaprika','defillama','rugcheck','vybe','nansen'],
     'Infrastructure':['redis','anthropic','discord_webhook','discord_bot'],
+    'ZMN Services':['bot_core','signal_listener','signal_aggregator','market_health'],
   };
   const names={pumpportal:'PumpPortal WS',jupiter:'Jupiter Ultra',jito:'Jito Bundles',
     helius_rpc:'Helius RPC',helius_parse:'Helius Parse TX',helius_gatekeeper:'Helius Gatekeeper',
     gecko:'GeckoTerminal',dexpaprika:'DexPaprika SSE',defillama:'DefiLlama',rugcheck:'Rugcheck',
     vybe:'Vybe Network',nansen:'Nansen API',redis:'Redis',anthropic:'Anthropic API',
-    discord_webhook:'Discord Webhooks',discord_bot:'Discord Bot'};
+    discord_webhook:'Discord Webhooks',discord_bot:'Discord Bot',
+    bot_core:'Bot Core',signal_listener:'Signal Listener',signal_aggregator:'Signal Aggregator',market_health:'Market Health'};
   const dotMap={ok:'svc-dot ok',live:'svc-dot live',warn:'svc-dot warn',down:'svc-dot down'};
   const statusMap={ok:'CONNECTED',live:'LIVE',warn:'DEGRADED',down:'DOWN'};
   const colorMap={ok:'var(--green)',live:'var(--accent-teal)',warn:'var(--accent-amber)',down:'var(--red)'};

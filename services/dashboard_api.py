@@ -2134,6 +2134,68 @@ async def _service_health_checker(app: web.Application):
             health["discord_bot"] = {"status": "ok" if os.getenv("DISCORD_BOT_TOKEN") else "warn",
                                      "latency_ms": None, "detail": "configured" if os.getenv("DISCORD_BOT_TOKEN") else "not set"}
 
+            # === DEPLOY-OBSERVABILITY (FULL-CODE-AUDIT D12-F2/F3/F4): internal-service
+            # liveness. Previously this dict held ONLY external APIs, so a crashed
+            # internal service (e.g. the 2026-05-28 bot_core + signal_listener
+            # crash-loop) was invisible here — at best mislabelled "pumpportal: warn".
+            # Each internal service writes a TTL'd liveness key, so absence == down.
+            # We surface a row per service AND fire a rate-limited Discord alert when a
+            # critical one is missing (the alerting that did not exist on 2026-05-28). ===
+            def _liveness(raw, stale_after):
+                """(status, detail) from a TTL'd JSON liveness value. raw=None => the
+                key expired => service down. Parses 'timestamp' if present for age."""
+                if not raw:
+                    return "down", "no liveness key (service DOWN?)"
+                try:
+                    ts = json.loads(raw).get("timestamp")
+                    if ts:
+                        age = (datetime.now(timezone.utc) - datetime.fromisoformat(str(ts).replace("Z", "+00:00"))).total_seconds()
+                        return ("ok" if age < stale_after else "warn"), f"heartbeat {int(age)}s ago"
+                except Exception:
+                    pass
+                return "ok", "alive"
+
+            internal_down = []
+            # bot_core: service:bot_core:heartbeat (ex=90) primary; bot:status (ex=30) faster signal
+            bc_hb = await redis_conn.get("service:bot_core:heartbeat")
+            bc_status_raw = await redis_conn.get("bot:status")
+            if bc_hb or bc_status_raw:
+                st, det = _liveness(bc_hb, 180)
+                if st == "down" and bc_status_raw:
+                    st, det = "ok", "bot:status present"
+                health["bot_core"] = {"status": st, "latency_ms": None, "detail": det}
+            else:
+                health["bot_core"] = {"status": "down", "latency_ms": None, "detail": "no heartbeat/bot:status (DOWN?)"}
+                internal_down.append("bot_core")
+            # signal_aggregator: signal_aggregator:health (ex=120)
+            sa_st, sa_det = _liveness(await redis_conn.get("signal_aggregator:health"), 240)
+            health["signal_aggregator"] = {"status": sa_st, "latency_ms": None, "detail": sa_det}
+            if sa_st == "down":
+                internal_down.append("signal_aggregator")
+            # signal_listener: no heartbeat key — proxy via signals:raw freshness (computed above as 'pumpportal')
+            pp = health.get("pumpportal", {"status": "warn", "detail": "unknown"})
+            sl_status = "ok" if pp.get("status") in ("live", "ok") else ("warn" if pp.get("status") == "warn" else "down")
+            health["signal_listener"] = {"status": sl_status, "latency_ms": None, "detail": f"via signals:raw — {pp.get('detail', '')}"}
+            if sl_status == "down":
+                internal_down.append("signal_listener")
+            # market_health: proxy via market:health freshness (mh_status/mh_detail computed above)
+            health["market_health"] = {"status": mh_status, "latency_ms": None, "detail": mh_detail}
+
+            # Rate-limited (30min) Discord alert when a CRITICAL internal service is down.
+            if internal_down and os.getenv("DISCORD_WEBHOOK_URL"):
+                _last = getattr(app, "_internal_down_alert_ts", 0.0)
+                if time.time() - _last > 1800:
+                    app._internal_down_alert_ts = time.time()
+                    try:
+                        async with aiohttp.ClientSession() as _s:
+                            await _s.post(
+                                os.getenv("DISCORD_WEBHOOK_URL"),
+                                json={"content": f"⚠️ ZMN internal service(s) appear DOWN (no liveness key): {', '.join(internal_down)}. Check Railway deploys."},
+                                timeout=aiohttp.ClientTimeout(total=5),
+                            )
+                    except Exception:
+                        pass
+
             await redis_conn.set("service:health", json.dumps(health), ex=120)
         except Exception as e:
             logger.debug("Service health check error: %s", e)
