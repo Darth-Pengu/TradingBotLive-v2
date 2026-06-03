@@ -7,6 +7,19 @@
 
 ---
 
+## 2026-06-03 — FLIP-READINESS-REVIEW-001 (read-only; full dependency/env/API audit + go/no-go)
+
+**Committed:** `<this commit>` docs: `docs/audits/FLIP_READINESS_REVIEW_001_2026_06_03.md` (new) + index updates. **ZERO state writes** (read-only).
+**Verdict: CONDITIONAL GO (technical), HOLD pending 4 decisions + flip-time confirmation.** §B Phases 0–3 complete + deploy-verified; PC1/PC2/PC3 ✅; PC4 Jay-gated. Flip blocked NOT by code but by: BUG-010 (Anthropic credits — governance dead), the §6 sizing/cap config, and live-only-fix runtime confirmation.
+**Live state verified:** TEST_MODE=true; on-chain wallet **5.064 SOL** (`4h4pstXd...`); market:mode=**NORMAL**; emergency_stop unset; consecutive_losses=0; paper balance 132.6 SOL (vs 5.064 real — #12 corrects at live startup); governance=CONSERVATIVE/0.8/max_concurrent 10 (LLM dead).
+**🚩 Headline env-vs-intent discrepancies (must fix at flip):** `MAX_POSITION_SOL=0.25` (intent 0.10 — 2.5×), `DAILY_LOSS_LIMIT_SOL=4.0` (V5A decision 1.5 — 2.7×), concurrency cap = governance `max_concurrent_positions`=**10** enforced at bot_core:831 (intent 5; `MAX_SD_POSITIONS=20`/`MAX_CONCURRENT_POSITIONS=6` are BOTH phantom/unread — verified), `AGGRESSIVE_PAPER_TRADING=true` (set false), `HOLDER_COUNT_MIN=1` (GATES-V5 set 15 — loose), `HELIUS_DAILY_BUDGET` unset (verify >0).
+**API matrix:** Helius RPC/Jupiter/PumpPortal = live-path CRITICAL (all configured); Anthropic DEAD (BUG-010); Jito disabled in code (#6); Nansen/SocialData dead-by-design/credits.
+**Report covers:** verdict, live snapshot, §B status, API matrix, full env matrix (deployed vs intent), Redis keys, the 4 decision items, flip-config (§6), runbook (§7), risk register, handoff. **Built for Claude-web + cross-session persistence.**
+**Next prompt:** resolve BUG-010 credits → apply §6 flip-config → supervised flip per §7; or address a flagged follow-up.
+**Pending Claude-chat prompts not yet pasted:** none.
+
+---
+
 ## 2026-06-03 — CORRECTION: DASH-CORRECTED-PNL-COLUMN-001 TRUE root cause (subquery alias, not a missing column)
 
 **Committed:** `<this commit>` fix(dashboard): api_status win-rate-window subquery alias — `services/dashboard_api.py`.
