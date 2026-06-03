@@ -2,6 +2,14 @@
 
 ---
 
+## 2026-06-03 — §B Phase-1 #6 FIX-BUY-IDEMPOTENCY (double-submit guard + Jito-off + D02-F14)
+
+- **`services/execution.py`.** **D02-F3 (double-spend):** retry loop re-broadcast the same tx on a confirm-miss → could double-buy. New `_get_signature_status()` (getSignatureStatuses, 3-tier RPC); execute_trade now gates on on-chain status: landed→success(no resubmit), failed→resubmit, BUY-unknown→record-pending-with-sig(never double-buy), SELL-unknown→failure(#4 parks+retries). **D02-F2/F7:** `use_jito=False` (bundle path returns UUID-not-sig + no tip) → real-sig `_send_transaction`; JITO-REIMPLEMENT-001 filed. **D02-F14:** unset parse-URL → confirmed=False (getSignatureStatuses verifies) not blind-True (env-checked: URL is set).
+- **Verification:** py_compile PASS; `.tmp_phase1/verify_idempotency.py` 6/6 (mocked-RPC unit test of the helper) + 9/9 structural + code review. **NOT paper-observable (live branch)** — runtime-confirmed at the supervised flip. Deploy bar = execution.py imports clean.
+- One lever (execution.py only). Rollback: `git revert`. Next: #7 EXEC-001/002 (+D02-F8 Jupiter partial-sizing + D02-F5 confirm).
+
+---
+
 ## 2026-06-03 — §B Phase-1 #4+#8 MERGED (live-sell result-check + emergency-stop robustness)
 
 - **First live-execution-correctness fix** (`services/bot_core.py`). **#4 (D02-F1):** failed live sells were booked as successful closes (`execute_trade` returns success=False/never raises → old except dead → SOL stranded, fabricated PnL, position popped). New `if not result.success:` + `_handle_failed_live_sell()` (park-and-continue, never raises) leaves the position OPEN for retry. **#8 (D03-F1/D04-F8):** emergency_stop guards each close, detects left-open via `key in self.positions`, sets durable Redis `bot:emergency_stop`, always alerts+publishes. Merged (co-dependent).

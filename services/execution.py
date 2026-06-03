@@ -576,8 +576,13 @@ async def _confirm_trade_helius(session: aiohttp.ClientSession, signature: str) 
 
     Returns: {"confirmed": bool, "details": dict}
     """
-    if not HELIUS_PARSE_TX_URL or not signature or signature.startswith("TEST_MODE"):
+    if not signature or signature.startswith("TEST_MODE"):
         return {"confirmed": True, "details": {}}
+    if not HELIUS_PARSE_TX_URL:
+        # FIX-BUY-IDEMPOTENCY (D02-F14): do NOT blind-pass when the parse URL is unset — that
+        # recorded unverified live txs as confirmed. Return unconfirmed so execute_trade's
+        # getSignatureStatuses idempotency check verifies the tx on-chain instead.
+        return {"confirmed": False, "details": {"error": "HELIUS_PARSE_TX_URL unset"}}
 
     url = HELIUS_PARSE_TX_URL
     payload = {"transactions": [signature]}
@@ -632,6 +637,51 @@ async def _confirm_trade_helius(session: aiohttp.ClientSession, signature: str) 
 
     logger.warning("Trade confirmation failed after 3 attempts for %s — treating as unconfirmed", signature[:16])
     return {"confirmed": False, "details": {"error": "timeout after 3 attempts"}}
+
+
+# ---------------------------------------------------------------------------
+# On-chain signature status (idempotency guard — FIX-BUY-IDEMPOTENCY / D02-F3)
+# ---------------------------------------------------------------------------
+async def _get_signature_status(session: aiohttp.ClientSession, signature: str) -> str:
+    """Query getSignatureStatuses on the 3-tier Helius RPC for an already-BROADCAST tx.
+
+    Returns:
+      "landed"  — the tx is on-chain with no error (confirmed/finalized): treat as success.
+      "failed"  — the tx is on-chain WITH an error: it genuinely failed; a fresh re-submit
+                  is safe (no double-spend, since this one definitively did not execute).
+      "unknown" — not found on any RPC / RPC error: status is indeterminate. The caller must
+                  NOT re-submit (the tx may have landed → double-spend); record as pending.
+
+    This exists so execute_trade never re-broadcasts a buy/sell that may already have landed
+    (the D02-F3 double-submit bug — the retry loop used to resubmit on a confirmation miss).
+    """
+    if not signature or signature.startswith("TEST_MODE"):
+        return "unknown"
+    payload = {
+        "jsonrpc": "2.0", "id": 1, "method": "getSignatureStatuses",
+        "params": [[signature], {"searchTransactionHistory": True}],
+    }
+    helius_api_key = os.getenv("HELIUS_API_KEY", "").strip()
+    for rpc_url in (HELIUS_RPC_URL, HELIUS_STAKED_URL, HELIUS_GATEKEEPER_URL):
+        if not rpc_url:
+            continue
+        try:
+            url = rpc_url.split("?")[0] if "?api-key=" in rpc_url and rpc_url == HELIUS_STAKED_URL else rpc_url
+            headers = {"Authorization": f"Bearer {helius_api_key}"} if helius_api_key and rpc_url == HELIUS_STAKED_URL else {}
+            async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                if resp.status != 200:
+                    continue
+                data = await resp.json()
+                value = ((data.get("result") or {}).get("value") or [None])
+                st = value[0] if value else None
+                if st is None:
+                    continue  # not found on this RPC — try the next tier before concluding unknown
+                if st.get("err") is not None:
+                    return "failed"
+                return "landed"  # confirmationStatus in {processed,confirmed,finalized}, no err
+        except Exception as e:
+            logger.debug("getSignatureStatuses error on %s: %s", rpc_url[:40], e)
+    return "unknown"
 
 
 # ---------------------------------------------------------------------------
@@ -694,6 +744,14 @@ async def execute_trade(
     delay_ms = RETRY_CONFIG["initial_delay_ms"]
     last_error = ""
 
+    # FIX-BUY-IDEMPOTENCY (D02-F2/F7): the Jito bundle path is broken — _send_jito_bundle
+    # returns the bundle UUID (NOT a tx signature, so confirmation + Path B fee parsing both
+    # fail and the old retry loop double-submitted) AND adds no tip instruction (so bundles
+    # never land). Force the proven local-RPC path (_send_transaction: real signature, 3-tier
+    # Helius fallback). A correct Jito impl (real-sig extraction + tip transfer) is a separate
+    # follow-up (JITO-REIMPLEMENT-001); until then live trades must not route through it.
+    use_jito = False
+
     for attempt in range(1, RETRY_CONFIG["max_retries"] + 1):
         # Preflight on attempt 1, skip on retries 2+ (AGENT_CONTEXT Section 5)
         skip_preflight = attempt > 1
@@ -740,12 +798,46 @@ async def execute_trade(
                     confirmation = await _confirm_trade_helius(confirm_session, signature)
                 if not confirmation["confirmed"]:
                     err_detail = confirmation["details"].get("error", "unconfirmed")
-                    logger.warning("Trade %s not confirmed: %s — retrying", signature[:16], err_detail)
-                    last_error = f"trade not confirmed: {err_detail}"
-                    if attempt < RETRY_CONFIG["max_retries"]:
-                        await asyncio.sleep(delay_ms / 1000.0)
-                        delay_ms *= RETRY_CONFIG["backoff_factor"]
-                    continue
+                    # FIX-BUY-IDEMPOTENCY (D02-F3): a tx was already BROADCAST (we hold a
+                    # signature). The old code `continue`d here → re-built + re-broadcast the
+                    # same trade, risking a DOUBLE-SPEND on a buy that actually landed. Decide
+                    # from on-chain status instead. Poll getSignatureStatuses briefly (covers
+                    # "just-submitted, not yet visible").
+                    async with aiohttp.ClientSession() as status_session:
+                        status = "unknown"
+                        for _poll in range(3):
+                            status = await _get_signature_status(status_session, signature)
+                            if status != "unknown":
+                                break
+                            await asyncio.sleep(2)
+                    if status == "landed":
+                        logger.info("Trade %s landed on-chain (getSignatureStatuses) despite parse-confirm miss", signature[:16])
+                        return ExecutionResult(success=True, signature=signature, api_used=router_label,
+                                               attempts=attempt, simulated=False)
+                    if status == "failed":
+                        # definitively failed on-chain → it did NOT execute → safe to re-submit
+                        last_error = f"trade failed on-chain: {err_detail}"
+                        logger.warning("Trade %s failed on-chain (%s) — re-submitting", signature[:16], err_detail)
+                        if attempt < RETRY_CONFIG["max_retries"]:
+                            await asyncio.sleep(delay_ms / 1000.0)
+                            delay_ms *= RETRY_CONFIG["backoff_factor"]
+                        continue
+                    # status == "unknown": indeterminate — the tx MAY have landed.
+                    if action == "buy":
+                        # NEVER re-submit a buy that may have landed (double-spend). Record it
+                        # as pending WITH the signature; reconcile / Path B / _check_exits
+                        # resolve it (a recorded-but-unlanded position is recoverable; a
+                        # double-spend is not).
+                        logger.warning("BUY %s submitted but unverifiable — NOT re-submitting (idempotency); recording as pending", signature[:16])
+                        return ExecutionResult(success=True, signature=signature, api_used=router_label,
+                                               attempts=attempt, simulated=False)
+                    # SELL unverifiable: return FAILURE so the caller (FIX-LIVE-SELL-RESULT-CHECK
+                    # #4) parks + retries via _check_exits, rather than booking a maybe-unlanded
+                    # close. Do not re-submit within this loop.
+                    last_error = f"sell unverifiable on-chain: {err_detail}"
+                    logger.warning("SELL %s unverifiable — returning failure (caller parks + retries)", signature[:16])
+                    return ExecutionResult(success=False, signature=signature, api_used=router_label,
+                                           attempts=attempt, error=last_error, simulated=False)
 
             return ExecutionResult(
                 success=True,

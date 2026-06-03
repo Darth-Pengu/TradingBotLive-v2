@@ -7,6 +7,21 @@
 
 ---
 
+## 2026-06-03 — §B Phase-1 #6 FIX-BUY-IDEMPOTENCY (double-submit guard + Jito-off + D02-F14)
+
+**Committed:** `2f00b19` fix(live-exec): buy/sell idempotency + disable broken Jito + close D02-F14 — `services/execution.py` only.
+**#6 (D02-F3 double-submit):** the retry loop used to `continue` (re-build + re-broadcast the same tx) on a confirmation miss — a DOUBLE-SPEND risk on a buy that actually landed. New `_get_signature_status()` helper (`getSignatureStatuses` on the 3-tier Helius RPC → `landed`/`failed`/`unknown`). On a confirm-miss, execute_trade now polls status (3× w/ 2s) and decides: **landed → success (no resubmit)**; **failed (on-chain err) → resubmit (genuinely didn't execute)**; **unknown → BUY records-as-pending WITH the sig (never double-buy; reconcile/Path-B/_check_exits resolve it), SELL returns failure (caller #4 parks+retries rather than booking a maybe-unlanded close).**
+**#6 (D02-F2/F7 Jito):** the Jito bundle path is broken — `_send_jito_bundle` returns the bundle UUID (not a tx sig → confirmation + Path B both fail → fed the double-submit) AND adds no tip (bundles never land). Forced `use_jito = False` in execute_trade → uses the proven local-RPC `_send_transaction` (real sig, 3-tier). Filed `JITO-REIMPLEMENT-001` (real-sig + tip) follow-up.
+**#6 (D02-F14):** `_confirm_trade_helius` no longer blind-passes (`confirmed=True`) when `HELIUS_PARSE_TX_URL` is unset — now returns `confirmed=False` so the getSignatureStatuses check verifies on-chain. (Env check: `HELIUS_PARSE_TX_URL` IS currently set on bot_core, so D02-F14 wasn't active — but this removes the latent blind-pass.)
+**Verification:** py_compile PASS; `.tmp_phase1/verify_idempotency.py` **6/6 PASS** (`_get_signature_status` landed/failed/unknown parsing + TEST_MODE short-circuit — unit-tested by mocking the RPC session); 9/9 structural checks (use_jito forced off, status-gated decision, action-differentiated unknown handling, D02-F14, old resubmit path gone); code review. **NOT paper-observable (live `else:` branch); runtime-confirmed at the flip.** Deploy bar = bot_core/execution import clean.
+**State changes:** code only; single `git push` redeploys all. No env/Redis/DB writes.
+**Rollback:** `git revert` this commit → push.
+**§B Phase-1 progress:** #4+#8 ✅, #6 ✅ (code). **Next: #7 FIX-EXEC-001-002-ROUTING** — refresh pool state for live sells, persist `bonding_curve_progress`/`pool_route`, AND **must include D02-F8 Jupiter partial-sizing** (enabling a working Jupiter sell path would otherwise reintroduce the full-bag dump) + D02-F5 confirm pumpportal_local partial sizing.
+**Next prompt:** Phase-1 #7.
+**Pending Claude-chat prompts not yet pasted:** none.
+
+---
+
 ## 2026-06-03 — §B Phase-1 #4+#8 MERGED (live-sell result-check + emergency-stop robustness)
 
 **Committed:** `2a85508` fix(live-exec): merged FIX-LIVE-SELL-RESULT-CHECK (#4) + FIX-EMERGENCY-STOP-ROBUSTNESS (#8) — `services/bot_core.py` only.
