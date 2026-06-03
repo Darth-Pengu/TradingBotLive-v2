@@ -2,6 +2,15 @@
 
 ---
 
+## 2026-06-03 — BOT RECOVERED + FIX-MARKET-MODE-MISCLASSIFICATION (§B Phase-0 #2)
+
+- **BOT RECOVERED (prod-confirmed):** after `98c8007` + leak-hotfix `9fa45b0`, all 6 services ● Online, `MaxConnectionsError` GONE, pipeline FLOWING — signal_listener emitting signals, signal_aggregator `SCORED → speed_demon`, bot_core `ENTERING ... [PAPER]`. The 05-28 crash-loop outage is resolved; `supervise` verified catching the exact redis `TimeoutError` in prod (concise one-liner restarts; listeners re-subscribe). Phase-0 #1 DONE.
+- **#2 deployed (`5a3e5aa`, market_health.py):** missing-data != dead-market. Absent migration counter → `None` ABSTAINS (not veto; vs genuine 0); DefiLlama `None`+last-good (not 0.0); fabricated `pumpfun_vol` leg dropped from binding decision; total-data-loss → DEFENSIVE not HIBERNATE; `data_degraded` flag. py_compile PASS; 10/10 classifier tests PASS (incl. $1.75B-dex+absent-counter → NORMAL, the outage case). Supersedes MARKET-MODE-001-RE-CALIBRATE-002.
+- **NEW prod finding `REDIS-CLIENT-HARDENING-001` (🟡 Phase-0):** persistent `Timeout reading from redis.railway.internal:6379` (~6s) = environmental Railway-Redis slowness; resilience fix tolerates it (bot stays Online + processes) but safety pubsub listeners back off to 60s. Harden `aioredis.from_url` (keepalive/health_check/retry_on_timeout) before live. Filed in roadmap.
+- Sequencing: observe #2 → REDIS-CLIENT-HARDENING-001 → §B Phase-0 #3 DEPLOY-OBSERVABILITY. Rollbacks per-commit (`git revert`). No env/Redis/DB writes this session.
+
+---
+
 ## 2026-06-03 — FIX-PUBSUB-ISOLATION round 2 (prod observation + connection-leak hotfix)
 
 - **Prod observation of `98c8007`:** all 6 services ● Online — **crash-loop RESOLVED.** bot_core logs show `redis.exceptions.TimeoutError` from `_emergency_listener` (`pubsub.listen()`) now caught by `supervise` (`async_utils.py:52`) and restarted, NOT crashing the process. The fix is verified in prod against the exact error class that caused the 05-28 outage.

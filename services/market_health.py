@@ -125,6 +125,11 @@ _last_sol_price_time: float = 0.0
 _sol_price_1h_ago: float | None = None
 _sol_price_24h_ago: float | None = None
 _sol_price_history: list[tuple[float, float]] = []  # (timestamp, price)
+# FIX-MARKET-MODE-MISCLASSIFICATION: last-good DefiLlama dex volume so a transient
+# API failure does not zero the dex leg and force a spurious HIBERNATE.
+_last_dex_vol: float | None = None
+_last_dex_vol_time: float = 0.0
+_LAST_DEX_VOL_MAX_AGE = 3600.0  # seconds; use last-good only if fresher than this
 
 
 async def _fetch_json(session: aiohttp.ClientSession, url: str, params: dict | None = None, timeout: int = 15) -> dict | None:
@@ -175,17 +180,26 @@ async def _fetch_sol_price(session: aiohttp.ClientSession) -> float | None:
     return None
 
 
-async def _fetch_defillama(session: aiohttp.ClientSession) -> float:
-    """Returns Solana DEX 24h volume in USD."""
-    data = await _fetch_json(session, DEFILLAMA_URL)
-    if data and "totalDataChart" in data:
-        # Sum last 24h entries
-        chart = data.get("totalDataChart", [])
-        if chart:
-            return float(chart[-1][1]) if len(chart[-1]) > 1 else 0.0
-    if data and "total24h" in data:
-        return float(data["total24h"])
-    return 0.0
+async def _fetch_defillama(session: aiohttp.ClientSession) -> float | None:
+    """Returns Solana DEX 24h volume in USD, or None if unavailable.
+
+    FIX-MARKET-MODE-MISCLASSIFICATION (FULL-CODE-AUDIT D07-F4): returns None
+    (sentinel = "unknown"), NOT 0.0, on any failure/unexpected shape. A 0.0 here
+    used to zero the dex leg AND the derived pumpfun leg, force-vetoing the market
+    to HIBERNATE on a mere API blip — conflating a data outage with a dead market.
+    The caller treats None as unknown (last-good fallback, then abstain).
+    """
+    try:
+        data = await _fetch_json(session, DEFILLAMA_URL)
+        if data and "totalDataChart" in data:
+            chart = data.get("totalDataChart", [])
+            if chart and len(chart[-1]) > 1:
+                return float(chart[-1][1])
+        if data and "total24h" in data:
+            return float(data["total24h"])
+    except Exception as e:
+        logger.warning("DefiLlama fetch failed: %s", e)
+    return None
 
 
 async def _fetch_cfgi(session: aiohttp.ClientSession) -> float:
@@ -265,23 +279,35 @@ async def _fetch_priority_fee(session: aiohttp.ClientSession) -> dict:
     return {}
 
 
-def _determine_market_mode(dex_vol: float, grad_rate: float, pumpfun_vol: float) -> str:
+def _determine_market_mode(dex_vol: float | None, grad_rate: float | None, pumpfun_vol: float | None = None) -> str:
     """Determine market mode from thresholds. Check from highest to lowest.
 
-    Args:
-        dex_vol: 24h Solana DEX volume in USD (DefiLlama)
-        grad_rate: migrations per hour (1h-rolling count from signal_aggregator
-            via market:migration_count_1h Redis key). Post MARKET-MODE-001 fix
-            (2026-04-30); was previously a ratio (migrations/new_tokens) which
-            caused HIBERNATE-forever bug — see MARKET_MODES table comment.
-        pumpfun_vol: 24h pump.fun volume estimate in USD (currently 15% of
-            dex_vol; refine with PumpPortal stats API later).
+    FIX-MARKET-MODE-MISCLASSIFICATION (FULL-CODE-AUDIT D07-F1/F3/F4/F7,
+    MARKET-MODE-001-RE-CALIBRATE-002): the prior 3-leg AND conflated MISSING DATA
+    with a DEAD MARKET — an absent migration counter (grad_rate defaulted to 0) or
+    a DefiLlama blip (dex_vol coerced to 0) single-leg-vetoed an otherwise-healthy
+    market straight to HIBERNATE. That is the 2026-05-28 outage misclassification.
 
-    All three thresholds must pass for a mode tier to match. Falls through to
-    HIBERNATE if no tier matches.
+    New rules:
+      * dex_vol (DefiLlama, the one real volume signal) is the binding leg.
+      * An UNKNOWN grad_rate (None — counter absent / redis error) ABSTAINS: it
+        does not veto. A KNOWN grad_rate (including a genuine 0) is still enforced.
+        => a transiently-starved migration counter no longer forces HIBERNATE.
+      * pumpfun_vol is NO LONGER a binding leg. It was a fabricated 0.15*dex_vol
+        placeholder (collinear with dex_vol, never the binding constraint at the
+        tier boundaries); it is kept only as a labelled estimate in published
+        state. The param is retained for signature/backward compat and ignored.
+      * dex_vol UNKNOWN (None, even after last-good fallback) => DEFENSIVE, NOT
+        HIBERNATE. A total data outage is degraded-cautious-but-trading, never
+        block-everything. (Genuine low volume still falls through to HIBERNATE.)
     """
+    if dex_vol is None:
+        # No real volume signal at all -> degraded, not a confirmed dead market.
+        return "DEFENSIVE"
     for mode, pf_thresh, gr_thresh, dex_thresh in MARKET_MODES:
-        if pumpfun_vol >= pf_thresh and grad_rate >= gr_thresh and dex_vol >= dex_thresh:
+        dex_ok = dex_vol >= dex_thresh
+        grad_ok = (grad_rate is None) or (grad_rate >= gr_thresh)  # unknown abstains
+        if dex_ok and grad_ok:
             return mode
     return "HIBERNATE"
 
@@ -351,6 +377,7 @@ async def _publish_emergency(redis_conn: aioredis.Redis | None, reason: str):
 async def daily_health_check(redis_conn: aioredis.Redis | None):
     """Runs once, then every 5 minutes for intraday updates."""
     global _last_sol_price, _last_sol_price_time, _sol_price_history
+    global _last_dex_vol, _last_dex_vol_time
 
     async with aiohttp.ClientSession() as session:
         while True:
@@ -363,6 +390,24 @@ async def daily_health_check(redis_conn: aioredis.Redis | None):
                 )
 
                 now = time.time()
+
+                # FIX-MARKET-MODE-MISCLASSIFICATION: dex_vol is None when DefiLlama
+                # failed (sentinel, not 0.0). Fall back to last-good if fresh; else
+                # leave UNKNOWN. Never coerce to 0 (that would force HIBERNATE).
+                data_degraded = False
+                if dex_vol is not None:
+                    _last_dex_vol = dex_vol
+                    _last_dex_vol_time = now
+                elif _last_dex_vol is not None and (now - _last_dex_vol_time) < _LAST_DEX_VOL_MAX_AGE:
+                    logger.warning(
+                        "DefiLlama unavailable — using last-good dex_vol=%.0f (age %.0fs)",
+                        _last_dex_vol, now - _last_dex_vol_time,
+                    )
+                    dex_vol = _last_dex_vol
+                    data_degraded = True
+                else:
+                    logger.warning("DefiLlama unavailable and no fresh last-good — dex_vol UNKNOWN (will not force HIBERNATE)")
+                    data_degraded = True
 
                 if sol_price:
                     _sol_price_history.append((now, sol_price))
@@ -385,24 +430,29 @@ async def daily_health_check(redis_conn: aioredis.Redis | None):
                 _last_sol_price = sol_price
                 _last_sol_price_time = now
 
-                # Estimate pump.fun volume and graduation rate
-                # Decision: Using DexPaprika/PumpPortal data would be ideal, but those are
-                # in signal_listener. For now, estimate pump.fun as ~10-20% of total Solana DEX vol.
-                # This is a reasonable approximation; can be refined with PumpPortal stats API later.
-                pumpfun_vol_estimate = dex_vol * 0.15
-                # MARKET-MODE-001 fix (2026-04-30): read migration count per
-                # hour, not ratio. signal_aggregator increments
-                # market:migration_count_1h on every 'migration' signal type
-                # (1h-rolling counter). Default 0 -> falls to HIBERNATE on
-                # missing data. See MARKET_MODES table comment above.
-                grad_rate_estimate = 0.0
+                # pumpfun_vol_estimate is kept as a LABELLED observability estimate
+                # only — it is NO LONGER a binding classifier leg (was a fabricated
+                # 0.15*dex_vol placeholder, collinear with dex_vol). See
+                # _determine_market_mode. None when dex_vol is unknown.
+                pumpfun_vol_estimate = (dex_vol * 0.15) if dex_vol is not None else None
+                # FIX-MARKET-MODE-MISCLASSIFICATION: distinguish an ABSENT migration
+                # counter (unknown -> None -> ABSTAINS in the classifier, does not
+                # veto) from a genuine 0. `if mig_raw:` would treat "0" as absent
+                # too, so test `is not None`. The 2026-05-28 outage was exactly this:
+                # a pubsub-crash-starved counter defaulted to 0 and force-vetoed a
+                # healthy $1.75B market to HIBERNATE. Absent != dead market.
+                grad_rate_estimate = None
                 if redis_conn:
                     try:
                         mig_raw = await redis_conn.get("market:migration_count_1h")
-                        if mig_raw:
+                        if mig_raw is not None:
                             grad_rate_estimate = float(mig_raw)
-                    except Exception:
-                        pass
+                        else:
+                            logger.warning("market:migration_count_1h absent — grad_rate UNKNOWN (abstaining, not forcing HIBERNATE)")
+                            data_degraded = True
+                    except Exception as e:
+                        logger.warning("market:migration_count_1h read failed: %s — grad_rate UNKNOWN", e)
+                        data_degraded = True
 
                 # Check for manual override (set via POST /api/market-mode-override)
                 override = None
@@ -425,7 +475,10 @@ async def daily_health_check(redis_conn: aioredis.Redis | None):
 
                 # Primary CFGI = SOL (cfgi.io), fallback to BTC (Alternative.me)
                 primary_cfgi = cfgi_sol if cfgi_sol is not None else cfgi
-                sentiment = _compute_sentiment_score(primary_cfgi, grad_rate_estimate, sol_24h_change, dex_vol, 0)
+                # None-safe: grad_rate/dex_vol may be unknown (None) now.
+                sentiment = _compute_sentiment_score(
+                    primary_cfgi, grad_rate_estimate or 0.0, sol_24h_change, dex_vol or 0.0, 0,
+                )
 
                 state = {
                     "mode": mode,
@@ -437,6 +490,7 @@ async def daily_health_check(redis_conn: aioredis.Redis | None):
                     "cfgi": primary_cfgi,
                     "cfgi_btc": cfgi,
                     "pumpfun_vol_estimate": pumpfun_vol_estimate,
+                    "data_degraded": data_degraded,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
                 if cfgi_sol is not None:

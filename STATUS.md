@@ -7,6 +7,19 @@
 
 ---
 
+## 2026-06-03 — FIX-MARKET-MODE-MISCLASSIFICATION (§B Phase-0 #2) + bot-RECOVERY confirmation
+
+**Committed:** `5a3e5aa` fix(market-mode): missing-data != dead-market in `_determine_market_mode`.
+**BOT RECOVERED (verified in prod):** after the pubsub fixes (`98c8007` + `9fa45b0`) all 6 services are ● Online, **`MaxConnectionsError` gone (0 occurrences)**, and the pipeline is FLOWING — signal_listener emitting signals, signal_aggregator `SCORED → speed_demon`, bot_core `ENTERING ... [PAPER]`. **The 05-28 crash-loop outage is resolved.** `supervise` confirmed catching the redis `TimeoutError` (concise one-liner restarts) and listeners re-subscribe. Phase-0 #1 DONE.
+**This fix (#2):** `services/market_health.py` only. `_determine_market_mode` no longer conflates missing data with a dead market: (1) an ABSENT `market:migration_count_1h` → `None` sentinel that ABSTAINS (does not veto) — distinguished from a genuine 0 via `is not None`; (2) `_fetch_defillama` returns `None` (not `0.0`) on failure + last-good fallback (≤1h); (3) the fabricated `pumpfun_vol = 0.15*dex_vol` placeholder is DROPPED as a binding leg (kept as a labelled estimate); (4) total-data-loss → DEFENSIVE (cautious-but-trading), never HIBERNATE-on-a-data-outage; (5) `data_degraded` flag + warning logs. **Net:** a transiently-starved migration counter (the 05-28 trigger) no longer slams a healthy market to HIBERNATE; genuine low volume still → HIBERNATE.
+**Verification:** py_compile PASS; `.tmp_market_mode/verify_market_mode.py` **10/10 PASS** incl. the exact outage scenario ($1.75B dex + absent counter → NORMAL, was HIBERNATE) and genuine-dead-market → HIBERNATE. Logic-tested against the real function (pytz stubbed locally; pytz present on Railway).
+**State changes:** code only; single `git push` redeploys all. No env/Redis/DB writes. Supersedes MARKET-MODE-001-RE-CALIBRATE-002.
+**NEW finding/follow-up (prod-observed, FILED):** `REDIS-CLIENT-HARDENING-001` (Phase-0 reliability) — persistent `Timeout reading from redis.railway.internal:6379` (~every 6s) is environmental Railway-Redis slowness the resilience fix tolerates but doesn't cure; the safety pubsub listeners back off to 60s restarts under it. Harden every `aioredis.from_url` with `socket_keepalive=True`, `health_check_interval`, `retry_on_timeout=True`, lenient `socket_timeout`. Do before live (safety listeners must not be down 60s).
+**Rollback:** `git revert` this commit (market_health only) → push.
+**Next:** observe #2 deploy (market_health should classify NORMAL not HIBERNATE when counter starved + dex healthy; `data_degraded` flag), then `REDIS-CLIENT-HARDENING-001`, then §B Phase-0 #3 `DEPLOY-OBSERVABILITY`.
+
+---
+
 ## 2026-06-03 — FIX-PUBSUB-ISOLATION round 2 (prod-observed connection-leak hotfix)
 
 **Committed:** `3eeb516` fix(pubsub-isolation): release pubsub connection on listener restart + concise supervise logging.

@@ -66,3 +66,4 @@ scripts/devnet_*
 .tmp_market_regime/
 .tmp_full_audit/
 .tmp_pubsub_fix/
+.tmp_market_mode/
