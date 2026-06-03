@@ -309,6 +309,7 @@ async def _execute_pumpportal_local(
     amount_sol: float,
     slippage_bps: int,
     pool: str = "pump",
+    sell_fraction: float = 1.0,
 ) -> str:
     """Execute trade via PumpPortal Local API for pre-graduation tokens.
     Uses form data (not JSON). Response is raw unsigned tx bytes."""
@@ -332,11 +333,16 @@ async def _execute_pumpportal_local(
             "pool": pool,
         }
     else:
+        # FIX-PARTIAL-SELL-SIZING (D02-F5): sell the requested FRACTION of the token balance,
+        # not a hardcoded "100%". PumpPortal Local accepts a "X%" amount (percentage of the
+        # wallet's token balance). sell_fraction defaults 1.0 (full close) → "100%", unchanged
+        # for full exits; staged TPs / partials now sell their intended slice (e.g. "25%").
+        _sell_amount_str = "100%" if sell_fraction >= 0.999 else f"{max(sell_fraction, 0.0) * 100:g}%"
         form_data = {
             "publicKey": TRADING_WALLET_ADDRESS,
             "action": "sell",
             "mint": mint,
-            "amount": "100%",
+            "amount": _sell_amount_str,
             "denominatedInSol": "false",
             "slippage": str(slippage_pct),
             "priorityFee": "0.0005",
@@ -398,9 +404,11 @@ async def _execute_pumpportal_local(
 
 async def _execute_pumpportal_local_with_session(
     action: str, mint: str, amount_sol: float, slippage_bps: int, pool: str = "pump",
+    sell_fraction: float = 1.0,
 ) -> str:
     async with aiohttp.ClientSession() as session:
-        return await _execute_pumpportal_local(session, action, mint, amount_sol, slippage_bps, pool)
+        return await _execute_pumpportal_local(session, action, mint, amount_sol, slippage_bps, pool,
+                                               sell_fraction=sell_fraction)
 
 
 # ---------------------------------------------------------------------------
@@ -722,6 +730,7 @@ async def execute_trade(
     use_jito: bool = True,
     bonding_curve_progress: float | None = None,
     signal_type: str = "",
+    sell_fraction: float = 1.0,
 ) -> ExecutionResult:
     """
     Execute a trade with retry logic.
@@ -762,6 +771,7 @@ async def execute_trade(
                 slippage_bps_pp = PUMPPORTAL_SLIPPAGE.get(slippage_tier, 15) * 100  # convert pct to bps
                 signature = await _execute_pumpportal_local_with_session(
                     action, token.mint, amount_sol, slippage_bps_pp, token.pool,
+                    sell_fraction=sell_fraction,
                 )
             elif api == ExecutionAPI.PUMPPORTAL:
                 slippage = PUMPPORTAL_SLIPPAGE.get(slippage_tier, 15)
@@ -787,6 +797,13 @@ async def execute_trade(
                         token_amount = await _get_token_balance(bal_session, token.mint, TRADING_WALLET_ADDRESS)
                     if token_amount <= 0:
                         raise ExecutionError(f"No token balance found for {token.mint[:12]}")
+                    # FIX-PARTIAL-SELL-SIZING (D02-F8): sell only the requested fraction of the
+                    # balance (was: dumped the ENTIRE bag, breaking staged-TP/partial exits).
+                    # sell_fraction defaults 1.0 (full close) → unchanged for full exits.
+                    if sell_fraction < 0.999:
+                        token_amount = int(token_amount * sell_fraction)
+                    if token_amount <= 0:
+                        raise ExecutionError(f"Computed sell amount is zero for {token.mint[:12]} (fraction={sell_fraction})")
                     signature = await _execute_jupiter_with_session(
                         token.mint, SOL_MINT, token_amount, slippage_bps,
                         skip_preflight=skip_preflight,

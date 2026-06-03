@@ -2,6 +2,14 @@
 
 ---
 
+## 2026-06-03 — §B Phase-1 #5 FIX-PARTIAL-SELL-SIZING (+D02-F8)
+
+- **`execution.py` + `bot_core.py`.** D02-F5: pre-grad `_execute_pumpportal_local` SELL hardcoded `"amount":"100%"` → every partial/staged-TP live sell dumped the whole position. D02-F8: Jupiter post-grad sell sold the full wallet balance. Threaded `sell_fraction: float = 1.0` through `execute_trade` → both routes; `_close_position` passes `sell_fraction=sell_pct`; pre-grad sends `"X%"`, Jupiter `int(balance*frac)`. Full closes (1.0) unchanged at 100%.
+- **Verification:** py_compile PASS; fraction→percent + Jupiter-int arithmetic 10/10 + 4/4 structural + code review. **NOT paper-observable (live branch)** — runtime-confirmed at the flip (validate vs a multi-staged-TP live close). Deploy bar = execution.py/bot_core import clean.
+- One lever. Rollback: `git revert`. **§B Phase-1 remaining: ONLY #7 EXEC-001/002 routing** (smaller now — D02-F8 done here).
+
+---
+
 ## 2026-06-03 — §B Phase-1 #6 FIX-BUY-IDEMPOTENCY (double-submit guard + Jito-off + D02-F14)
 
 - **`services/execution.py`.** **D02-F3 (double-spend):** retry loop re-broadcast the same tx on a confirm-miss → could double-buy. New `_get_signature_status()` (getSignatureStatuses, 3-tier RPC); execute_trade now gates on on-chain status: landed→success(no resubmit), failed→resubmit, BUY-unknown→record-pending-with-sig(never double-buy), SELL-unknown→failure(#4 parks+retries). **D02-F2/F7:** `use_jito=False` (bundle path returns UUID-not-sig + no tip) → real-sig `_send_transaction`; JITO-REIMPLEMENT-001 filed. **D02-F14:** unset parse-URL → confirmed=False (getSignatureStatuses verifies) not blind-True (env-checked: URL is set).

@@ -1420,6 +1420,8 @@ class BotCore:
             result = await execute_trade(
                 "sell", token, sell_amount, slippage_tier="sell",
                 bonding_curve_progress=pos.bonding_curve_progress,
+                sell_fraction=sell_pct,  # FIX-PARTIAL-SELL-SIZING: sell this fraction of the
+                                         # CURRENT on-chain balance (staged TPs/partials), not 100%
             )
         except ExecutionError as e:
             # execute_trade normally RETURNS success=False rather than raising; this guard

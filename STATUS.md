@@ -7,6 +7,20 @@
 
 ---
 
+## 2026-06-03 — §B Phase-1 #5 FIX-PARTIAL-SELL-SIZING (+ D02-F8) — staged-TP live sells
+
+**Committed:** `3b6d0b1` fix(live-exec): partial-sell sizing on both routes — `services/execution.py` + `services/bot_core.py`.
+**Why (caught my own omission — "leave nothing out"):** #5 was dropped from my earlier "next" list; it's a 🔴 blocker. **D02-F5:** the pre-grad `_execute_pumpportal_local` SELL hardcoded `"amount":"100%"`, so EVERY partial/staged-TP live sell (sell_pct 0.25/0.50/0.95) **dumped the entire position** instead of the intended slice — the bot then thought it held a phantom remainder. **D02-F8:** the Jupiter (post-grad) sell fetched the FULL wallet balance and sold all of it (same bug, other route). (D02-F8 was scoped under #7; done here since it's the same fix.)
+**Fix:** threaded a `sell_fraction: float = 1.0` param through `execute_trade` → both sell routes. bot_core's `_close_position` passes `sell_fraction=sell_pct` (fraction of CURRENT on-chain balance — matches the multiplicative `remaining_pct *= (1-sell_pct)` semantics). pre-grad: `"amount"` = `"100%"` if fraction≥0.999 else `f"{frac*100:g}%"` (e.g. "25%"). post-grad Jupiter: `token_amount = int(balance * sell_fraction)`. **Full closes (sell_pct=1.0) → 100%/full balance — byte-for-byte unchanged**; only partials/staged-TPs change.
+**Verification:** py_compile PASS (both files); fraction→percent + Jupiter-int arithmetic 10/10 PASS; 4/4 structural (no hardcoded "100%" left, both routes apply the fraction, param threaded, bot_core passes sell_pct). **NOT paper-observable (live `else:` branch); runtime-confirmed at the flip** — validate against a multi-staged-TP live close.
+**State changes:** code only; single `git push` redeploys all. No env/Redis/DB writes.
+**Rollback:** `git revert` this commit → push.
+**§B Phase-1 progress:** #4+#8 ✅, #6 ✅, #5+D02-F8 ✅ (code). **Next: #7 FIX-EXEC-001-002-ROUTING** — now SMALLER (D02-F8 done here): refresh pool state for live sells (EXEC-001), persist `bonding_curve_progress`/`pool_route` at entry + restore in reconcile (D03-F3), EXEC-002 confirmed already-resolved.
+**Next prompt:** Phase-1 #7 (final Phase-1 item).
+**Pending Claude-chat prompts not yet pasted:** none.
+
+---
+
 ## 2026-06-03 — §B Phase-1 #6 FIX-BUY-IDEMPOTENCY (double-submit guard + Jito-off + D02-F14)
 
 **Committed:** `2f00b19` fix(live-exec): buy/sell idempotency + disable broken Jito + close D02-F14 — `services/execution.py` only.
