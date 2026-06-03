@@ -7,6 +7,19 @@
 
 ---
 
+## 2026-06-03 — FLIP-NIGHT-PREP-001 (read-only audit + flip tooling; NO live-branch change)
+
+**Committed:** `f5df07b` — NEW `scripts/flip_preflight_check.py`, `scripts/flip_rollback.sh`, `docs/audits/FLIP_NIGHT_PREP_001_2026_06_03.md` + index updates. **No bot-behaviour change, no deploy of bot code, no state write.**
+**Part A (load-bearing) ✅ GREEN:** #9 HIBERNATE veto gates ENTRIES only; ALL exits run regardless of `market:mode` — verified by direct trace + **3 adversarial refuters** (workflow, all `entries-only`, no mode-gate-on-exit). Citations: entry gates `bot_core.py:752-766/:817`, `risk_manager.py:223`; exits `_check_exits:2028` (only pause = emergency_stopped), `_close_position:1357`, `_evaluate_trailing_stop:1946`, `_exit_check_listener:2324`, `execution.py` (0 mode refs). ➡️ **A HIBERNATE dip is NOT a rollback trigger — verified.**
+**Part B `flip_preflight_check.py`:** read-only GREEN/YELLOW/RED verifier; dry-run NOW = EXIT 1 / 6 RED = exactly the §6 flip-config items still to apply; all safety rows GREEN (mode NORMAL, emergency unset, losses 0, **0 open live positions**, wallet **5.0641 SOL**, `MAX_CONCURRENT_POSITIONS=10`). Windows-safe (railway shim resolution + ASCII).
+**Part C `flip_rollback.sh`:** CONFIRM-gated one-command rollback (restores pre-flip config; NEVER touches emergency_stop or MAX_CONCURRENT_POSITIONS); verified `bash -n` + `--dry-run` + `--show-current` (NOT executed).
+**Part D ✅ GREEN:** dashboard surfaces mode/open-positions/recent-trades+exec/corrected-PnL; unauth curl→401 (JWT auth fail-closed, security positive); corrected-column error 0 in window. Operator must log in before the window.
+**🚩 NEW FLAGS (documented, NOT fixed — live path frozen):** (1) `HELIUS_DAILY_BUDGET` unset on bot_core (preflight RED; set at flip / verify raw-RPC not budget-gated); (2) **Jupiter price API → 403** with the deployed key (`api.jup.ag/price/v3`) — verify auth/endpoint before flip (live post-grad sells depend on it; paper has Redis/BC fallbacks) → `JUPITER-PRICE-AUTH-VERIFY-001`; (3) effective concurrency = 3 not 10 (per SIZING-CAPS-WIRING-001-B), shown as an informational verifier row.
+**Next prompt:** persist the FLIP NIGHT PLAYBOOK (Prompt 3 of 3) — operator doc; I will NOT execute the flip.
+**Pending Claude-chat prompts not yet pasted:** FLIP NIGHT PLAYBOOK (3 of 3).
+
+---
+
 ## 2026-06-03 — SIZING-CAPS-WIRING-001 (deterministic total concurrency cap) + 🚩 binding-cap correction
 
 **Committed:** `badb221` fix(caps): wire deterministic total concurrency cap at bot_core:831 — `services/bot_core.py`. **Env set:** `MAX_CONCURRENT_POSITIONS=10` on bot_core.

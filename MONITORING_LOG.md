@@ -2,6 +2,12 @@
 
 ---
 
+## 2026-06-03 — FLIP-NIGHT-PREP-001 (flip tooling; read-only)
+
+Built `scripts/flip_preflight_check.py` (read-only GREEN/YELLOW/RED verifier) + `scripts/flip_rollback.sh` (CONFIRM-gated one-command rollback). Part A verified GREEN (HIBERNATE gates entries only; exits run regardless of mode — 3 adversarial refuters agreed). Pre-flight dry-run NOW: 6 RED = the flip-config items still to apply; safety rows GREEN (mode NORMAL, 0 open live, wallet 5.0641 SOL). **Watch flags for the window:** verify `HELIUS_DAILY_BUDGET>0` and Jupiter price-API auth (preflight saw 403) before flipping. Dashboard watch-ready (login required). No bot-behaviour change.
+
+---
+
 ## 2026-06-03 — SIZING-CAPS-WIRING-001 (total concurrency cap wired) + binding-cap finding
 
 Wired the TOTAL concurrency cap at `bot_core.py:831` to `min(MAX_CONCURRENT_POSITIONS=10, gov)`; env set on bot_core. Watch on next bot_core boot: `[CAPS] concurrency cap=10 (env=10, gov=10)` (logs once on first signal post-boot). **Observation note:** effective SD-only concurrency is **3** (per-personality `risk_manager.MAX_CONCURRENT_PER_PERSONALITY`), so paper will not exceed 3 concurrent SD positions regardless of the total-10 — expected, not a fault. TEST_MODE stays true.

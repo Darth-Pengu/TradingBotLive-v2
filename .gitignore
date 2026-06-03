@@ -69,3 +69,4 @@ scripts/devnet_*
 .tmp_market_mode/
 .tmp_phase1/
 .tmp_caps/
+.tmp_flipprep/
