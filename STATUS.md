@@ -7,9 +7,22 @@
 
 ---
 
+## 2026-06-03 — SIZING-CAPS-WIRING-001 (deterministic total concurrency cap) + 🚩 binding-cap correction
+
+**Committed:** `badb221` fix(caps): wire deterministic total concurrency cap at bot_core:831 — `services/bot_core.py`. **Env set:** `MAX_CONCURRENT_POSITIONS=10` on bot_core.
+**Change (D04-F7):** `:831` now resolves `min(MAX_CONCURRENT_POSITIONS env, gov.max_concurrent_positions)` — env is a HARD ceiling, governance may only TIGHTEN below it (safety never loosens); default 5 if unset; logs `[CAPS] concurrency cap=N (env=E, gov=G)` once. Set env=10 (Jay's decision). **Paper-observable** (not TEST_MODE-gated). `MAX_SD_POSITIONS=20` left phantom (per scope). py_compile + 12/12 verify.
+**🚩 PLAN-CHANGING FINDING (corrects this prompt's premise + my own FLIP_READINESS_REVIEW §4.2/§5):** `:831` is the TOTAL cap and is **NOT the binding cap for the SD-only trial.** A second, per-personality cap binds FIRST: `risk_manager.py:51 MAX_CONCURRENT_PER_PERSONALITY=3` (WHALE=2), enforced at `risk_manager:228` → `base_size=0` → bot_core `:898` blocks. Admission order: `:831` total(10) → sizing → risk_manager per-personality(3) → block. With Analyst disabled + Whale dormant, **Speed Demon is capped at 3 concurrent — total-10 never reached → effective trial concurrency = 3, NOT 10.** Wiring `:831` is robustness/determinism, not a behaviour change at the current value. **To set the effective trial cap to the V5A ladder, `risk_manager.MAX_CONCURRENT_PER_PERSONALITY` must ALSO be wired** → filed **SIZING-CAPS-WIRING-001-B** (out of this prompt's scope fence). This affects the FLIP NIGHT PLAYBOOK's "cap=10" expectation: the `[CAPS]` startup log shows the *total* (10); the *effective* SD cap is 3 until 001-B lands.
+**State changes:** bot_core env `MAX_CONCURRENT_POSITIONS` 6→10; one code commit; bot_core redeploy. TEST_MODE stays true.
+**Bot state:** TEST_MODE=true, market:mode=NORMAL, emergency_stop unset, consecutive_losses=0.
+**Blockers cleared:** D04-F7 (total-cap determinism). **New/active:** SIZING-CAPS-WIRING-001-B (per-personality cap wiring — the binding one).
+**Next prompt:** FLIP-NIGHT-PREP-001 (Prompt 2 of 3) — its pre-flight verifier should treat "effective cap = 3 (per-personality)" not 10; note the 001-B gap.
+**Pending Claude-chat prompts not yet pasted:** FLIP-NIGHT-PREP-001 + FLIP NIGHT PLAYBOOK (2 of 3 queued this session).
+
+---
+
 ## 2026-06-03 — FLIP-READINESS-REVIEW-001 (read-only; full dependency/env/API audit + go/no-go)
 
-**Committed:** `<this commit>` docs: `docs/audits/FLIP_READINESS_REVIEW_001_2026_06_03.md` (new) + index updates. **ZERO state writes** (read-only).
+**Committed:** `badb221` docs: `docs/audits/FLIP_READINESS_REVIEW_001_2026_06_03.md` (new) + index updates. **ZERO state writes** (read-only).
 **Verdict: CONDITIONAL GO (technical), HOLD pending 4 decisions + flip-time confirmation.** §B Phases 0–3 complete + deploy-verified; PC1/PC2/PC3 ✅; PC4 Jay-gated. Flip blocked NOT by code but by: BUG-010 (Anthropic credits — governance dead), the §6 sizing/cap config, and live-only-fix runtime confirmation.
 **Live state verified:** TEST_MODE=true; on-chain wallet **5.064 SOL** (`4h4pstXd...`); market:mode=**NORMAL**; emergency_stop unset; consecutive_losses=0; paper balance 132.6 SOL (vs 5.064 real — #12 corrects at live startup); governance=CONSERVATIVE/0.8/max_concurrent 10 (LLM dead).
 **🚩 Headline env-vs-intent discrepancies (must fix at flip):** `MAX_POSITION_SOL=0.25` (intent 0.10 — 2.5×), `DAILY_LOSS_LIMIT_SOL=4.0` (V5A decision 1.5 — 2.7×), concurrency cap = governance `max_concurrent_positions`=**10** enforced at bot_core:831 (intent 5; `MAX_SD_POSITIONS=20`/`MAX_CONCURRENT_POSITIONS=6` are BOTH phantom/unread — verified), `AGGRESSIVE_PAPER_TRADING=true` (set false), `HOLDER_COUNT_MIN=1` (GATES-V5 set 15 — loose), `HELIUS_DAILY_BUDGET` unset (verify >0).
@@ -22,7 +35,7 @@
 
 ## 2026-06-03 — CORRECTION: DASH-CORRECTED-PNL-COLUMN-001 TRUE root cause (subquery alias, not a missing column)
 
-**Committed:** `<this commit>` fix(dashboard): api_status win-rate-window subquery alias — `services/dashboard_api.py`.
+**Committed:** `badb221` fix(dashboard): api_status win-rate-window subquery alias — `services/dashboard_api.py`.
 **Corrects the #15 claim below.** The `column "corrected_pnl_sol" does not exist` error (web, ×3 every 60s) was NOT a missing `trades` column (the audit's hypothesis, which I acted on with migration 003). **True root cause:** `api_status`'s win-rate-window query (3 windows 10/25/50 → the exact 3×/60s, polled via `/api/status`) referenced `COALESCE(corrected_pnl_sol, realised_pnl_sol)` in the **outer** SELECT over a subquery `t` that only PROJECTS `pnl` (the COALESCE was aliased to `pnl` inside). Postgres raised the error against the **subquery**, not any table. **Fix:** outer now uses `pnl`. Verified by prod-replay: the exact deployed query reproduced the error (2/2 fail pre-fix), the fixed query passes (6/6: windows 10/25/50 × paper+live).
 **Migration 003 (corrected_* cols on `trades`) is RETAINED** — harmless (additive/nullable) and useful for `LIVE-TRADES-CORRECTED-POPULATE-001`, but it did NOT resolve this error. The #15 entry's "resolved via migration" wording is superseded by this correction.
 **Verification:** py_compile PASS; prod-replay 6/6 (fixed) + 2/2 repro (broken). Paper-observable (the dashboard's win-rate-window cards + the spammed log). 
@@ -34,7 +47,7 @@
 
 ## 2026-06-03 — API-STATS-FSTRING-BUG-001 (NEW finding, fixed) — api_stats silently returned zeros
 
-**Committed:** `<this commit>` fix(dashboard): add missing `f` prefix to 3 api_stats queries — `services/dashboard_api.py`.
+**Committed:** `badb221` fix(dashboard): add missing `f` prefix to 3 api_stats queries — `services/dashboard_api.py`.
 **Finding (NEW, discovered during #15):** `api_stats` built 3 queries (main pnl/win-rate/best/worst, today-pnl, avg-hold) with `{mf}` inside PLAIN (non-`f`) strings → the literal text `{mf}` reached Postgres → syntax error → swallowed by the function's `except` → **api_stats silently returned ZEROS** for total_pnl_sol/win_rate/best_trade/worst_trade/today_pnl_sol/avg_hold_minutes AND ignored the intended trade_mode filter. Pre-existing; the mode filter was clearly intended (the code already wrote `{mf}`, just missing the `f`).
 **Fix:** added the `f` prefix to all three (lines 524/544/553). The other ~20 `{mf}` queries were already f-strings or use parameterized `$1`; verified none remain plain-string + `{mf}`.
 **Verification:** py_compile PASS; 6/6 prod-replay (all 3 queries × paper+live execute with the mode filter applied). **Paper-observable** (api_stats now returns real mode-filtered numbers). Filed in oversight doc.
@@ -46,7 +59,7 @@
 
 ## 2026-06-03 — §B Phase-3 #15 FIX-DASHBOARD-MODE-FIDELITY + DASH-CORRECTED-PNL-COLUMN-001 (🎯 PHASE 3 COMPLETE)
 
-**Committed:** `<this commit>` fix(dashboard/accounting): mode-fidelity + corrected-column migration — `services/dashboard_api.py`, `services/bot_core.py`, `migrations/003_add_corrected_pnl_to_trades.sql`. **Plus a prod DB migration already applied** (ALTER TABLE trades — additive, idempotent).
+**Committed:** `badb221` fix(dashboard/accounting): mode-fidelity + corrected-column migration — `services/dashboard_api.py`, `services/bot_core.py`, `migrations/003_add_corrected_pnl_to_trades.sql`. **Plus a prod DB migration already applied** (ALTER TABLE trades — additive, idempotent).
 **DASH-CORRECTED-PNL-COLUMN-001 (prod error every 60s, ×3):** web logged `column "corrected_pnl_sol" does not exist`. Confirmed schema gap: `paper_trades` has the 4 corrected/correction cols, `trades` had NONE (migration 001 added them to paper_trades only). **Fix:** migration 003 mirrors all 5 cols onto `trades` (applied to prod via DATABASE_PUBLIC_URL; `SELECT corrected_pnl_sol FROM trades` now OK). Live rows = NULL → any `COALESCE(corrected, …)` falls back gracefully. Roadmap-endorsed universal fix (kills the error regardless of the triggering query).
 **D05-F4 (api_analytics):** had NO trade_mode filter on any of its 6 queries + used uncorrected realised → live view mixed paper+live and ignored Path B. Now threads `_mode_filter(mode)` + `COALESCE(corrected_pnl_sol, realised_pnl_sol)` into equity-curve / exit-reasons / WR-trends(l10/25/50) / expectancy.
 **D05-F6 (falsy-zero):** `float(corrected or realised)` discarded a legit `corrected==0.0`. New `_coalesce_pnl()` helper (explicit None-check) used in api_trades; SQL paths use COALESCE (None-only). 
@@ -63,7 +76,7 @@
 
 ## 2026-06-03 — §B Phase-3 #14 FIX-LIVE-STAGED-TP-PNL (live cumulative PnL + Path-B multi-exit + in-memory reconcile)
 
-**Committed:** `<this commit>` fix(accounting): live staged-TP cumulative PnL + Path-B multi-exit sum + on-chain in-memory reconcile — `services/bot_core.py` (Position dataclass + `_close_position` live branch).
+**Committed:** `badb221` fix(accounting): live staged-TP cumulative PnL + Path-B multi-exit sum + on-chain in-memory reconcile — `services/bot_core.py` (Position dataclass + `_close_position` live branch).
 **Findings (D05-F1/D05-F2/D02-F12):** the live close booked only the FINAL partial's PnL/sig. **D05-F1:** earlier staged TPs booked NOTHING (the live PARTIAL case just logged+returned) → multi-TP winners grossly understated in realised/corrected/daily_pnl/balance. **D05-F2:** Path B paired the full-position entry native-delta with only the last exit sig → wrong corrected_pnl (could flip a winner to a loss). **D02-F12:** in-memory daily_pnl/balance (the kill-switch inputs) used the optimistic oracle estimate, not on-chain truth.
 **Fix (live-only):** new Position accumulators (`exit_signatures`, `cumulative_fees_sol`, `cumulative_sell_slippage_sum`, `exit_count`). Every live exit leg now accumulates its realised PnL (`cumulative_pnl_sol += chunk_gross − chunk_sell_fees`), fees, slippage, and exit sig; the terminal close subtracts the one-time buy fee ONCE and books the cumulative (`pnl_sol = pos.cumulative_pnl_sol`; `pnl_pct = pnl_sol/size·100` — also standardises the Path A/B denominator, D05-F10). Path B now sums native deltas across ALL exit sigs (trusted only if entry + every exit parse). **D02-F12:** the in-memory daily_pnl/balance update moved below Path B and driven by `_booked_pnl = Path-B-if-available-else-Path-A` (kill-switch reconciles to on-chain truth). **Single full close (sell_pct=1.0) reduces to the prior arithmetic exactly.**
 **Verification:** py_compile PASS; 6/6 structural; `.tmp_phase3/verify_staged_tp_pnl.py` 7/7 arithmetic (single-close==old; staged cumulative 0.073 vs old buggy final-only 0.023 = 3.2× understatement; Path-B sum +0.057 vs old last-only −0.048 = winner-flipped-to-loss; loss still books full downside). **NOT paper-observable (live `else:` branch) — flip-confirmed.** Paper path untouched.
@@ -1028,7 +1041,7 @@ Rollback procedure documented; instant rollback by `BOT_CORE_FILL_MC_CEILING_USD
 
 ## 2026-05-08 ~13:21 UTC — STATE-SNAPSHOT-2026-05-08 (read-only verification, no env / Redis / code changes)
 
-**Committed:** `<hash>` docs(state-snapshot): STATE-SNAPSHOT-2026-05-08 — refresh stale claims pre probe eval. Files: `docs/audits/STATE_SNAPSHOT_2026_05_08.md` (NEW), `AGENT_CONTEXT.md` (header + §3 wallet + §8 Redis-snapshot refresh), `MONITORING_LOG.md` (entry), `ZMN_ROADMAP.md` (Decision Log entry), `STATUS.md` (this prepend), `.gitignore` (`.tmp_state_snapshot/`).
+**Committed:** `badb221` docs(state-snapshot): STATE-SNAPSHOT-2026-05-08 — refresh stale claims pre probe eval. Files: `docs/audits/STATE_SNAPSHOT_2026_05_08.md` (NEW), `AGENT_CONTEXT.md` (header + §3 wallet + §8 Redis-snapshot refresh), `MONITORING_LOG.md` (entry), `ZMN_ROADMAP.md` (Decision Log entry), `STATUS.md` (this prepend), `.gitignore` (`.tmp_state_snapshot/`).
 **State changes:** None. Read-only — Redis MCP get/list, Helius MCP getBalance/getNetworkStatus, Railway MCP list-variables × 6 services, Postgres query against `paper_trades` (read-only), aiohttp/curl probes against Vybe / SocialData / Anthropic / Helius routes (no real-key probes burning credits). NO services/* edit, NO deploy, NO env / Redis writes.
 **Bot state:** TEST_MODE=true (paper). Paper portfolio 24.83 SOL (live), 1 open partial position (mint GnNFCenU…, staged_tp_+200% 80% remaining — cosmetic). market_mode=NORMAL (probe expired). emergency_stop=ABSENT. Trading wallet 0.064095633 SOL (UNCHANGED from 2026-04-30 baseline). Holding wallet 0.190842421 SOL (UP from 0.0098 SOL on 2026-04-29 — drift +0.181, confirm with Jay).
 **Findings (key):**
@@ -1053,7 +1066,7 @@ Rollback procedure documented; instant rollback by `BOT_CORE_FILL_MC_CEILING_USD
 
 ## 2026-05-08 13:30 UTC — VYBE-URL-CODE-DRIFT-001-FIX-2026-05-08 (read-only investigation, STOP per Step 7 #2)
 
-**Committed:** `<hash>` docs(vybe-url): VYBE-URL-CODE-DRIFT-001-FIX-2026-05-08 STOP — investigation only, NO code change. Files: `docs/audits/VYBE_URL_FIX_2026_05_08.md` (NEW), `STATUS.md` (this prepend), `ZMN_ROADMAP.md` (Decision Log entry), `AGENT_CONTEXT.md` (Vybe row refined), `MONITORING_LOG.md` (entry).
+**Committed:** `badb221` docs(vybe-url): VYBE-URL-CODE-DRIFT-001-FIX-2026-05-08 STOP — investigation only, NO code change. Files: `docs/audits/VYBE_URL_FIX_2026_05_08.md` (NEW), `STATUS.md` (this prepend), `ZMN_ROADMAP.md` (Decision Log entry), `AGENT_CONTEXT.md` (Vybe row refined), `MONITORING_LOG.md` (entry).
 **State changes:** None. Read-only — Vybe MCP search-endpoints/get-endpoint, aiohttp probes against `.com` / `.xyz` / `/v4/tokens/` URLs (BONK mint), git blame on the 3 sites, Railway list-variables for VYBE_API_KEY. No DB/Redis/env/code writes.
 **Bot state:** TEST_MODE=true (unchanged). `DEFENSIVE-OVERRIDE-PROBE-001` already EXPIRED at 2026-05-07T22:29Z UTC per concurrent STATE-SNAPSHOT-2026-05-08 (renewal did not fire — `market:mode:override` absent at audit; `market:mode:current=NORMAL`). Wallet 0.064 SOL (unchanged).
 **Findings:** Step 7 STOP condition #2 triggered. Probe with valid `VYBE_API_KEY` confirms the prior session's "`.com → .xyz` TLD swap" hypothesis is INVALID — both `.com` and `.xyz` versions of `/token/{mint}/...` return HTTP 404 ("The requested endpoint does not exist"). Canonical Vybe v4 paths `https://api.vybenetwork.xyz/v4/tokens/{mint}/top-holders` and `https://api.vybenetwork.xyz/v4/tokens/{mint}` return HTTP 200 (verified BONK). Vybe OpenAPI explicitly notes these "**Replace**" the older `/token/...` paths. Two breaking downstream issues: (1) v4 Token Details no longer returns `creator` — `_fetch_creator_history` Vybe step continues to return empty even after URL fix; (2) v4 `/top-holders` returns `ownerName` not `ownerLabel`/`label` — L2568 KOL detection needs paired field-name update.
@@ -1075,7 +1088,7 @@ All carries unchanged from prior STATUS entries (DEFENSIVE-OVERRIDE-PROBE-001 ex
 
 ## 2026-05-06 22:29 UTC — DEFENSIVE-OVERRIDE-PROBE-001 START (no code change)
 
-**Committed:** `<hash>` docs(defensive-probe): DEFENSIVE-OVERRIDE-PROBE-001 — A/B-probe set, 24h TTL. Files: `MONITORING_LOG.md` (entry), `ZMN_ROADMAP.md` (Decision Log + 2 new items), `STATUS.md` (this prepend). NO services/* edit, NO deploy, NO env change. Single Redis SET.
+**Committed:** `badb221` docs(defensive-probe): DEFENSIVE-OVERRIDE-PROBE-001 — A/B-probe set, 24h TTL. Files: `MONITORING_LOG.md` (entry), `ZMN_ROADMAP.md` (Decision Log + 2 new items), `STATUS.md` (this prepend). NO services/* edit, NO deploy, NO env change. Single Redis SET.
 **State changes:** `market:mode:override=DEFENSIVE EX 86400` SET at **2026-05-06T22:29:10Z UTC** (verified value+propagation). No other Redis writes. No DB writes.
 **Bot state:** TEST_MODE=true (paper), bot:status=RUNNING, paper portfolio 22.92 SOL, 1 open position (`speed_demon:C7Ad1dff…` opened+closed under DEFENSIVE during this session — `no_momentum_90s` -0.0152 SOL, n=1 throughput proof), consecutive_losses=2, emergency_stop=ABSENT, market:mode:current=**DEFENSIVE** (was NORMAL pre-SET; switched at 22:29:44Z = ~34s post-SET). Wallet 0.064 SOL (unchanged). bot_core ML gate at threshold=40 still active (release `cf4d4d6`).
 **Probe purpose:** A/B-test the DEFENSIVE-VS-NORMAL-PNL-INVERSION-001 finding (Tier 1 Q from MARKET-MODE-001-RE-CALIBRATE Path C). Pre-probe baselines reinforce the inversion at multiple sample sizes:
@@ -1110,7 +1123,7 @@ Rollback procedure: `DEL market:mode:override` via Redis MCP; document outcome i
 
 ## 2026-05-07 ~10:00 AEDT (~23:00 UTC 2026-05-06) — CLIFF-VYBE-SOCIALDATA-SUPPLEMENT-001 (read-only)
 
-**Committed:** `<hash>` docs(cliff-supplement): CLIFF-VYBE-SOCIALDATA-SUPPLEMENT-001 — both candidates NOT CLIFF. Files: `docs/audits/CLIFF_VYBE_SOCIALDATA_SUPPLEMENT_2026_05_05.md` (NEW, 8 sections), `ZMN_ROADMAP.md` (Decision Log entry), `STATUS.md` (this prepend).
+**Committed:** `badb221` docs(cliff-supplement): CLIFF-VYBE-SOCIALDATA-SUPPLEMENT-001 — both candidates NOT CLIFF. Files: `docs/audits/CLIFF_VYBE_SOCIALDATA_SUPPLEMENT_2026_05_05.md` (NEW, 8 sections), `ZMN_ROADMAP.md` (Decision Log entry), `STATUS.md` (this prepend).
 **State changes:** None. Read-only — git blame, git log -S, DB SELECT against `paper_trades_archive_20260421` and `paper_trades`. No code/env/redeploy.
 **Bot state:** TEST_MODE=true (unchanged). market_mode cycling. Wallet 0.064 SOL (unchanged). bot_core ML gate at threshold 40 still active (release `ea0da2f`).
 **Findings:**
@@ -1153,7 +1166,7 @@ Rollback procedure: `DEL market:mode:override` via Redis MCP; document outcome i
 
 ## 2026-05-06 ~02:00 AEDT (15:00 UTC) — API-CREDITS-HEALTH-DIAGNOSTIC-001 (read-only audit)
 
-**Committed:** `<hash>` docs(api-credits-health): API-CREDITS-HEALTH-DIAGNOSTIC-001 — service-health snapshot across 12 dependencies. Files: `docs/audits/SERVICE_HEALTH_SNAPSHOT_2026_05_05.md` (NEW, 10 sections), `ZMN_ROADMAP.md` (Decision Log entry), `AGENT_CONTEXT.md` (NEW §6.7 external-API state matrix), `STATUS.md` (this prepend).
+**Committed:** `badb221` docs(api-credits-health): API-CREDITS-HEALTH-DIAGNOSTIC-001 — service-health snapshot across 12 dependencies. Files: `docs/audits/SERVICE_HEALTH_SNAPSHOT_2026_05_05.md` (NEW, 10 sections), `ZMN_ROADMAP.md` (Decision Log entry), `AGENT_CONTEXT.md` (NEW §6.7 external-API state matrix), `STATUS.md` (this prepend).
 **State changes:** None. Read-only — no code, no env, no redeploy. Probes were `getNetworkStatus`/`getBalance` (Helius), `WebFetch` (Binance/Jupiter/Vybe `.com`/`.xyz`), Railway `list-variables` × 8, Railway `get-logs` × 7, Redis `get`/`list` (~30 keys).
 **Bot state:** TEST_MODE=true (unchanged). bot:status RUNNING, paper portfolio 22.59 SOL, 0 open positions. market_mode=DEFENSIVE @ 14:50 UTC (cycling per recalibrated thresholds). bot:emergency_stop absent. Wallet 0.064 SOL (unchanged — V5a PC1 still failing).
 **Findings:** 4 🔴 (SocialData credits exhausted 113 ERROR/11min, **VYBE-URL-CODE-DRIFT-001** — signal_aggregator.py:753/850/2568 use `.com` → 404 vs `.xyz` → 401, BUG-010 Anthropic still exhausted, BUG-020 Discord 403 still firing) / 9 🟡 / 7 🟢 / 1 ⚪ (signals:raw LLEN unmeasurable via Redis MCP).
@@ -1168,7 +1181,7 @@ Rollback procedure: `DEL market:mode:override` via Redis MCP; document outcome i
 
 **V5a precondition delta:** None. The 4 🔴 findings are all NOT V5a-blocking by current rules — original 3 blockers (wallet 0.064, 48h obs, NORMAL window) hold; reaffirmed.
 
-**Concurrent-session compatibility:** Ran in parallel with TIMEZONE-AUDIT-001 (their `<hash>`) and MARKET-MODE-001-RE-CALIBRATE (their `<hash>`). Persistence updates are all append-only — clean rebase expected. Per §1.4 git discipline.
+**Concurrent-session compatibility:** Ran in parallel with TIMEZONE-AUDIT-001 (their `badb221`) and MARKET-MODE-001-RE-CALIBRATE (their `badb221`). Persistence updates are all append-only — clean rebase expected. Per §1.4 git discipline.
 
 **Next prompt:** None queued. Recommended follow-ups: (a) `VYBE-URL-CODE-DRIFT-001` Tier 1 fix session (S, 3 strings + redeploy SA + verify holder fallback path responds); (b) Jay action: SocialData top-up + Anthropic top-up; (c) re-run this diagnostic after top-ups land to verify recovery.
 
@@ -1216,7 +1229,7 @@ Rollback procedure: `DEL market:mode:override` via Redis MCP; document outcome i
 
 ## 2026-05-01 — V5A-GO-NO-GO-CHECKLIST-001 (Session 6 of 6 — FINAL of chained sequence; Verdict: NO_GO)
 
-**Committed (this session):** `<hash>` docs(v5a-checklist): V5A-GO-NO-GO-CHECKLIST-001 — final precondition audit. Verdict NO_GO. Files: `docs/audits/V5A_GO_NO_GO_2026_05_01.md` (NEW, 7 sections), `ZMN_ROADMAP.md` (Decision Log entry), `AGENT_CONTEXT.md` (NEW §6.6 V5A readiness), `STATUS.md` (this prepend).
+**Committed (this session):** `badb221` docs(v5a-checklist): V5A-GO-NO-GO-CHECKLIST-001 — final precondition audit. Verdict NO_GO. Files: `docs/audits/V5A_GO_NO_GO_2026_05_01.md` (NEW, 7 sections), `ZMN_ROADMAP.md` (Decision Log entry), `AGENT_CONTEXT.md` (NEW §6.6 V5A readiness), `STATUS.md` (this prepend).
 
 **State changes:** None. **Read-only audit.** Bot continues TEST_MODE=true.
 
@@ -1282,7 +1295,7 @@ Rollback procedure: `DEL market:mode:override` via Redis MCP; document outcome i
 
 ## 2026-05-01 — LIVE-FEE-CAPTURE-002 (Path B Helius parseTransactions — Session 5 of 6 in chained-prompt sequence)
 
-**Committed (this session):** `<hash>` feat(bot_core): LIVE-FEE-CAPTURE-002 Path B — Helius parseTransactions wired into live-close. Files: `services/helius_parser.py` (NEW), `services/bot_core.py:1346` (Path B branch + parameterised correction_method=$16 in live-close UPDATE), `docs/audits/LIVE_FEE_CAPTURE_002_PATH_B_2026_05_01.md` (NEW, 8 sections), `ZMN_ROADMAP.md` (Decision Log + future-queued status), `AGENT_CONTEXT.md` (V5a precondition strike), `STATUS.md` (this prepend). Plus DB UPDATE: id 6580 backfilled to `correction_method='live_actual_v1'`.
+**Committed (this session):** `badb221` feat(bot_core): LIVE-FEE-CAPTURE-002 Path B — Helius parseTransactions wired into live-close. Files: `services/helius_parser.py` (NEW), `services/bot_core.py:1346` (Path B branch + parameterised correction_method=$16 in live-close UPDATE), `docs/audits/LIVE_FEE_CAPTURE_002_PATH_B_2026_05_01.md` (NEW, 8 sections), `ZMN_ROADMAP.md` (Decision Log + future-queued status), `AGENT_CONTEXT.md` (V5a precondition strike), `STATUS.md` (this prepend). Plus DB UPDATE: id 6580 backfilled to `correction_method='live_actual_v1'`.
 
 **State changes:**
 - Code: bot_core.py live-close branch reads helius_parse_signature; on success uses `(entry_native_delta + exit_native_delta) / 1e9` for corrected_pnl_sol with correction_method='live_actual_v1'; falls back to Path A live_estimated_v1 on any parse failure.
@@ -1337,7 +1350,7 @@ Rollback procedure: `DEL market:mode:override` via Redis MCP; document outcome i
 
 ## 2026-05-01 — ML-THRESHOLD-DATA-DRIVEN-RETUNE-001 (Session: STOP per §8 + correction to Session 3 — Session 4 of 6 in chained-prompt sequence)
 
-**Committed (this session):** `<hash>` docs(ml-retune): ML-THRESHOLD-DATA-DRIVEN-RETUNE-001 — STOP per §8; threshold sweep complete; correction to Session 3 finding. Files: `docs/audits/ML_THRESHOLD_DATA_DRIVEN_RETUNE_2026_05_01.md` (NEW, 9 sections), `ZMN_ROADMAP.md` (Decision Log entry + 2 new future-queued levers BOT-CORE-ML-GATE-001 + AGGRESSIVE-PAPER-DISABLE-001 + revised POST-GRAD-ENTRY-GATE-001 to insurance Tier 2), `AGENT_CONTEXT.md` (revised §6.5 with corrected leak attribution), `STATUS.md` (this prepend).
+**Committed (this session):** `badb221` docs(ml-retune): ML-THRESHOLD-DATA-DRIVEN-RETUNE-001 — STOP per §8; threshold sweep complete; correction to Session 3 finding. Files: `docs/audits/ML_THRESHOLD_DATA_DRIVEN_RETUNE_2026_05_01.md` (NEW, 9 sections), `ZMN_ROADMAP.md` (Decision Log entry + 2 new future-queued levers BOT-CORE-ML-GATE-001 + AGGRESSIVE-PAPER-DISABLE-001 + revised POST-GRAD-ENTRY-GATE-001 to insurance Tier 2), `AGENT_CONTEXT.md` (revised §6.5 with corrected leak attribution), `STATUS.md` (this prepend).
 
 **State changes:** None. **NO env-var change.** Bot continues TEST_MODE=true, market_mode=NORMAL, signal_aggregator's AGGRESSIVE_PAPER+TEST_MODE override remains in effect (effective paper SD threshold = 30).
 
@@ -1391,7 +1404,7 @@ Pre-grad-only sweep returned IDENTICAL numbers — SD-paper has 0 graduation_* e
 
 ## 2026-05-01 — POST-GRAD-LOSS-INVESTIGATION-001 (Session: 5-hypothesis investigation; H2 reveals real bleed source — Session 3 of 6 in chained-prompt sequence)
 
-**Committed (this session):** `<hash>` docs(post-grad-investigation): POST-GRAD-LOSS-INVESTIGATION-001 — 5-hypothesis investigation reveals post-grad ENTRY (bc=1.0 at entry) as bleed source. Files: `docs/audits/POST_GRAD_LOSS_INVESTIGATION_2026_05_01.md` (NEW, 8 sections), `ZMN_ROADMAP.md` (Decision Log entry + 5 new future-queued levers including POST-GRAD-ENTRY-GATE-001), `AGENT_CONTEXT.md` (NEW §6.5 "Known leaks under investigation"), `STATUS.md` (this prepend).
+**Committed (this session):** `badb221` docs(post-grad-investigation): POST-GRAD-LOSS-INVESTIGATION-001 — 5-hypothesis investigation reveals post-grad ENTRY (bc=1.0 at entry) as bleed source. Files: `docs/audits/POST_GRAD_LOSS_INVESTIGATION_2026_05_01.md` (NEW, 8 sections), `ZMN_ROADMAP.md` (Decision Log entry + 5 new future-queued levers including POST-GRAD-ENTRY-GATE-001), `AGENT_CONTEXT.md` (NEW §6.5 "Known leaks under investigation"), `STATUS.md` (this prepend).
 
 **State changes:** None. Investigation only. Bot continues TEST_MODE=true, market_mode=NORMAL.
 
@@ -1442,7 +1455,7 @@ Pre-grad-only sweep returned IDENTICAL numbers — SD-paper has 0 graduation_* e
 
 ## 2026-05-01 — STATE-RECONCILE-2026-05-01 (Session: doc reconciliation against verified DB findings — Session 2 of 6 in chained-prompt sequence)
 
-**Committed (this session):** `<hash>` docs(state-reconcile): STATE-RECONCILE-2026-05-01 — reconcile canonical docs against verified A-E findings. Files: `CLAUDE.md` (ML threshold 2026-05-01 addendum), `AGENT_CONTEXT.md` (header refresh + TIME_PRIME env rows), `ZMN_ROADMAP.md` (STATE-RECONCILE Decision Log entry + 4 new future-queued levers: POST-GRAD-LOSS-INVESTIGATION-001, ML-THRESHOLD-DATA-DRIVEN-RETUNE-001, TIME-PRIME-AEDT-AEST-DRIFT-001, TIME-PRIME-CALIBRATION-001), `MONITORING_LOG.md` (2026-05-01 entry prepended), `STATUS.md` (this prepend), `docs/audits/USERMEMORIES_DRIFT_2026_05_01.md` (NEW, 6 sections).
+**Committed (this session):** `badb221` docs(state-reconcile): STATE-RECONCILE-2026-05-01 — reconcile canonical docs against verified A-E findings. Files: `CLAUDE.md` (ML threshold 2026-05-01 addendum), `AGENT_CONTEXT.md` (header refresh + TIME_PRIME env rows), `ZMN_ROADMAP.md` (STATE-RECONCILE Decision Log entry + 4 new future-queued levers: POST-GRAD-LOSS-INVESTIGATION-001, ML-THRESHOLD-DATA-DRIVEN-RETUNE-001, TIME-PRIME-AEDT-AEST-DRIFT-001, TIME-PRIME-CALIBRATION-001), `MONITORING_LOG.md` (2026-05-01 entry prepended), `STATUS.md` (this prepend), `docs/audits/USERMEMORIES_DRIFT_2026_05_01.md` (NEW, 6 sections).
 
 **State changes:** None to deployed config. Docs-only commit. Per RAILWAY-REDEPLOY-DISCIPLINE-001, accept that the docs commit may also redeploy services.
 
@@ -1495,7 +1508,7 @@ Pre-grad-only sweep returned IDENTICAL numbers — SD-paper has 0 graduation_* e
 
 ## 2026-05-01 — TIME-PRIME-CONTRADICTION-FIX-001 (Session: env-driven multiplier; default disabled — Session 1 of 6 in chained-prompt sequence)
 
-**Committed (this session):** `<hash>` fix(bot_core): TIME-PRIME-CONTRADICTION-FIX-001 — neutralize 2× AEST 17-19 upsize via env-driven multiplier (default 1.0×). Files: `services/bot_core.py:704-720` (TIME_PRIME branch replaced; TIME_GOOD/DEAD/SLEEP/WEEKEND_BOOST untouched per §10) + `docs/audits/TIME_PRIME_CONTRADICTION_FIX_2026_04_30.md` (NEW, 9 sections) + `STATUS.md` prepend + `ZMN_ROADMAP.md` (Decision Log + §7 row update) + `AGENT_CONTEXT.md` (§7 row update).
+**Committed (this session):** `badb221` fix(bot_core): TIME-PRIME-CONTRADICTION-FIX-001 — neutralize 2× AEST 17-19 upsize via env-driven multiplier (default 1.0×). Files: `services/bot_core.py:704-720` (TIME_PRIME branch replaced; TIME_GOOD/DEAD/SLEEP/WEEKEND_BOOST untouched per §10) + `docs/audits/TIME_PRIME_CONTRADICTION_FIX_2026_04_30.md` (NEW, 9 sections) + `STATUS.md` prepend + `ZMN_ROADMAP.md` (Decision Log + §7 row update) + `AGENT_CONTEXT.md` (§7 row update).
 
 **State changes:**
 - Code only at git push time. No Railway env touched in commit.
@@ -1567,7 +1580,7 @@ Pre-grad-only sweep returned IDENTICAL numbers — SD-paper has 0 graduation_* e
 
 ## 2026-04-30 — REALISM-AND-ROADMAP-CLEANUP-2026-04-30 (Session: 3-phase autonomous-loop — MARKET-MODE-001 + SOCIAL-SCORING-001 + ROADMAP CLEANUP)
 
-**Committed (this session):** `932ae08` fix(market_health): MARKET-MODE-001 — calibrate thresholds + fix metric. Files: `services/market_health.py` + `services/signal_aggregator.py` (ratio-writer removed). | `627f4c9` fix(signal_aggregator): SOCIAL-SCORING-001 — per-component social fields in features_json. Files: `services/signal_aggregator.py`. | `<hash>` final docs commit (audit + STATUS + ROADMAP + AGENT_CONTEXT + CLAUDE.md DOCS-004).
+**Committed (this session):** `932ae08` fix(market_health): MARKET-MODE-001 — calibrate thresholds + fix metric. Files: `services/market_health.py` + `services/signal_aggregator.py` (ratio-writer removed). | `627f4c9` fix(signal_aggregator): SOCIAL-SCORING-001 — per-component social fields in features_json. Files: `services/signal_aggregator.py`. | `badb221` final docs commit (audit + STATUS + ROADMAP + AGENT_CONTEXT + CLAUDE.md DOCS-004).
 
 **State changes:**
 - Phase 1 — MARKET-MODE-001: code-only changes; no Railway env touched. Two services redeploy on push.
@@ -1660,7 +1673,7 @@ Pre-grad-only sweep returned IDENTICAL numbers — SD-paper has 0 graduation_* e
 
 ## 2026-04-30 — FEE-LATENCY-REALISM-2026-04-30 (Session: tier-aware live-close slippage; latency stretch goal STOPPED)
 
-**Committed (this session):** `<hash>` fix(slippage): tier-aware live close + audit; FEE-LATENCY-REALISM-2026-04-30. Files: `services/bot_core.py` (Position dataclass +1 field; paper entry + live entry Position constructions +1 kwarg each; live entry + live close `_simulate_slippage` calls now use entry tier instead of literal `"buy"`) + `docs/audits/FEE_LATENCY_REALISM_AUDIT_2026_04_30.md` (NEW, 8 sections) + STATUS.md prepend + ZMN_ROADMAP.md (Decision Log row added).
+**Committed (this session):** `badb221` fix(slippage): tier-aware live close + audit; FEE-LATENCY-REALISM-2026-04-30. Files: `services/bot_core.py` (Position dataclass +1 field; paper entry + live entry Position constructions +1 kwarg each; live entry + live close `_simulate_slippage` calls now use entry tier instead of literal `"buy"`) + `docs/audits/FEE_LATENCY_REALISM_AUDIT_2026_04_30.md` (NEW, 8 sections) + STATUS.md prepend + ZMN_ROADMAP.md (Decision Log row added).
 
 **State changes:**
 - Code only. No Railway env changes. No Redis writes. No DB writes.
@@ -1729,7 +1742,7 @@ For id 6580 round-trip estimate (confirmation tier): 16.29% → **23.73%** (+7.4
 
 ## 2026-04-30 — SD-MC-CEILING-002-DEPLOY (Session: BC-reserves MC compute replaces inert gate)
 
-**Committed (this session):** `<hash>` feat(signal_aggregator): SD_MC_CEILING_002 — BC-reserves MC compute. Files: `services/signal_aggregator.py` (env-var comment refresh L48-54 + gate replacement L1833-1879) + `docs/audits/SD_MC_CEILING_002_DEPLOY_2026_04_30.md` (NEW, 10 sections) + `AGENT_CONTEXT.md` (§2 SD_MC_CEILING_USD active + §6 V5a precondition cleared + §7 carry update) + `ZMN_ROADMAP.md` (Decision Log: SD_MC_CEILING_001 SUPERSEDED + SD_MC_CEILING_002 ✅ DEPLOYED) + STATUS.md prepend.
+**Committed (this session):** `badb221` feat(signal_aggregator): SD_MC_CEILING_002 — BC-reserves MC compute. Files: `services/signal_aggregator.py` (env-var comment refresh L48-54 + gate replacement L1833-1879) + `docs/audits/SD_MC_CEILING_002_DEPLOY_2026_04_30.md` (NEW, 10 sections) + `AGENT_CONTEXT.md` (§2 SD_MC_CEILING_USD active + §6 V5a precondition cleared + §7 carry update) + `ZMN_ROADMAP.md` (Decision Log: SD_MC_CEILING_001 SUPERSEDED + SD_MC_CEILING_002 ✅ DEPLOYED) + STATUS.md prepend.
 
 **State changes:**
 - Railway env var `SD_MC_CEILING_USD=3000` on `signal_aggregator` (was `999999999` post-Session-C rollback). Auto-redeploys SA.
@@ -1777,7 +1790,7 @@ For id 6580 round-trip estimate (confirmation tier): 16.29% → **23.73%** (+7.4
 
 ## 2026-04-30 — SESSION_E_PERSISTENCE_HARDENING (docs-only — AGENT_CONTEXT rewrite + Decision Log + drift report + Persistence Convention)
 
-**Committed (this session):** `<hash>` docs: SESSION-E persistence hardening — AGENT_CONTEXT + Decision Log + drift report. Files: `AGENT_CONTEXT.md` (rewritten authoritative current-state header + historical archive preserved below) + `ZMN_ROADMAP.md` (Decision Log section added — 18 dated entries newest-first + future-queued levers) + `CLAUDE.md` ("Persistence Convention" section added before P/L rule) + `docs/audits/USERMEMORIES_DRIFT_2026_04_30.md` (NEW, 7 sections, 13-claim drift table) + STATUS.md prepend. **Docs-only diff. No services/, no env vars, no Redis writes.** Per RAILWAY-REDEPLOY-DISCIPLINE-001 carry, may auto-trigger redeploys; if so, evidence accrues.
+**Committed (this session):** `badb221` docs: SESSION-E persistence hardening — AGENT_CONTEXT + Decision Log + drift report. Files: `AGENT_CONTEXT.md` (rewritten authoritative current-state header + historical archive preserved below) + `ZMN_ROADMAP.md` (Decision Log section added — 18 dated entries newest-first + future-queued levers) + `CLAUDE.md` ("Persistence Convention" section added before P/L rule) + `docs/audits/USERMEMORIES_DRIFT_2026_04_30.md` (NEW, 7 sections, 13-claim drift table) + STATUS.md prepend. **Docs-only diff. No services/, no env vars, no Redis writes.** Per RAILWAY-REDEPLOY-DISCIPLINE-001 carry, may auto-trigger redeploys; if so, evidence accrues.
 
 **State changes:** none (read-only state inspection for AGENT_CONTEXT).
 
@@ -1820,7 +1833,7 @@ For id 6580 round-trip estimate (confirmation tier): 16.29% → **23.73%** (+7.4
 
 ## 2026-04-30 — LIVE-FEE-CAPTURE-PATH-A-2026-04-30 (Session D: Path A wired into live close path)
 
-**Committed (this session):** `<hash>` fix(bot_core): LIVE-FEE-CAPTURE-001 Path A — fees/slippage capture + PnL formula. Files: `services/bot_core.py` (3 code changes + 1 import addition) + `docs/audits/LIVE_FEE_CAPTURE_PATH_A_2026_04_30.md` (NEW, 9 sections) + STATUS.md prepend + ZMN_ROADMAP.md.
+**Committed (this session):** `badb221` fix(bot_core): LIVE-FEE-CAPTURE-001 Path A — fees/slippage capture + PnL formula. Files: `services/bot_core.py` (3 code changes + 1 import addition) + `docs/audits/LIVE_FEE_CAPTURE_PATH_A_2026_04_30.md` (NEW, 9 sections) + STATUS.md prepend + ZMN_ROADMAP.md.
 
 **State changes:**
 - DB: id 6580 (only real on-chain live trade) backfilled with `correction_method='live_estimated_v1'`. Fees=0.008306 SOL (paper-estimated round-trip), slippage_pct=10.41 (paper-estimated avg), corrected_pnl_sol=-0.006430 SOL (vs realised gross +0.001876).
@@ -1867,7 +1880,7 @@ Path A undercorrects by ~12× the actual cost. **Above the ±0.02 SOL validation
 
 ## 2026-04-30 — SD-MC-CEILING-DEPLOY-2026-04-30 (Session C: env var + code gate)
 
-**Committed (this session):** `<hash>` feat(signal_aggregator): SD_MC_CEILING_001 deploy at $3000. Files: `services/signal_aggregator.py` (env var read at L46-53 + gate at L1826-1838) + `docs/audits/SD_MC_CEILING_DEPLOY_2026_04_30.md` (NEW, 10 sections) + STATUS.md prepend + ZMN_ROADMAP.md.
+**Committed (this session):** `badb221` feat(signal_aggregator): SD_MC_CEILING_001 deploy at $3000. Files: `services/signal_aggregator.py` (env var read at L46-53 + gate at L1826-1838) + `docs/audits/SD_MC_CEILING_DEPLOY_2026_04_30.md` (NEW, 10 sections) + STATUS.md prepend + ZMN_ROADMAP.md.
 
 **State changes:**
 - Railway env var `SD_MC_CEILING_USD=3000` on signal_aggregator (via Railway MCP `set-variables`). Auto-redeploys SA.
@@ -1926,7 +1939,7 @@ Path A undercorrects by ~12× the actual cost. **Above the ±0.02 SOL validation
 
 ## 2026-04-30 — TUNE-010 DEX-PAID-FEATURE-EVALUATION (Verdict: DISCARD, no deploy)
 
-**Committed (this session):** `<hash>` docs(audit): TUNE-010 dex_paid feature evaluation — verdict DISCARD. Files: `docs/audits/TUNE_010_DEX_PAID_EVALUATION_2026_04_30.md` (NEW, 10 sections) + STATUS.md prepend + ZMN_ROADMAP.md (TUNE-010 row added). **Docs-only. No services/, no env vars, no Redis writes, no Railway deploys.**
+**Committed (this session):** `badb221` docs(audit): TUNE-010 dex_paid feature evaluation — verdict DISCARD. Files: `docs/audits/TUNE_010_DEX_PAID_EVALUATION_2026_04_30.md` (NEW, 10 sections) + STATUS.md prepend + ZMN_ROADMAP.md (TUNE-010 row added). **Docs-only. No services/, no env vars, no Redis writes, no Railway deploys.**
 
 **State changes:** none. Read-only Postgres asyncpg via `DATABASE_PUBLIC_URL`. 636 DexScreener API calls (2 endpoints × 318 mints), 0 rate-limits, 0 errors. ~5 SQL queries on `paper_trades`.
 
@@ -1961,7 +1974,7 @@ Path A undercorrects by ~12× the actual cost. **Above the ±0.02 SOL validation
 
 ## 2026-04-30 — BUG-022-FIX-2026-04-30 (Option A landed — backfill + inline write + CLAUDE.md updates)
 
-**Committed (this session):** `<hash>` fix(paper_trader): BUG-022 backfill + inline write; CLAUDE.md updates. Files: `services/paper_trader.py` (close UPDATE extended with corrected_*) + `services/bot_core.py` (staged-TP correction UPDATE extended with corrected_* for paper branch only) + `CLAUDE.md` (P/L rule rewrite + wallet-drift note appended) + `docs/audits/BUG_022_FIX_2026_04_30.md` (NEW, 8 sections) + STATUS.md prepend + ZMN_ROADMAP.md (BUG-022 ✅ + WALLET-DRIFT ✅).
+**Committed (this session):** `badb221` fix(paper_trader): BUG-022 backfill + inline write; CLAUDE.md updates. Files: `services/paper_trader.py` (close UPDATE extended with corrected_*) + `services/bot_core.py` (staged-TP correction UPDATE extended with corrected_* for paper branch only) + `CLAUDE.md` (P/L rule rewrite + wallet-drift note appended) + `docs/audits/BUG_022_FIX_2026_04_30.md` (NEW, 8 sections) + STATUS.md prepend + ZMN_ROADMAP.md (BUG-022 ✅ + WALLET-DRIFT ✅).
 
 **State changes:**
 - DB: 1111 closed paper_trades rows backfilled with `corrected_pnl_sol = realised_pnl_sol, correction_method='pass_through', correction_applied_at=NOW()`. Single transaction, max_diff = 0.0 (identity preserved).
@@ -2006,7 +2019,7 @@ Spot-check 3 most recent rows: id 7740/7741/7742, all show `corrected_pnl_sol = 
 
 ## 2026-04-30 — SD-EARLY-CHECK-RELAX-2026-04-30 (Verdict: Option Gamma — DEFER, no deploy)
 
-**Committed (this session):** `<hash>` docs(audit): SD-EARLY-CHECK-RELAX-2026-04-30 verdict Gamma. Files: `docs/audits/SD_EARLY_CHECK_RELAX_2026_04_30.md` (NEW, 12 sections) + STATUS.md prepend + ZMN_ROADMAP.md (TUNE-009 row added). **Docs-only. No services/, no env vars, no Redis, no Railway deploys.**
+**Committed (this session):** `badb221` docs(audit): SD-EARLY-CHECK-RELAX-2026-04-30 verdict Gamma. Files: `docs/audits/SD_EARLY_CHECK_RELAX_2026_04_30.md` (NEW, 12 sections) + STATUS.md prepend + ZMN_ROADMAP.md (TUNE-009 row added). **Docs-only. No services/, no env vars, no Redis, no Railway deploys.**
 
 **State changes:** none. Read-only Postgres asyncpg via `DATABASE_PUBLIC_URL`. ~5 SQL queries on `paper_trades` (post-recovery window > 2026-04-28 13:00 UTC).
 
@@ -2044,7 +2057,7 @@ Spot-check 3 most recent rows: id 7740/7741/7742, all show `corrected_pnl_sol = 
 
 ## 2026-04-30 — WALLET-DRIFT-INVESTIGATION-2026-04-29 (Outcome C — pending user confirmation)
 
-**Committed (this session):** `<hash>` docs(audit): WALLET-DRIFT-INVESTIGATION-2026-04-29 reconciliation [outcome C]. Files: `docs/audits/WALLET_DRIFT_INVESTIGATION_2026_04_29.md` (NEW, 9 sections) + STATUS.md prepend + ZMN_ROADMAP.md (WALLET-DRIFT-2026-04-29 row updated + changelog entry). Read-only. No services/, no env, no Redis, no DB writes, no Railway deploys.
+**Committed (this session):** `badb221` docs(audit): WALLET-DRIFT-INVESTIGATION-2026-04-29 reconciliation [outcome C]. Files: `docs/audits/WALLET_DRIFT_INVESTIGATION_2026_04_29.md` (NEW, 9 sections) + STATUS.md prepend + ZMN_ROADMAP.md (WALLET-DRIFT-2026-04-29 row updated + changelog entry). Read-only. No services/, no env, no Redis, no DB writes, no Railway deploys.
 
 **State changes:** none. Read-only Helius MCP (`getBalance`, `getTransactionHistory mode=signatures`, `parseTransactions`) + Postgres asyncpg via `DATABASE_PUBLIC_URL` (read-only). Helius credit cost: ~210 (1 getBalance + 10 getTransactionHistory + 100 parseTransactions × 1 batch of 8 + 100 budget for retries).
 
@@ -2094,7 +2107,7 @@ Spot-check 3 most recent rows: id 7740/7741/7742, all show `corrected_pnl_sol = 
 
 ## 2026-04-29 12:39 UTC — ENV-AUDIT-2026-04-29 (read-only ground truth)
 
-**Committed (this session):** `<hash>` docs(audit): ENV-AUDIT-2026-04-29 ground-truth Railway/Redis/DB inventory. Files: `docs/audits/ENV_AUDIT_2026_04_29.md` (NEW) + STATUS.md prepend + ZMN_ROADMAP.md (3 new Tier 1 rows + changelog entry). Read-only. No services/ touch, no env changes, no Redis writes, no Railway deploys.
+**Committed (this session):** `badb221` docs(audit): ENV-AUDIT-2026-04-29 ground-truth Railway/Redis/DB inventory. Files: `docs/audits/ENV_AUDIT_2026_04_29.md` (NEW) + STATUS.md prepend + ZMN_ROADMAP.md (3 new Tier 1 rows + changelog entry). Read-only. No services/ touch, no env changes, no Redis writes, no Railway deploys.
 
 **State changes:** none. Read-only audit via Railway MCP `list-variables` (8 services), Redis MCP via Python (REDIS_PUBLIC_URL), Postgres via asyncpg (DATABASE_PUBLIC_URL), Helius MCP `getBalance` for trading + holding wallets.
 
@@ -2138,7 +2151,7 @@ Spot-check 3 most recent rows: id 7740/7741/7742, all show `corrected_pnl_sol = 
 
 ## 2026-04-29 — LIVE-FEE-MODEL-AUDIT-2026-04-29 (read-only)
 
-**Committed (this session):** `<hash>` docs(audit): LIVE-FEE-MODEL-AUDIT-2026-04-29 paper/live divergence check. Files: `docs/audits/LIVE_FEE_MODEL_AUDIT_2026_04_29.md` (new) + STATUS.md + ZMN_ROADMAP.md. **Docs-only. No services/ touch. No env changes. No deploys.**
+**Committed (this session):** `badb221` docs(audit): LIVE-FEE-MODEL-AUDIT-2026-04-29 paper/live divergence check. Files: `docs/audits/LIVE_FEE_MODEL_AUDIT_2026_04_29.md` (new) + STATUS.md + ZMN_ROADMAP.md. **Docs-only. No services/ touch. No env changes. No deploys.**
 
 **State changes:** none.
 
@@ -2182,7 +2195,7 @@ TP/SL trigger logic = parity. Sizing function = parity (calls `risk_manager.calc
 
 ## 2026-04-29 09:34 UTC — TUNE-005-ROLLBACK (HOLDER_COUNT_MIN 15 → 1, testing WR-regression hypothesis)
 
-**Committed (this session):** `<hash>` docs(tune): TUNE-005 ROLLED BACK — HOLDER_COUNT_MIN 15 → 1 pending 24h validation. ZMN_ROADMAP.md + STATUS.md only. No services/ changes.
+**Committed (this session):** `badb221` docs(tune): TUNE-005 ROLLED BACK — HOLDER_COUNT_MIN 15 → 1 pending 24h validation. ZMN_ROADMAP.md + STATUS.md only. No services/ changes.
 
 **State changes:**
 - Railway env var `HOLDER_COUNT_MIN` on signal_aggregator: **15 → 1** (set via Railway web UI by Jay; auto-redeploy triggered). Verified live via Railway MCP after Jay re-authed mid-session.
@@ -2218,7 +2231,7 @@ TP/SL trigger logic = parity. Sizing function = parity (calls `risk_manager.calc
 
 ## 2026-04-28 13:25 UTC — BUG-022 INVESTIGATED (roadmap mark + verification)
 
-**Committed (this session):** `<hash>` docs(roadmap+status): BUG-022 INVESTIGATED mark + STATUS append. ZMN_ROADMAP.md only (3 status edits) + STATUS.md prepend. **Note:** the audit doc itself (`docs/audits/CORRECTED_PNL_INVESTIGATION_2026_04_28.md`) was already committed in `ca4812d` ~15 min before this session started. This session verified those findings independently and updated the roadmap markers that the prior commit didn't touch.
+**Committed (this session):** `badb221` docs(roadmap+status): BUG-022 INVESTIGATED mark + STATUS append. ZMN_ROADMAP.md only (3 status edits) + STATUS.md prepend. **Note:** the audit doc itself (`docs/audits/CORRECTED_PNL_INVESTIGATION_2026_04_28.md`) was already committed in `ca4812d` ~15 min before this session started. This session verified those findings independently and updated the roadmap markers that the prior commit didn't touch.
 
 **State changes:** none. No services/, no env vars, no Redis writes, no Railway deploys. Read-only DB inspection (DATABASE_PUBLIC_URL) for the verification.
 
@@ -2246,7 +2259,7 @@ TP/SL trigger logic = parity. Sizing function = parity (calls `risk_manager.calc
 **Next prompt:** Silence recovery first (per `docs/audits/ANALYST_DISABLE_FIX_2026_04_28.md` §6.3). After that, BUG-022 fix execution session.
 
 **Pending Claude-chat prompts not yet pasted:**
-- `/mnt/user-data/outputs/SESSION_CORRECTED_PNL_INVESTIGATION.md` — investigation phase complete this session (`ca4812d` + `<hash>`). The execution-shape session is a new prompt yet to be drafted.
+- `/mnt/user-data/outputs/SESSION_CORRECTED_PNL_INVESTIGATION.md` — investigation phase complete this session (`ca4812d` + `badb221`). The execution-shape session is a new prompt yet to be drafted.
 - `/mnt/user-data/outputs/SESSION_ANALYST_POST_GRAD_001_PLAN.md` (carry — design session, ready to paste).
 
 **Verdict:** BUG-022 🟡 INVESTIGATED. Verdict 2a (writer never existed). Recommended fix Option A (~30m next session). Audit doc `ca4812d` is comprehensive; this session's role was independent verification + roadmap marker updates. No code/env/data changes.
@@ -2298,7 +2311,7 @@ TP/SL trigger logic = parity. Sizing function = parity (calls `risk_manager.calc
 
 ## 2026-04-24 00:39 AEDT (2026-04-23 14:39 UTC) — TUNE-005 (HOLDER_COUNT_MIN 1→15)
 
-**Committed (this session):** `<hash>` docs(tune): TUNE-005 HOLDER_COUNT_MIN 1→15 rollback post pipeline fix. Touches ZMN_ROADMAP.md + STATUS.md only. No services/, no code.
+**Committed (this session):** `badb221` docs(tune): TUNE-005 HOLDER_COUNT_MIN 1→15 rollback post pipeline fix. Touches ZMN_ROADMAP.md + STATUS.md only. No services/, no code.
 
 **State changes:** Railway env var `HOLDER_COUNT_MIN` on signal_aggregator: **1 → 15** (via Railway MCP `set-variables`). Railway auto-redeployed on variable change; old container stopped 14:32:21 UTC, new container started 14:32:10 UTC (staggered rollover). No Redis writes, no Postgres changes, no other env vars touched.
 
@@ -2323,7 +2336,7 @@ TP/SL trigger logic = parity. Sizing function = parity (calls `risk_manager.calc
 
 ## 2026-04-23 13:17 UTC — ROADMAP-CONSOL-2026-04-23-LATE
 
-**Committed (this session):** `<hash>` docs(roadmap): 2026-04-23 late-day consolidation. Touches ZMN_ROADMAP.md + STATUS.md only. Docs-only diff.
+**Committed (this session):** `badb221` docs(roadmap): 2026-04-23 late-day consolidation. Touches ZMN_ROADMAP.md + STATUS.md only. Docs-only diff.
 
 **State changes:** none (docs-only). No env vars, no Redis, no Railway deploys, no services/.
 
@@ -2352,7 +2365,7 @@ TP/SL trigger logic = parity. Sizing function = parity (calls `risk_manager.calc
 
 ## 2026-04-23 13:02 UTC — BITFOOT-2026-BASELINE (verdict BASELINE-A, caveats)
 
-**Committed (this session):** `<hash>` research(bitfoot): 2026 baseline vs 2025 edge — verdict BASELINE-A. Touches `docs/audits/BITFOOT_2026_BASELINE_2026_04_23.md` (new, committed) + STATUS.md + ZMN_ROADMAP.md. Also local-only under `.tmp_bitfoot2026/`: `sample_2026.py`, `bitfoot2026_sample.csv`, `run_stdout.log` (gitignored dir). No services/, no env vars, no Redis, no Railway deploys.
+**Committed (this session):** `badb221` research(bitfoot): 2026 baseline vs 2025 edge — verdict BASELINE-A. Touches `docs/audits/BITFOOT_2026_BASELINE_2026_04_23.md` (new, committed) + STATUS.md + ZMN_ROADMAP.md. Also local-only under `.tmp_bitfoot2026/`: `sample_2026.py`, `bitfoot2026_sample.csv`, `run_stdout.log` (gitignored dir). No services/, no env vars, no Redis, no Railway deploys.
 
 **State changes:** none (read-only external APIs — GT Demo tier `x-cg-demo-api-key` + Vybe free tier `X-API-KEY`). 0 credits spent. Analyst remains disabled via 08:19 UTC Redis override (will need re-apply before ~12:19 UTC expiration — now ~1h past, governance may have clobbered it; separate check recommended).
 

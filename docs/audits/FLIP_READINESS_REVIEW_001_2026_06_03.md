@@ -95,10 +95,12 @@ Criticality = impact on the **live execution path** specifically.
 - **At live:** #9 (`market:mode:current` HIBERNATE veto) is the **only** live regime control while governance is dead. The 0.8× haircut and the 10-cap also apply live.
 - **Decision:** restore Anthropic credits before flip (recommended) OR explicitly accept dead-governance posture (`GOVERNANCE-STALENESS-POLICY-001`). A "stale→halt" rule would currently halt the bot; a "stale→cap" is a permanent live haircut. **Do not flip blind to this.**
 
-### 4.2 SIZING-CAPS-WIRING-001 — `MAX_SD_POSITIONS=20` is deployed-but-unread 🔴
-- **Verified this session:** bot_core enforces concurrency at `bot_core.py:831` via `gov.get("max_concurrent_positions", 10)` — i.e., the **governance decision's** field (currently 10). `MAX_SD_POSITIONS` (env=20) and `MAX_CONCURRENT_POSITIONS` (env=6) are **NOT read by name** → phantom.
-- **Effect:** effective live concurrency cap = **10** (governance CONSERVATIVE default), NOT the V5A first-24h intent of **5**, NOT 20.
-- **Decision:** wire a real cap to the V5A ladder (5 → 5 → 7), or pin governance `max_concurrent_positions` to 5 at flip. Wiring `MAX_SD_POSITIONS` as-is would jump the *paper* cap to 20.
+### 4.2 SIZING-CAPS-WIRING-001 — concurrency caps 🔴 [UPDATED 2026-06-03 — partial fix landed + correction]
+- **TWO caps exist (this review's first pass cited only the total — corrected here):**
+  - **Total (cross-personality)** at `bot_core.py:831`: `len(self.positions) >= max_concurrent`. ✅ **SIZING-CAPS-WIRING-001 landed** (`<see commit>`): now `min(MAX_CONCURRENT_POSITIONS env, gov)`, env=**10** set, governance can only tighten. `MAX_SD_POSITIONS`(20) stays phantom.
+  - **Per-personality** at `risk_manager.py:51 MAX_CONCURRENT_PER_PERSONALITY=3` (WHALE=2), enforced in `calculate_position_size` (returns 0.0 → bot_core `:898` blocks). **HARDCODED, NOT wired.**
+- **🚩 EFFECTIVE TRIAL CONCURRENCY = 3, not 10.** SD-only (Analyst off, Whale dormant) → SD per-personality cap **3** binds before the total-10 is ever reached. The total-cap wiring is robustness/determinism, not a behaviour change at the current value.
+- **Decision/follow-up:** to set the trial's effective concurrency to the V5A ladder (5 → 5 → 7), wire `risk_manager.MAX_CONCURRENT_PER_PERSONALITY` → **SIZING-CAPS-WIRING-001-B** (open). If 3 is acceptable for the supervised first window, no action needed — but the operator should know the cap is 3, not 10.
 
 ### 4.3 TIMEZONE-SIZING-FIX-001 🟠
 - TIME_GOOD/DEAD/SLEEP/WEEKEND sizing multipliers fire on a hardcoded UTC+11 clock (1h off in AEST) AND time-of-day is applied twice (risk_manager UTC + bot_core UTC+11). Changes *paper* sizing → needs a semantics decision before fixing. Correctness, not money-loss.
@@ -122,8 +124,10 @@ Verified on `bot_core` / `signal_aggregator` this session. **"FLIP ACTION" = cha
 | `MIN_POSITION_SOL` (bot_core) | 0.05 | 0.05 (note: risk_manager default 0.10; bot_core env 0.05 wins in-process) | risk_manager | confirm intended floor |
 | `DAILY_LOSS_LIMIT_SOL` (bot_core) | **4.0** | **1.5** realized (V5A decision) | risk_manager → EMERGENCY_STOP | **SET 1.5** ← currently 2.7× the stated tolerance |
 | `DAILY_LOSS_LIMIT_PCT` | 0.10 | — | risk_manager | confirm interaction w/ SOL limit |
-| concurrency cap | gov `max_concurrent_positions`=**10** | **5** (first 24h) | bot_core:831 | **pin gov cap to 5** or wire SIZING-CAPS-WIRING-001 (§4.2) |
+| total concurrency cap | `min(MAX_CONCURRENT_POSITIONS=10, gov)` ✅ wired | 10 (Jay) | bot_core:831 | ✅ SIZING-CAPS-WIRING-001 landed |
+| **per-personality cap (BINDING for SD-only)** | **3** (hardcoded) | 5 (V5A first-24h) | risk_manager.py:51 | 🔴 NOT wired — effective trial cap is 3; **SIZING-CAPS-WIRING-001-B** to raise |
 | `MAX_SD_POSITIONS` (all) | 20 | phantom — unread | (nothing) | do NOT rely on it |
+| `MAX_CONCURRENT_POSITIONS` (bot_core) | **10** ✅ now read | 10 | bot_core:831 | wired (total cap ceiling) |
 | `STOP_LOSS_PCT` | 0.20 | 0.20 (GATES-V5) | exit | ok |
 | `BOT_CORE_FILL_MC_CEILING_USD` | 1000 | live fill-MC gate (fail-CLOSED #13) | bot_core live buy | ok (set >0 to keep gate active) |
 | `SD_MC_CEILING_USD` (SA) | 3000 | signal-time MC ceiling | SA | ok |

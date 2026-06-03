@@ -176,6 +176,15 @@ Bot state at writing: TEST_MODE=true (paper), 6 services Online, `market:health.
 
 ---
 
+## SIZING-CAPS-WIRING-001 — deterministic total concurrency cap (added 2026-06-03; paper-observable)
+
+- **Finding (D04-F7):** the cross-personality total concurrency cap at `bot_core.py:831` read the governance decision's `max_concurrent_positions` directly (fallback 10); `MAX_SD_POSITIONS` (env 20) and `MAX_CONCURRENT_POSITIONS` (env 6) were **phantom** (read by nothing). The trial wants a deterministic, governance-independent cap.
+- **Fix:** `:831` now resolves `min(env_cap, gov_cap)` where `env_cap = int(os.getenv("MAX_CONCURRENT_POSITIONS", "5"))` is a HARD ceiling and governance may only TIGHTEN below it (safety never loosens). Logs `[CAPS] concurrency cap=N (env=E, gov=G)` once per process. Env set `MAX_CONCURRENT_POSITIONS=10` on bot_core (Jay's decision; 2× the V5A-intent-5). Default 5 if unset. **Paper-observable** (cap is not TEST_MODE-gated). py_compile + `.tmp_caps/verify_caps.py` 12/12 (min-semantics + structural + risk_manager-untouched).
+- **🚩 PLAN-CHANGING FINDING (corrects the prompt premise + FLIP_READINESS_REVIEW §4.2/§5):** `:831` is the *total* cap and is **NOT the binding cap for the SD-only trial.** A SECOND, per-personality cap binds first: `risk_manager.py:51 MAX_CONCURRENT_PER_PERSONALITY=3` (WHALE=2), enforced in `calculate_position_size` (`risk_manager.py:228` → returns 0.0 → bot_core `:898 if base_size<=0: return`). The admission order is `:831` total (10) → sizing → risk_manager per-personality (3) → block. With Analyst disabled + Whale dormant, **Speed Demon is capped at 3 concurrent — the total-10 is never reached, so the effective trial concurrency = 3, NOT 10.** Wiring `:831` makes the total cap robust/deterministic (correct) but does NOT change the trial's effective concurrency. **To actually set the trial cap to N concurrent SD positions, `risk_manager.MAX_CONCURRENT_PER_PERSONALITY` must also be wired** — filed as **SIZING-CAPS-WIRING-001-B** (out of this change's scope fence: ":831 + env + docs only, NO sizing change"). The FLIP NIGHT PLAYBOOK's "concurrency cap=10" + `[CAPS]` startup check reflect the *total* cap; the *effective* SD cap is 3 until 001-B lands.
+- **Rollback:** `git revert <hash>` + `railway variables -s bot_core --set MAX_CONCURRENT_POSITIONS=6`.
+
+---
+
 ## Cross-cutting decisions & lessons (for the reviewer's context)
 
 1. **Verification strategy shifted at the Phase boundary.** Phase-0 fixes run in paper → observed in prod (and one prod observation caught the connection leak → hotfix). Phase-1 fixes are in the live branch → not paper-observable → verified by tests + review, runtime-confirmed at the flip. This is inherent, not a shortcut.

@@ -828,8 +828,25 @@ class BotCore:
             logger.info("Governance disabled Whale Tracker")
             return
 
-        if len(self.positions) >= gov.get("max_concurrent_positions", 10):
-            logger.info("Governance: max positions %d reached", gov["max_concurrent_positions"])
+        # SIZING-CAPS-WIRING-001 (D04-F7): make the TOTAL (cross-personality) concurrency cap
+        # deterministic + governance-independent. MAX_CONCURRENT_POSITIONS is a HARD ceiling;
+        # governance may only TIGHTEN below it (min) — safety never loosens. Default 5 if unset
+        # (conservative). Trial value = 10 (Jay's decision, 2× the V5A-intent-5).
+        # NOTE: this is the cross-personality total. The PER-PERSONALITY cap
+        # (risk_manager.MAX_CONCURRENT_PER_PERSONALITY=3 / WHALE=2, enforced at
+        # risk_manager.py:228 → base_size=0 → blocked at :898) binds FIRST for single-personality
+        # operation and is the ACTUAL binding limit for the SD-only trial. Raising the effective
+        # trial cap above 3 requires wiring risk_manager too — tracked as SIZING-CAPS-WIRING-001-B
+        # (out of this change's scope fence).
+        _env_cap = int(os.getenv("MAX_CONCURRENT_POSITIONS", "5"))
+        _gov_cap = gov.get("max_concurrent_positions", _env_cap)
+        _max_concurrent = min(_env_cap, _gov_cap)
+        if not getattr(self, "_caps_logged", False):
+            logger.info("[CAPS] concurrency cap=%d (env=%d, gov=%d)", _max_concurrent, _env_cap, _gov_cap)
+            self._caps_logged = True
+        if len(self.positions) >= _max_concurrent:
+            logger.info("Concurrency cap reached: %d positions >= %d (env=%d, gov=%d)",
+                        len(self.positions), _max_concurrent, _env_cap, _gov_cap)
             return
 
         # BOT-CORE-ML-GATE-001: env-controllable per-personality ML threshold filter.

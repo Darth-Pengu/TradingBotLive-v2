@@ -2,6 +2,12 @@
 
 ---
 
+## 2026-06-03 — SIZING-CAPS-WIRING-001 (total concurrency cap wired) + binding-cap finding
+
+Wired the TOTAL concurrency cap at `bot_core.py:831` to `min(MAX_CONCURRENT_POSITIONS=10, gov)`; env set on bot_core. Watch on next bot_core boot: `[CAPS] concurrency cap=10 (env=10, gov=10)` (logs once on first signal post-boot). **Observation note:** effective SD-only concurrency is **3** (per-personality `risk_manager.MAX_CONCURRENT_PER_PERSONALITY`), so paper will not exceed 3 concurrent SD positions regardless of the total-10 — expected, not a fault. TEST_MODE stays true.
+
+---
+
 ## 2026-06-03 — §B PHASE 1 DEPLOY-CONFIRMED + end-to-end Phase-0 validation
 
 - **All 4 Phase-1 deploys clean** (bot_core "ready" + trading after each; no import/Type/Syntax errors): #4+#8 `2a85508`, #6 `29fca1b`, #5+D02-F8 `09f71c1`, #7 `94457ef`. (Behaviour is flip-confirmed-only; deployment confirmed clean.)
