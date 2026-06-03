@@ -476,8 +476,15 @@ async def api_status(request):
     # Win rate windows (mode-filtered)
     for window, key in [(10, "wr_10"), (25, "wr_25"), (50, "wr_50")]:
         try:
+            # DASH-CORRECTED-PNL-COLUMN-001 (TRUE root cause): the outer SELECT referenced
+            # corrected_pnl_sol/realised_pnl_sol, but the subquery `t` only PROJECTS `pnl`
+            # (the COALESCE aliased to pnl) — so Postgres raised `column "corrected_pnl_sol"
+            # does not exist` against the SUBQUERY (NOT the table) every ~60s ×3 (windows
+            # 10/25/50, an external poller of /api/status). Fixed: outer uses `pnl`. (The
+            # audit's "trades-table" hypothesis was wrong; migration 003 was harmless+useful
+            # for LIVE-TRADES-CORRECTED-POPULATE-001 but did not address this.)
             wr_rows = await _query_db(
-                f"""SELECT ROUND(100.0 * COUNT(CASE WHEN COALESCE(corrected_pnl_sol, realised_pnl_sol) > 0 THEN 1 END)
+                f"""SELECT ROUND(100.0 * COUNT(CASE WHEN pnl > 0 THEN 1 END)
                     / NULLIF(COUNT(*), 0), 1) as wr
                 FROM (SELECT COALESCE(corrected_pnl_sol, realised_pnl_sol) as pnl FROM paper_trades
                       WHERE exit_time IS NOT NULL AND trade_mode = $1

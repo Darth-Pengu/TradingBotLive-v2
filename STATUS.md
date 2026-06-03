@@ -7,6 +7,18 @@
 
 ---
 
+## 2026-06-03 — CORRECTION: DASH-CORRECTED-PNL-COLUMN-001 TRUE root cause (subquery alias, not a missing column)
+
+**Committed:** `<this commit>` fix(dashboard): api_status win-rate-window subquery alias — `services/dashboard_api.py`.
+**Corrects the #15 claim below.** The `column "corrected_pnl_sol" does not exist` error (web, ×3 every 60s) was NOT a missing `trades` column (the audit's hypothesis, which I acted on with migration 003). **True root cause:** `api_status`'s win-rate-window query (3 windows 10/25/50 → the exact 3×/60s, polled via `/api/status`) referenced `COALESCE(corrected_pnl_sol, realised_pnl_sol)` in the **outer** SELECT over a subquery `t` that only PROJECTS `pnl` (the COALESCE was aliased to `pnl` inside). Postgres raised the error against the **subquery**, not any table. **Fix:** outer now uses `pnl`. Verified by prod-replay: the exact deployed query reproduced the error (2/2 fail pre-fix), the fixed query passes (6/6: windows 10/25/50 × paper+live).
+**Migration 003 (corrected_* cols on `trades`) is RETAINED** — harmless (additive/nullable) and useful for `LIVE-TRADES-CORRECTED-POPULATE-001`, but it did NOT resolve this error. The #15 entry's "resolved via migration" wording is superseded by this correction.
+**Verification:** py_compile PASS; prod-replay 6/6 (fixed) + 2/2 repro (broken). Paper-observable (the dashboard's win-rate-window cards + the spammed log). 
+**Rollback:** `git revert` this commit.
+**Next prompt:** Phase-3 capstone (re-verify error gone post-deploy).
+**Pending Claude-chat prompts not yet pasted:** none.
+
+---
+
 ## 2026-06-03 — API-STATS-FSTRING-BUG-001 (NEW finding, fixed) — api_stats silently returned zeros
 
 **Committed:** `<this commit>` fix(dashboard): add missing `f` prefix to 3 api_stats queries — `services/dashboard_api.py`.
