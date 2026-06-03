@@ -7,6 +7,19 @@
 
 ---
 
+## 2026-06-03 — §B PHASE 1 DEPLOY-CONFIRMED + end-to-end Phase-0 validation (capstone, docs)
+
+**Committed:** `7a6bb22` docs — Phase-1 deploy-confirmation + DEFENSIVE end-to-end validation. (Docs-only; this push redeploys all services — a clean no-op restart, proven 6× today.)
+**Phase-1 all 4 deploys came up CLEAN** (the bar for non-paper-observable live-branch code): bot_core "Bot Core ready — managing 3 personalities" after each, paper trades entering with real ML scores, no traceback/import/Type errors from any edit. Commits: #4+#8 `2a85508`, #6 `29fca1b`, #5+D02-F8 `09f71c1`, #7 `94457ef`.
+**END-TO-END VALIDATION of the Phase-0 chain (new finding):** `market:health` now reads **`mode: DEFENSIVE`** (was warm-up HIBERNATE), `data_degraded: false`, `dex_volume_24h: $1.65B`, with `market:migration_count_1h` climbing **2 → 6 → 10** over the session. The bot correctly transitioned out of HIBERNATE as the counter passed the DEFENSIVE threshold — proving the chain works: pubsub fix (pipeline flows → migrations captured) → redis-hardening (increments land, no longer dropped) → market-mode fix (classifies on real data, abstains only when genuinely absent). Whether it reaches NORMAL (≥30/hr) depends on the bot's true capture rate over a full clean hour → `MARKET-MODE-THRESHOLD-RECALIBRATE-003`.
+**Bot state:** TEST_MODE=true (paper); all 6 services Online; mode DEFENSIVE; trading paper normally; Redis timeouts largely cleared post-hardening. Wallet 5.064 SOL (unchanged; no live activity).
+**🎯 §B Phases 0 + 1 COMPLETE (code + deploy-confirmed).** Phase-1 fixes are flip-confirmed-only (live `else:` branch) for their *behaviour*; their *deployment* is confirmed clean.
+**Remaining before any live flip:** §B **Phase 2 (safety rails)** — #9 FIX-HIBERNATE-LIVE-VETO, #10 FIX-GOVERNANCE-FAIL-OPEN, #11 daily-loss persistence, #12 live-balance seed, #13 sizing-caps wiring; then **Phase 3 (accounting)** — live staged-TP cumulative PnL, Path-B multi-exit, DASH-CORRECTED-PNL-COLUMN-001. **Pausing at the Phase-1→Phase-2 boundary** (Phase 2 = live-money safety gates — surfaced for sequencing rather than auto-rolled).
+**Next prompt:** Phase-2 #9 (FIX-HIBERNATE-LIVE-VETO) when authorized to proceed.
+**Pending Claude-chat prompts not yet pasted:** none.
+
+---
+
 ## 2026-06-03 — §B Phase-1 #7 FIX-EXEC-001-002-ROUTING — **§B PHASE 1 CODE-COMPLETE**
 
 **Committed:** `3e4b502` fix(live-exec): unconditional pool-state refresh for live sells — `services/bot_core.py` only.

@@ -2,6 +2,15 @@
 
 ---
 
+## 2026-06-03 — §B PHASE 1 DEPLOY-CONFIRMED + end-to-end Phase-0 validation
+
+- **All 4 Phase-1 deploys clean** (bot_core "ready" + trading after each; no import/Type/Syntax errors): #4+#8 `2a85508`, #6 `29fca1b`, #5+D02-F8 `09f71c1`, #7 `94457ef`. (Behaviour is flip-confirmed-only; deployment confirmed clean.)
+- **END-TO-END VALIDATION:** `market:health` now `mode: DEFENSIVE` (was warm-up HIBERNATE), `data_degraded: false`, dex $1.65B; `market:migration_count_1h` climbed 2→6→10 across the session. Bot correctly left HIBERNATE as the counter passed the DEFENSIVE threshold — proves the Phase-0 chain (pubsub→flow→migrations; redis-hardening→increments land; market-mode→classify on real data). NORMAL (≥30/hr) pending true capture-rate over a clean hour → MARKET-MODE-THRESHOLD-RECALIBRATE-003.
+- **Bot state:** paper; 6 services Online; DEFENSIVE; trading normally; Redis timeouts largely cleared; wallet 5.064 SOL unchanged.
+- **Phases 0+1 complete (code+deploy).** Remaining before flip: Phase 2 (safety rails #9-#13), Phase 3 (accounting). **Paused at Phase-1→Phase-2 boundary.**
+
+---
+
 ## 2026-06-03 — §B Phase-1 #7 FIX-EXEC-001-002-ROUTING — PHASE 1 CODE-COMPLETE
 
 - **`bot_core.py`.** Removed the `if pos.bonding_curve_progress > 0:` gate so `_check_pool_state_fresh` runs for EVERY live sell. Fixes D02-F4 (whale/Raydium bc=0 → 400 on the pump.fun path) + D03-F3 (reconciled positions lose bc_progress → stale pre-grad routing of graduated tokens). Helper returns 1.0 (BC closed→non-local/Jupiter) / 0.0 (BC live→pre-grad) → refresh always routes correctly; avoids a schema migration; fail-closed-to-stale on RPC error. py_compile PASS; 4/4 structural.
