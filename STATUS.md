@@ -7,6 +7,15 @@
 
 ---
 
+## 2026-06-03 — Phase-0 #3 RUNTIME-CONFIRMED + new finding DASH-CORRECTED-PNL-COLUMN-001 (docs)
+
+**Committed:** `b89f265` docs — Phase-0 #3 runtime confirmation + file DASH-CORRECTED-PNL-COLUMN-001. (No code; this docs push redeploys all services — harmless no-op restart.)
+**#3 runtime-confirmed:** read `service:health` from Redis post-deploy — internal-service rows are present and all `ok`: bot_core (heartbeat 8s ago), signal_aggregator (28s), signal_listener (via signals:raw, 0s), market_health (41s). No false-down → no spurious Discord alerts; the down-alert is armed. **A 05-28-style internal crash is now visible on the dashboard + Discord-alerted.** **§B Phase 0 is fully done and verified** (#1 pubsub+leak, #2 market-mode, #2.5 redis-hardening, #3 observability).
+**NEW finding `DASH-CORRECTED-PNL-COLUMN-001` (🟠 Phase-3, prod-observed, FILED):** `web` logs a repeating DB error every ~60s — `column "corrected_pnl_sol" does not exist`. A dashboard PnL/analytics query references `corrected_pnl_sol` on a table lacking it (almost certainly `trades` — migration `001` added corrected_* to `paper_trades` only). A PnL panel silently errors. PRE-EXISTING (not from Phase-0 work). Fix: add corrected_* to `trades`, or COALESCE-from-realised when absent / restrict to `paper_trades`. Bundle with FIX-DASHBOARD-MODE-FIDELITY (§B Phase-3 #15). Filed in ZMN_ROADMAP.
+**Next:** revised §B Phase 1 begins — merged FIX-LIVE-SELL-RESULT-CHECK + FIX-EMERGENCY-STOP-ROBUSTNESS (#4+#8), unit-test-driven (live `else:` branch can't be paper-observed).
+
+---
+
 ## 2026-06-03 — DEPLOY-OBSERVABILITY (§B Phase-0 #3) — PHASE 0 COMPLETE
 
 **Committed:** `51ed450` feat(observability): internal-service liveness rows + Discord down-alert in web health-checker.

@@ -2,6 +2,14 @@
 
 ---
 
+## 2026-06-03 — Phase-0 #3 runtime-confirmed + DASH-CORRECTED-PNL-COLUMN-001 (new finding)
+
+- **#3 confirmed via `service:health` (Redis):** internal-service rows present + all `ok` — bot_core (heartbeat 8s), signal_aggregator (28s), signal_listener (signals:raw 0s), market_health (41s). No false-down, alerting armed. **A 05-28-style internal crash is now visible + Discord-alerted.** §B Phase 0 fully verified.
+- **NEW `DASH-CORRECTED-PNL-COLUMN-001` (🟠 Phase-3):** `web` logs `column "corrected_pnl_sol" does not exist` every ~60s — a dashboard PnL query hits a table without that column (likely `trades`; migration `001` added corrected_* to `paper_trades` only). A PnL panel silently errors. PRE-EXISTING (not from Phase-0 work). Filed in ZMN_ROADMAP; bundle with FIX-DASHBOARD-MODE-FIDELITY (§B Phase-3).
+- **Next:** revised §B Phase 1 — merged #4+#8 (live-sell result-check + emergency-stop robustness), unit-test-driven (live branch not paper-observable).
+
+---
+
 ## 2026-06-03 — DEPLOY-OBSERVABILITY (§B Phase-0 #3) — PHASE 0 COMPLETE
 
 - **REDIS-CLIENT-HARDENING-001 runtime-confirmed (`2337565`):** all 6 services Online; **bot_core supervise-restarts = 0** (was #8/#9 every 60s → safety listeners now stable); `market:migration_count_1h` climbing **2 → 6** (increments landing now); pipeline flowing, paper trades entering. HIBERNATE persists as warm-up (counter still filling toward DEFENSIVE's ≥10). Hardening = success.
