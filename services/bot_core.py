@@ -1108,12 +1108,17 @@ class BotCore:
             # cannot see. Default 0 = disabled. Rollback: set env var to 0
             # (no redeploy). Failure mode: _get_token_price returns 0.0 →
             # fill_mc=0 → gate fails open (literal mirror of the C1 gate block;
-            # paper's fail-closed happens earlier in paper_buy at :238-240,
-            # not inside the gate). Redis key uses :live: segment so
-            # paper/live reject rates are separable.
+            # paper's fail-closed happens earlier in paper_buy at :238-240).
+            # FIX-SIZING-CAPS (#13, D08-F7): this gate now FAILS CLOSED on a price-fetch miss
+            # (was fail-open: fill_price=0 → fill_mc=0 → 0 > ceiling is False → it ADMITTED an
+            # unbounded-MC live buy, the exact in-flight-pump case the gate exists to block).
+            # Redis key uses :live: segment so paper/live reject rates are separable.
             fill_mc_ceiling = float(os.getenv("BOT_CORE_FILL_MC_CEILING_USD", "0"))
             if fill_mc_ceiling > 0:
                 fill_price = await self._get_token_price(mint)
+                if fill_price <= 0:
+                    logger.warning("FILL_MC_CEILING fail-CLOSED (live): %s — no fill price, skipping buy", mint[:12])
+                    return
                 fill_mc = fill_price * 1_000_000_000
                 if fill_mc > fill_mc_ceiling:
                     logger.info(

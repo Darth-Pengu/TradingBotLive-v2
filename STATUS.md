@@ -7,6 +7,22 @@
 
 ---
 
+## 2026-06-03 — §B Phase-2 #13 fill-MC fail-closed (+ MAX_SD_POSITIONS/timezone deferred+flagged)
+
+**Committed:** `beaa7de` fix(safety): live fill-MC-ceiling fails CLOSED on price-miss — `services/bot_core.py`.
+**#13 done (D08-F7):** the live fill-MC-ceiling gate (`BOT_CORE_FILL_MC_CEILING_USD`) failed OPEN — `_get_token_price` returns 0.0 → `fill_mc = 0` → `0 > ceiling` is False → it ADMITTED an unbounded-MC live buy (the exact in-flight-pump case the gate exists to block). Now: `if fill_price <= 0: log + return` (fail CLOSED). Live-only (the gate is in the live buy branch); paper has its own fail-closed in `paper_buy`. py_compile + structural.
+**🚩 DEFERRED + FLAGGED (two #13 sub-items need a decision — NOT auto-applied under "no input"):**
+- **MAX_SD_POSITIONS wiring (D04-F7):** the cap is hardcoded `MAX_CONCURRENT_PER_PERSONALITY=3`; `MAX_SD_POSITIONS` is a phantom env var. **But `MAX_SD_POSITIONS=20` is DEPLOYED on Railway** (AGENT_CONTEXT §2) — so wiring it as-is would jump the concurrent cap **3 → 20 in paper** (6.7×, big exposure change). It must be wired *together with* setting the env to the V5A-ladder intent (5/7), which is a flip-time operator decision. Filed `SIZING-CAPS-WIRING-001`.
+- **Timezone / double time-of-day multiplier (D08-F4 / D11-F2):** TIME_GOOD/DEAD/SLEEP/WEEKEND fire on a hardcoded UTC+11 clock (off by 1h in AEST) AND time-of-day is applied twice on two clocks. Fixing changes *paper* sizing and the de-dup needs a sizing-semantics decision (the audit said "confirm with Jay"). CORRECTNESS, not a money-loss 🔴. Filed `TIMEZONE-SIZING-FIX-001`.
+**Verification:** py_compile PASS; 3/3 structural (fail-closed present, reject path intact, MAX_SD_POSITIONS unchanged/deferred). Live-only; flip-confirmed.
+**Rollback:** `git revert` this commit.
+**🎯 §B Phase-2 (safety rails) CODE-COMPLETE:** #9 HIBERNATE-live-veto ✅, #10 governance-cfgi ✅, #11+#12 live-startup-state ✅, #13 fill-MC-fail-closed ✅. Two #13 sub-items deferred+flagged (need decisions). Full findings summary at end of this run.
+**Next:** Phase 3 (accounting) — when authorized. Plus the flagged decisions (SIZING-CAPS-WIRING-001, TIMEZONE-SIZING-FIX-001, GOVERNANCE-STALENESS-POLICY-001, BUG-010 credits).
+**Next prompt:** Phase-3 #14 (or resolve the flagged decisions).
+**Pending Claude-chat prompts not yet pasted:** none.
+
+---
+
 ## 2026-06-03 — §B Phase-2 #11+#12 live startup-state (daily-loss persistence + on-chain balance seed)
 
 **Committed:** `e739e07` fix(safety): live startup-state corrections — `services/bot_core.py` (`_load_state` + new `_fetch_onchain_balance_sol` helper).
