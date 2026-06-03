@@ -31,6 +31,7 @@ import pytz
 import redis.asyncio as aioredis
 from dotenv import load_dotenv
 
+from services.async_utils import supervise  # FIX-PUBSUB-ISOLATION
 from services.db import get_pool
 
 load_dotenv()
@@ -1252,17 +1253,19 @@ async def main():
     except Exception as e:
         logger.warning("Redis connection failed: %s -- triggers disabled", e)
 
-    tasks = [
-        _scheduled_loop(pool, redis_conn),
-        _anomaly_loop(pool, redis_conn),
-        _smart_money_discovery_loop(redis_conn),  # P1: every 4h proactive scan
-        _wallet_refresh_loop(redis_conn),          # Every 48h wallet refresh
-        _governance_classification_loop(pool, redis_conn),  # Structured JSON mode classification
+    # FIX-PUBSUB-ISOLATION: supervise each loop/listener so a crash in one
+    # (e.g. a pubsub TimeoutError in _trigger_listener) restarts only that task.
+    specs = [
+        (lambda: _scheduled_loop(pool, redis_conn), "scheduled_loop"),
+        (lambda: _anomaly_loop(pool, redis_conn), "anomaly_loop"),
+        (lambda: _smart_money_discovery_loop(redis_conn), "smart_money_discovery_loop"),
+        (lambda: _wallet_refresh_loop(redis_conn), "wallet_refresh_loop"),
+        (lambda: _governance_classification_loop(pool, redis_conn), "governance_classification_loop"),
     ]
     if redis_conn:
-        tasks.append(_trigger_listener(pool, redis_conn))
+        specs.append((lambda: _trigger_listener(pool, redis_conn), "trigger_listener"))
 
-    await asyncio.gather(*tasks)
+    await asyncio.gather(*[supervise(factory, name) for factory, name in specs])
 
 
 if __name__ == "__main__":

@@ -26,6 +26,8 @@ import redis.asyncio as aioredis
 import websockets
 from dotenv import load_dotenv
 
+from services.async_utils import supervise  # FIX-PUBSUB-ISOLATION
+
 load_dotenv()
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
@@ -1392,19 +1394,22 @@ async def main():
         async def telegram_listener(r):
             logger.debug("Telegram listener not available (telethon not installed)")
 
+    # FIX-PUBSUB-ISOLATION: each task is supervised so a crash in one (e.g. a
+    # transient pubsub TimeoutError in _token_subscribe_listener) restarts that
+    # task instead of tearing down the whole signal_listener process.
     await asyncio.gather(
-        pumpportal_listener(redis_conn),
-        _token_subscribe_listener(redis_conn),
-        _resub_and_price_poller(redis_conn),
-        gecko_poller(redis_conn),
-        gecko_trending_poller(redis_conn),
-        dexpaprika_listener(redis_conn),
-        nansen_screener_poller(redis_conn),
-        nansen_sm_dex_poller(redis_conn),
-        discord_nansen_poller(redis_conn),
-        helius_whale_poller(redis_conn),
-        telegram_listener(redis_conn),
-        _early_sub_cleanup(redis_conn),
+        supervise(lambda: pumpportal_listener(redis_conn), "pumpportal_listener"),
+        supervise(lambda: _token_subscribe_listener(redis_conn), "token_subscribe_listener"),
+        supervise(lambda: _resub_and_price_poller(redis_conn), "resub_and_price_poller"),
+        supervise(lambda: gecko_poller(redis_conn), "gecko_poller"),
+        supervise(lambda: gecko_trending_poller(redis_conn), "gecko_trending_poller"),
+        supervise(lambda: dexpaprika_listener(redis_conn), "dexpaprika_listener"),
+        supervise(lambda: nansen_screener_poller(redis_conn), "nansen_screener_poller"),
+        supervise(lambda: nansen_sm_dex_poller(redis_conn), "nansen_sm_dex_poller"),
+        supervise(lambda: discord_nansen_poller(redis_conn), "discord_nansen_poller"),
+        supervise(lambda: helius_whale_poller(redis_conn), "helius_whale_poller"),
+        supervise(lambda: telegram_listener(redis_conn), "telegram_listener"),
+        supervise(lambda: _early_sub_cleanup(redis_conn), "early_sub_cleanup"),
     )
 
 

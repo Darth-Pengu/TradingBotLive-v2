@@ -23,6 +23,7 @@ import aiohttp
 import redis.asyncio as aioredis
 from dotenv import load_dotenv
 
+from services.async_utils import supervise  # FIX-PUBSUB-ISOLATION
 from services.db import get_pool
 
 load_dotenv()
@@ -2407,16 +2408,22 @@ async def main():
                 pass
             await asyncio.sleep(30)
 
+    # FIX-PUBSUB-ISOLATION: supervise every task so a transient redis pubsub
+    # TimeoutError in _emergency_listener / _exit_check_listener (or any other
+    # task) restarts just that task instead of crashing the whole trade engine
+    # and leaving open live positions unmonitored. _check_exits and
+    # _exit_check_listener are the live-exit safety paths — keeping them alive
+    # across transient infra blips is the point of this fix.
     await asyncio.gather(
-        bot._consume_signals(),
-        bot._check_exits(),
-        bot._emergency_listener(),
-        bot._exit_check_listener(),
-        bot._nansen_exit_monitor(),
-        bot._daily_reset(),
-        bot._portfolio_snapshot_task(),
-        bot._status_publisher(),
-        _heartbeat(),
+        supervise(lambda: bot._consume_signals(), "consume_signals"),
+        supervise(lambda: bot._check_exits(), "check_exits"),
+        supervise(lambda: bot._emergency_listener(), "emergency_listener"),
+        supervise(lambda: bot._exit_check_listener(), "exit_check_listener"),
+        supervise(lambda: bot._nansen_exit_monitor(), "nansen_exit_monitor"),
+        supervise(lambda: bot._daily_reset(), "daily_reset"),
+        supervise(lambda: bot._portfolio_snapshot_task(), "portfolio_snapshot_task"),
+        supervise(lambda: bot._status_publisher(), "status_publisher"),
+        supervise(lambda: _heartbeat(), "heartbeat"),
     )
 
 

@@ -23,6 +23,8 @@ import aiohttp
 import redis.asyncio as aioredis
 from dotenv import load_dotenv
 
+from services.async_utils import supervise  # FIX-PUBSUB-ISOLATION
+
 load_dotenv()
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
@@ -2684,11 +2686,13 @@ async def main():
     except Exception as e:
         logger.warning("DB pool not available for inline ML: %s", e)
 
+    # FIX-PUBSUB-ISOLATION: supervise each task for parity with the other
+    # services (these inner loops self-heal today, so this is a backstop).
     await asyncio.gather(
-        _process_signals(redis_conn, pool=pool),
-        _process_graduations(redis_conn, pool=pool),
-        _cleanup_seen_tokens(),
-        _health_heartbeat(redis_conn),
+        supervise(lambda: _process_signals(redis_conn, pool=pool), "process_signals"),
+        supervise(lambda: _process_graduations(redis_conn, pool=pool), "process_graduations"),
+        supervise(lambda: _cleanup_seen_tokens(), "cleanup_seen_tokens"),
+        supervise(lambda: _health_heartbeat(redis_conn), "health_heartbeat"),
     )
 
 

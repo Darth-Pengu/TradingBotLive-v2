@@ -114,8 +114,15 @@ async def main():
         await site.start()
         logger.info("Health endpoint running on port %d for service %s", port, SERVICE_NAME)
 
-        mod = importlib.import_module(SERVICE_MAP[SERVICE_NAME])
-        await mod.main()
+        # FIX-PUBSUB-ISOLATION (2026-06-03): route the single-service entrypoint
+        # through the supervised restart wrapper instead of a bare `await
+        # mod.main()`. Previously any exception escaping the service's top-level
+        # asyncio.gather (e.g. a transient redis pubsub TimeoutError) propagated
+        # out of main(), exited the process, and Railway crash-looped the
+        # container. run_service() restarts with exponential backoff and honours
+        # CancelledError for clean shutdown. (run_service imports the module
+        # itself, so no separate import_module call is needed here.)
+        await run_service(SERVICE_NAME, SERVICE_MAP[SERVICE_NAME], critical=True)
 
     elif not SERVICE_NAME:
         # ---------------------------------------------------------------

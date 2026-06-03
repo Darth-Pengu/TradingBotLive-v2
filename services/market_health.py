@@ -21,6 +21,8 @@ import pytz
 import redis.asyncio as aioredis
 from dotenv import load_dotenv
 
+from services.async_utils import supervise  # FIX-PUBSUB-ISOLATION
+
 load_dotenv()
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
@@ -545,9 +547,10 @@ async def main():
         logger.warning("Redis connection failed: %s -- market health will log only", e)
         redis_conn = None
 
+    # FIX-PUBSUB-ISOLATION: supervise each loop (backstop — both self-heal today).
     await asyncio.gather(
-        daily_health_check(redis_conn),
-        rug_cascade_monitor(redis_conn),
+        supervise(lambda: daily_health_check(redis_conn), "daily_health_check"),
+        supervise(lambda: rug_cascade_monitor(redis_conn), "rug_cascade_monitor"),
     )
 
 

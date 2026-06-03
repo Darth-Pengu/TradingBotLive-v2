@@ -2,6 +2,17 @@
 
 ---
 
+## 2026-06-03 — FIX-PUBSUB-ISOLATION (§B Phase-0 #1; CODE DEPLOYED; restores the bot)
+
+- **Trigger:** Jay: "start FIX-PUBSUB-ISOLATION." The #1 flip-unblocker from FULL-CODE-AUDIT-001 — the bot has been DOWN since ~05-28 on a dual-service pubsub crash-loop.
+- **Fix:** NEW `services/async_utils.py` `supervise(coro_factory, name)` — restart-on-crash (capped exp backoff), STOP on clean return, PROPAGATE CancelledError. Wrapped every member of all 7 service top-level `asyncio.gather`s (signal_listener, bot_core, ml_engine ×2, signal_aggregator, market_health, governance) + dashboard bg-tasks; `main.py` single-service path now routes through the existing `run_service()` supervisor (was a bare `await mod.main()` — the 2nd amplifier, D12-F5).
+- **Why this shape:** supervise-at-the-gather (zero edits to 7 different listener bodies) over per-listener reconnect rewrites — minimal, uniform, reversible; supervised restart re-subscribes, so it IS the self-healing the audit required. Fixes D01-F1..F6 + D12-F5; resolves PIPELINE-PUBSUB-ISOLATION-001 + BOT-CORE-EMERGENCY-LISTENER-PUBSUB-ISOLATION-001 in code.
+- **Verification:** py_compile 9/9 PASS; `.tmp_pubsub_fix/verify_pubsub_isolation.py` 25/25 PASS (A1 restart-on-exception→clean-exit; A2 clean-return→no-restart; A3 CancelledError propagates; A4 sibling survives a perma-crashing supervised task; + all 7 services import+wrap supervise; main.py uses run_service).
+- **Deploy:** single `git push` → Railway auto-redeploys ALL services (fix touches all; bot already down → simultaneous restore intended). **NOT runtime-verified against live Railway yet.** WATCH: bot_core + signal_listener reach SUCCESS/RUNNING (not CRASHED); `[supervise]` log lines appear only on real restarts (steady-state silent). **Rollback if regressed:** `git revert` the `fix(pubsub-isolation)` commit (content hash `98c8007`; resolve exact pushed sha via `git log --oneline -- services/async_utils.py`) + push.
+- **One lever:** no trading-logic change; D10-F1 Redis-URL-password log at `market_health.py:543` deliberately left for FIX-SECRET-LOGGING. No env/Redis/DB writes. Scratch `.tmp_pubsub_fix/`.
+
+---
+
 ## 2026-06-03 — FULL-CODE-AUDIT-001 (read-only comprehensive pre-flip codebase audit)
 
 - **Trigger:** Jay-requested full audit of the codebase before the real-capital flip — find every erroneous/broken/sub-optimal thing, then a step-by-step go-live remediation sequence. Read-only; ZERO state writes. Opus 4.8 + multi-agent workflow (recon→12 dimensions→adversarial verify; 2 workflows, 77 agents, ~2.1M tokens).

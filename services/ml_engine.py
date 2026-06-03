@@ -24,6 +24,7 @@ import pandas as pd
 import redis.asyncio as aioredis
 from dotenv import load_dotenv
 
+from services.async_utils import supervise  # FIX-PUBSUB-ISOLATION
 from services.db import get_pool
 
 load_dotenv()
@@ -1072,11 +1073,13 @@ async def main():
         except Exception as e:
             logger.warning("Redis connection failed: %s -- scoring disabled", e)
 
+        # FIX-PUBSUB-ISOLATION: supervise each listener/loop so a transient
+        # pubsub TimeoutError restarts that task instead of crashing ml_engine.
         await asyncio.gather(
-            accel_scoring_listener(engine, redis_conn),
-            accel_retrain_loop(engine, redis_conn),
-            accel_outcome_listener(engine, redis_conn),
-            accel_emergency_retrain_listener(engine, redis_conn),
+            supervise(lambda: accel_scoring_listener(engine, redis_conn), "accel_scoring_listener"),
+            supervise(lambda: accel_retrain_loop(engine, redis_conn), "accel_retrain_loop"),
+            supervise(lambda: accel_outcome_listener(engine, redis_conn), "accel_outcome_listener"),
+            supervise(lambda: accel_emergency_retrain_listener(engine, redis_conn), "accel_emergency_retrain_listener"),
         )
         return
 
@@ -1120,11 +1123,12 @@ async def main():
     except Exception as e:
         logger.warning("Redis connection failed: %s -- scoring disabled", e)
 
+    # FIX-PUBSUB-ISOLATION: supervise each listener/loop (original engine path).
     await asyncio.gather(
-        _scoring_listener(model, redis_conn),
-        _retrain_loop(model, redis_conn),
-        _outcome_listener(model, redis_conn),
-        _emergency_retrain_listener(model, redis_conn),
+        supervise(lambda: _scoring_listener(model, redis_conn), "scoring_listener"),
+        supervise(lambda: _retrain_loop(model, redis_conn), "retrain_loop"),
+        supervise(lambda: _outcome_listener(model, redis_conn), "outcome_listener"),
+        supervise(lambda: _emergency_retrain_listener(model, redis_conn), "emergency_retrain_listener"),
     )
 
 

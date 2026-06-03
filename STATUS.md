@@ -7,6 +7,22 @@
 
 ---
 
+## 2026-06-03 — FIX-PUBSUB-ISOLATION (§B Phase-0 #1; CODE DEPLOYED; restores the crash-looped bot)
+
+**Committed:** `98c8007` fix(pubsub-isolation) — code (hash backfilled via `git commit --amend`). NEW `services/async_utils.py` (`supervise()` supervised-restart helper); wired into all 7 service top-level gathers + dashboard bg-tasks (signal_listener, bot_core, ml_engine ×2, signal_aggregator, market_health, governance, dashboard_api) + `main.py` single-service entrypoint now routes through `run_service()` (was a bare `await mod.main()`). Docs: AGENT_CONTEXT/ZMN_ROADMAP/CLAUDE.md/STATUS/MONITORING_LOG; `.gitignore` (+`.tmp_pubsub_fix/`).
+**State changes:** Code only. **Single `git push` → Railway auto-redeploys ALL services** (the fix touches all of them; the monorepo has no per-service git path, and the bot is already down, so a simultaneous restore is intended here). No env/Redis/DB writes.
+**Bot state at session start:** TEST_MODE=true (paper); bot_core + signal_listener CRASHED (pubsub crash-loop) per MARKET-REGIME-DIAGNOSTIC-001 / FULL-CODE-AUDIT-001. **Expected post-deploy:** services come up RUNNING (no crash-loop); migration counter recovers; HIBERNATE clears once legs genuinely pass.
+**What landed:** `supervise(coro_factory, name)` runs each long-lived task in a restart-on-crash loop — restarts on Exception (capped exp backoff), STOPS on clean return (no hot-loop), PROPAGATES CancelledError (clean shutdown). Wrapping every gather member isolates a crashing task (e.g. a transient redis pubsub `TimeoutError` in an unguarded `async for pubsub.listen()`) from its siblings AND self-heals it (restart re-subscribes) — no edits to listener bodies (minimal/reversible). `main.py` single-service path now supervised so a process-level escape backs off + restarts instead of crash-looping the container. Fixes D01-F1/F2/F3/F4/F5/F6 + D12-F5.
+**Verification:** `py_compile` all 9 changed files PASS. `.tmp_pubsub_fix/verify_pubsub_isolation.py` **25/25 PASS** — behavioral (A1 restart-on-exception→clean-exit; A2 clean-return→no-restart; A3 CancelledError propagates; A4 sibling survives a perma-crashing supervised task) + structural (all 7 services import+wrap `supervise`; `main.py` uses `run_service`, no direct `mod.main()` in the single-service block). NOT runtime-verified against live Railway (deploy observation pending — see below).
+**Scope discipline (one lever):** ONLY crash-isolation. Did NOT touch trading logic (entry/ML/sizing/exit), did NOT fix the co-located D10-F1 Redis-URL-password log at `market_health.py:543` (separate FIX-SECRET-LOGGING session), did NOT change `return_exceptions` semantics (supervise handles it; leaving CancelledError propagation intact). No env/Redis/DB writes.
+**Blockers cleared:** PIPELINE-PUBSUB-ISOLATION-001 + BOT-CORE-EMERGENCY-LISTENER-PUBSUB-ISOLATION-001 (code-resolved; deploy-observation pending). FULL-CODE-AUDIT §B Phase-0 #1 done.
+**Blockers new/active:** §B Phase-0 #2 (FIX-MARKET-MODE-MISCLASSIFICATION) + #3 (DEPLOY-OBSERVABILITY) still required before flip; then Phase 1-3.
+**Deploy observation:** WATCH Railway — bot_core + signal_listener should reach SUCCESS/RUNNING (not CRASHED) and the `[supervise]` log lines should appear only on actual task restarts (steady-state silent). **Rollback if regressed:** `git revert` the `fix(pubsub-isolation)` commit (content hash `98c8007`; resolve the exact pushed sha via `git log --oneline -- services/async_utils.py`) — single revert, no force-push → push.
+**Next prompt:** confirm clean startup on Railway, then `FIX-MARKET-MODE-MISCLASSIFICATION` (§B Phase-0 #2).
+**Pending Claude-chat prompts not yet pasted:** none.
+
+---
+
 ## 2026-06-03 — FULL-CODE-AUDIT-001 (read-only comprehensive pre-flip codebase audit; ~90 findings; 🔴×14)
 
 **Committed:** `d2f6ea3` docs(full-code-audit-001) — docs-only (hash backfilled via `git commit --amend`). NEW `docs/audits/FULL_CODE_AUDIT_001_2026_06_02.md` (per-dimension narrative + §A findings register + §B pre-flip remediation sequence + §C coverage); AGENT_CONTEXT.md (header), ZMN_ROADMAP.md (Decision Log + tiered follow-ups), CLAUDE.md (Standing-findings row), this STATUS prepend, MONITORING_LOG prepend, `.gitignore` (+`.tmp_full_audit/`). NO services/* change. (One all-services auto-redeploy from this docs push — watchPatterns empty, harmless no-op restart since no code changed.)

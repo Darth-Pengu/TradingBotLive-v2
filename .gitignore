@@ -65,3 +65,4 @@ scripts/devnet_*
 .tmp_v5a_flip_v3r/
 .tmp_market_regime/
 .tmp_full_audit/
+.tmp_pubsub_fix/

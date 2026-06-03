@@ -123,6 +123,8 @@ state.
 ## Resolved Bugs (reference only — see MONITORING_LOG.md for details)
 Key fixes: exit pricing pipeline (26e19b4), paper_trader price pass-through (9b880e1), HIBERNATE bypass (47de1fa), SERVICE_NAME routing (April 3). Do NOT revert main.py to asyncio.gather all services.
 
+**FIX-PUBSUB-ISOLATION (2026-06-03, FULL-CODE-AUDIT-001 §B Phase-0 #1):** every service's long-lived background tasks are now launched via `supervise(lambda: coro(...), "name")` from `services/async_utils.py`, NOT bare in `asyncio.gather`. `supervise` restarts a crashed task with capped exponential backoff (so a transient redis pubsub `TimeoutError` in an `async for pubsub.listen()` can no longer crash-loop the whole process), STOPS on a clean return (no hot-loop), and PROPAGATES `CancelledError` (clean shutdown). `main.py`'s single-service entrypoint runs through `run_service()` (supervised) rather than a bare `await mod.main()`. **When adding a new background task to any service's top-level gather, wrap it in `supervise(...)`** (pass a zero-arg factory, e.g. `lambda: my_loop(redis_conn)`, NOT the coroutine). Do NOT re-introduce bare gather members — that is the crash-loop vector this fixed.
+
 ## Persistence Convention (added 2026-04-30 by SESSION_E)
 
 The bot's config and state live in:

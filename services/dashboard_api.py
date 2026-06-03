@@ -26,6 +26,7 @@ from aiohttp import web
 import redis.asyncio as aioredis
 from dotenv import load_dotenv
 
+from services.async_utils import supervise  # FIX-PUBSUB-ISOLATION
 from services.db import get_pool
 from services.constants import CEX_ADDRESSES, SOL_MINT
 
@@ -2157,10 +2158,15 @@ async def on_startup(app: web.Application):
     if DASHBOARD_ALLOWED_IPS:
         logger.info("IP whitelist active: %s", DASHBOARD_ALLOWED_IPS)
 
+    # FIX-PUBSUB-ISOLATION: supervise the background tasks so _redis_broadcaster
+    # (an unguarded `async for pubsub.listen()`) silently dying on a pubsub
+    # timeout self-heals instead of leaving the dashboard's live push dead with
+    # no reconnect. supervise propagates CancelledError, so on_cleanup's
+    # task.cancel() still tears them down cleanly.
     app["bg_tasks"] = [
-        asyncio.create_task(_redis_broadcaster(app)),
-        asyncio.create_task(_periodic_push(app)),
-        asyncio.create_task(_service_health_checker(app)),
+        asyncio.create_task(supervise(lambda: _redis_broadcaster(app), "redis_broadcaster")),
+        asyncio.create_task(supervise(lambda: _periodic_push(app), "periodic_push")),
+        asyncio.create_task(supervise(lambda: _service_health_checker(app), "service_health_checker")),
     ]
 
 
