@@ -7,6 +7,20 @@
 
 ---
 
+## 2026-06-03 — §B Phase-1 #7 FIX-EXEC-001-002-ROUTING — **§B PHASE 1 CODE-COMPLETE**
+
+**Committed:** `3e4b502` fix(live-exec): unconditional pool-state refresh for live sells — `services/bot_core.py` only.
+**#7 (D02-F4 + D03-F3):** the EXEC-001 pool-state refresh was gated on `pos.bonding_curve_progress > 0`, so it SKIPPED two classes that then mis-routed and HTTP-400'd: **(D02-F4)** whale/Raydium tokens (stored bc=0) sold via the pump.fun PumpPortal-Local path against a non-existent bonding curve; **(D03-F3)** reconciler-restored positions lose `bonding_curve_progress` (not persisted → 0.0), so a pump.fun token that graduated during the hold sold via the dead BC pool. Fix: **removed the gate — `_check_pool_state_fresh` now runs for EVERY live sell.** It returns 1.0 (BC closed → graduated or never-pump.fun → route non-local/Jupiter) or 0.0 (BC live → pre-grad → PumpPortal Local), so refreshing always yields correct routing regardless of the stored/lost value. Fail-closed to the stale value on RPC error (no worse than pre-fix; +1 Helius getAccountInfo per live sell). This avoids a schema migration (D03-F3's alt fix) — the live refresh covers the reconcile-lost case. EXEC-002 (Jupiter NameError) already resolved.
+**Verification:** py_compile PASS; 4/4 structural (gate removed, unconditional refresh + assignment + fail-closed-except intact). NOT paper-observable (live `else:` branch); flip-confirmed (watch for stale-route 400s disappearing on the first post-grad live sell).
+**State changes:** code only; single `git push`. No env/Redis/DB writes. **Rollback:** `git revert` this commit → push.
+**🎯 §B PHASE 1 (live-execution correctness) CODE-COMPLETE:** #4+#8 (failed-sell-booked-as-closed + emergency-stop) ✅, #5+D02-F8 (partial-sell sizing both routes) ✅, #6 (buy-idempotency/double-submit + Jito-off + D02-F14) ✅, #7 (routing refresh) ✅. All in code; **all flip-confirmed-only (live branch not paper-observable).**
+**Deferred reliability follow-ups FILED (not lost):** `SELL-STORM-PARK-PERSISTENCE-001` (D04-F10 — persist park state to Redis; less acute since Phase-0 stopped the crash-loop) and `EXEC-FORCE-ABANDON-001` (D03-F8 — after N park cycles, force-record a permanently-unsellable position as a loss + remove from tracking; entangles with Phase-3 accounting). `JITO-REIMPLEMENT-001` (real-sig + tip).
+**Next:** §B **Phase 2 (safety rails)** — #9 FIX-HIBERNATE-LIVE-VETO, #10 FIX-GOVERNANCE-FAIL-OPEN, #11 daily-loss persistence, #12 live-balance seed, #13 sizing-caps wiring; then **Phase 3 (accounting)** incl. live staged-TP PnL + DASH-CORRECTED-PNL-COLUMN-001. These (esp. #9/#10) are the remaining must-fix-before-flip safety gates.
+**Next prompt:** Phase-2 #9 (FIX-HIBERNATE-LIVE-VETO).
+**Pending Claude-chat prompts not yet pasted:** none.
+
+---
+
 ## 2026-06-03 — §B Phase-1 #5 FIX-PARTIAL-SELL-SIZING (+ D02-F8) — staged-TP live sells
 
 **Committed:** `3b6d0b1` fix(live-exec): partial-sell sizing on both routes — `services/execution.py` + `services/bot_core.py`.

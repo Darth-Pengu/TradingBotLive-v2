@@ -2,6 +2,15 @@
 
 ---
 
+## 2026-06-03 — §B Phase-1 #7 FIX-EXEC-001-002-ROUTING — PHASE 1 CODE-COMPLETE
+
+- **`bot_core.py`.** Removed the `if pos.bonding_curve_progress > 0:` gate so `_check_pool_state_fresh` runs for EVERY live sell. Fixes D02-F4 (whale/Raydium bc=0 → 400 on the pump.fun path) + D03-F3 (reconciled positions lose bc_progress → stale pre-grad routing of graduated tokens). Helper returns 1.0 (BC closed→non-local/Jupiter) / 0.0 (BC live→pre-grad) → refresh always routes correctly; avoids a schema migration; fail-closed-to-stale on RPC error. py_compile PASS; 4/4 structural.
+- **🎯 §B Phase 1 (live-execution correctness) CODE-COMPLETE:** #4+#8 (failed-sell + emergency-stop), #5+D02-F8 (partial-sell sizing), #6 (buy-idempotency + Jito-off + D02-F14), #7 (routing). **ALL flip-confirmed-only** — live branch not paper-observable; runtime confirmation at the supervised first-live-trades.
+- **Deferred reliability follow-ups filed:** SELL-STORM-PARK-PERSISTENCE-001 (D04-F10), EXEC-FORCE-ABANDON-001 (D03-F8), JITO-REIMPLEMENT-001.
+- **Next:** §B Phase 2 (safety rails: #9-#13), then Phase 3 (accounting). One lever each. Rollback: `git revert`.
+
+---
+
 ## 2026-06-03 — §B Phase-1 #5 FIX-PARTIAL-SELL-SIZING (+D02-F8)
 
 - **`execution.py` + `bot_core.py`.** D02-F5: pre-grad `_execute_pumpportal_local` SELL hardcoded `"amount":"100%"` → every partial/staged-TP live sell dumped the whole position. D02-F8: Jupiter post-grad sell sold the full wallet balance. Threaded `sell_fraction: float = 1.0` through `execute_trade` → both routes; `_close_position` passes `sell_fraction=sell_pct`; pre-grad sends `"X%"`, Jupiter `int(balance*frac)`. Full closes (1.0) unchanged at 100%.

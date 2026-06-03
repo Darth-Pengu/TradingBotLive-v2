@@ -1390,30 +1390,36 @@ class BotCore:
             self._parked_mints.pop(pos.mint, None)
             self._sell_failure_counts[pos.mint] = 0
 
-        # EXEC-001: refresh pool state before routing decision. Fail closed on error
-        # (use stale pos.bonding_curve_progress, no worse than pre-fix behavior).
-        # Scope-gated: only refresh for pump.fun-origin tokens (stored bc_progress > 0).
-        # Whale-tracker Raydium tokens carry bc_progress=0 and keep existing routing.
-        # Paper mode already returned above (L1083), so this live-branch code is paper-safe.
-        if pos.bonding_curve_progress > 0:
-            try:
-                fresh_bc = await self._check_pool_state_fresh(pos.mint)
-                if fresh_bc != pos.bonding_curve_progress:
-                    logger.info(
-                        "EXEC-001 refresh: mint=%s bc_progress %.3f -> %.3f",
-                        pos.mint[:12], pos.bonding_curve_progress, fresh_bc,
-                    )
-                    pos.bonding_curve_progress = fresh_bc
-            except Exception as e:
-                logger.warning(
-                    "EXEC-001 refresh failed for %s, using stale bc_progress=%.3f: %s",
-                    pos.mint[:12], pos.bonding_curve_progress, e,
+        # FIX-EXEC-001-002-ROUTING (#7) — refresh pool state UNCONDITIONALLY for every live
+        # sell before the routing decision (was gated on `pos.bonding_curve_progress > 0`).
+        # The old gate skipped two classes that then mis-routed and 400'd:
+        #   (D02-F4) whale/Raydium tokens (stored bc_progress=0) → routed to the pump.fun
+        #            (PumpPortal Local) path against a non-existent bonding curve.
+        #   (D03-F3) positions restored by the reconciler after a restart lose bonding_curve_
+        #            progress (not persisted → defaults 0.0) → a pump.fun token that graduated
+        #            during the hold sold via the dead BC pool.
+        # _check_pool_state_fresh returns 1.0 (BC closed → graduated OR never-pump.fun → route
+        # non-local/Jupiter) or 0.0 (BC live → pre-grad → PumpPortal Local), so refreshing
+        # always yields correct routing regardless of the stored/lost value. Fail-closed to the
+        # stale value on RPC error (no worse than pre-fix). Paper returned above → live-safe.
+        try:
+            fresh_bc = await self._check_pool_state_fresh(pos.mint)
+            if fresh_bc != pos.bonding_curve_progress:
+                logger.info(
+                    "EXEC-001 refresh: mint=%s bc_progress %.3f -> %.3f",
+                    pos.mint[:12], pos.bonding_curve_progress, fresh_bc,
                 )
-                try:
-                    import sentry_sdk
-                    sentry_sdk.capture_exception(e)
-                except Exception:
-                    pass
+                pos.bonding_curve_progress = fresh_bc
+        except Exception as e:
+            logger.warning(
+                "EXEC-001 refresh failed for %s, using stale bc_progress=%.3f: %s",
+                pos.mint[:12], pos.bonding_curve_progress, e,
+            )
+            try:
+                import sentry_sdk
+                sentry_sdk.capture_exception(e)
+            except Exception:
+                pass
 
         token = Token(mint=pos.mint, bonding_curve_progress=pos.bonding_curve_progress)
         try:
