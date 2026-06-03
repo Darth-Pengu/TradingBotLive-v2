@@ -7,6 +7,26 @@
 
 ---
 
+## 2026-06-03 — 🎯 §B PHASE 2 (SAFETY RAILS) COMPLETE & DEPLOY-VERIFIED + findings flag
+
+**Committed/pushed (this run, on origin/main):** #9 `7e83949`, #10 `7fe2ad1`, #11+#12 `78cc45c`, #13 `c70aba1` (+ this docs capstone). (Per-fix STATUS entries below cite pre-amend content hashes; these are the pushed/`git revert`-able hashes.)
+**Deploy-verified:** all 6 services Online after every Phase-2 deploy; bot_core clean startup each time, paper trading uninterrupted (ENTERING at real ML 40–80, mode=DEFENSIVE); paper-side `FILL_MC_CEILING reject` firing correctly; no tracebacks/import/Type errors. The combined #10+#11+#12 and the #13 deploys were each observed ~9min and confirmed clean.
+**Verification posture:** all four Phase-2 fixes are **paper-safe by construction** (live-only or default-preserving), so their *deployment* is confirmed clean but their *behaviour* is **flip-confirmed-only** (live `else:`/`not TEST_MODE` branches are not paper-observable). Code hunks verified present in the pushed commits.
+**Bot state (read live):** TEST_MODE=true (paper); `market:mode:current=DEFENSIVE`; `bot:emergency_stop` UNSET; `bot:consecutive_losses=0`; `governance:latest_decision=CONSERVATIVE / size_multiplier 0.8` (LLM dead — BUG-010).
+
+**🚩 FINDINGS FLAG (new / plan-changing — surfaced during Phase 2):**
+1. **BUG-010 is ACTIVE and has a live current-state effect.** Governance LLM is dead (Anthropic 400/credits) → fallback `CONSERVATIVE / 0.8×` → **every current paper trade is sized 0.8× base** (silent haircut; account for it in paper PnL-per-trade analysis) AND governance gives **zero real regime signal**. With #9 deployed, the `market:mode:current` HIBERNATE veto is now the **only** live regime control. **Restoring Anthropic credits is a real go-live prerequisite.** → `GOVERNANCE-STALENESS-POLICY-001` + BUG-010.
+2. **`MAX_SD_POSITIONS=20` is deployed-but-unread.** Concurrent cap is hardcoded `MAX_CONCURRENT_PER_PERSONALITY=3`. Wiring the env *as currently set* would jump the paper cap **3→20** (6.7× exposure). Deliberately NOT auto-wired — must land together with setting the env to V5A-ladder intent (5/7). → `SIZING-CAPS-WIRING-001`.
+3. **Sizing timezone + double time-of-day multiplier.** TIME_GOOD/DEAD/SLEEP/WEEKEND fire on a hardcoded UTC+11 clock (1h off in AEST) and time-of-day is applied twice on two clocks → changes *paper* sizing; needs a sizing-semantics decision. → `TIMEZONE-SIZING-FIX-001`.
+4. **Observed:** paper ENTERING sizes are pinned at 0.2500 SOL (hitting a position cap) under the 0.8× haircut — not Phase-2-introduced, but relevant context for the sizing-caps + haircut decisions above.
+
+**Plan unchanged otherwise:** Phases 0+1+2 done; Phase 3 (accounting: #14 live staged-TP cumulative PnL + Path-B multi-exit; #15 dashboard mode-fidelity + DASH-CORRECTED-PNL-COLUMN-001) NOT STARTED — awaits authorization. The 3 flagged decisions above are decision-gated, not code-blocked.
+**Oversight doc:** `docs/audits/REMEDIATION_PHASE_0_1_2026_06_03.md` now carries the full Phase-2 section + commit index (covers Phases 0–2; share for double-check).
+**Next prompt:** Phase-3 #14 (when authorized) — or resolve the 4 flagged decisions first.
+**Pending Claude-chat prompts not yet pasted:** none.
+
+---
+
 ## 2026-06-03 — §B Phase-2 #13 fill-MC fail-closed (+ MAX_SD_POSITIONS/timezone deferred+flagged)
 
 **Committed:** `beaa7de` fix(safety): live fill-MC-ceiling fails CLOSED on price-miss — `services/bot_core.py`.

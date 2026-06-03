@@ -119,6 +119,38 @@ Bot state at writing: TEST_MODE=true (paper), 6 services Online, `market:health.
 
 ---
 
+## PHASE 2 — safety rails (added 2026-06-03; mostly live-only → behaviour flip-confirmed-only)
+
+> **Scoping note:** every Phase-2 fix is **paper-safe by construction** (live-only, or default-preserving). Three sub-items were **deliberately deferred + flagged** because they need decisions I would not make unilaterally under a "no input" mandate (they change paper sizing/caps or risk halting the dead-governance bot). They are filed as follow-ups, not silently skipped.
+
+### 2 #9 — live HIBERNATE veto  (`7e83949`)
+- **Findings:** D04-F3 / D07-F2 / D08-F1 / D08-F3 — bot_core had no effective live regime veto (the only HIBERNATE skip was the SA bypass gated on `AGGRESSIVE_PAPER`, not TEST_MODE; the other gate is fail-open governance).
+- **Fix:** (A) `signal_aggregator` — HIBERNATE→DEFENSIVE bypass now gated on `AGGRESSIVE_PAPER and TEST_MODE` (live always hard-skips). (B) `bot_core.process_signal` — independent live veto: `not TEST_MODE` → read `market:mode:current` fresh → `return` on HIBERNATE (doesn't trust the SA label or governance).
+- **Paper impact: NONE** (paper bypass preserved; veto is live-only). **Verification:** py_compile + 5/5 structural; deploy confirmed clean (paper kept trading). **Reviewer check:** confirm the live veto reads fresh mode and the paper bypass is unchanged. **Rollback:** `git revert 7e83949`.
+
+### 2 #10 — governance CFGI-read fix  (`7fe2ad1`)
+- **Findings:** D04-F1 / D09-F2 / BUG-010.
+- **Fix:** `governance.py` read `redis.get("market:cfgi")` — a key NOTHING writes → CFGI was permanently the neutral 50 default. Now reads `market:health` (prefers `cfgi_sol`).
+- **Verified already-in-place (no change):** bot_core applies `gov.size_multiplier` (CONSERVATIVE→0.8 haircut works); the live regime VETO governance fail-open left missing is now provided by **#9**.
+- **🚩 Current-state finding:** `governance:latest_decision = CONSERVATIVE / size_multiplier 0.8` because the LLM is **dead** (Anthropic 400/credits — BUG-010). So **every current paper trade is sized 0.8× base** (silent governance haircut), and governance provides **zero real regime signal** — #9's market:mode veto is the only live regime control. The cfgi fix only takes effect once the LLM is revived. **Verification:** py_compile + 4/4 structural; governance is non-trading (can't break paper). **Rollback:** `git revert 7fe2ad1`.
+
+### 2 #11+#12 — live startup-state: daily-loss persistence + on-chain balance seed  (`78cc45c`, MERGED)
+- **Findings:** D04-F4 (#11), D04-F2 (#12). Both in `_load_state`, **both gated `not TEST_MODE` → paper byte-for-byte unchanged.**
+- **#11:** `_load_state` hard-zeroed `daily_pnl_sol` on every startup → any restart laundered the daily-loss accumulator → `DAILY_LOSS_LIMIT_SOL` could never accumulate. Fix (live-only): reload TODAY's (UTC) realized PnL from `trades WHERE trade_mode='live' AND closed_at>=midnight` (`pnl_sol`; closed_at epoch float; safe fallback 0.0). Paper keeps the hard-zero.
+- **#12:** `_load_state` read the unfiltered latest snapshot → post-flip loaded the ~50 SOL paper balance → exposure/drawdown denominators inflated ~10× vs the real ~5 SOL wallet. Fix (live-only): seed `total_balance_sol` from on-chain `getBalance` (new `_fetch_onchain_balance_sol`); fallback to snapshot w/ warning if RPC down. (Per-trade size was never at risk — the absolute MAX_POSITION_SOL cap floors it.)
+- **Verification:** py_compile + 6/6 structural; deploy confirmed clean (paper startup + trading unaffected). **Reviewer check:** confirm `trades` query uses `pnl_sol` (not corrected_pnl_sol — that column doesn't exist on `trades`); confirm both blocks are `not TEST_MODE`. **Rollback:** `git revert 78cc45c`.
+
+### 2 #13 — fill-MC-ceiling fail-CLOSED  (`c70aba1`)  *(partial — sizing-caps deferred)*
+- **Finding:** D08-F7. The live fill-MC gate failed OPEN: `_get_token_price`=0 → `fill_mc=0` → `0 > ceiling` False → it **admitted an unbounded-MC live buy**. Fix: `if fill_price <= 0: log + return` (fail CLOSED). Live-only. py_compile + 3/3 structural. **Rollback:** `git revert c70aba1`.
+- **DEFERRED + FLAGGED from #13 (need decisions):**
+  - **`MAX_SD_POSITIONS` wiring (D04-F7) → `SIZING-CAPS-WIRING-001`:** cap is hardcoded `MAX_CONCURRENT_PER_PERSONALITY=3`; `MAX_SD_POSITIONS` is phantom. **But `MAX_SD_POSITIONS=20` is deployed-but-unread** → wiring it as-is jumps the cap 3→20 in paper. Must land *with* the env set to the V5A-ladder intent (5/7).
+  - **Timezone / double time-of-day multiplier (D08-F4 / D11-F2) → `TIMEZONE-SIZING-FIX-001`:** TIME_GOOD/DEAD/SLEEP/WEEKEND fire on a hardcoded UTC+11 clock (off 1h in AEST) AND time-of-day is applied twice on two clocks. Changes *paper* sizing + needs a semantics decision (audit: "confirm with Jay"). CORRECTNESS, not a money-loss 🔴.
+
+### Phase-2 deferred follow-ups (filed, not lost)
+`SIZING-CAPS-WIRING-001`, `TIMEZONE-SIZING-FIX-001`, `GOVERNANCE-STALENESS-POLICY-001` (stale/dead-governance posture — halt-risk while dead), plus **BUG-010** (Anthropic credits — governance LLM dead; a real go-live prerequisite for governance to function + the source of the current 0.8× paper haircut).
+
+---
+
 ## Cross-cutting decisions & lessons (for the reviewer's context)
 
 1. **Verification strategy shifted at the Phase boundary.** Phase-0 fixes run in paper → observed in prod (and one prod observation caught the connection leak → hotfix). Phase-1 fixes are in the live branch → not paper-observable → verified by tests + review, runtime-confirmed at the flip. This is inherent, not a shortcut.
@@ -139,14 +171,9 @@ Bot state at writing: TEST_MODE=true (paper), 6 services Online, `market:health.
 
 ## NOT done yet — remaining before any live flip
 
-**Phase 2 — safety rails (live-money vetoes; must-fix-before-flip):**
-- #9 FIX-HIBERNATE-LIVE-VETO (D04-F3/D07-F2/D08-F1) — gate AGGRESSIVE_PAPER bypass on TEST_MODE; independent bot_core HIBERNATE hard-return; add `AGGRESSIVE_PAPER_TRADING=false` to the flip runbook.
-- #10 FIX-GOVERNANCE-FAIL-OPEN (D04-F1/BUG-010) — CONSERVATIVE + stale-governance → hard cap bot_core honours; fix the `market:cfgi` read (key nothing writes); ML-unavailable default below floor.
-- #11 daily-loss persistence (D04-F4) — reload today's realised loss on startup; don't hard-zero in live.
-- #12 live-balance seed (D04-F2) — seed `total_balance_sol` from on-chain getBalance at live startup (un-inflate exposure/drawdown denominators).
-- #13 sizing-caps wiring (D04-F7/D08-F7/D08-F4) — real `MAX_SD_POSITIONS` env; fill-MC-ceiling fail-CLOSED on price=0; `ZoneInfo("Australia/Sydney")` for all sizing branches; de-duplicate the double time-of-day multiplier.
+**Phase 2 — safety rails — ✅ CODE-COMPLETE & DEPLOY-CLEAN (2026-06-03)**, except 3 decision-gated sub-items deferred-and-flagged (see the Phase-2 section above). Done: #9 (`7e83949`), #10 (`7fe2ad1`), #11+#12 (`78cc45c`), #13 fail-CLOSED (`c70aba1`). Live behaviour is flip-confirmed-only (all live-only/default-preserving). Deferred sub-items needing a Jay decision: `SIZING-CAPS-WIRING-001` (MAX_SD_POSITIONS=20 deployed-but-unread → would jump cap 3→20 in paper), `TIMEZONE-SIZING-FIX-001` (changes paper sizing), `GOVERNANCE-STALENESS-POLICY-001` (halt-risk while governance dead). **BUG-010 (Anthropic credits) is a real go-live prerequisite — governance LLM is dead today.**
 
-**Phase 3 — accounting integrity (so trial PnL is trustworthy):**
+**Phase 3 — accounting integrity (so trial PnL is trustworthy) — NOT STARTED (not yet authorized):**
 - #14 live staged-TP cumulative PnL (D05-F1) + Path-B multi-exit sum (D05-F2) + in-memory balance reconcile (D02-F12).
 - #15 dashboard mode-fidelity (D05-F3/F4) + entry-price sentinel (D02-F13) + **DASH-CORRECTED-PNL-COLUMN-001** (the `corrected_pnl_sol does not exist` DB error).
 
@@ -170,10 +197,14 @@ e30d41b  Phase-0 #2  FIX-MARKET-MODE-MISCLASSIFICATION
 09f71c1  Phase-1 #5+D02-F8 partial-sell sizing (both routes)
 94457ef  Phase-1 #7  unconditional pool-state refresh
 9c4f1a9  (docs)      Phase-1 deploy-confirmed + end-to-end validation capstone
+7e83949  Phase-2 #9  FIX-HIBERNATE-LIVE-VETO (SA paper-only bypass + bot_core live veto)
+7fe2ad1  Phase-2 #10 FIX-GOVERNANCE-CFGI-READ (market:health, not phantom market:cfgi)
+78cc45c  Phase-2 #11+#12 live startup-state (daily-loss reload + on-chain balance seed)
+c70aba1  Phase-2 #13 fill-MC-ceiling fail-CLOSED (sizing-caps deferred → follow-ups)
 ```
 
-**Verification scripts** (gitignored scratch, run locally, results in commit messages/STATUS): `.tmp_pubsub_fix/verify_pubsub_isolation.py` (25/25), `.tmp_market_mode/verify_market_mode.py` (10/10), `.tmp_phase1/verify_phase1_4_8.py` (10/10), `.tmp_phase1/verify_idempotency.py` (6/6).
+**Verification scripts** (gitignored scratch, run locally, results in commit messages/STATUS): `.tmp_pubsub_fix/verify_pubsub_isolation.py` (25/25), `.tmp_market_mode/verify_market_mode.py` (10/10), `.tmp_phase1/verify_phase1_4_8.py` (10/10), `.tmp_phase1/verify_idempotency.py` (6/6), `.tmp_phase2/` structural greps (#9 5/5, #10 4/4, #11+#12 6/6, #13 3/3).
 
 ---
 
-*Maintained alongside FULL_CODE_AUDIT_001. When Phase 2/3 fixes land, append their sections here so this stays the single oversight record through the go-live.*
+*Maintained alongside FULL_CODE_AUDIT_001. Phases 0, 1, 2 landed. When Phase-3 fixes land, append their section here so this stays the single oversight record through the go-live.*
