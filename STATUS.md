@@ -7,6 +7,28 @@
 
 ---
 
+## 2026-06-03 — FULL-CODE-AUDIT-001 (read-only comprehensive pre-flip codebase audit; ~90 findings; 🔴×14)
+
+**Committed:** `d2f6ea3` docs(full-code-audit-001) — docs-only (hash backfilled via `git commit --amend`). NEW `docs/audits/FULL_CODE_AUDIT_001_2026_06_02.md` (per-dimension narrative + §A findings register + §B pre-flip remediation sequence + §C coverage); AGENT_CONTEXT.md (header), ZMN_ROADMAP.md (Decision Log + tiered follow-ups), CLAUDE.md (Standing-findings row), this STATUS prepend, MONITORING_LOG prepend, `.gitignore` (+`.tmp_full_audit/`). NO services/* change. (One all-services auto-redeploy from this docs push — watchPatterns empty, harmless no-op restart since no code changed.)
+**State changes:** NONE. Read-only (source reads + 2 multi-agent workflows: recon+12-dim audit `wf_0d7b9f6b-970`, focused adversarial re-verify of 13 blockers `wf_bcc00321-6df`). No env/Redis/DB/override/redeploy writes.
+**Bot state:** TEST_MODE=true (paper). Still DEGRADED/DOWN per MARKET-REGIME-DIAGNOSTIC-001 (dual-service pubsub crash-loop → HIBERNATE-misclassification). Not re-verified this session (static source audit; predecessor 5.064 SOL).
+**Findings (key, post adversarial verification):**
+- 🟢 **Two reassuring NON-findings (verified):** (a) **TEST_MODE money-path gating is correct & defense-in-depth** — no real on-chain send can fire in paper mode (execution.py early-returns in all 3 routes AND bot_core branches paper/live; both must agree). (b) **Wallet private key NOT leaked in code** (empirical: even repr(Keypair) redacts the seed).
+- 🔴 **NEW execution-path blockers** (masked because validated live trade id 6580 was a single full round-trip): **D02-F1** failed live sells booked as closed (`execute_trade` returns success=False, never raises → the `except ExecutionError` at bot_core:1366 is dead, `result.success` never checked on the sell path → SOL stranded, accounting lies, position popped); **D02-F5** pre-grad `_execute_pumpportal_local` SELL hardcodes `"amount":"100%"` → every partial/staged-TP live sell dumps the whole position; **D02-F3** buy double-submit on confirm timeout (no idempotency); **D03-F1** emergency_stop has no per-position guard → unreliable in a mass dump.
+- 🔴 **CONFIRMS+EXTENDS the outage** (PIPELINE-PUBSUB-ISOLATION-001): pubsub-crash class in **5 services not 2** (ml_engine/governance/dashboard added); all 6 gathers miss `return_exceptions=True`; **single-service `main.py` has no supervised restart** (resilient `run_service()` wired only to dead legacy mode) — the 2nd structural amplifier.
+- 🔴 **Outage is INVISIBLE:** heartbeat keys have zero readers; dashboard health has no internal-service rows; only liveness alerter (`continuous_audit.py`) is undeployed — why the ~05-28 outage was silent.
+- 🔴/🟠 **Safety fail-opens:** governance veto (BUG-010); AGGRESSIVE_PAPER HIBERNATE bypass → live-trades-in-HIBERNATE; daily-loss accumulator zeroed every restart; `MAX_SD_POSITIONS` a phantom env var (real cap hardcoded 3 → V5A 5/7 ladder unenforceable); dead `market:loss_override` (3 writers/0 readers); stale-balance inflates exposure/drawdown denominators ~10× until first live close.
+- 🟠 **Live accounting:** live close books only the final-partial PnL across staged TPs; Path B pairs full-entry with final-partial exit → corrupts `corrected_pnl_sol` (the go/no-go data) on multi-sell trades.
+- **Adversarial verify** downgraded 6 of 13 NEW 🔴→🟠 (real but not capital-fatal: D02-F2 Jito-path-secondary, D02-F8 not-live-reachable, D04-F2 abs-cap-floors-size, D04-F4 drawdown-stop-backstops, D05-F1 understates-wins-only, D05-F2 corrupts-corrected_*-only) and **refuted 1** (D09-F3 $80-SOL-fallback — bot_core refreshes the key every 2s; divide/multiply cancel).
+**Verdict:** ⛔ **DO NOT FLIP.** The §B remediation sequence (Phase 0 restore → Phase 1 execution → Phase 2 safety → Phase 3 accounting) must be GREEN first; each is a separate verified fix-session.
+**Blockers cleared:** none (audit; it enumerates+ranks). Confirmed RESOLVED in code: EXEC-002 (Jupiter NameError); solders signing API correct.
+**Blockers new/active:** see ZMN_ROADMAP Decision Log + tiered follow-ups (this session files the NEW execution/observability/accounting items). PIPELINE-PUBSUB-ISOLATION-001 remains the #1 flip-unblocker, now scoped wider (5 services + main.py supervisor).
+**Concurrent-session compatibility:** fetch before push; pull-rebase ≤3× else PUSH_DEFERRED + STOP-L.
+**Next prompt:** `FIX-PUBSUB-ISOLATION` (§B Phase-0 #1) — restore the bot first; then the §B sequence.
+**Pending Claude-chat prompts not yet pasted:** none.
+
+---
+
 ## 2026-06-02 — MARKET-REGIME-DIAGNOSTIC-001 (read-only; HIBERNATE = pipeline OUTAGE, not a lull; ⛔ DO-NOT-FLIP)
 
 **Committed:** `356a91a` docs(market-regime-diagnostic-001) — docs-only (hash is the pre-amend content commit, backfilled into this line via `git commit --amend`). NEW `docs/audits/MARKET_REGIME_DIAGNOSTIC_001_2026_06_02.md`, NEW `docs/findings/MARKET_REGIME_GAP.md`, CLAUDE.md (Standing-findings row), AGENT_CONTEXT.md (header + §6 PC4 note + new pipeline-health pre-flip gate), ZMN_ROADMAP.md (Decision Log row), this STATUS prepend, MONITORING_LOG prepend, `.gitignore` (+`.tmp_market_regime/`). NO services/* change. (One all-services auto-redeploy from this docs push — watchPatterns empty.)

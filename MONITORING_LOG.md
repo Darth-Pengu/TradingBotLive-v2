@@ -2,6 +2,19 @@
 
 ---
 
+## 2026-06-03 — FULL-CODE-AUDIT-001 (read-only comprehensive pre-flip codebase audit)
+
+- **Trigger:** Jay-requested full audit of the codebase before the real-capital flip — find every erroneous/broken/sub-optimal thing, then a step-by-step go-live remediation sequence. Read-only; ZERO state writes. Opus 4.8 + multi-agent workflow (recon→12 dimensions→adversarial verify; 2 workflows, 77 agents, ~2.1M tokens).
+- **Method:** 12 dimensions (Tier1 D01-D05 crash/execution/lifecycle/safety/accounting; Tier2 D06-D09 state/market/config/deps; Tier3 D10-D12 security/dead-code/observability). Each dimension enumerated exhaustively + cited file:line. Every NEW load-bearing blocker independently challenged-to-refute in a 2nd workflow.
+- **Two reassuring NON-findings (verified):** (a) TEST_MODE money-path gating is correct & defense-in-depth — no real on-chain send can fire in paper mode; (b) wallet private key NOT leaked anywhere in code (empirical repr(Keypair) test).
+- **🔴 NEW execution blockers** (masked because id 6580 was a single full round-trip): failed live sells booked as closed (D02-F1); pre-grad sell dumps the whole position on any partial/staged-TP (D02-F5); buy double-submit on confirm timeout (D02-F3); emergency_stop unreliable, no per-position guard (D03-F1).
+- **🔴 Outage cluster confirmed+extended:** pubsub-crash in 5 services not 2; all 6 gathers miss return_exceptions; `main.py` single-service path has no supervised restart (resilient run_service() wired only to dead legacy mode). Outage is INVISIBLE: heartbeats have zero readers, dashboard has no internal-service rows, the only liveness alerter (continuous_audit.py) is undeployed — why ~05-28 went silent.
+- **🟠 Safety/accounting:** governance fail-open (BUG-010); AGGRESSIVE_PAPER HIBERNATE bypass → live-trades-in-HIBERNATE; daily-loss zeroed every restart; MAX_SD_POSITIONS phantom (cap hardcoded 3); dead market:loss_override; stale balance inflates exposure/drawdown ~10×; live close books only final-partial PnL on staged TPs; Path B corrupts corrected_pnl_sol on multi-sell trades.
+- **Adversarial verify** downgraded 6/13 NEW 🔴→🟠 and refuted 1 (D09-F3 $80 SOL fallback — bot_core refreshes the key every 2s so divide/multiply cancel). Prevents crying wolf in the go-live plan.
+- **Verdict:** ⛔ DO NOT FLIP. §B remediation sequence (Phase 0 restore → 1 execution → 2 safety → 3 accounting) must be GREEN first; each a separate verified fix-session. **NO env/Redis/DB/deploy writes.** Outputs: NEW `docs/audits/FULL_CODE_AUDIT_001_2026_06_02.md`; AGENT_CONTEXT/ZMN_ROADMAP/CLAUDE.md/STATUS updates; scratch `.tmp_full_audit/{PROGRESS.md, 00_known_issues.md, D01..D12_findings.md}`.
+
+---
+
 ## 2026-06-02 — MARKET-REGIME-DIAGNOSTIC-001 (read-only; HIBERNATE = pipeline OUTAGE, DO-NOT-FLIP)
 
 - **Trigger:** follow-on to V5A-FLIP-002-V3R — resolve the unverified HIBERNATE verdict the flip halt left open. Read-only; ZERO state writes.
