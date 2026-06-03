@@ -7,6 +7,19 @@
 
 ---
 
+## 2026-06-03 — REDIS-CLIENT-HARDENING-001 (Phase-0 reliability) + market-mode observation
+
+**Committed:** `b72fac2` fix(redis): harden all aioredis.from_url calls (keepalive/health_check/retry_on_timeout).
+**Why (prod observation of #2 deploy `e30d41b`):** all 6 services Online; `market:health` shows `dex_volume_24h=$1.65B` (healthy), `data_degraded=false`, `mode=HIBERNATE`, and `market:migration_count_1h=2`. So the market-mode fix is WORKING AS DESIGNED — it abstains only on an ABSENT counter; here the counter is PRESENT-but-low (2/hr, below DEFENSIVE's ≥10) so it correctly enforces. The low value is a warm-up (services just restarted → 1h-rolling counter near-empty) + Redis-timeout artifact (the persistent `Timeout reading from redis.railway.internal` is dropping counter INCRements and reads). Paper trades still flow (`ENTERING ... mode=DEFENSIVE [PAPER]` via AGGRESSIVE_PAPER HIBERNATE→DEFENSIVE downgrade). So the dominant remaining issue is the Redis read-timeouts → this fix.
+**This fix:** added `socket_keepalive=True, health_check_interval=30, retry_on_timeout=True` to ALL 15 `aioredis.from_url(...)` call sites across 11 service files (bot_core, signal_listener, signal_aggregator, market_health, ml_engine ×2, ml_model_accelerator, governance ×3, dashboard_api, treasury, nansen_wallet_fetcher ×2, telegram_listener). `health_check_interval` reconnects connections Railway's internal proxy silently dropped; `retry_on_timeout` retries transient read-timeouts in-client; `socket_keepalive` keeps idle conns alive. Goal: stop the dropped increments/reads so the migration counter populates accurately + the safety pubsub listeners stop backing off to 60s.
+**Verification:** redis-py 7.4.0 construct-test — `from_url` ACCEPTS all 3 kwargs (no startup-crash risk, the key concern for an all-services change); py_compile 11/11 PASS; grep confirms all 15 from_url sites hardened.
+**State changes:** code only; single `git push` redeploys all. No env/Redis/DB writes.
+**NEW follow-up FILED:** `MARKET-MODE-THRESHOLD-RECALIBRATE-003` (🟡, needs steady-state data) — once Redis is hardened + the counter accumulates a full clean hour, verify the bot's actual migration capture rate vs MARKET_MODES thresholds (DEFENSIVE≥10/NORMAL≥30); the bot may capture only a fraction of real graduations (diagnostic: ~3% feed) so thresholds may need recalibration, and a post-restart warm-up bypass may be warranted. Not addressable now (no steady-state sample).
+**Rollback:** `git revert` this commit → push.
+**Next:** observe (timeouts↓, counter climbing, mode→DEFENSIVE/NORMAL), then §B Phase-0 #3 `DEPLOY-OBSERVABILITY`.
+
+---
+
 ## 2026-06-03 — FIX-MARKET-MODE-MISCLASSIFICATION (§B Phase-0 #2) + bot-RECOVERY confirmation
 
 **Committed:** `5a3e5aa` fix(market-mode): missing-data != dead-market in `_determine_market_mode`.

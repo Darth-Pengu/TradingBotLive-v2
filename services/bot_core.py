@@ -2340,7 +2340,7 @@ async def main():
 
     # Connect Redis
     try:
-        bot.redis = aioredis.from_url(REDIS_URL, decode_responses=True, max_connections=5)
+        bot.redis = aioredis.from_url(REDIS_URL, decode_responses=True, max_connections=5, socket_keepalive=True, health_check_interval=30, retry_on_timeout=True)
         await bot.redis.ping()
         logger.info("Redis connected")
     except Exception as e:

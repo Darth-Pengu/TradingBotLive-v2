@@ -1047,7 +1047,7 @@ async def main():
 
         redis_conn = None
         try:
-            redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True, max_connections=5)
+            redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True, max_connections=5, socket_keepalive=True, health_check_interval=30, retry_on_timeout=True)
             await redis_conn.ping()
             # Publish model state to Redis
             await redis_conn.set("ml:engine:mode", "accelerated")
@@ -1096,7 +1096,7 @@ async def main():
     # Connect Redis always — ML scoring is read-only, needed for paper trading too
     redis_conn = None
     try:
-        redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True, max_connections=5)
+        redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True, max_connections=5, socket_keepalive=True, health_check_interval=30, retry_on_timeout=True)
         await redis_conn.ping()
         # Publish model state to Redis for dashboard
         await redis_conn.set("ml:engine:mode", "original")

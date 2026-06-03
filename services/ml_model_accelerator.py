@@ -793,7 +793,7 @@ async def main():
     # Connect Redis
     redis_conn = None
     try:
-        redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True, max_connections=5)
+        redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True, max_connections=5, socket_keepalive=True, health_check_interval=30, retry_on_timeout=True)
         await redis_conn.ping()
         await redis_conn.set("ml:engine:mode", "accelerated")
         # Publish model state to Redis for dashboard

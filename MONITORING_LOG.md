@@ -2,6 +2,15 @@
 
 ---
 
+## 2026-06-03 — REDIS-CLIENT-HARDENING-001 (Phase-0 reliability) + market-mode prod observation
+
+- **#2 prod observation:** all 6 services Online; `market:health` = dex $1.65B (healthy), `data_degraded=false`, `mode=HIBERNATE`, `market:migration_count_1h=2`. The market-mode fix is working as designed — it abstains only on an ABSENT counter; here the counter is PRESENT-but-low (2/hr < DEFENSIVE's 10), so it correctly enforces HIBERNATE. The 2/hr is a post-restart warm-up + Redis-timeout-dropped-increment artifact. Paper trades still flow (`ENTERING ... mode=DEFENSIVE [PAPER]` via AGGRESSIVE_PAPER).
+- **Fix (`b72fac2`):** hardened ALL 15 `aioredis.from_url` sites (11 files) with `socket_keepalive=True, health_check_interval=30, retry_on_timeout=True`. health_check reconnects Railway-proxy-dropped conns; retry_on_timeout retries transient read-timeouts; keepalive holds idle conns. Goal: stop the dropped counter increments/reads + the safety-listener 60s churn. Verified construct-safe on redis-py 7.4.0 before editing (all-services change → rejected kwarg would crash every service); py_compile 11/11 PASS.
+- **NEW `MARKET-MODE-THRESHOLD-RECALIBRATE-003` (🟡):** once the counter accumulates a clean hour, verify the bot's actual migration capture rate vs MARKET_MODES thresholds (may be miscalibrated — bot captures ~3% of real graduations per regime diagnostic) + consider a post-restart warm-up bypass or Postgres-backed rolling count. Needs steady-state data.
+- Sequencing: observe REDIS-HARDENING (timeouts↓, counter climbing, mode→DEFENSIVE/NORMAL) → §B Phase-0 #3 DEPLOY-OBSERVABILITY. No env/Redis/DB writes. Rollback: `git revert`.
+
+---
+
 ## 2026-06-03 — BOT RECOVERED + FIX-MARKET-MODE-MISCLASSIFICATION (§B Phase-0 #2)
 
 - **BOT RECOVERED (prod-confirmed):** after `98c8007` + leak-hotfix `9fa45b0`, all 6 services ● Online, `MaxConnectionsError` GONE, pipeline FLOWING — signal_listener emitting signals, signal_aggregator `SCORED → speed_demon`, bot_core `ENTERING ... [PAPER]`. The 05-28 crash-loop outage is resolved; `supervise` verified catching the exact redis `TimeoutError` in prod (concise one-liner restarts; listeners re-subscribe). Phase-0 #1 DONE.

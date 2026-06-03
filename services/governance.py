@@ -1123,7 +1123,7 @@ async def handle_discord_command(command: str) -> str:
         elif cmd == "pause" and len(parts) >= 3:
             personality = parts[2]
             try:
-                conn = aioredis.from_url(REDIS_URL, decode_responses=True, max_connections=5)
+                conn = aioredis.from_url(REDIS_URL, decode_responses=True, max_connections=5, socket_keepalive=True, health_check_interval=30, retry_on_timeout=True)
                 await conn.publish("bot:command", json.dumps({"action": "pause", "personality": personality}))
                 await conn.close()
                 return f"[ZMN Bot] Pause command sent for {personality}."
@@ -1133,7 +1133,7 @@ async def handle_discord_command(command: str) -> str:
         elif cmd == "resume" and len(parts) >= 3:
             personality = parts[2]
             try:
-                conn = aioredis.from_url(REDIS_URL, decode_responses=True, max_connections=5)
+                conn = aioredis.from_url(REDIS_URL, decode_responses=True, max_connections=5, socket_keepalive=True, health_check_interval=30, retry_on_timeout=True)
                 await conn.publish("bot:command", json.dumps({"action": "resume", "personality": personality}))
                 await conn.close()
                 return f"[ZMN Bot] Resume command sent for {personality}."
@@ -1255,7 +1255,7 @@ async def main():
 
     redis_conn = None
     try:
-        redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True, max_connections=5)
+        redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True, max_connections=5, socket_keepalive=True, health_check_interval=30, retry_on_timeout=True)
         await redis_conn.ping()
         logger.info("Redis connected")
     except Exception as e:

@@ -125,6 +125,8 @@ Key fixes: exit pricing pipeline (26e19b4), paper_trader price pass-through (9b8
 
 **FIX-PUBSUB-ISOLATION (2026-06-03, FULL-CODE-AUDIT-001 §B Phase-0 #1):** every service's long-lived background tasks are now launched via `supervise(lambda: coro(...), "name")` from `services/async_utils.py`, NOT bare in `asyncio.gather`. `supervise` restarts a crashed task with capped exponential backoff (so a transient redis pubsub `TimeoutError` in an `async for pubsub.listen()` can no longer crash-loop the whole process), STOPS on a clean return (no hot-loop), and PROPAGATES `CancelledError` (clean shutdown). `main.py`'s single-service entrypoint runs through `run_service()` (supervised) rather than a bare `await mod.main()`. **When adding a new background task to any service's top-level gather, wrap it in `supervise(...)`** (pass a zero-arg factory, e.g. `lambda: my_loop(redis_conn)`, NOT the coroutine). Do NOT re-introduce bare gather members — that is the crash-loop vector this fixed.
 
+**REDIS-CLIENT-HARDENING-001 (2026-06-03):** every `aioredis.from_url(...)` call now passes `socket_keepalive=True, health_check_interval=30, retry_on_timeout=True` (added to all 15 sites across 11 service files). Railway's internal proxy silently drops idle Redis connections and the cluster has periods of read-latency; these kwargs reconnect dropped conns + retry transient `Timeout reading from redis.railway.internal` instead of surfacing them as errors that crash listeners. **Include these kwargs on any NEW `from_url` call.** (Note: `market_health.py:543` still logs the full Redis URL incl. password at INFO — D10-F1, deferred to FIX-SECRET-LOGGING.)
+
 ## Persistence Convention (added 2026-04-30 by SESSION_E)
 
 The bot's config and state live in:

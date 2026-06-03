@@ -2663,7 +2663,7 @@ async def main():
     for attempt in range(1, max_attempts + 1):
         try:
             logger.info("Redis connection attempt %d/%d", attempt, max_attempts)
-            redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True, max_connections=20)
+            redis_conn = aioredis.from_url(REDIS_URL, decode_responses=True, max_connections=20, socket_keepalive=True, health_check_interval=30, retry_on_timeout=True)
             await redis_conn.ping()
             logger.info("Redis connected on attempt %d", attempt)
             break
