@@ -7,6 +7,17 @@
 
 ---
 
+## 2026-06-03 — FLIP NIGHT PLAYBOOK persisted (operator runbook; NO flip executed)
+
+**Committed:** `1554612` — NEW `docs/FLIP_NIGHT_PLAYBOOK.md` (canonical operator runbook STEP 0–9) + index updates. **Docs-only; ZERO code/env/Redis/state change; the flip was NOT executed.**
+**What it is:** the single in-window operator doc for the `TEST_MODE=false` flip, reconciled with what actually landed: P1 (`MAX_CONCURRENT_POSITIONS=10` total cap; **effective SD cap = 3** per-personality — called out in STEP 2/5/7), P2 (`flip_preflight_check.py` is the STEP 0/3 gate; `flip_rollback.sh` is the STEP 8 rollback; #9 exit-safety GREEN → HIBERNATE dip is NOT a rollback trigger). Corrected `HOLDER_COUNT_MIN`=SA-only. Adds the two new pre-flip flags to clear (STEP 0): `HELIUS_DAILY_BUDGET` unset + Jupiter price-API 403.
+**Explicit:** the flip (STEP 4 `TEST_MODE=false`) is the operator's authorized in-window action — CC does NOT auto-flip (session-gated per CLAUDE.md). This session only persisted the doc.
+**Indexed:** CLAUDE.md live-flip section → points at `docs/FLIP_NIGHT_PLAYBOOK.md`; ROADMAP changelog; AGENT_CONTEXT header.
+**Next prompt:** none queued — all 3 of this session's prompts (SIZING-CAPS-WIRING-001 → FLIP-NIGHT-PREP-001 → FLIP NIGHT PLAYBOOK) are landed + persisted.
+**Pending Claude-chat prompts not yet pasted:** none.
+
+---
+
 ## 2026-06-03 — FLIP-NIGHT-PREP-001 (read-only audit + flip tooling; NO live-branch change)
 
 **Committed:** `f5df07b` — NEW `scripts/flip_preflight_check.py`, `scripts/flip_rollback.sh`, `docs/audits/FLIP_NIGHT_PREP_001_2026_06_03.md` + index updates. **No bot-behaviour change, no deploy of bot code, no state write.**
