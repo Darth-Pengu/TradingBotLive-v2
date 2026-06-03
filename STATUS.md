@@ -7,6 +7,20 @@
 
 ---
 
+## 2026-06-03 — §B Phase-2 #9 FIX-HIBERNATE-LIVE-VETO (safety rail)
+
+**Committed:** `71272cd` fix(safety): live HIBERNATE veto — `signal_aggregator.py` + `bot_core.py`.
+**Findings:** D04-F3 / D07-F2 / D08-F1 / D08-F3 — bot_core had no effective live regime veto: the only HIBERNATE skip was the SA bypass, gated on `AGGRESSIVE_PAPER` (NOT TEST_MODE), so a bot_core-only flip leaving `AGGRESSIVE_PAPER_TRADING=true` would downgrade HIBERNATE→DEFENSIVE and **trade real money in a dead/outage regime**; bot_core's only other regime gate is the fail-open governance check (BUG-010).
+**Fix:** (A) `signal_aggregator` — the HIBERNATE→DEFENSIVE bypass is now gated on `AGGRESSIVE_PAPER and TEST_MODE`; in LIVE, HIBERNATE always hard-skips. (B) `bot_core.process_signal` — independent live veto: when `not TEST_MODE`, read `market:mode:current` FRESH and `return` on HIBERNATE (doesn't trust the SA-downgraded label or governance). Belt-and-suspenders.
+**Paper impact: NONE** — (A) preserves the paper bypass (AGGRESSIVE_PAPER and TEST_MODE → DEFENSIVE, as before); (B) is `not TEST_MODE` → no-op in paper. **Live-only behaviour change.**
+**Verification:** py_compile PASS (both); 5/5 structural. NOT paper-observable for the live veto itself (flip-confirmed); deploy bar = paper trading continues + clean startup. **Runbook:** still set `AGGRESSIVE_PAPER_TRADING=false` on signal_aggregator at flip (defense-in-depth; code now enforces regardless).
+**Rollback:** `git revert` this commit.
+**§B Phase-2 progress:** #9 ✅ (code). Next: #10 governance-fail-open, then #11+#12 (live startup state), #13 (sizing caps). Deferred+flagged: timezone/double-multiplier (D08-F4/D11-F2 — needs sizing-semantics review).
+**Next prompt:** Phase-2 #10.
+**Pending Claude-chat prompts not yet pasted:** none.
+
+---
+
 ## 2026-06-03 — Consolidated remediation oversight doc (for external double-check)
 
 **Committed:** `020f975` docs — NEW `docs/audits/REMEDIATION_PHASE_0_1_2026_06_03.md`. (Docs-only.)

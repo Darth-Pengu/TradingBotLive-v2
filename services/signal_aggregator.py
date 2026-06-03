@@ -1740,12 +1740,19 @@ async def _process_signals(redis_conn: aioredis.Redis, pool=None):
                 if mode_str:
                     market_mode = mode_str
 
-                if market_mode == "HIBERNATE" and not AGGRESSIVE_PAPER:
-                    logger.debug("HIBERNATE mode — skipping %s", mint[:12])
-                    continue
-                elif market_mode == "HIBERNATE" and AGGRESSIVE_PAPER:
-                    logger.info("HIBERNATE mode but AGGRESSIVE_PAPER=true — processing %s for data collection", mint[:12])
-                    market_mode = "DEFENSIVE"  # downgrade to DEFENSIVE thresholds instead of full block
+                if market_mode == "HIBERNATE":
+                    # FIX-HIBERNATE-LIVE-VETO (#9): the AGGRESSIVE_PAPER bypass (downgrade
+                    # HIBERNATE→DEFENSIVE for paper data-collection) is now gated on TEST_MODE
+                    # too. In LIVE mode HIBERNATE ALWAYS hard-skips — the bot never trades real
+                    # money in a dead/outage regime. (Was gated on AGGRESSIVE_PAPER alone, so a
+                    # bot_core-only flip that left AGGRESSIVE_PAPER_TRADING=true would have
+                    # downgraded HIBERNATE→DEFENSIVE and traded live. D04-F3/D07-F2/D08-F1.)
+                    if AGGRESSIVE_PAPER and TEST_MODE:
+                        logger.info("HIBERNATE + AGGRESSIVE_PAPER (paper) — processing %s as DEFENSIVE for data collection", mint[:12])
+                        market_mode = "DEFENSIVE"  # paper-only downgrade
+                    else:
+                        logger.debug("HIBERNATE mode — skipping %s (live, or non-aggressive paper)", mint[:12])
+                        continue
 
                 # --- Enrich with Rugcheck (cached) + token details (concurrent) ---
                 rugcheck, token_details = await asyncio.gather(

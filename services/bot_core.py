@@ -680,6 +680,22 @@ class BotCore:
         market_mode = scored_signal.get("market_mode", "NORMAL")
         features = scored_signal.get("features", {})
 
+        # FIX-HIBERNATE-LIVE-VETO (#9): independent bot_core regime veto. `market_mode` above
+        # comes from the SA-supplied scored_signal, which AGGRESSIVE_PAPER may have already
+        # downgraded HIBERNATE→DEFENSIVE. In LIVE mode do NOT rely on that label OR on the
+        # (fail-open, BUG-010) governance gate below — read market:mode:current FRESH and
+        # hard-skip HIBERNATE so real money is never traded in a dead/outage regime.
+        # Belt-and-suspenders with the SA-side TEST_MODE gate. (D04-F3/D07-F2/D08-F3)
+        if not TEST_MODE and self.redis:
+            try:
+                _fresh_mode = await self.redis.get("market:mode:current")
+            except Exception:
+                _fresh_mode = None
+            if _fresh_mode == "HIBERNATE":
+                logger.warning("[HIBERNATE-VETO] live entry blocked — market:mode:current=HIBERNATE (%s)",
+                               scored_signal.get("mint", "")[:12])
+                return
+
         # Hourly trade cap — limit bleeding in bad markets while collecting data
         max_trades_per_hour = int(os.getenv("MAX_TRADES_PER_HOUR", "10"))
         if self.redis and max_trades_per_hour > 0:
