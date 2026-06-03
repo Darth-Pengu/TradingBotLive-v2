@@ -282,6 +282,17 @@ def _mode_filter(mode: str) -> str:
     return f"trade_mode = '{mode}'"
 
 
+def _coalesce_pnl(r, corrected_key: str, realised_key: str) -> float:
+    """D05-F6 (FIX-DASHBOARD-MODE-FIDELITY #15): prefer corrected over realised with an
+    EXPLICIT None-check, not Python's falsy `or` — a legit corrected value of 0.0 (a
+    break-even trade) must NOT fall through to realised. SQL paths use COALESCE (also
+    None-only); this is the Python-side equivalent."""
+    v = r.get(corrected_key)
+    if v is None:
+        v = r.get(realised_key)
+    return float(v) if v is not None else 0.0
+
+
 # --- Wallet balance helper ---
 async def _get_sol_balance(address: str) -> float | None:
     if not address:
@@ -816,8 +827,8 @@ async def api_trades(request):
             "entry_price": float(r.get("entry_price", 0) or 0),
             "exit_price": float(r.get("exit_price", 0) or 0),
             "amount_sol": float(r.get("amount_sol", 0) or 0),
-            "pnl_sol": float(r.get("corrected_pnl_sol") or r.get("realised_pnl_sol", 0) or 0),
-            "pnl_pct": float(r.get("corrected_pnl_pct") or r.get("realised_pnl_pct", 0) or 0),
+            "pnl_sol": _coalesce_pnl(r, "corrected_pnl_sol", "realised_pnl_sol"),
+            "pnl_pct": _coalesce_pnl(r, "corrected_pnl_pct", "realised_pnl_pct"),
             "exit_reason": r.get("exit_reason", ""),
             "hold_seconds": float(r.get("hold_seconds", 0) or 0),
             "ml_score": float(r.get("ml_score", 0) or 0),
@@ -1457,22 +1468,29 @@ async def api_analytics(request):
         "win_rate_last10": 0, "win_rate_last25": 0, "win_rate_last50": 0,
         "expectancy": 0, "avg_win_sol": 0, "avg_loss_sol": 0, "profit_factor": 0,
     }
+    # D05-F4 (FIX-DASHBOARD-MODE-FIDELITY #15): api_analytics had NO trade_mode filter on any
+    # query and used uncorrected realised_pnl_sol everywhere → in LIVE view it mixed paper+live
+    # rows and ignored Path B corrections, overstating live edge. Thread the mode filter into
+    # every query and use COALESCE(corrected_pnl_sol, realised_pnl_sol) (SQL COALESCE is
+    # None-only, so a legit corrected==0.0 is preserved — cf. D05-F6).
+    mode = _get_mode(request)
+    mf = _mode_filter(mode)
     try:
         # Equity curve
         trades = await _query_db(
-            """SELECT realised_pnl_sol, exit_time FROM paper_trades
-               WHERE exit_time IS NOT NULL AND realised_pnl_sol IS NOT NULL
+            f"""SELECT COALESCE(corrected_pnl_sol, realised_pnl_sol) as pnl, exit_time FROM paper_trades
+               WHERE exit_time IS NOT NULL AND realised_pnl_sol IS NOT NULL AND {mf}
                ORDER BY exit_time ASC""")
         cumulative = 0
         for i, t in enumerate(trades):
-            cumulative += float(t.get("realised_pnl_sol", 0) or 0)
+            cumulative += float(t.get("pnl", 0) or 0)
             result["equity_curve"].append({"time": i + 1, "value": round(cumulative, 4)})
 
         # Exit reasons
         exit_rows = await _query_db(
-            """SELECT exit_reason, COUNT(*) as c,
-               ROUND(AVG(realised_pnl_sol)::numeric, 4) as avg
-               FROM paper_trades WHERE exit_time IS NOT NULL
+            f"""SELECT exit_reason, COUNT(*) as c,
+               ROUND(AVG(COALESCE(corrected_pnl_sol, realised_pnl_sol))::numeric, 4) as avg
+               FROM paper_trades WHERE exit_time IS NOT NULL AND {mf}
                GROUP BY exit_reason ORDER BY c DESC""")
         result["exit_reasons"] = {
             r["exit_reason"]: {"count": r["c"], "avg_pnl": float(r.get("avg", 0) or 0)}
@@ -1483,15 +1501,15 @@ async def api_analytics(request):
         def calc_wr(rows):
             if not rows:
                 return 0
-            w = sum(1 for r in rows if float(r.get("realised_pnl_sol", 0) or 0) > 0)
+            w = sum(1 for r in rows if float(r.get("pnl", 0) or 0) > 0)
             return round(w / len(rows) * 100, 1)
 
         l10 = await _query_db(
-            "SELECT realised_pnl_sol FROM paper_trades WHERE exit_time IS NOT NULL ORDER BY exit_time DESC LIMIT 10")
+            f"SELECT COALESCE(corrected_pnl_sol, realised_pnl_sol) as pnl FROM paper_trades WHERE exit_time IS NOT NULL AND {mf} ORDER BY exit_time DESC LIMIT 10")
         l25 = await _query_db(
-            "SELECT realised_pnl_sol FROM paper_trades WHERE exit_time IS NOT NULL ORDER BY exit_time DESC LIMIT 25")
+            f"SELECT COALESCE(corrected_pnl_sol, realised_pnl_sol) as pnl FROM paper_trades WHERE exit_time IS NOT NULL AND {mf} ORDER BY exit_time DESC LIMIT 25")
         l50 = await _query_db(
-            "SELECT realised_pnl_sol FROM paper_trades WHERE exit_time IS NOT NULL ORDER BY exit_time DESC LIMIT 50")
+            f"SELECT COALESCE(corrected_pnl_sol, realised_pnl_sol) as pnl FROM paper_trades WHERE exit_time IS NOT NULL AND {mf} ORDER BY exit_time DESC LIMIT 50")
         result["win_rate_last10"] = calc_wr(l10)
         result["win_rate_last25"] = calc_wr(l25)
         result["win_rate_last50"] = calc_wr(l50)
@@ -1508,12 +1526,12 @@ async def api_analytics(request):
 
         # Expectancy
         win_row = await _query_db(
-            """SELECT
-               AVG(CASE WHEN realised_pnl_sol > 0 THEN realised_pnl_sol END) as avg_win,
-               AVG(CASE WHEN realised_pnl_sol < 0 THEN realised_pnl_sol END) as avg_loss,
-               COUNT(CASE WHEN realised_pnl_sol > 0 THEN 1 END) as wins,
+            f"""SELECT
+               AVG(CASE WHEN COALESCE(corrected_pnl_sol, realised_pnl_sol) > 0 THEN COALESCE(corrected_pnl_sol, realised_pnl_sol) END) as avg_win,
+               AVG(CASE WHEN COALESCE(corrected_pnl_sol, realised_pnl_sol) < 0 THEN COALESCE(corrected_pnl_sol, realised_pnl_sol) END) as avg_loss,
+               COUNT(CASE WHEN COALESCE(corrected_pnl_sol, realised_pnl_sol) > 0 THEN 1 END) as wins,
                COUNT(*) as total
-               FROM paper_trades WHERE exit_time IS NOT NULL""")
+               FROM paper_trades WHERE exit_time IS NOT NULL AND {mf}""")
         if win_row:
             wr_data = win_row[0]
             avg_win = float(wr_data.get("avg_win", 0) or 0)

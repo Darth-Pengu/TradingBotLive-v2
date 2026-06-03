@@ -7,6 +7,23 @@
 
 ---
 
+## 2026-06-03 — §B Phase-3 #15 FIX-DASHBOARD-MODE-FIDELITY + DASH-CORRECTED-PNL-COLUMN-001 (🎯 PHASE 3 COMPLETE)
+
+**Committed:** `<this commit>` fix(dashboard/accounting): mode-fidelity + corrected-column migration — `services/dashboard_api.py`, `services/bot_core.py`, `migrations/003_add_corrected_pnl_to_trades.sql`. **Plus a prod DB migration already applied** (ALTER TABLE trades — additive, idempotent).
+**DASH-CORRECTED-PNL-COLUMN-001 (prod error every 60s, ×3):** web logged `column "corrected_pnl_sol" does not exist`. Confirmed schema gap: `paper_trades` has the 4 corrected/correction cols, `trades` had NONE (migration 001 added them to paper_trades only). **Fix:** migration 003 mirrors all 5 cols onto `trades` (applied to prod via DATABASE_PUBLIC_URL; `SELECT corrected_pnl_sol FROM trades` now OK). Live rows = NULL → any `COALESCE(corrected, …)` falls back gracefully. Roadmap-endorsed universal fix (kills the error regardless of the triggering query).
+**D05-F4 (api_analytics):** had NO trade_mode filter on any of its 6 queries + used uncorrected realised → live view mixed paper+live and ignored Path B. Now threads `_mode_filter(mode)` + `COALESCE(corrected_pnl_sol, realised_pnl_sol)` into equity-curve / exit-reasons / WR-trends(l10/25/50) / expectancy.
+**D05-F6 (falsy-zero):** `float(corrected or realised)` discarded a legit `corrected==0.0`. New `_coalesce_pnl()` helper (explicit None-check) used in api_trades; SQL paths use COALESCE (None-only). 
+**D05-F3 (snapshot daily_pnl):** `_portfolio_snapshot_task` wrote `daily_pnl_sol` as a LIFETIME SUM with no window — and in live mode `trades` holds paper+live (no filter). Now midnight-UTC window + trade_mode filter (dashboard reads each snapshot's value as-is → safe).
+**D02-F13 (live entry-price sentinel):** live entry used `price=0.000001` on an oracle miss → every exit computed a fabricated giant win (`(current−1e-6)/1e-6`) + corrupted `trades.entry_price`; verified `pos.entry_price` is NEVER corrected later. Now: retry `_get_token_price` 3× (stream lag), then `entry_price=0.0` (exit math guarded on `>0` books 0, defers to Path B) + ERROR + Sentry. Live-only.
+**D05-F10** (corrected_pnl_pct denominator) already standardised in #14 (both Path A/B use `/size`). **D05-F8** (amount_sol paper-net vs live-gross) — documented as a known semantic difference, NOT changed (altering it would break historical analysis; 🟢).
+**Verification:** py_compile PASS (both files); 10/10 prod-replay (rewritten analytics both modes + windowed snapshot both tables execute cleanly); migration confirmed applied. **Partly paper-observable** (dashboard analytics + snapshot daily_pnl for paper view); D02-F13 + populate-path live-only/flip-confirmed.
+**Rollback:** `git revert` this commit; `ALTER TABLE trades DROP COLUMN corrected_pnl_sol, …` (cols are additive/nullable — safe to leave).
+**🎯 §B PHASE 3 (accounting integrity) CODE-COMPLETE:** #14 ✅, #15 ✅. Full findings flag at end of this run.
+**Next prompt:** Phase-3 capstone / flip-readiness review. Phases 0+1+2+3 done.
+**Pending Claude-chat prompts not yet pasted:** none.
+
+---
+
 ## 2026-06-03 — §B Phase-3 #14 FIX-LIVE-STAGED-TP-PNL (live cumulative PnL + Path-B multi-exit + in-memory reconcile)
 
 **Committed:** `<this commit>` fix(accounting): live staged-TP cumulative PnL + Path-B multi-exit sum + on-chain in-memory reconcile — `services/bot_core.py` (Position dataclass + `_close_position` live branch).

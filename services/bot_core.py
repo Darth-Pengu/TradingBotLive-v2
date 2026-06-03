@@ -1153,9 +1153,35 @@ class BotCore:
             if result.success:
                 price = await self._get_token_price(mint)
                 if not price or price <= 0:
-                    logger.warning("SKIP_NO_PRICE: %s — trade executed but no price for tracking, using fallback", mint[:12])
-                    # Fallback: estimate from size_sol and typical token amount
-                    price = 0.000001  # sentinel — will be updated on next price check
+                    # D02-F13 (FIX-DASHBOARD-MODE-FIDELITY #15): the buy already landed
+                    # on-chain — we MUST get a REAL entry price, never the old 1e-6 sentinel.
+                    # 1e-6 made every exit compute a fabricated giant win ((current-1e-6)/1e-6),
+                    # corrupted trades.entry_price in the ML corpus, and — verified — pos.entry_price
+                    # is NEVER corrected later (the "updated on next price check" claim was false).
+                    # _get_token_price already exhausts Redis/BC-reserves/Jupiter, so retry briefly:
+                    # the PumpPortal trade stream populates token:latest_price within ~1-2s of the fill.
+                    logger.warning("LIVE_ENTRY_NO_PRICE: %s — no price at fill, retrying (stream lag)", mint[:12])
+                    for _retry in range(3):
+                        await asyncio.sleep(0.7)
+                        price = await self._get_token_price(mint)
+                        if price and price > 0:
+                            logger.info("LIVE_ENTRY_PRICE recovered on retry %d for %s: %.10f",
+                                        _retry + 1, mint[:12], price)
+                            break
+                    if not price or price <= 0:
+                        # Still no real price. Use 0.0 (NOT 1e-6): the exit PnL math is guarded on
+                        # entry_price > 0, so it books 0 instead of a fabricated win, and Path B
+                        # on-chain truth governs the realised number at close. Loud + Sentry so it is
+                        # never silent; price-based TP/trail are disabled for this position by design.
+                        logger.error("LIVE_ENTRY_NO_PRICE: %s — no oracle/BC price after retries; "
+                                     "entry_price=0.0 (exit PnL defers to Path B; price-based TP/trail off)",
+                                     mint[:12])
+                        try:
+                            import sentry_sdk
+                            sentry_sdk.capture_message(f"LIVE_ENTRY_NO_PRICE mint={mint[:12]} entry_price=0.0")
+                        except Exception:
+                            pass
+                        price = 0.0
                 signal_source = scored_signal.get("signal", {}).get("source", "unknown")
                 pos = Position(
                     mint=mint, personality=personality,
@@ -2437,9 +2463,21 @@ class BotCore:
                 table = "paper_trades" if TEST_MODE else "trades"
                 exit_col = "exit_time" if TEST_MODE else "closed_at"
                 pnl_col = "realised_pnl_sol" if TEST_MODE else "pnl_sol"
+                # D05-F3 (FIX-DASHBOARD-MODE-FIDELITY #15): daily_pnl_sol was a LIFETIME SUM
+                # with no time window — and in live mode the `trades` table holds BOTH paper
+                # and live rows (combined ML corpus) with no trade_mode filter, so it mixed
+                # paper+live and reported all-time PnL in a column named *daily*. Add a
+                # midnight-UTC window + a trade_mode filter so the value matches its name. The
+                # dashboard reads each snapshot's daily_pnl_sol as-is (no cross-snapshot SUM),
+                # so this is a safe semantic correction. exit_time/closed_at are epoch floats.
+                _midnight = datetime.now(timezone.utc).replace(
+                    hour=0, minute=0, second=0, microsecond=0).timestamp()
+                _mode_clause = "AND trade_mode = 'paper'" if TEST_MODE else "AND trade_mode = 'live'"
                 row = await self.pool.fetchrow(
                     f"""SELECT COUNT(*) as total, COALESCE(SUM({pnl_col}), 0) as pnl
-                        FROM {table} WHERE {exit_col} IS NOT NULL"""
+                        FROM {table}
+                        WHERE {exit_col} IS NOT NULL AND {exit_col} >= $1 {_mode_clause}""",
+                    _midnight,
                 )
                 await self.pool.execute(
                     """INSERT INTO portfolio_snapshots
