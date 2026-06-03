@@ -224,6 +224,17 @@ class Position:
     # column). When None, close-path Path B at L1450 skips the entry parse and
     # falls back to live_estimated_v1 — same as today (fail-safe).
     entry_signature: str | None = None
+    # FIX-LIVE-STAGED-TP-PNL (#14, D05-F1/F2): live staged-exit accumulators. The live
+    # close previously booked only the FINAL partial's PnL/sig — understating multi-TP
+    # winners (D05-F1) and pairing the full-position entry delta with only the last exit
+    # sig in Path B (D05-F2). These accumulate across every partial so the terminal close
+    # books the cumulative realised PnL, the full round-trip fees, and sums all exit native
+    # deltas. Paper uses cumulative_pnl_sol (above) the same way. All default-empty → a
+    # single full close (sell_pct=1.0) reduces to the prior single-exit arithmetic.
+    exit_signatures: list = field(default_factory=list)  # all on-chain exit tx sigs (live)
+    cumulative_fees_sol: float = 0.0      # round-trip fees summed across staged exits (live)
+    cumulative_sell_slippage_sum: float = 0.0  # sum of per-exit sell slippage% (avg at close)
+    exit_count: int = 0                   # number of executed exit legs (live)
 
 
 SELL_FAIL_THRESHOLD = int(os.getenv("SELL_FAIL_THRESHOLD", "8"))
@@ -1531,6 +1542,28 @@ class BotCore:
         pos.remaining_pct *= (1 - sell_pct)
         current_price = await self._get_token_price(pos.mint)
 
+        # FIX-LIVE-STAGED-TP-PNL (#14, D05-F1): accumulate THIS exit leg's realised PnL,
+        # sell-side fees, slippage, and on-chain signature so the terminal close books the
+        # CUMULATIVE across all staged TPs — not just the final chunk. Each partial sells
+        # `sell_amount` notional at this leg's `current_price`; gross uses this leg's price.
+        # The one-time buy-side round-trip fee is subtracted ONCE at terminal (below), so for
+        # a single full close (sell_pct=1.0, one leg) this reduces to the prior arithmetic.
+        _exit_sig_now = getattr(result, "signature", None)
+        if _exit_sig_now:
+            pos.exit_signatures.append(_exit_sig_now)
+        _chunk_sell_fees = _simulate_fees(
+            "sell", sell_amount, "auto", bonding_curve_progress=pos.bonding_curve_progress,
+        )["total"]
+        _chunk_sell_slip = _simulate_slippage("sell", sell_amount)
+        _chunk_gross = (
+            (current_price - pos.entry_price) / pos.entry_price * sell_amount
+            if pos.entry_price > 0 else 0
+        )
+        pos.cumulative_pnl_sol += (_chunk_gross - _chunk_sell_fees)
+        pos.cumulative_fees_sol += _chunk_sell_fees
+        pos.cumulative_sell_slippage_sum += _chunk_sell_slip
+        pos.exit_count += 1
+
         if pos.remaining_pct <= 0.01:
             # LIVE-FEE-CAPTURE-001 Path A (Session D, 2026-04-30): use paper helpers
             # for round-trip fee + slippage estimates. Both buy and sell sides are
@@ -1542,26 +1575,30 @@ class BotCore:
             # SLIPPAGE_RANGES key (alpha_snipe / confirmation / post_grad_dip).
             # Prior code passed "buy" which fell back to (0.5, 2.0, 0.3) default
             # — undercounted pre-grad BC slippage on every live close.
+            # FIX-LIVE-STAGED-TP-PNL (#14, D05-F1): the per-leg sell fees/slippage/gross were
+            # already accumulated above on every exit. Subtract the ONE-TIME buy-side round-trip
+            # fee here (paid once for the whole position), then book the CUMULATIVE realised PnL
+            # across all staged exits. pnl_pct is PnL as a fraction of the full position notional
+            # (matches the paper path and standardises the Path A/Path B denominator — D05-F10).
             _live_buy_slip_pct = _simulate_slippage(pos.entry_slippage_tier, pos.size_sol)
-            _live_sell_slip_pct = _simulate_slippage("sell", sell_amount)
             _live_buy_fees = _simulate_fees(
                 "buy", pos.size_sol, "auto",
                 bonding_curve_progress=pos.bonding_curve_progress,
-            )
-            _live_sell_fees = _simulate_fees(
-                "sell", sell_amount, "auto",
-                bonding_curve_progress=pos.bonding_curve_progress,
-            )
-            _live_total_fees_sol = _live_buy_fees["total"] + _live_sell_fees["total"]
-            _live_avg_slippage_pct = (_live_buy_slip_pct + _live_sell_slip_pct) / 2
+            )["total"]
+            pos.cumulative_pnl_sol -= _live_buy_fees
+            pos.cumulative_fees_sol += _live_buy_fees
+            _live_total_fees_sol = pos.cumulative_fees_sol
+            _live_avg_slippage_pct = (
+                _live_buy_slip_pct + (pos.cumulative_sell_slippage_sum / max(pos.exit_count, 1))
+            ) / 2
 
-            pnl_pct = ((current_price - pos.entry_price) / pos.entry_price * 100) if pos.entry_price > 0 else 0
-            _live_gross_pnl_sol = (current_price - pos.entry_price) / pos.entry_price * sell_amount if pos.entry_price > 0 else 0
-            pnl_sol = _live_gross_pnl_sol - _live_total_fees_sol  # LIVE-PNL-FEE-FORMULA-001
+            pnl_sol = pos.cumulative_pnl_sol  # LIVE-PNL-FEE-FORMULA-001 + D05-F1 cumulative
+            pnl_pct = (pnl_sol / pos.size_sol * 100) if pos.size_sol > 0 else 0
             outcome = "profit" if pnl_sol > 0 else "loss"
 
-            self.portfolio.daily_pnl_sol += pnl_sol
-            self.portfolio.total_balance_sol += pnl_sol
+            # NOTE (D02-F12): the in-memory daily_pnl/balance update (which drives the
+            # kill-switch) is deferred to AFTER the Path B parse below, so it reconciles to
+            # on-chain truth when available instead of the optimistic oracle estimate.
 
             if outcome == "loss":
                 self.portfolio.consecutive_losses[pos.personality] = \
@@ -1606,15 +1643,24 @@ class BotCore:
                     await helius_parse_signature(pos.entry_signature)
                     if getattr(pos, "entry_signature", None) else None
                 )
-                _exit_parsed = (
-                    await helius_parse_signature(_pt_exit_sig)
-                    if _pt_exit_sig else None
-                )
-                if (_entry_parsed and _exit_parsed
-                        and _entry_parsed.get("success") and _exit_parsed.get("success")):
+                # FIX-LIVE-STAGED-TP-PNL (#14, D05-F2): sum the native deltas across ALL exit
+                # signatures (every staged TP), not just the final one. The prior code paired
+                # the FULL-position entry delta with only the last partial's exit sig → grossly
+                # wrong corrected_pnl on multi-TP trades. Path B is trusted only if the entry
+                # AND every exit parse succeeds; any miss falls back to Path A (live_estimated_v1).
+                _exit_sigs = pos.exit_signatures or ([_pt_exit_sig] if _pt_exit_sig else [])
+                _exit_native_sum = 0
+                _all_exits_ok = bool(_exit_sigs)
+                for _sig in _exit_sigs:
+                    _p = await helius_parse_signature(_sig) if _sig else None
+                    if _p and _p.get("success"):
+                        _exit_native_sum += _p["native_delta_lamports"]
+                    else:
+                        _all_exits_ok = False
+                        break
+                if (_entry_parsed and _entry_parsed.get("success") and _all_exits_ok):
                     _entry_native = _entry_parsed["native_delta_lamports"]
-                    _exit_native = _exit_parsed["native_delta_lamports"]
-                    _path_b_pnl_sol = (_entry_native + _exit_native) / 1e9
+                    _path_b_pnl_sol = (_entry_native + _exit_native_sum) / 1e9
                     _path_b_corrected_pnl_sol = _path_b_pnl_sol
                     _path_b_corrected_pnl_pct = (
                         (_path_b_pnl_sol / pos.size_sol * 100)
@@ -1623,8 +1669,8 @@ class BotCore:
                     _path_b_corrected_outcome = "win" if _path_b_pnl_sol > 0 else "loss"
                     _correction_method = "live_actual_v1"
                     logger.info(
-                        "LIVE-FEE-CAPTURE-002 Path B: id=%s mint=%s actual_pnl=%.6f path_a_pnl=%.6f delta=%.6f",
-                        pos.paper_trade_id, pos.mint[:12],
+                        "LIVE-FEE-CAPTURE-002 Path B: id=%s mint=%s exits=%d actual_pnl=%.6f path_a_pnl=%.6f delta=%.6f",
+                        pos.paper_trade_id, pos.mint[:12], len(_exit_sigs),
                         _path_b_pnl_sol, pnl_sol, abs(_path_b_pnl_sol - pnl_sol),
                     )
             except Exception as _path_b_err:
@@ -1633,6 +1679,15 @@ class BotCore:
                     pos.mint[:12], _path_b_err,
                 )
                 _correction_method = "live_estimated_v1"
+
+            # D02-F12 (FIX-LIVE-STAGED-TP-PNL #14): drive the in-memory daily_pnl / balance —
+            # and therefore the DAILY_LOSS_LIMIT kill-switch — from on-chain truth (Path B
+            # native delta) when it resolved, not the optimistic oracle estimate. Falls back
+            # to the Path A estimate when Path B is unavailable. This is the only in-memory
+            # balance mutation for the live close (the earlier eager update was removed).
+            _booked_pnl = _path_b_pnl_sol if _path_b_pnl_sol is not None else pnl_sol
+            self.portfolio.daily_pnl_sol += _booked_pnl
+            self.portfolio.total_balance_sol += _booked_pnl
 
             if pos.paper_trade_id is not None:
                 # Entry row exists — UPDATE it (correct lifecycle semantics).

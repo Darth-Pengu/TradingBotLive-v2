@@ -7,6 +7,19 @@
 
 ---
 
+## 2026-06-03 — §B Phase-3 #14 FIX-LIVE-STAGED-TP-PNL (live cumulative PnL + Path-B multi-exit + in-memory reconcile)
+
+**Committed:** `<this commit>` fix(accounting): live staged-TP cumulative PnL + Path-B multi-exit sum + on-chain in-memory reconcile — `services/bot_core.py` (Position dataclass + `_close_position` live branch).
+**Findings (D05-F1/D05-F2/D02-F12):** the live close booked only the FINAL partial's PnL/sig. **D05-F1:** earlier staged TPs booked NOTHING (the live PARTIAL case just logged+returned) → multi-TP winners grossly understated in realised/corrected/daily_pnl/balance. **D05-F2:** Path B paired the full-position entry native-delta with only the last exit sig → wrong corrected_pnl (could flip a winner to a loss). **D02-F12:** in-memory daily_pnl/balance (the kill-switch inputs) used the optimistic oracle estimate, not on-chain truth.
+**Fix (live-only):** new Position accumulators (`exit_signatures`, `cumulative_fees_sol`, `cumulative_sell_slippage_sum`, `exit_count`). Every live exit leg now accumulates its realised PnL (`cumulative_pnl_sol += chunk_gross − chunk_sell_fees`), fees, slippage, and exit sig; the terminal close subtracts the one-time buy fee ONCE and books the cumulative (`pnl_sol = pos.cumulative_pnl_sol`; `pnl_pct = pnl_sol/size·100` — also standardises the Path A/B denominator, D05-F10). Path B now sums native deltas across ALL exit sigs (trusted only if entry + every exit parse). **D02-F12:** the in-memory daily_pnl/balance update moved below Path B and driven by `_booked_pnl = Path-B-if-available-else-Path-A` (kill-switch reconciles to on-chain truth). **Single full close (sell_pct=1.0) reduces to the prior arithmetic exactly.**
+**Verification:** py_compile PASS; 6/6 structural; `.tmp_phase3/verify_staged_tp_pnl.py` 7/7 arithmetic (single-close==old; staged cumulative 0.073 vs old buggy final-only 0.023 = 3.2× understatement; Path-B sum +0.057 vs old last-only −0.048 = winner-flipped-to-loss; loss still books full downside). **NOT paper-observable (live `else:` branch) — flip-confirmed.** Paper path untouched.
+**Rollback:** `git revert` this commit.
+**§B Phase-3 progress:** #14 ✅ (code). Next: #15 dashboard mode-fidelity + DASH-CORRECTED-PNL-COLUMN-001 + D02-F13 entry-price sentinel.
+**Next prompt:** Phase-3 #15.
+**Pending Claude-chat prompts not yet pasted:** none.
+
+---
+
 ## 2026-06-03 — 🎯 §B PHASE 2 (SAFETY RAILS) COMPLETE & DEPLOY-VERIFIED + findings flag
 
 **Committed/pushed (this run, on origin/main):** #9 `7e83949`, #10 `7fe2ad1`, #11+#12 `78cc45c`, #13 `c70aba1` (+ this docs capstone). (Per-fix STATUS entries below cite pre-amend content hashes; these are the pushed/`git revert`-able hashes.)
