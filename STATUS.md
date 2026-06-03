@@ -7,6 +7,19 @@
 
 ---
 
+## 2026-06-04 — Cleared the 2 pre-flip flags: HELIUS_DAILY_BUDGET set + Jupiter 403 verified (false alarm)
+
+**Committed:** `949e23d` — `scripts/flip_preflight_check.py` (UA fix) + doc updates. **State change:** `HELIUS_DAILY_BUDGET=100000` set on bot_core + treasury (Railway). No bot-code change; live path frozen.
+**HELIUS_DAILY_BUDGET ✅ set 100000** (bot_core + treasury). **Correction:** it does NOT gate the live exec path — `grep` confirms it's read ONLY by `treasury.py:60` (balance polling) + dashboard display; bot_core/execution/helius_parser use `HELIUS_*_URL` directly. So it was never an exec blocker; setting it re-enables treasury wallet-balance tracking + clears the preflight row. Real live-Helius proof = on-chain getBalance GREEN (5.0641 SOL).
+**Jupiter 403 ✅ verified — FALSE ALARM (verifier artifact).** Root cause: Jupiter's Cloudflare WAF 403s the default `Python-urllib` User-Agent (proven: `Python-urllib`→403, `Mozilla/5.0`→200). The bot uses aiohttp (unaffected); the deployed key + `api.jup.ag/price/v3` return 200 + valid price (with key, without, and lite-api all 200, 3/3 stable). Fixed `flip_preflight_check.py http_ok()` to send a browser UA → Jupiter row GREEN. `JUPITER-PRICE-AUTH-VERIFY-001` RESOLVED. (Jupiter can still 403 transiently under burst; bot has Redis/BC pricing fallbacks + #4 parks/retries a failed swap.)
+**Preflight now:** 5 RED = ONLY the §6 flip-config items applied at PLAYBOOK Step 2 (`MAX_POSITION_SOL`, `DAILY_LOSS_LIMIT_SOL`, `AGGRESSIVE_PAPER_TRADING`×2, `HOLDER_COUNT_MIN`). All API/safety/infra rows GREEN.
+**Remaining pre-flip item:** only the operator-decision on effective concurrency (3 vs wire 001-B) + applying the Step-2 flip-config in the window. Both pre-flight flags cleared.
+**Bot state:** TEST_MODE=true, market:mode=NORMAL, emergency_stop unset, consecutive_losses=0, wallet 5.064 SOL.
+**Next prompt:** none queued.
+**Pending Claude-chat prompts not yet pasted:** none.
+
+---
+
 ## 2026-06-03 — FLIP NIGHT PLAYBOOK persisted (operator runbook; NO flip executed)
 
 **Committed:** `1554612` — NEW `docs/FLIP_NIGHT_PLAYBOOK.md` (canonical operator runbook STEP 0–9) + index updates. **Docs-only; ZERO code/env/Redis/state change; the flip was NOT executed.**

@@ -15,9 +15,10 @@
 
 ## STEP 0 — before you start (can be earlier in the day)
 - Run the pre-flight verifier: **`python scripts/flip_preflight_check.py`**. Expect env rows RED/YELLOW until you apply the config in Step 2 — that's fine now. Confirm the **non-env** rows are clean: **0 open live positions**, `bot:emergency_stop` unset, `bot:consecutive_losses=0`, wallet ≈5.064, APIs reachable.
-- **Clear the two NEW flags from FLIP-NIGHT-PREP-001 before flipping:**
-  1. **`HELIUS_DAILY_BUDGET`** is unset on bot_core → set it >0 (or confirm raw-RPC sends aren't budget-gated). The live path needs Helius for getBalance / getSignatureStatuses / parseTransactions / pool-state.
-  2. **Jupiter price API returned 403** with the deployed key in preflight (`api.jup.ag/price/v3`). Verify Jupiter price auth/endpoint works (it may be a free-vs-paid-tier / `lite-api.jup.ag` host issue). Live **post-grad sells** route through Jupiter. (`JUPITER-PRICE-AUTH-VERIFY-001`.)
+- **The two FLIP-NIGHT-PREP-001 flags are now CLEARED (2026-06-04):**
+  1. **`HELIUS_DAILY_BUDGET`** — ✅ set `=100000` on bot_core + treasury. (Note: it does NOT gate the live exec path — only treasury balance-polling + dashboard display; the live Helius proof is the GREEN on-chain getBalance row.)
+  2. **Jupiter price API 403** — ✅ resolved: it was the preflight's `Python-urllib` User-Agent hitting Jupiter's WAF, NOT a bot/auth problem. The deployed key + `api.jup.ag/price/v3` return 200 + valid price; the bot (aiohttp) is unaffected. Verifier fixed (browser UA) → Jupiter row GREEN.
+  (Re-run `flip_preflight_check.py` to confirm: only the §6 flip-config rows should be RED, applied at Step 2.)
 - Confirm `market:mode:current`. NORMAL/DEFENSIVE = trade. HIBERNATE = entries pause (Step 7) — not a blocker, but ideally start non-HIBERNATE.
 - Be set up for a 4–6h watch: bot_core logs streaming, dashboard open + **logged in** (JWT — confirm login works), Discord alerts visible, this doc + the rollback command ready.
 
