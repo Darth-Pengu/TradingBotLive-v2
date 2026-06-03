@@ -7,6 +7,21 @@
 
 ---
 
+## 2026-06-03 — §B Phase-2 #10 FIX-GOVERNANCE-FAIL-OPEN (cfgi read) + governance-state finding
+
+**Committed:** `b273b54` fix(governance): read CFGI from market:health, not the non-existent market:cfgi — `services/governance.py`.
+**Findings:** D04-F1/D09-F2/BUG-010. **Fix:** governance read `redis.get("market:cfgi")` — a key NO service writes → `cfgi` was PERMANENTLY the neutral 50 default in every governance prompt. Now reads from `market:health` (the JSON blob market_health writes), preferring `cfgi_sol`, with logging on absent/error.
+**What was ALREADY in place (verified, no change needed):** (a) bot_core fetches + applies `gov.size_multiplier` (L772) → the CONSERVATIVE→0.8 haircut already takes effect; (b) the live regime VETO that governance fail-open left missing is now provided by **#9** (independent `market:mode:current` HIBERNATE check) — more reliable than the (dead) governance gate.
+**DEFERRED + FLAGGED (needs decision, halt-risk):** the audit's "treat stale governance as PAUSE/cap." Governance's LLM is DEAD (Anthropic credits), so a "stale→halt" rule would HALT the paper bot; a "stale→size-cap" is strategy-adjacent + would apply a permanent live effect while dead. Filed `GOVERNANCE-STALENESS-POLICY-001` for a deliberate decision. The cfgi fix only helps once governance is revived (the LLM call fails on credits before using cfgi).
+**🚩 CURRENT-STATE FINDING (flag):** `governance:latest_decision = {mode: CONSERVATIVE, size_multiplier: 0.8, reasoning: "classification failed: Error 400 … credits"}`. BUG-010 is ACTIVE: the dead-governance fallback is applying a **0.8× size haircut to ALL current paper trades** (silently shrinking paper sizes) and provides ZERO real regime signal. Two implications: (1) paper PnL-per-trade analysis should account for the 0.8× governance haircut; (2) restoring Anthropic credits (BUG-010) is a real go-live prerequisite for governance to function — until then, #9's market:mode veto is the only live regime control.
+**Verification:** py_compile PASS; 4/4 structural. governance is non-trading (cfgi fix can't break paper trading). Deploy bar = clean startup.
+**Rollback:** `git revert` this commit.
+**§B Phase-2 progress:** #9 ✅, #10 ✅ (code). Next: #11+#12 (live startup state), #13 (sizing caps).
+**Next prompt:** Phase-2 #11+#12.
+**Pending Claude-chat prompts not yet pasted:** none.
+
+---
+
 ## 2026-06-03 — §B Phase-2 #9 FIX-HIBERNATE-LIVE-VETO (safety rail)
 
 **Committed:** `71272cd` fix(safety): live HIBERNATE veto — `signal_aggregator.py` + `bot_core.py`.

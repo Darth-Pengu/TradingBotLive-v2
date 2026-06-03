@@ -348,14 +348,23 @@ async def _run_governance_classification(pool, redis_conn, session):
         return GOVERNANCE_DEFAULTS
 
     # Gather metrics
+    # FIX-GOVERNANCE-FAIL-OPEN (#10 / D09-F2): read CFGI from market:health (the JSON blob
+    # market_health actually writes), NOT the non-existent "market:cfgi" key — nothing writes
+    # that key, so cfgi was PERMANENTLY the neutral 50 default and every governance prompt saw
+    # neutral sentiment regardless of real fear/greed. Prefer the SOL CFGI (cfgi_sol) if present.
     cfgi = 50
     if redis_conn:
         try:
-            raw = await redis_conn.get("market:cfgi")
+            raw = await redis_conn.get("market:health")
             if raw:
-                cfgi = int(float(raw))
-        except Exception:
-            pass
+                _mh = json.loads(raw)
+                _c = _mh.get("cfgi_sol", _mh.get("cfgi"))
+                if _c is not None:
+                    cfgi = int(float(_c))
+            else:
+                logger.debug("market:health absent — governance CFGI defaulting to %d", cfgi)
+        except Exception as e:
+            logger.warning("governance CFGI read failed: %s — defaulting to %d", e, cfgi)
 
     wr25 = 0
     pnl_24h = 0
