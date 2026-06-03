@@ -7,6 +7,15 @@
 
 ---
 
+## 2026-06-03 — Consolidated remediation oversight doc (for external double-check)
+
+**Committed:** `020f975` docs — NEW `docs/audits/REMEDIATION_PHASE_0_1_2026_06_03.md`. (Docs-only.)
+**Why:** the Phase-0/1 work was documented across scattered chronological entries (STATUS/ZMN_ROADMAP/AGENT_CONTEXT/MONITORING) — no single shareable artifact for independent review. This doc consolidates every Phase-0 + Phase-1 fix: finding → change (file/func) → why correct → verification → **runtime-confirmation status** → pushed commit → rollback, plus the cross-cutting decisions, the end-to-end validation evidence, what's NOT done (Phase 2/3 + deferred follow-ups), and a "FOR THE REVIEWER" section flagging the highest-risk (live-money, non-paper-observable) changes to scrutinise first. Uses the **pushed** commit hashes (post-amend) so `git show`/`git revert` work on a fresh clone (STATUS cites pre-amend content hashes per convention; doc notes the mapping).
+**Companion to:** `docs/audits/FULL_CODE_AUDIT_001_2026_06_02.md` (the findings register). To be appended as Phase 2/3 land — kept as the single oversight record through go-live.
+**No code change.** Hand `REMEDIATION_PHASE_0_1_2026_06_03.md` + `FULL_CODE_AUDIT_001_2026_06_02.md` to Claude-web for oversight.
+
+---
+
 ## 2026-06-03 — §B PHASE 1 DEPLOY-CONFIRMED + end-to-end Phase-0 validation (capstone, docs)
 
 **Committed:** `7a6bb22` docs — Phase-1 deploy-confirmation + DEFENSIVE end-to-end validation. (Docs-only; this push redeploys all services — a clean no-op restart, proven 6× today.)
