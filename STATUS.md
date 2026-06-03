@@ -7,6 +7,19 @@
 
 ---
 
+## 2026-06-03 — FIX-PUBSUB-ISOLATION round 2 (prod-observed connection-leak hotfix)
+
+**Committed:** `3eeb516` fix(pubsub-isolation): release pubsub connection on listener restart + concise supervise logging.
+**Why:** Deploy of `98c8007` succeeded — **all 6 services went ● Online, crash-loop RESOLVED** (bot_core logs show the exact `redis.exceptions.TimeoutError` from `_emergency_listener`/`pubsub.listen()` now CAUGHT by `supervise` at `async_utils.py:52` instead of killing the process — the fix is verified working in prod against the very error that caused the outage). **But** observation surfaced a defect the fix exposed: under the current Redis slowness, `supervise` restarts crashed listeners, and 3 listeners create a pubsub with NO `finally: aclose()` → each restart **leaked a pool connection** → `signal_listener` hit `redis.exceptions.MaxConnectionsError: Too many connections` (and likely amplified cluster-wide `Timeout reading from redis.railway.internal` on signal_aggregator/bot_core). Before the fix a crash killed the whole process (fresh pool on Railway restart) so leaks never accumulated; keeping the process alive exposed it.
+**Fix:** added `try/finally: await pubsub.aclose()` cleanup-on-exit to the 3 listeners that lacked it — `signal_listener._token_subscribe_listener`, `governance._trigger_listener`, `dashboard_api._redis_broadcaster` (bot_core ×2 + ml_engine ×3 already had it). Now a supervise-restart releases the connection before re-subscribing → no leak. Also made `supervise` log a concise one-liner per restart (was full traceback → spam under sustained transient Redis errors).
+**Verification:** py_compile PASS (4 files); all 3 leakers confirmed to have `pubsub.aclose()`; `.tmp_pubsub_fix/verify_pubsub_isolation.py` 25/25 PASS.
+**State changes:** code only; single `git push` redeploys all services (fresh pools also clear any accumulated leak). No env/Redis/DB writes.
+**Open watch item:** if cluster-wide `Timeout reading from redis` persists AFTER this deploy + fresh pools, it's environmental Railway-Redis slowness → next follow-up = Redis-client hardening (`socket_keepalive`, `health_check_interval`, `retry_on_timeout`) — NOT done here (scope). Observe post-deploy.
+**Rollback:** `git revert` this commit + the `98c8007` commit (revert newest first) → push.
+**Next:** confirm MaxConnectionsError gone + pipeline flowing, then §B Phase-0 #2 `FIX-MARKET-MODE-MISCLASSIFICATION` (already designed).
+
+---
+
 ## 2026-06-03 — FIX-PUBSUB-ISOLATION (§B Phase-0 #1; CODE DEPLOYED; restores the crash-looped bot)
 
 **Committed:** `98c8007` fix(pubsub-isolation) — code (hash backfilled via `git commit --amend`). NEW `services/async_utils.py` (`supervise()` supervised-restart helper); wired into all 7 service top-level gathers + dashboard bg-tasks (signal_listener, bot_core, ml_engine ×2, signal_aggregator, market_health, governance, dashboard_api) + `main.py` single-service entrypoint now routes through `run_service()` (was a bare `await mod.main()`). Docs: AGENT_CONTEXT/ZMN_ROADMAP/CLAUDE.md/STATUS/MONITORING_LOG; `.gitignore` (+`.tmp_pubsub_fix/`).

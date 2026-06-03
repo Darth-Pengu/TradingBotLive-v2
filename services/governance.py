@@ -1041,33 +1041,41 @@ async def _scheduled_loop(pool, redis_conn):
 async def _trigger_listener(pool, redis_conn: aioredis.Redis):
     """Listen for triggered governance events via Redis pub/sub."""
     pubsub = redis_conn.pubsub()
-    await pubsub.subscribe("drawdown:significant", "streak:loss")
-    logger.info("Listening for governance triggers")
+    # FIX-PUBSUB-ISOLATION: release the pubsub connection on exit so a supervise()
+    # restart (after a redis TimeoutError) does not leak a pool connection.
+    try:
+        await pubsub.subscribe("drawdown:significant", "streak:loss")
+        logger.info("Listening for governance triggers")
 
-    async with aiohttp.ClientSession() as session:
-        async for message in pubsub.listen():
-            if message["type"] != "message":
-                continue
-            try:
-                data = json.loads(message["data"])
-                channel = message["channel"]
+        async with aiohttp.ClientSession() as session:
+            async for message in pubsub.listen():
+                if message["type"] != "message":
+                    continue
+                try:
+                    data = json.loads(message["data"])
+                    channel = message["channel"]
 
-                if channel == "drawdown:significant":
-                    context = await _gather_context(pool, redis_conn, "drawdown_diagnosis")
-                    context["drawdown_info"] = data
-                    await run_governance_task("drawdown_diagnosis", context, session)
+                    if channel == "drawdown:significant":
+                        context = await _gather_context(pool, redis_conn, "drawdown_diagnosis")
+                        context["drawdown_info"] = data
+                        await run_governance_task("drawdown_diagnosis", context, session)
 
-                elif channel == "streak:loss":
-                    context = data
-                    rows = await pool.fetch(
-                        "SELECT * FROM trades WHERE personality = $1 AND outcome = 'loss' "
-                        "ORDER BY created_at DESC LIMIT 10", data.get("personality", ""))
-                    context["losing_trades"] = [dict(r) for r in rows]
-                    context["parameters"] = {}
-                    await run_governance_task("loss_streak_review", context, session)
+                    elif channel == "streak:loss":
+                        context = data
+                        rows = await pool.fetch(
+                            "SELECT * FROM trades WHERE personality = $1 AND outcome = 'loss' "
+                            "ORDER BY created_at DESC LIMIT 10", data.get("personality", ""))
+                        context["losing_trades"] = [dict(r) for r in rows]
+                        context["parameters"] = {}
+                        await run_governance_task("loss_streak_review", context, session)
 
-            except Exception as e:
-                logger.error("Trigger handler error: %s", e)
+                except Exception as e:
+                    logger.error("Trigger handler error: %s", e)
+    finally:
+        try:
+            await pubsub.aclose()
+        except Exception:
+            pass
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

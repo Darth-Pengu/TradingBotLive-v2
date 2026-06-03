@@ -332,44 +332,53 @@ async def _token_subscribe_listener(redis_conn: aioredis.Redis | None, ws_ref: l
         logger.debug("Failed to load existing subscriptions: %s", e)
 
     pubsub = redis_conn.pubsub()
-    await pubsub.subscribe("token:subscribe")
-    logger.info("Token subscribe listener started — waiting for bot_core messages")
-    async for message in pubsub.listen():
-        if message["type"] != "message":
-            continue
+    # FIX-PUBSUB-ISOLATION: release the pubsub connection on exit so a supervise()
+    # restart (after a redis TimeoutError) does NOT leak a pool connection —
+    # repeated leaks exhaust the pool -> MaxConnectionsError (observed 2026-06-03).
+    try:
+        await pubsub.subscribe("token:subscribe")
+        logger.info("Token subscribe listener started — waiting for bot_core messages")
+        async for message in pubsub.listen():
+            if message["type"] != "message":
+                continue
+            try:
+                data = json.loads(message["data"])
+                mint = data.get("mint", "")
+                action = data.get("action", "")
+                if not mint:
+                    continue
+
+                ws = ws_ref[0] if ws_ref else None
+                if not ws:
+                    logger.debug("TOKEN_SUB: no active WS connection for %s %s", action, mint[:12])
+                    continue
+
+                if action == "subscribe" and mint not in _subscribed_tokens:
+                    await ws.send(json.dumps({"method": "subscribeTokenTrade", "keys": [mint]}))
+                    _subscribed_tokens.add(mint)
+                    # Cache price key with placeholder so exit checker knows we're tracking
+                    if redis_conn:
+                        await redis_conn.set(f"token:subscribed:{mint}", "1", ex=7200)
+                    logger.info("PRICE_TRACK: subscribed to trades for %s", mint[:12])
+                elif action == "subscribe" and mint in _early_subscriptions:
+                    # Already early-subscribed — just claim it (remove from early pool)
+                    _early_subscriptions.pop(mint, None)
+                    if redis_conn:
+                        await redis_conn.set(f"token:subscribed:{mint}", "1", ex=7200)
+                    logger.info("PRICE_TRACK: claimed early subscription for %s", mint[:12])
+                elif action == "unsubscribe" and mint in _subscribed_tokens:
+                    await ws.send(json.dumps({"method": "unsubscribeTokenTrade", "keys": [mint]}))
+                    _subscribed_tokens.discard(mint)
+                    if redis_conn:
+                        await redis_conn.delete(f"token:subscribed:{mint}")
+                    logger.info("PRICE_TRACK: unsubscribed from %s", mint[:12])
+            except Exception as e:
+                logger.debug("Token subscribe listener error: %s", e)
+    finally:
         try:
-            data = json.loads(message["data"])
-            mint = data.get("mint", "")
-            action = data.get("action", "")
-            if not mint:
-                continue
-
-            ws = ws_ref[0] if ws_ref else None
-            if not ws:
-                logger.debug("TOKEN_SUB: no active WS connection for %s %s", action, mint[:12])
-                continue
-
-            if action == "subscribe" and mint not in _subscribed_tokens:
-                await ws.send(json.dumps({"method": "subscribeTokenTrade", "keys": [mint]}))
-                _subscribed_tokens.add(mint)
-                # Cache price key with placeholder so exit checker knows we're tracking
-                if redis_conn:
-                    await redis_conn.set(f"token:subscribed:{mint}", "1", ex=7200)
-                logger.info("PRICE_TRACK: subscribed to trades for %s", mint[:12])
-            elif action == "subscribe" and mint in _early_subscriptions:
-                # Already early-subscribed — just claim it (remove from early pool)
-                _early_subscriptions.pop(mint, None)
-                if redis_conn:
-                    await redis_conn.set(f"token:subscribed:{mint}", "1", ex=7200)
-                logger.info("PRICE_TRACK: claimed early subscription for %s", mint[:12])
-            elif action == "unsubscribe" and mint in _subscribed_tokens:
-                await ws.send(json.dumps({"method": "unsubscribeTokenTrade", "keys": [mint]}))
-                _subscribed_tokens.discard(mint)
-                if redis_conn:
-                    await redis_conn.delete(f"token:subscribed:{mint}")
-                logger.info("PRICE_TRACK: unsubscribed from %s", mint[:12])
-        except Exception as e:
-            logger.debug("Token subscribe listener error: %s", e)
+            await pubsub.aclose()
+        except Exception:
+            pass
 
 
 async def pumpportal_listener(redis_conn: aioredis.Redis | None):

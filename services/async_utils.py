@@ -47,15 +47,22 @@ async def supervise(coro_factory, name, *, base_delay: float = 2.0, max_delay: f
         max_delay: cap on the (doubling) restart delay.
     """
     delay = base_delay
+    restarts = 0
     while True:
         try:
             await coro_factory()
         except asyncio.CancelledError:
             logger.info("[supervise] %s cancelled — exiting", name)
             raise
-        except Exception:  # noqa: BLE001 — backstop: isolate this task's crash from siblings
-            logger.error(
-                "[supervise] %s crashed — restarting in %.1fs", name, delay, exc_info=True,
+        except Exception as exc:  # noqa: BLE001 — backstop: isolate this task's crash from siblings
+            restarts += 1
+            # Concise by design: under sustained transient infra errors (e.g. a
+            # slow redis) this fires repeatedly, so log a one-liner not a full
+            # traceback per restart. The exception repr is enough for triage;
+            # a genuinely novel crash still surfaces its type+message.
+            logger.warning(
+                "[supervise] %s crashed (%s: %s) — restart #%d in %.1fs",
+                name, type(exc).__name__, str(exc)[:160], restarts, delay,
             )
             await asyncio.sleep(delay)
             delay = min(delay * 2, max_delay)

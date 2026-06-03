@@ -1916,14 +1916,22 @@ async def _redis_broadcaster(app: web.Application):
     if not redis_conn:
         return
     pubsub = redis_conn.pubsub()
-    await pubsub.subscribe("bot:status", "market:mode", "alerts:emergency")
-    async for message in pubsub.listen():
-        if message["type"] != "message":
-            continue
+    # FIX-PUBSUB-ISOLATION: release the pubsub connection on exit so a supervise()
+    # restart (after a redis TimeoutError) does not leak a pool connection.
+    try:
+        await pubsub.subscribe("bot:status", "market:mode", "alerts:emergency")
+        async for message in pubsub.listen():
+            if message["type"] != "message":
+                continue
+            try:
+                data = json.loads(message["data"])
+                data["_channel"] = message["channel"]
+                await _broadcast_ws(data)
+            except Exception:
+                pass
+    finally:
         try:
-            data = json.loads(message["data"])
-            data["_channel"] = message["channel"]
-            await _broadcast_ws(data)
+            await pubsub.aclose()
         except Exception:
             pass
 

@@ -2,6 +2,16 @@
 
 ---
 
+## 2026-06-03 — FIX-PUBSUB-ISOLATION round 2 (prod observation + connection-leak hotfix)
+
+- **Prod observation of `98c8007`:** all 6 services ● Online — **crash-loop RESOLVED.** bot_core logs show `redis.exceptions.TimeoutError` from `_emergency_listener` (`pubsub.listen()`) now caught by `supervise` (`async_utils.py:52`) and restarted, NOT crashing the process. The fix is verified in prod against the exact error class that caused the 05-28 outage.
+- **New symptom exposed:** `signal_listener` → `redis.exceptions.MaxConnectionsError: Too many connections`; cluster-wide `Timeout reading from redis.railway.internal:6379` on signal_aggregator + bot_core. Root cause: `supervise` keeps the process alive and restarts crashed listeners, but 3 listeners created a pubsub with no `finally: aclose()` → each restart leaked a pool connection → exhaustion. (Pre-fix, a crash killed the process so leaks never accumulated.)
+- **Hotfix:** `try/finally: await pubsub.aclose()` added to `signal_listener._token_subscribe_listener`, `governance._trigger_listener`, `dashboard_api._redis_broadcaster` (bot_core/ml_engine listeners already cleaned up). `supervise` logging made concise (one-liner per restart vs full-traceback spam). py_compile PASS; verify 25/25 PASS.
+- **Open watch:** if `Timeout reading from redis` persists after fresh pools, it's environmental Railway-Redis slowness → follow-up Redis-client hardening (`socket_keepalive`/`health_check_interval`/`retry_on_timeout`). Not done here (scope).
+- Single `git push` redeploys all (fresh pools clear accumulated leak). Rollback: revert this commit then `98c8007`.
+
+---
+
 ## 2026-06-03 — FIX-PUBSUB-ISOLATION (§B Phase-0 #1; CODE DEPLOYED; restores the bot)
 
 - **Trigger:** Jay: "start FIX-PUBSUB-ISOLATION." The #1 flip-unblocker from FULL-CODE-AUDIT-001 — the bot has been DOWN since ~05-28 on a dual-service pubsub crash-loop.
