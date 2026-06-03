@@ -577,20 +577,77 @@ class BotCore:
         self.emergency_stopped = True
         logger.critical("EMERGENCY STOP: %s", reason)
 
-        # Close all open positions — use last known prices
+        # Close all open positions — use last known prices.
+        # FIX-EMERGENCY-STOP-ROBUSTNESS (#8): guard EACH close so one un-sellable mint cannot
+        # abort the whole stop; the durable kill-key + alert + publish below MUST always run.
+        # A close that fails leaves the position OPEN (FIX-LIVE-SELL-RESULT-CHECK #4 parks +
+        # returns without raising), so detect "not closed" via `key still in self.positions`.
         last_prices = getattr(self, "_last_prices", {})
-        for key, pos in list(self.positions.items()):
+        _positions = list(self.positions.items())
+        _total = len(_positions)
+        _failed = []
+        for key, pos in _positions:
             price = last_prices.get(pos.mint, 0.0)
-            await self._close_position(pos, "emergency_stop", current_price=price)
+            try:
+                await self._close_position(pos, "emergency_stop", current_price=price)
+                if key in self.positions:  # #4 left it open (sell did not land / parked)
+                    _failed.append(pos.mint[:12])
+            except Exception as e:
+                _failed.append(pos.mint[:12])
+                logger.exception("[EMERGENCY_STOP] close error for %s: %s — continuing", pos.mint[:12], e)
 
-        await self._send_discord(f"EMERGENCY STOP: {reason}\nAll positions closed. Manual restart required.")
+        # Durable kill-switch (D04-F8): persist so a restart re-blocks on startup and other
+        # services / the dashboard observe the stop (not just this process's in-memory flag).
+        if self.redis:
+            try:
+                await self.redis.set("bot:emergency_stop", "1")
+            except Exception as e:
+                logger.error("[EMERGENCY_STOP] failed to persist bot:emergency_stop: %s", e)
+
+        _closed = _total - len(_failed)
+        _msg = f"EMERGENCY STOP: {reason}\nClosed {_closed}/{_total} positions."
+        if _failed:
+            _msg += f" FAILED to close (left OPEN/parked): {_failed}."
+        _msg += "\nManual restart + clear of Redis `bot:emergency_stop` required."
+        try:
+            await self._send_discord(_msg)
+        except Exception as e:
+            logger.error("[EMERGENCY_STOP] discord alert failed: %s", e)
 
         if self.redis:
-            await self.redis.publish("bot:status", json.dumps({
-                "status": "EMERGENCY_STOPPED",
-                "reason": reason,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            }))
+            try:
+                await self.redis.publish("bot:status", json.dumps({
+                    "status": "EMERGENCY_STOPPED",
+                    "reason": reason,
+                    "positions_failed": _failed,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }))
+            except Exception:
+                pass
+
+    async def _handle_failed_live_sell(self, pos, err_str: str, sell_amount: float = 0.0):
+        """FIX-LIVE-SELL-RESULT-CHECK (#4) / sell-storm breaker: a LIVE sell did NOT land.
+        Increment the per-mint failure counter, park the mint past SELL_FAIL_THRESHOLD, log,
+        and record the failure to live_execution_log. The caller leaves the position OPEN so
+        _check_exits retries it. NEVER raises — so emergency_stop's close loop and the exit
+        checker keep running (a failed sell must not crash the safety path)."""
+        fails = self._sell_failure_counts.get(pos.mint, 0) + 1
+        self._sell_failure_counts[pos.mint] = fails
+        parked = fails >= SELL_FAIL_THRESHOLD
+        if parked:
+            self._parked_mints[pos.mint] = time.time()
+        logger.warning(
+            "[SELL_FAILED] %s sell did not land (%s) — position left OPEN for retry (fails=%d%s)",
+            pos.mint[:12], err_str, fails, f", PARKED {SELL_PARK_DURATION_SEC}s" if parked else "",
+        )
+        try:
+            await live_execution_log(
+                event_type="ERROR", mint=pos.mint, action="sell", size_sol=sell_amount,
+                error_msg=f"sell did not land: {err_str}",
+                extra={"consecutive_failures": fails, "parked": parked},
+            )
+        except Exception:
+            pass
 
     # --- ENTRY ---
     async def process_signal(self, scored_signal: dict):
@@ -1365,25 +1422,22 @@ class BotCore:
                 bonding_curve_progress=pos.bonding_curve_progress,
             )
         except ExecutionError as e:
-            err_class = f"{type(e).__name__}:{str(e)[:40]}"
-            fails = self._sell_failure_counts.get(pos.mint, 0) + 1
-            self._sell_failure_counts[pos.mint] = fails
-            if fails >= SELL_FAIL_THRESHOLD:
-                self._parked_mints[pos.mint] = time.time()
-                logger.error(
-                    "PARK mint=%s after %d consecutive sell failures (last: %s). Cooling off %ds.",
-                    pos.mint[:12], SELL_FAIL_THRESHOLD, err_class, SELL_PARK_DURATION_SEC,
-                )
-                try:
-                    await live_execution_log(
-                        event_type="ERROR", mint=pos.mint, action="sell",
-                        error_msg=f"PARKED after {SELL_FAIL_THRESHOLD} failures: {err_class}",
-                        extra={"parked": True, "consecutive_failures": SELL_FAIL_THRESHOLD,
-                               "last_error": err_class},
-                    )
-                except Exception:
-                    pass
-            raise
+            # execute_trade normally RETURNS success=False rather than raising; this guard
+            # ensures a raise never propagates out of _close_position (which would abort
+            # emergency_stop's loop — FIX-EMERGENCY-STOP-ROBUSTNESS #8). Position left OPEN.
+            await self._handle_failed_live_sell(pos, f"{type(e).__name__}:{str(e)[:60]}", sell_amount)
+            return
+        # FIX-LIVE-SELL-RESULT-CHECK (#4): a FAILED live sell must NOT be booked as a close.
+        # execute_trade returns success=False on failure (the except above almost never fires)
+        # — that is the D02-F1 bug: this check did not exist, so a failed sell fell through and
+        # was recorded as a successful close, stranding SOL on-chain while booking a (usually
+        # positive, oracle-priced) PnL and popping the position so it was never retried. Now:
+        # leave the position OPEN for _check_exits to retry, park the mint via the sell-storm
+        # breaker, and return WITHOUT decrementing remaining_pct / booking PnL / writing the
+        # close row / popping the position.
+        if not result or not getattr(result, "success", False):
+            await self._handle_failed_live_sell(pos, getattr(result, "error", None) or "sell did not land", sell_amount)
+            return
         # success — reset the counter for this mint
         self._sell_failure_counts.pop(pos.mint, None)
 

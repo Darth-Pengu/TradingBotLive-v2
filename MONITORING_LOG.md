@@ -2,6 +2,14 @@
 
 ---
 
+## 2026-06-03 — §B Phase-1 #4+#8 MERGED (live-sell result-check + emergency-stop robustness)
+
+- **First live-execution-correctness fix** (`services/bot_core.py`). **#4 (D02-F1):** failed live sells were booked as successful closes (`execute_trade` returns success=False/never raises → old except dead → SOL stranded, fabricated PnL, position popped). New `if not result.success:` + `_handle_failed_live_sell()` (park-and-continue, never raises) leaves the position OPEN for retry. **#8 (D03-F1/D04-F8):** emergency_stop guards each close, detects left-open via `key in self.positions`, sets durable Redis `bot:emergency_stop`, always alerts+publishes. Merged (co-dependent).
+- **Verification:** py_compile PASS; `.tmp_phase1/verify_phase1_4_8.py` 10/10 PASS (structural + flow) + code review. **NOT paper-observable** — live `else:` branch doesn't run in paper; runtime-confirmed at the supervised flip. Deploy bar = bot_core comes up clean.
+- One lever (bot_core only; paper branch untouched). D04-F10 park-persistence deferred (less acute since Phase-0 stopped the crash-loop). Rollback: `git revert`. Next: #6 buy-idempotency (+verify HELIUS_PARSE_TX_URL), then #7 EXEC-001/002 (+D02-F8 Jupiter sizing).
+
+---
+
 ## 2026-06-03 — Phase-0 #3 runtime-confirmed + DASH-CORRECTED-PNL-COLUMN-001 (new finding)
 
 - **#3 confirmed via `service:health` (Redis):** internal-service rows present + all `ok` — bot_core (heartbeat 8s), signal_aggregator (28s), signal_listener (signals:raw 0s), market_health (41s). No false-down, alerting armed. **A 05-28-style internal crash is now visible + Discord-alerted.** §B Phase 0 fully verified.

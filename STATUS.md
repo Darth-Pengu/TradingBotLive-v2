@@ -7,6 +7,21 @@
 
 ---
 
+## 2026-06-03 — §B Phase-1 #4+#8 MERGED (live-sell result-check + emergency-stop robustness)
+
+**Committed:** `2a85508` fix(live-exec): merged FIX-LIVE-SELL-RESULT-CHECK (#4) + FIX-EMERGENCY-STOP-ROBUSTNESS (#8) — `services/bot_core.py` only.
+**Why merged:** Phase-0 analysis showed #4 changes the failure-raise behaviour #8 depends on — if #4 made `_close_position` raise on a failed sell, emergency_stop (no per-position guard) would abort on the first un-sellable mint, making it WORSE. So they were co-designed: #4 uses **park-and-continue (never raises)**, #8 adds the guard + always-runs the alert/kill-key.
+**#4 (D02-F1):** `execute_trade` returns `success=False` on failure (it never raises), so the old `except ExecutionError` was dead code and a failed live sell fell through and was **booked as a successful close** (SOL stranded on-chain, fabricated oracle PnL, position popped + never retried). Now: a new `if not result.success:` check (and the except guard) call a shared `_handle_failed_live_sell()` that increments the per-mint sell-storm counter, parks past `SELL_FAIL_THRESHOLD`, records to `live_execution_log`, and **returns WITHOUT decrementing remaining_pct / booking PnL / writing the close row / popping** — the position stays OPEN for `_check_exits` to retry. Never raises. (Also protects partial/staged-TP sells — the check is before any decrement.)
+**#8 (D03-F1, D04-F8):** emergency_stop now wraps each `_close_position` in try/except (one un-sellable mint can't abort the stop), detects "left open" via `key in self.positions` (since #4 leaves failed sells open without raising), **sets the durable Redis `bot:emergency_stop` kill key** (survives restart + visible cross-service), and ALWAYS runs the Discord alert + `bot:status` publish (now reporting `positions_failed`).
+**Verification:** py_compile PASS; `.tmp_phase1/verify_phase1_4_8.py` **10/10 PASS** (structural + flow). **CANNOT be paper-observed** — this is the live (`TEST_MODE=false`) `else:` branch, which does not execute in the current paper deployment; runtime confirmation is deferred to the supervised first-live-trades at the flip. Code-reviewed: success path (counter reset, decrement, price, booking) intact; paper branch untouched; no caller relies on the removed raise (`_check_exits` per-position try/except + emergency_stop guard cover it).
+**State changes:** code only; single `git push` redeploys all. Deploy observation bar = bot_core comes up clean (no import/startup error); the fix itself runs only live. No env/Redis/DB writes.
+**Rollback:** `git revert` this commit → push.
+**§B Phase-1 progress:** #4+#8 ✅ (code). Next: **#6 FIX-BUY-IDEMPOTENCY** (double-submit guard + verify `HELIUS_PARSE_TX_URL` set + Jito), then **#7 FIX-EXEC-001-002-ROUTING** (incl. D02-F8 Jupiter partial-sizing — pairs so enabling the Jupiter sell path doesn't reintroduce the full-bag dump).
+**Next prompt:** continue Phase-1 #6.
+**Pending Claude-chat prompts not yet pasted:** none.
+
+---
+
 ## 2026-06-03 — Phase-0 #3 RUNTIME-CONFIRMED + new finding DASH-CORRECTED-PNL-COLUMN-001 (docs)
 
 **Committed:** `b89f265` docs — Phase-0 #3 runtime confirmation + file DASH-CORRECTED-PNL-COLUMN-001. (No code; this docs push redeploys all services — harmless no-op restart.)
