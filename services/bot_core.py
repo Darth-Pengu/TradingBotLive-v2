@@ -271,6 +271,28 @@ class BotCore:
         except Exception as e:
             logger.warning("Startup reconciliation failed: %s", e)
 
+    async def _fetch_onchain_balance_sol(self):
+        """Fetch the live trading wallet's on-chain SOL balance via Helius getBalance.
+        Returns SOL (float) or None on failure. Used to seed total_balance_sol at LIVE startup
+        (FIX-LIVE-BALANCE-SEED #12) so the exposure/drawdown denominators are not inflated by a
+        stale paper snapshot."""
+        _rpc_url = (os.getenv("HELIUS_STAKED_URL") or os.getenv("HELIUS_GATEKEEPER_URL")
+                    or os.getenv("HELIUS_RPC_URL") or "")
+        if not _rpc_url or not TRADING_WALLET_ADDRESS:
+            return None
+        try:
+            async with aiohttp.ClientSession() as _s:
+                _payload = {"jsonrpc": "2.0", "id": 1, "method": "getBalance",
+                            "params": [TRADING_WALLET_ADDRESS]}
+                async with _s.post(_rpc_url, json=_payload,
+                                   timeout=aiohttp.ClientTimeout(total=10)) as _resp:
+                    _data = await _resp.json()
+                    _lamports = (_data.get("result") or {}).get("value", 0)
+                    return _lamports / 1_000_000_000
+        except Exception as e:
+            logger.warning("on-chain getBalance failed: %s", e)
+            return None
+
     async def _load_state(self):
         """Load portfolio state + open positions from PostgreSQL (source of truth).
         Trailing stop state comes from DB, not Redis — survives restarts."""
@@ -301,6 +323,42 @@ class BotCore:
                     pass
         except Exception as e:
             logger.warning("Portfolio state load error: %s", e)
+
+        # FIX-LIVE-BALANCE-SEED (#12, D04-F2) + FIX-DAILY-LOSS-PERSISTENCE (#11, D04-F4):
+        # LIVE-ONLY startup-state corrections. The paper path above is unchanged (no
+        # paper-disruption risk; both corrections gated on `not TEST_MODE`).
+        if not TEST_MODE:
+            # #12: seed balance from the ON-CHAIN wallet, not the latest snapshot. The snapshot
+            # read above has no trade_mode filter, so post-flip it loads the ~50 SOL PAPER
+            # figure → inflates the 25% exposure ceiling + 20% drawdown denominator ~10× against
+            # a real ~5 SOL wallet until the first live close self-corrects (L1611). On-chain is
+            # the truth. Falls back to the snapshot (with a warning) if the RPC is unavailable.
+            _onchain = await self._fetch_onchain_balance_sol()
+            if _onchain is not None and _onchain > 0:
+                self.portfolio.total_balance_sol = _onchain
+                self.portfolio.peak_balance_sol = max(self.portfolio.peak_balance_sol, _onchain)
+                logger.info("LIVE startup: seeded total_balance_sol from on-chain = %.4f SOL", _onchain)
+            else:
+                logger.warning("LIVE startup: on-chain getBalance unavailable — using snapshot balance "
+                               "%.4f SOL (exposure/drawdown denominators may be stale until first live close)",
+                               self.portfolio.total_balance_sol)
+            # #11: reload TODAY's (UTC) realized PnL so DAILY_LOSS_LIMIT_SOL survives restarts.
+            # The unconditional `daily_pnl_sol = 0.0` above let any restart (incl. a crash-loop)
+            # launder the daily-loss accumulator, defeating the hard stop. A new UTC day yields
+            # ~0. Uses `pnl_sol` on `trades` (live; `trades` has no corrected_pnl_sol column —
+            # see DASH-CORRECTED-PNL-COLUMN-001). Closed-at is an epoch float. Safe fallback to
+            # 0.0 on any error (no worse than the old reset).
+            try:
+                _midnight = datetime.now(timezone.utc).replace(
+                    hour=0, minute=0, second=0, microsecond=0).timestamp()
+                _today = await self.pool.fetchval(
+                    "SELECT COALESCE(SUM(pnl_sol), 0) FROM trades "
+                    "WHERE trade_mode = 'live' AND closed_at >= $1", _midnight)
+                self.portfolio.daily_pnl_sol = float(_today or 0.0)
+                logger.info("LIVE startup: daily P&L reloaded from today's live closes = %.4f SOL",
+                            self.portfolio.daily_pnl_sol)
+            except Exception as e:
+                logger.warning("LIVE startup: daily P&L reload failed (%s) — keeping 0.0", e)
 
         # In paper mode, always reset peak to current to prevent permanent emergency stop
         if TEST_MODE:

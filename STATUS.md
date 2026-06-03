@@ -7,6 +7,20 @@
 
 ---
 
+## 2026-06-03 — §B Phase-2 #11+#12 live startup-state (daily-loss persistence + on-chain balance seed)
+
+**Committed:** `e739e07` fix(safety): live startup-state corrections — `services/bot_core.py` (`_load_state` + new `_fetch_onchain_balance_sol` helper).
+**Bundled** #11 + #12 (both live-only corrections to `_load_state`, same function + concern). **Both gated on `not TEST_MODE` → paper path byte-for-byte unchanged (zero paper-disruption risk).**
+**#11 (D04-F4 daily-loss persistence):** `_load_state` hard-zeroed `daily_pnl_sol` on every startup → any restart (incl. a crash-loop) laundered the daily-loss accumulator, so `DAILY_LOSS_LIMIT_SOL` could never accumulate across restarts (the headline safety cap defeated in the restart-prone state the bot was in). Fix (live-only): reload TODAY's (UTC) realized PnL from `trades WHERE trade_mode='live' AND closed_at >= midnight` (uses `pnl_sol` — `trades` has no corrected_pnl_sol, cf. DASH-CORRECTED-PNL-COLUMN-001; closed_at is epoch float). A new UTC day → ~0. Safe fallback to 0.0 on any error. **Paper keeps the existing hard-zero** (avoids any false-stop on paper data).
+**#12 (D04-F2 live-balance seed):** `_load_state` read the latest `portfolio_snapshots` row with no trade_mode filter → post-flip it loads the ~50 SOL PAPER balance, inflating the 25% exposure ceiling + 20% drawdown denominator ~10× vs the real ~5 SOL wallet until the first live close self-corrects. Fix (live-only): seed `total_balance_sol` from on-chain `getBalance` (new `_fetch_onchain_balance_sol` helper) at live startup; falls back to the snapshot with a warning if the RPC is down. (Per-trade size was never at risk — the absolute MAX_POSITION_SOL cap floors it; this corrects the exposure/drawdown *denominators*.)
+**Verification:** py_compile PASS; 6/6 structural (helper added, both live-only, paper hard-zero preserved, trades uses pnl_sol not corrected_pnl_sol). **NOT paper-observable (both `not TEST_MODE`); flip-confirmed.** Deploy bar = clean startup (live block doesn't run in paper).
+**Rollback:** `git revert` this commit.
+**§B Phase-2 progress:** #9 ✅, #10 ✅, #11+#12 ✅ (code). Next: #13 (sizing caps — MAX_SD_POSITIONS env + fill-MC fail-closed; timezone/double-multiplier deferred+flagged). Then Phase 2 COMPLETE.
+**Next prompt:** Phase-2 #13 (final Phase-2 item).
+**Pending Claude-chat prompts not yet pasted:** none.
+
+---
+
 ## 2026-06-03 — §B Phase-2 #10 FIX-GOVERNANCE-FAIL-OPEN (cfgi read) + governance-state finding
 
 **Committed:** `b273b54` fix(governance): read CFGI from market:health, not the non-existent market:cfgi — `services/governance.py`.
