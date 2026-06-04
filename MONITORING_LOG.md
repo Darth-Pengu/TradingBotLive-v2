@@ -2,6 +2,12 @@
 
 ---
 
+## 2026-06-04 — V5A-FLIP-003: first live flip ABORTED on boot (clean), root cause fixed
+
+First real `TEST_MODE=false` flip at ~10:06 UTC. Clean live boot (balance 5.0641 from on-chain, 0 positions) but `EMERGENCY_STOP: Drawdown 96.4%` 6s later → rolled back per Step-8. **0 SOL moved, wallet 5.064 unchanged.** Root cause: live drawdown peak kept the stale paper ~132 high-water (peak-reset was paper-only) → phantom 96% drawdown. Fixed (`LIVE-DRAWDOWN-PEAK-SEED-001`): live boot resets peak to on-chain seed. **Watch on next live boot:** expect `seeded total_balance_sol + peak from on-chain = ~5.06 SOL` and NO `EMERGENCY_STOP: Drawdown` line. Bot back in paper.
+
+---
+
 ## 2026-06-04 — SIZING-CAPS-WIRING-001-B: effective concurrency 3 → 10
 
 Wired `risk_manager.MAX_CONCURRENT_PER_PERSONALITY` to env + set =10 on bot_core. Effective SD concurrency now `min(10,10)=10`. **Watch:** paper can now hold up to 10 concurrent SD positions (was capped at 3). The `risk_manager` "at max concurrent positions" log will now read (10) not (3). Also set `HELIUS_DAILY_BUDGET=100000` (bot_core+treasury) + verified Jupiter 403 was a verifier UA artifact (bot fine). TEST_MODE stays true.

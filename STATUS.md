@@ -7,6 +7,20 @@
 
 ---
 
+## 2026-06-04 — 🔴→🟢 V5A-FLIP-003: first live flip ABORTED clean on boot (96.4% phantom drawdown) → root cause FIXED
+
+**Committed:** `8fe7543` fix(safety): reset live drawdown peak to on-chain seed (LIVE-DRAWDOWN-PEAK-SEED-001) — `services/bot_core.py` + audit/docs.
+**THE EVENT:** Jay authorized + I executed the first real `TEST_MODE=false` flip (~10:06 UTC). Preconditions ALL-GREEN, §6 config applied, held for regime (HIBERNATE→DEFENSIVE after 9min), CLEAN-003, pre-flight ALL-GREEN, flipped. **Live boot was CLEAN** (TEST_MODE=False, live mode OK 3 Helius URLs, **balance seeded 5.0641 from on-chain — #12 worked**, daily PnL 0.0 — #11, **0 positions reconciled**). **Then at 10:06:18 (6s post-boot): `EMERGENCY_STOP: Drawdown 96.4%`** → halted. **Rolled back per Step-8** (pre-authorized): TEST_MODE=true + full pre-flip config restored (bot_core+SA), emergency_stop/loss_pause cleared, consecutive_losses=0. **NO on-chain trade fired; wallet UNCHANGED 5.064 SOL; 0 positions throughout. Clean abort.**
+**ROOT CAUSE — LIVE-DRAWDOWN-PEAK-SEED-001 (live-only, not paper-observable):** `_load_state` loads the latest snapshot (unfiltered → the ~132 SOL PAPER figure) and sets `peak_balance_sol` to it; the #12 live block correctly seeded `total_balance_sol=5.064` from on-chain BUT set `peak = max(peak, onchain)` → kept the 132 peak → drawdown `(132−5)/132 ≈ 96.4%` → >20% → EMERGENCY_STOP before any trade. Paper resets the peak every boot (321-323/375-377) so paper never sees it — **exactly the flip-confirmed-only class the supervised first-flip exists to catch.**
+**FIX (applied, paper-safe):** live boot now RESETs `peak_balance_sol = _onchain` (not max) — mirrors the paper reset + #12's balance seed. DAILY_LOSS_LIMIT_SOL (#11) remains the durable cross-restart kill-switch, so the peak reset doesn't weaken the hard cap. py_compile + structural. Live-only → paper unchanged.
+**What VERIFIED-WORKING in the abort:** #12 balance seed (5.0641 not 132.6), #11 daily-loss reload, reconcile/CLEAN-003 (0 positions), execution.py live import guard (3 Helius URLs), #8 emergency-stop durability + the rollback machinery (tripped→halted→reverted cleanly, 0 SOL at risk).
+**State now:** TEST_MODE=true (paper), config rolled back to pre-flip (MAX_POSITION_SOL=0.25/DAILY_LOSS 4.0/AGGRESSIVE_PAPER true/HOLDER 1), caps stay 10/10, emergency_stop cleared, wallet 5.064 SOL, 0 positions.
+**Re-flip:** requires NEW explicit authorization (session-gated rule: aborted live session → next defaults TEST_MODE=true). With the peak fix deployed, the next authorized flip should boot clean (balance + peak both = on-chain → 0% drawdown). Audit: `docs/audits/V5A_FLIP_003_2026_06_04.md`.
+**Next prompt:** none — awaiting Jay's call on re-flip (after the peak-fix deploy confirms) or further work.
+**Pending Claude-chat prompts not yet pasted:** none.
+
+---
+
 ## 2026-06-04 — SIZING-CAPS-WIRING-001-B: effective concurrency raised 3 → 10 (Jay's decision)
 
 **Committed:** `d0b039f` fix(caps): wire per-personality concurrency cap to env — `services/risk_manager.py` (+ `scripts/flip_preflight_check.py` verifier update). **Env set:** `MAX_CONCURRENT_PER_PERSONALITY=10` on bot_core.

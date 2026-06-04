@@ -347,8 +347,16 @@ class BotCore:
             _onchain = await self._fetch_onchain_balance_sol()
             if _onchain is not None and _onchain > 0:
                 self.portfolio.total_balance_sol = _onchain
-                self.portfolio.peak_balance_sol = max(self.portfolio.peak_balance_sol, _onchain)
-                logger.info("LIVE startup: seeded total_balance_sol from on-chain = %.4f SOL", _onchain)
+                # LIVE-DRAWDOWN-PEAK-SEED-001 (2026-06-04, V5A-FLIP-003 abort): RESET the
+                # drawdown peak to the on-chain seed on live boot — do NOT max() with the stored
+                # peak. The snapshot read above is unfiltered, so peak_balance_sol was just set to
+                # the stale PAPER high-water (~132 SOL); max()-ing kept it, so the drawdown calc
+                # saw (132-5)/132 ≈ 96% on the FIRST live boot and tripped EMERGENCY_STOP before
+                # any trade. On-chain balance is the live reality; DAILY_LOSS_LIMIT_SOL (#11,
+                # reloaded from today's live closes) is the durable cross-restart kill-switch, so
+                # resetting the peak here does not weaken the hard loss cap.
+                self.portfolio.peak_balance_sol = _onchain
+                logger.info("LIVE startup: seeded total_balance_sol + peak from on-chain = %.4f SOL", _onchain)
             else:
                 logger.warning("LIVE startup: on-chain getBalance unavailable — using snapshot balance "
                                "%.4f SOL (exposure/drawdown denominators may be stale until first live close)",
