@@ -98,9 +98,8 @@ Criticality = impact on the **live execution path** specifically.
 ### 4.2 SIZING-CAPS-WIRING-001 — concurrency caps 🔴 [UPDATED 2026-06-03 — partial fix landed + correction]
 - **TWO caps exist (this review's first pass cited only the total — corrected here):**
   - **Total (cross-personality)** at `bot_core.py:831`: `len(self.positions) >= max_concurrent`. ✅ **SIZING-CAPS-WIRING-001 landed** (`<see commit>`): now `min(MAX_CONCURRENT_POSITIONS env, gov)`, env=**10** set, governance can only tighten. `MAX_SD_POSITIONS`(20) stays phantom.
-  - **Per-personality** at `risk_manager.py:51 MAX_CONCURRENT_PER_PERSONALITY=3` (WHALE=2), enforced in `calculate_position_size` (returns 0.0 → bot_core `:898` blocks). **HARDCODED, NOT wired.**
-- **🚩 EFFECTIVE TRIAL CONCURRENCY = 3, not 10.** SD-only (Analyst off, Whale dormant) → SD per-personality cap **3** binds before the total-10 is ever reached. The total-cap wiring is robustness/determinism, not a behaviour change at the current value.
-- **Decision/follow-up:** to set the trial's effective concurrency to the V5A ladder (5 → 5 → 7), wire `risk_manager.MAX_CONCURRENT_PER_PERSONALITY` → **SIZING-CAPS-WIRING-001-B** (open). If 3 is acceptable for the supervised first window, no action needed — but the operator should know the cap is 3, not 10.
+  - **Per-personality** at `risk_manager.py:51` — ✅ **SIZING-CAPS-WIRING-001-B landed** (2026-06-04): now `int(os.getenv("MAX_CONCURRENT_PER_PERSONALITY", "3"))`, env set **=10** on bot_core. Enforced in `calculate_position_size` (returns 0.0 → bot_core `:898` blocks). WHALE env default 2 (dormant).
+- **✅ EFFECTIVE TRIAL CONCURRENCY = 10** = `min(MAX_CONCURRENT_PER_PERSONALITY=10, MAX_CONCURRENT_POSITIONS=10)` (Jay's decision). Bounded further by `MAX_WALLET_EXPOSURE=0.25` + per-position `MAX_POSITION_SOL`.
 
 ### 4.3 TIMEZONE-SIZING-FIX-001 🟠
 - TIME_GOOD/DEAD/SLEEP/WEEKEND sizing multipliers fire on a hardcoded UTC+11 clock (1h off in AEST) AND time-of-day is applied twice (risk_manager UTC + bot_core UTC+11). Changes *paper* sizing → needs a semantics decision before fixing. Correctness, not money-loss.
@@ -125,7 +124,7 @@ Verified on `bot_core` / `signal_aggregator` this session. **"FLIP ACTION" = cha
 | `DAILY_LOSS_LIMIT_SOL` (bot_core) | **4.0** | **1.5** realized (V5A decision) | risk_manager → EMERGENCY_STOP | **SET 1.5** ← currently 2.7× the stated tolerance |
 | `DAILY_LOSS_LIMIT_PCT` | 0.10 | — | risk_manager | confirm interaction w/ SOL limit |
 | total concurrency cap | `min(MAX_CONCURRENT_POSITIONS=10, gov)` ✅ wired | 10 (Jay) | bot_core:831 | ✅ SIZING-CAPS-WIRING-001 landed |
-| **per-personality cap (BINDING for SD-only)** | **3** (hardcoded) | 5 (V5A first-24h) | risk_manager.py:51 | 🔴 NOT wired — effective trial cap is 3; **SIZING-CAPS-WIRING-001-B** to raise |
+| **per-personality cap (BINDING for SD-only)** | **10** ✅ wired | 10 (Jay) | risk_manager.py:51 | ✅ SIZING-CAPS-WIRING-001-B landed → effective concurrency = min(10,10) = 10 |
 | `MAX_SD_POSITIONS` (all) | 20 | phantom — unread | (nothing) | do NOT rely on it |
 | `MAX_CONCURRENT_POSITIONS` (bot_core) | **10** ✅ now read | 10 | bot_core:831 | wired (total cap ceiling) |
 | `STOP_LOSS_PCT` | 0.20 | 0.20 (GATES-V5) | exit | ok |

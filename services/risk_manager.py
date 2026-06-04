@@ -48,8 +48,14 @@ MAX_POSITION_PCT = {
 }
 # Per AGENT_CONTEXT: below 0.10 SOL, transaction fees destroy edge
 MIN_POSITION_SOL = float(os.getenv("MIN_POSITION_SOL", "0.10"))
-MAX_CONCURRENT_PER_PERSONALITY = 3
-MAX_CONCURRENT_WHALE = 2
+# SIZING-CAPS-WIRING-001-B (2026-06-04): the PER-PERSONALITY cap is the BINDING concurrency
+# limit for single-personality (SD-only) operation — it returns 0.0 at :228 (→ bot_core:898
+# blocks) before the cross-personality total cap (bot_core:831, min(MAX_CONCURRENT_POSITIONS,gov))
+# is ever reached. Wired to env so the trial's effective concurrency is configurable; set to 10
+# (Jay's decision) to match the total cap → effective SD concurrency = min(10, 10) = 10. Default
+# 3 if unset (prior behaviour). Whale stays 2 (dormant).
+MAX_CONCURRENT_PER_PERSONALITY = int(os.getenv("MAX_CONCURRENT_PER_PERSONALITY", "3"))
+MAX_CONCURRENT_WHALE = int(os.getenv("MAX_CONCURRENT_WHALE", "2"))
 PORTFOLIO_MAX_EXPOSURE = 0.25   # 25% total — never exceed
 RESERVE_FLOOR_PCT = 0.60        # Always keep 60% in reserve
 DAILY_LOSS_LIMIT_SOL = float(os.environ.get("DAILY_LOSS_LIMIT_SOL", "1.0"))  # Triggers EMERGENCY_STOP

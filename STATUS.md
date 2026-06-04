@@ -7,6 +7,18 @@
 
 ---
 
+## 2026-06-04 — SIZING-CAPS-WIRING-001-B: effective concurrency raised 3 → 10 (Jay's decision)
+
+**Committed:** `d0b039f` fix(caps): wire per-personality concurrency cap to env — `services/risk_manager.py` (+ `scripts/flip_preflight_check.py` verifier update). **Env set:** `MAX_CONCURRENT_PER_PERSONALITY=10` on bot_core.
+**Change:** `risk_manager.py:51` `MAX_CONCURRENT_PER_PERSONALITY` (+ `MAX_CONCURRENT_WHALE`) now `int(os.getenv(...,"3"/"2"))` (was hardcoded 3/2). With env=10, the per-personality cap that BINDS first for SD-only no longer caps SD at 3 → **effective SD concurrency = `min(MAX_CONCURRENT_PER_PERSONALITY=10, MAX_CONCURRENT_POSITIONS=10)` = 10.** Bounded by MAX_WALLET_EXPOSURE=0.25 + per-position MAX_POSITION_SOL. Default 3 if unset (prior behaviour). **Paper-observable** (cap applies in paper too — SD can now hold up to 10 concurrent paper positions). py_compile + 6/6 verify; preflight now shows effective concurrency=10 GREEN.
+**This RESOLVES the "effective cap=3 not 10" finding** from SIZING-CAPS-WIRING-001 — all docs reconciled (FLIP_READINESS §4.2/§5, PLAYBOOK STEP 2/5/7, CLAUDE caps note, FLIP_NIGHT_PREP flag 3, REMEDIATION). `MAX_SD_POSITIONS` (env 20) stays phantom — the live lever is `MAX_CONCURRENT_PER_PERSONALITY`.
+**State changes:** bot_core env `MAX_CONCURRENT_PER_PERSONALITY` unset→10; one code commit; bot_core redeploy. TEST_MODE stays true.
+**Bot state:** TEST_MODE=true, market:mode=NORMAL, emergency_stop unset, consecutive_losses=0, wallet 5.064 SOL.
+**Next prompt:** none queued. Pre-flight: only the §6 flip-config rows remain (applied in-window).
+**Pending Claude-chat prompts not yet pasted:** none.
+
+---
+
 ## 2026-06-04 — Cleared the 2 pre-flip flags: HELIUS_DAILY_BUDGET set + Jupiter 403 verified (false alarm)
 
 **Committed:** `949e23d` — `scripts/flip_preflight_check.py` (UA fix) + doc updates. **State change:** `HELIUS_DAILY_BUDGET=100000` set on bot_core + treasury (Railway). No bot-code change; live path frozen.
