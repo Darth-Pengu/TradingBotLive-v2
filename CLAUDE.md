@@ -87,7 +87,7 @@ Last verified: 2026-05-20 by `CLAUDE-MD-MCP-INDEX-001`.
 
 | Server | Failure | What's needed |
 |---|---|---|
-| `mcp__railway__*` | "Not logged in to Railway CLI. Please run 'railway login' first" | Run `railway login` interactively (CLI token expired). Until then, sessions touching Railway env/deploys must fall back to the dashboard or wait for re-auth. **Real blocker** for env-read / deploy-trigger automation. |
+| `mcp__railway__*` | ✅ **RESOLVED 2026-06-08** — CLI **is** logged in (`jay@rzconsulting.co`). `railway variables`/`railway redeploy` + Railway MCP `get-logs`/`list-deployments` all verified callable this session. (Prior "not logged in" state is cleared.) | none — working; prefer it for env reads, deploys, and log/deployment inspection. |
 | `mcp__plugin_github_github__*` (built-in) | "Streamable HTTP error: invalid session" | Use `mcp__github__*` (project-scoped, verified callable this session) instead. The plugin/built-in variant is redundant when the project variant works. |
 | `mcp__socket__*` | "Bad Request: No valid session. Send initialize first." | Session-handshake issue. Only exposes `depscore` (dependency security). Re-init or accept the gap (depscore is non-critical for ZMN). |
 
@@ -657,6 +657,7 @@ signals:evaluated (last 50), signals:raw, signals:scored
 - Use `id` ordering for recent trades, or `entry_time` for time-based queries.
 
 ## Architectural Gotchas (updated April 11)
+- **Durable emergency stop ≠ in-memory rug-cascade stop (READ THIS — silent-halt vector).** The `emergency_stop()` path (risk-limits / daily-loss / **SOL-24h macro crash**) persists `bot:emergency_stop=1` (FIX-#8 durable kill-switch, `bot_core.py:680`) *and* sets the in-memory flag — so **a restart ALONE does NOT clear it** (startup re-blocks on the Redis key at `process_signal` `:746-750`; a still-true condition re-trips). The **SOL-24h macro breaker** (`SOL_24H_EMERGENCY=-0.10`, `market_health.py:117` → `alerts:emergency` → `_emergency_listener`) is the most common silent-halt vector: a single-day SOL drop ≥10% halts ALL trading and **latches even after SOL recovers**. **Symptom:** bot silent for days while the `portfolio_snapshots` heartbeat stays healthy (process alive, deliberately halted — looks identical to "market lull"/outage). **Triage: read `bot:status.status` (not just trade count);** if `EMERGENCY_STOPPED`, clear via the Emergency Stop Reset (`DEL bot:emergency_stop` + **restart bot_core** — Redis-only clear is insufficient, the in-memory flag persists). Also note the breaker is **blind ~24h after any `market_health` restart** (in-process price history). Confirmed 2026-06-08: a 4-day silent halt from a 2026-06-05 SOL −10.9%/24h crash. The rug-cascade stop below is the OTHER, in-memory-only path.
 - Emergency stop from rug cascade is IN-MEMORY only (`self.emergency_stopped`). Restarting bot_core clears it. No Redis key needed.
 - `market:mode:current == HIBERNATE` blocks ALL signals in signal_aggregator:1669 unless AGGRESSIVE_PAPER bypasses it.
 - ML scoring goes through Redis pubsub to ml_engine service (original 55-feature engine). The inline AcceleratedMLEngine was removed in commit 629c740. signal_aggregator has a 3s timeout + circuit breaker (5 timeouts/60s → default score 50.0).

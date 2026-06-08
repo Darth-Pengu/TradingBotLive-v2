@@ -7,6 +7,21 @@
 
 ---
 
+## 2026-06-08 13:05 UTC — Live-trading UNBLOCK (stale 4-day emergency stop cleared) + pre-flip prep (paper-only; NO flip)
+
+**Committed:** docs-only (this session) — NEW `session_outputs/ZMN_LIVE_UNBLOCK_PREP_2026_06_08.md` (full findings + CONDITIONAL-GO audit + flip card) + STATUS/ROADMAP/CLAUDE/AGENT_CONTEXT updates. **ZERO bot-code change; live path frozen.**
+**THE FIND:** bot was **silently EMERGENCY_STOPPED ~4 days** (last trade 2026-06-04 10:18 UTC; not trading even paper) — `bot:status=EMERGENCY_STOPPED`, `bot:emergency_stop=1`, heartbeat healthy (deliberate halt, NOT a crash/outage). **Root cause:** the macro SOL-crash circuit breaker `SOL_24H_EMERGENCY=-0.10` (`market_health.py:117`) tripped on SOL −10.9%/24h (logged 2026-06-05 19:21 UTC) → publishes `alerts:emergency` → `emergency_stop()`; **latches** (durable `bot:emergency_stop`) until a manual clear **+ restart**. SOL since recovered (+3.9%/24h now) → the stop was STALE.
+**UNBLOCK (Jay-authorized "clear blockers", paper only):** `DEL bot:emergency_stop` + `bot:consecutive_losses=0` + clear loss-pause + `market:mode:override NORMAL EX86400`; `railway redeploy -s bot_core` → dep `50806d8a`. **Verified clean:** `bot:status` RUNNING @12:59:41 UTC, NO re-trip; **paper resumed** (6 new trades ids 11094-11099 @12:59-13:00 UTC, 6 positions managed, market DEFENSIVE). Holders gate already=1 (NOT the blocker; real suppressors = `no_social_links` + ML<30 — Jay chose "keep quality filters" → unchanged).
+**PRE-LIVE AUDIT (5-agent read-only workflow @c0846e8): CONDITIONAL-GO.** All load-bearing safety/exec VERIFIED present: peak-seed fix `bot_core.py:358` (bare assign, not max — the 2026-06-04 abort fix), import-guard, 3-tier Helius, solders v3 ctor, EXEC-001 unconditional pool-refresh, sell-storm breaker, D02-F1/F3, daily-loss+20%-drawdown rails, #9 entries-only HIBERNATE veto, SIZING-CAPS resolved (eff. concurrency 10). NO SOL-leak path found. **Single hard blocker = §6 flip-config NOT applied (operator applies at flip — incl. signal_aggregator AGGRESSIVE_PAPER=false).** Warnings (OK supervised; fix before UNSUPERVISED): governance fail-open (dead Anthropic credits; #9+loss-cap bind independently), 24h-macro-breaker blind ~24h post-`market_health`-restart, ACCT-6 mid-exit-restart PnL corruption (data-fidelity not capital), PNL-zero-price, TIMEZONE-SIZING 1h DST drift (within cap). Binding go-check: live-boot log must show on-chain peak seed, NOT snapshot fallback.
+**State changes:** Redis safety keys cleared + `market:mode:override=NORMAL`(24h TTL); bot_core redeployed. NO env/config change. TEST_MODE stays true.
+**Bot state:** TEST_MODE=true (paper), RUNNING, market DEFENSIVE, emergency_stop unset, consecutive_losses=0, wallet **5.0641 SOL** on-chain (topped up from 0.064 — pre-V5A top-up DONE), paper actively trading.
+**Blockers cleared:** stale 4-day emergency stop (silent halt). Tooling: railway CLI confirmed logged-in (CLAUDE.md MCP note was stale → corrected).
+**Blockers new/active (for LIVE flip):** apply §6 flip-config to BOTH bot_core + signal_aggregator; pre-flip `DEL market:mode:override`; (before any UNSUPERVISED run) restore governance credits + fix ACCT-6 persistence.
+**Next prompt:** Jay's authorized `TEST_MODE=false` flip per `docs/FLIP_NIGHT_PLAYBOOK.md` + flip card in `session_outputs/ZMN_LIVE_UNBLOCK_PREP_2026_06_08.md` §6 (caps 0.10/1.5; **holders=1 per Jay's choice — flagged rug-risk vs canonical 15**). CC does NOT auto-flip.
+**Pending Claude-chat prompts not yet pasted:** none.
+
+---
+
 ## 2026-06-04 — 🔴→🟢 V5A-FLIP-003: first live flip ABORTED clean on boot (96.4% phantom drawdown) → root cause FIXED
 
 **Committed:** `8fe7543` fix(safety): reset live drawdown peak to on-chain seed (LIVE-DRAWDOWN-PEAK-SEED-001) — `services/bot_core.py` + audit/docs.
