@@ -7,6 +7,21 @@
 
 ---
 
+## 2026-06-09 — EDGE-PROXY-ARTIFACT-EVAL-001 (read-only: is the sub-$1k 91% WR a real edge or a PnL artifact?)
+
+**Committed:** docs-only — NEW `docs/audits/EDGE_PROXY_ARTIFACT_EVAL_001_2026_06_09.md` + STATUS/ROADMAP/CLAUDE/AGENT_CONTEXT updates. **ZERO code/env/Redis/DB write. Read-only.**
+**Verdict: 🔴 EDGE-INVALID (ARTIFACT).** The sub-$1k 91% WR / +189.79 SOL is **essentially 100% a paper artifact.** De-artifacted WR = **0–1%**; it does **NOT** transfer live; it is **NOT** a validated edge.
+**Mechanism (confirmed — NOT the original cross-oracle guess): ENTRY-ORACLE DEFLATION + STAGED-TP PEAK-BANKING.** Paper buys at Jupiter/Gecko (`paper_trader._get_token_price`), which prices fresh pre-grad tokens **~10× BELOW true MC** (mc_entry/true median 0.121; **100% of sub-1k winners have `entry_price` < the physical BC floor 3e-6 → impossible fills**). The deflated denominator makes a normal wiggle read as **peak/entry ~3.9×** → trips the **+200% staged TP** (`bot_core.py:2152-2170`) → banks a fabricated win, even though the **final exit is BELOW entry** (exit/entry median 0.863; PnL identity breaks on 2656/2657 winners).
+**Decisive:** WR is a pure step-function of `entry_price` (breakpoint 1e-6), **NOT** of true MC; de-artifacted (entry≥1e-6) WR **0.19%** (n1578, −43.35 SOL); entry≥3e-6 → **0.00%**; oracle-correct subset **0/96** wins; ML gate adds **ZERO** independent value (de-artifacted every ml band 0–0.84%).
+**Live does NOT reproduce:** live entry (`:1179`) + exit (`:1594`/`:2045`) use the **SAME** Redis-stream oracle (no deflation gap) AND live PnL = **Path-B on-chain lamports** (`:1680-1726`, `_booked_pnl :1739`), not the entry ratio. id 6580 −0.094 == on-chain.
+**Root cause:** `paper_buy` prefers the wrong Jupiter price; the **correct BC-reserves price** (`bot_core.py:1028-1033`) is only a ≤0 fallback. **ML corpus contaminated** (paper `pnl_sol` → `trades` table `:1476-1480`).
+**Bot state:** TEST_MODE=true (paper), wallet 5.064 SOL, 0 at risk. Unchanged.
+**Blockers new/active:** the V5A sub-$1k **EDGE justification is GONE** (gate still mechanically safe per LIVE-MC-CEILING-VERIFY-001) → the flip is an **experiment**, not a measured edge. Follow-ups: PAPER-ENTRY-ORACLE-FIX-001 (BC price primary for pre-grad), JUPITER-DEFLATION-ROOTCAUSE-001, ML-CORPUS-DECONTAMINATION-001 + retrain, OBS-011 live delta tracker, minimal supervised live probe.
+**Next prompt:** none queued.
+**Pending Claude-chat prompts not yet pasted:** none.
+
+---
+
 ## 2026-06-09 — LIVE-MC-CEILING-VERIFY-001 (read-only: does the live MC gate admit paper's 91% sub-$1k band?)
 
 **Committed:** docs-only — NEW `docs/audits/LIVE_MC_CEILING_VERIFY_001_2026_06_08.md` + STATUS/ROADMAP/CLAUDE/AGENT_CONTEXT updates. **ZERO code/env/Redis/DB write. Read-only.**
