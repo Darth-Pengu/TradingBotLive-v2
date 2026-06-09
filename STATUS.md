@@ -17,8 +17,8 @@
 **Flags:** 🔴 FAIL-OPEN=**NO** (fails closed). 🔴 MC-MISMATCH=**PARTIAL** (formula same, source differs). 🟠 TIMING-DRIFT=**YES**. 🟠 PROXY-ARTIFACT=**YES** (new). Residuals: env=0 disables the whole gate (config fail-open); no lower price-sanity floor; drift un-instrumented.
 **Bot state:** TEST_MODE=true (paper), RUNNING, wallet 5.064 SOL, 0 at risk. Unchanged by this session.
 **Blockers cleared:** none (read-only). **Blockers new/active:** edge-validation owed (the 91% is proxy-bounded, not a confirmed live edge — instance of COST_FIDELITY_GAP) → EDGE-PROXY-ARTIFACT-EVAL-001; drift instrumentation (log live `fill_price` + signal-time BC anchor per live trade) → OBS-011/SLIPPAGE-CALIBRATION-001.
-**Next prompt:** none queued.
-**Pending Claude-chat prompts not yet pasted:** none.
+**Next prompt:** ✅ QUEUED — `session_outputs/SESSION_EDGE_PROXY_ARTIFACT_EVAL_001.md` (read-only forensics: is the sub-$1k 91% WR a real entry-timing edge or a PnL-denominator/`1e-6`-sentinel artifact? The decisive test = WR-vs-`entry_price` vs WR-vs-TRUE-MC; the live thesis hinges on the answer).
+**Pending Claude-chat prompts not yet pasted:** `session_outputs/SESSION_EDGE_PROXY_ARTIFACT_EVAL_001.md` (paste-status unknown — Jay to confirm).
 
 ---
 
