@@ -7,6 +7,21 @@
 
 ---
 
+## 2026-06-09 — LIVE-MC-CEILING-VERIFY-001 (read-only: does the live MC gate admit paper's 91% sub-$1k band?)
+
+**Committed:** docs-only — NEW `docs/audits/LIVE_MC_CEILING_VERIFY_001_2026_06_08.md` + STATUS/ROADMAP/CLAUDE/AGENT_CONTEXT updates. **ZERO code/env/Redis/DB write. Read-only.**
+**Verdict:** the live MC gate is **SAFE** (fails CLOSED `bot_core.py:1155-1157`; formula `price×1e9` USD identical across all 3 gates; binding cap **$1000**; both ceilings **STABLE across the §6 flip-config**) — **but the 91% sub-$1k WR does NOT transfer cleanly.**
+**The crux:** paper's `market_cap_at_entry` == the gate quantity `entry_price×1e9` (verified exact), BUT the price INPUT diverges — live=Redis **fill-time** PumpPortal-stream-first; paper=Jupiter/Gecko→**signal-time** BC fallback + slippage bump. Live-admitted set = paper band **± un-measurable signal→fill drift**, landing on the **$1000 WR cliff**.
+**🟠 NEW finding (not in the prompt's register):** "sub-$1k" is a **price PROXY**, not true MC (true full-supply MC ~8× larger, median ~$5172). WR is a near-vertical cliff in the proxy (`<500`=99.85% → `800-1000`=26.72% → `≥1000`≈0%). The 91% = the gate **selecting the winning side of its own proxy** (entry-price-selection artifact), **NOT a validated small-MC edge**. 800-1000 fringe = 9.07% of sub-1k, already a loss zone.
+**DB (n=4468 closed SD paper):** sub-1k n=2890 WR **91.90%** +189.79 SOL (reproduces 91%); <1k & ML≥65 n=1724 **92.58%**; **0 rows ≥$1000 in last 14d** (paper confined to <1k by the same env it reads).
+**Flags:** 🔴 FAIL-OPEN=**NO** (fails closed). 🔴 MC-MISMATCH=**PARTIAL** (formula same, source differs). 🟠 TIMING-DRIFT=**YES**. 🟠 PROXY-ARTIFACT=**YES** (new). Residuals: env=0 disables the whole gate (config fail-open); no lower price-sanity floor; drift un-instrumented.
+**Bot state:** TEST_MODE=true (paper), RUNNING, wallet 5.064 SOL, 0 at risk. Unchanged by this session.
+**Blockers cleared:** none (read-only). **Blockers new/active:** edge-validation owed (the 91% is proxy-bounded, not a confirmed live edge — instance of COST_FIDELITY_GAP) → EDGE-PROXY-ARTIFACT-EVAL-001; drift instrumentation (log live `fill_price` + signal-time BC anchor per live trade) → OBS-011/SLIPPAGE-CALIBRATION-001.
+**Next prompt:** none queued.
+**Pending Claude-chat prompts not yet pasted:** none.
+
+---
+
 ## 2026-06-08 13:05 UTC — Live-trading UNBLOCK (stale 4-day emergency stop cleared) + pre-flip prep (paper-only; NO flip)
 
 **Committed:** docs-only (this session) — NEW `session_outputs/ZMN_LIVE_UNBLOCK_PREP_2026_06_08.md` (full findings + CONDITIONAL-GO audit + flip card) + STATUS/ROADMAP/CLAUDE/AGENT_CONTEXT updates. **ZERO bot-code change; live path frozen.**
