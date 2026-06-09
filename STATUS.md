@@ -7,6 +7,20 @@
 
 ---
 
+## 2026-06-09 — PAPER-ENTRY-ORACLE-FIX-001 DEPLOYED+VALIDATED + EDGE-RESEARCH-001 (full edge survey)
+
+**Committed:** `419d1bc` fix(paper-oracle) [CODE, deployed] + NEW `docs/audits/PAPER_ENTRY_ORACLE_FIX_001_2026_06_09.md` + `docs/audits/EDGE_RESEARCH_001_2026_06_09.md` + canonical updates. **Env:** `BOT_CORE_FILL_MC_CEILING_USD` 1000→0 (bot_core). Paper-only, **0 SOL at risk.**
+**THE FIX — VALIDATED:** made the BC-reserves price PRIMARY for pre-grad paper entries (`paper_trader.py:233-237`) — corrects the ~10× Jupiter deflation that fabricated the fake 91% WR. Paired `BOT_CORE_FILL_MC_CEILING_USD→0` (prevents silent halt). Gated Phase 0-3 **ALL PASS**.
+**RESULT (decisive):** honest paper WR **92% → 0.00%** (0/18 fresh closes, −0.25 SOL); entries now physically plausible (~$2k vs impossible ~$400); ALL honest losses exit `no_momentum_90s` (the real #1 loss bucket). The de-artifacted 0-1% prediction CONFIRMED live. **Paper is now an honest simulator.** Bot trading 57.8/hr.
+**Residual:** `features.market_cap_usd` anchor is itself ~2× > the BC price (feature-source quirk, NOT an oracle mismatch) → MC-ratio gate reads 0.53 not 1.0; the WR collapse is the decisive proof. → `BC-PRICE-METHODOLOGY-DIAGNOSE-001`.
+**EDGE-RESEARCH-001 (8-source survey + adversarial kill/rank + design + credit economics):** verdict = **NO silver-bullet paid edge**; recoverable edge is overwhelmingly **FREE** (internal + execution, attacking the 25.8% cost). Recommended paid spend ~**$0-5/mo**. Nansen pre-grad smart-money thesis = **structurally DEAD** (retroactive labels; per-signal = 5× over the 10k/mo budget) → offline/post-grad only. 15 candidates killed; roadmap = `FEATURE-PERSIST-001` (keystone) → `ML-FLOOR-RETUNE-003` → `NO-MOMENTUM-90S-TUNE-001` → `GRAD-BYPASS-FIX-001` → cheap Helius on-chain → selective post-grad. Each: paper-on-honest-oracle → supervised-live.
+**Bot state:** TEST_MODE=true, wallet 5.064 SOL, 0 at risk, trading honestly (small `no_momentum` losses = the honest baseline).
+**Blockers new/active (before ANY live flip):** `MC-CEILING-TRUE-SCALE-REDECIDE-001` (fill ceiling at 0), `ML-CORPUS-QUARANTINE-CUTOFF-001` (trades ML table poisoned by pre-fix artifact), EXEC-001/002 routing, FLIP_READINESS §6.
+**Next prompt:** `FEATURE-PERSIST-001` (keystone — unlocks ~6 testable edges); see `EDGE_RESEARCH_001` §2 roadmap.
+**Pending Claude-chat prompts not yet pasted:** none (SESSION_PAPER_ENTRY_ORACLE_FIX_001.md executed this session).
+
+---
+
 ## 2026-06-09 — EDGE-PROXY-ARTIFACT-EVAL-001 (read-only: is the sub-$1k 91% WR a real edge or a PnL artifact?)
 
 **Committed:** docs-only — NEW `docs/audits/EDGE_PROXY_ARTIFACT_EVAL_001_2026_06_09.md` + STATUS/ROADMAP/CLAUDE/AGENT_CONTEXT updates. **ZERO code/env/Redis/DB write. Read-only.**
