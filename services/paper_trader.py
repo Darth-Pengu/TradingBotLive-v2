@@ -230,11 +230,27 @@ async def paper_buy(
     bonding_curve_progress: float = 0.0,
 ) -> dict:
     """Simulate a paper buy trade. Returns result dict with fake signature."""
-    # Get real price — Jupiter/Gecko primary, bonding curve fallback
-    price = await _get_token_price(mint)
-    if price <= 0 and bonding_curve_price > 0:
+    # PAPER-ENTRY-ORACLE-FIX-001 (2026-06-09): pre-grad pump.fun tokens are NOT on
+    # Jupiter/Gecko with a correct price — those oracles return ~10x-deflated values
+    # for fresh BC tokens (mc_entry/true_mc median 0.12), which fabricated +200%
+    # staged-TP wins (EDGE-PROXY-ARTIFACT-EVAL-001, docs/audits/EDGE_PROXY_ARTIFACT_EVAL_001_2026_06_09.md).
+    # The signal-time BC-reserves price (vSol/vTokens * sol_price, computed in
+    # bot_core.py:1028-1033 and passed as bonding_curve_price) is the physically
+    # correct fill price for a pre-grad fill -> use it as PRIMARY when pre-grad.
+    # Post-grad/AMM tokens (real DEX liquidity, no BC) keep the Jupiter/Gecko oracle.
+    # MUST ship with BOT_CORE_FILL_MC_CEILING_USD=0 (corrected entry_price raises
+    # market_cap_at_entry ~8x -> would trip the 1000 fill ceiling -> silent halt).
+    is_pregrad_fill = bonding_curve_progress < GRADUATION_THRESHOLD
+    if is_pregrad_fill and bonding_curve_price > 0:
         price = bonding_curve_price
-        logger.info("PAPER: using bonding curve price for %s: $%.10f", mint[:12], price)
+        logger.info("PAPER: pre-grad BC-reserves entry price for %s: $%.10f (bc_progress=%.3f)",
+                    mint[:12], price, bonding_curve_progress)
+    else:
+        # Post-grad / AMM, or pre-grad with no BC price available — Jupiter/Gecko.
+        price = await _get_token_price(mint)
+        if price <= 0 and bonding_curve_price > 0:
+            price = bonding_curve_price
+            logger.info("PAPER: oracle failed, BC price fallback for %s: $%.10f", mint[:12], price)
     if price <= 0:
         logger.warning("PAPER: price fetch failed for %s — skipping", mint[:12])
         return {"success": False, "error": "price_fetch_failed", "simulated": True}
