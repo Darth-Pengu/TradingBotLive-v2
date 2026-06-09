@@ -17,8 +17,8 @@
 **Root cause:** `paper_buy` prefers the wrong Jupiter price; the **correct BC-reserves price** (`bot_core.py:1028-1033`) is only a ≤0 fallback. **ML corpus contaminated** (paper `pnl_sol` → `trades` table `:1476-1480`).
 **Bot state:** TEST_MODE=true (paper), wallet 5.064 SOL, 0 at risk. Unchanged.
 **Blockers new/active:** the V5A sub-$1k **EDGE justification is GONE** (gate still mechanically safe per LIVE-MC-CEILING-VERIFY-001) → the flip is an **experiment**, not a measured edge. Follow-ups: PAPER-ENTRY-ORACLE-FIX-001 (BC price primary for pre-grad), JUPITER-DEFLATION-ROOTCAUSE-001, ML-CORPUS-DECONTAMINATION-001 + retrain, OBS-011 live delta tracker, minimal supervised live probe.
-**Next prompt:** none queued.
-**Pending Claude-chat prompts not yet pasted:** none.
+**Next prompt:** ✅ QUEUED — `session_outputs/SESSION_PAPER_ENTRY_ORACLE_FIX_001.md` (scoped paper-only code fix: make BC-reserves price PRIMARY for pre-grad paper entries — `paper_trader.py:233-237` — paired with `BOT_CORE_FILL_MC_CEILING_USD→0` to prevent a silent halt; gated Phase 0-3 validation; expect paper sub-$1k WR to collapse ~92%→~0-1% = the success signal). Scoped via a 4-agent workflow (code/validation/ML-decontam/red-team).
+**Pending Claude-chat prompts not yet pasted:** `session_outputs/SESSION_PAPER_ENTRY_ORACLE_FIX_001.md` (paste-status unknown — Jay to confirm).
 
 ---
 
